@@ -1,0 +1,1400 @@
+{
+  "meta": {
+    "generated": "2026-08-08",
+    "source": "https://gran-turismo.fandom.com/wiki/Gran_Turismo_7/Track_List (CC BY-SA; upstream: https://www.gran-turismo.com/gb/gt7/tracklist/)",
+    "tracks": 41,
+    "layouts": 84,
+    "configurations_including_reverse": 121,
+    "note": "Per-layout template data is authoritative; the list page's prose may state a different configuration total. page_describes_layout=false flags layouts whose wiki page infobox measures a different variant; their length_m (from the list) is still per-layout."
+  },
+  "tracks": [
+    {
+      "name": "24 Heures du Mans Racing Circuit",
+      "country": "FRA",
+      "layouts": [
+        {
+          "name": "Full Course",
+          "wiki_page": "Circuit de la Sarthe",
+          "type": "real",
+          "length_m": 13629,
+          "reversible": false,
+          "rain": true,
+          "sophy": "yes",
+          "turns": 38,
+          "elevation_m": 37.3,
+          "longest_straight_m": 1679.0,
+          "roadway": "Tarmac",
+          "page_describes_layout": false
+        },
+        {
+          "name": "No Chicane",
+          "wiki_page": "Circuit de la Sarthe",
+          "type": "real",
+          "length_m": 13567,
+          "reversible": false,
+          "rain": true,
+          "sophy": "no",
+          "turns": 38,
+          "elevation_m": 37.3,
+          "longest_straight_m": 1679.0,
+          "roadway": "Tarmac",
+          "page_describes_layout": false
+        }
+      ],
+      "country_name": "France"
+    },
+    {
+      "name": "Alsace",
+      "country": "FRA",
+      "layouts": [
+        {
+          "name": "Village",
+          "wiki_page": "Alsace - Village",
+          "type": "original",
+          "length_m": 5423,
+          "reversible": true,
+          "rain": false,
+          "sophy": "forwards_only",
+          "turns": 17,
+          "elevation_m": 57.3,
+          "longest_straight_m": 450.0,
+          "roadway": "Tarmac"
+        },
+        {
+          "name": "Test Course",
+          "wiki_page": "Alsace - Test Course",
+          "type": "original",
+          "length_m": 2118,
+          "reversible": true,
+          "rain": false,
+          "sophy": "no",
+          "turns": 7,
+          "elevation_m": 35.3,
+          "longest_straight_m": 432.0,
+          "roadway": "Tarmac"
+        }
+      ],
+      "country_name": "France"
+    },
+    {
+      "name": "Autodrome Lago Maggiore",
+      "country": "ITA",
+      "layouts": [
+        {
+          "name": "Full Course",
+          "wiki_page": "Autodrome Lago Maggiore - GP",
+          "type": "original",
+          "length_m": 5809,
+          "reversible": true,
+          "rain": false,
+          "sophy": "forwards_only",
+          "turns": 17,
+          "elevation_m": 74.0,
+          "longest_straight_m": 800.0,
+          "roadway": "Tarmac"
+        },
+        {
+          "name": "Centre",
+          "wiki_page": "Autodrome Lago Maggiore - Center",
+          "type": "original",
+          "length_m": 1706,
+          "reversible": true,
+          "rain": false,
+          "sophy": "no",
+          "turns": 8,
+          "elevation_m": 12.0,
+          "longest_straight_m": 550.0,
+          "roadway": "Tarmac"
+        },
+        {
+          "name": "East End",
+          "wiki_page": "Autodrome Lago Maggiore - East End",
+          "type": "original",
+          "length_m": 2010,
+          "reversible": true,
+          "rain": false,
+          "sophy": "no",
+          "turns": 8,
+          "elevation_m": 42.0,
+          "longest_straight_m": 500.0,
+          "roadway": "Tarmac"
+        },
+        {
+          "name": "West End",
+          "wiki_page": "Autodrome Lago Maggiore - West End",
+          "type": "original",
+          "length_m": 2444,
+          "reversible": true,
+          "rain": false,
+          "sophy": "no",
+          "turns": 10,
+          "elevation_m": 48.0,
+          "longest_straight_m": 373.0,
+          "roadway": "Tarmac"
+        },
+        {
+          "name": "East",
+          "wiki_page": "Autodrome Lago Maggiore - East",
+          "type": "original",
+          "length_m": 3643,
+          "reversible": true,
+          "rain": false,
+          "sophy": "no",
+          "turns": 11,
+          "elevation_m": 43.0,
+          "longest_straight_m": 550.0,
+          "roadway": "Tarmac"
+        },
+        {
+          "name": "West",
+          "wiki_page": "Autodrome Lago Maggiore - West",
+          "type": "original",
+          "length_m": 4168,
+          "reversible": true,
+          "rain": false,
+          "sophy": "no",
+          "turns": 13,
+          "elevation_m": 49.0,
+          "longest_straight_m": 800.0,
+          "roadway": "Tarmac"
+        }
+      ],
+      "country_name": "Italy"
+    },
+    {
+      "name": "Autódromo de Interlagos",
+      "country": "BRA",
+      "layouts": [
+        {
+          "name": "Full Course",
+          "wiki_page": "Autódromo de Interlagos",
+          "type": "real",
+          "length_m": 4309,
+          "reversible": false,
+          "rain": false,
+          "sophy": "yes",
+          "turns": 15,
+          "elevation_m": 43.0,
+          "longest_straight_m": 650.0,
+          "roadway": "Tarmac"
+        }
+      ],
+      "country_name": "Brazil"
+    },
+    {
+      "name": "Autodromo Nazionale Monza",
+      "country": "ITA",
+      "layouts": [
+        {
+          "name": "Full Course",
+          "wiki_page": "Autodromo Nazionale Monza",
+          "type": "real",
+          "length_m": 5793,
+          "reversible": false,
+          "rain": false,
+          "sophy": "yes",
+          "turns": 10,
+          "elevation_m": null,
+          "longest_straight_m": null,
+          "roadway": "Tarmac"
+        },
+        {
+          "name": "No Chicane",
+          "wiki_page": "Autodromo Nazionale Monza (No Chicane)",
+          "type": "real",
+          "length_m": 5755,
+          "reversible": false,
+          "rain": false,
+          "sophy": "no",
+          "turns": 8,
+          "elevation_m": 14.3,
+          "longest_straight_m": 1248.7,
+          "roadway": "Tarmac"
+        }
+      ],
+      "country_name": "Italy"
+    },
+    {
+      "name": "Autopolis International Racing Course",
+      "country": "JPN",
+      "layouts": [
+        {
+          "name": "Full Course",
+          "wiki_page": "Autopolis International Racing Course",
+          "type": "real",
+          "length_m": 4674,
+          "reversible": false,
+          "rain": true,
+          "sophy": "no",
+          "turns": 18,
+          "elevation_m": 52.0,
+          "longest_straight_m": 902.0,
+          "roadway": "Tarmac"
+        },
+        {
+          "name": "Shortcut Course",
+          "wiki_page": "Autopolis International Racing Course - Shortcut Course",
+          "type": "real",
+          "length_m": 3022,
+          "reversible": false,
+          "rain": true,
+          "sophy": "no",
+          "turns": 11,
+          "elevation_m": 30.0,
+          "longest_straight_m": 902.0,
+          "roadway": "Tarmac"
+        }
+      ],
+      "country_name": "Japan"
+    },
+    {
+      "name": "Blue Moon Bay Speedway",
+      "country": "USA",
+      "layouts": [
+        {
+          "name": "Full Course",
+          "wiki_page": "Blue Moon Bay Speedway",
+          "type": "original",
+          "length_m": 3200,
+          "reversible": true,
+          "rain": false,
+          "sophy": "no",
+          "turns": 3,
+          "elevation_m": 0.0,
+          "longest_straight_m": 1060.0,
+          "roadway": "Tarmac"
+        },
+        {
+          "name": "Infield A",
+          "wiki_page": "Blue Moon Bay Speedway - Infield A",
+          "type": "original",
+          "length_m": 3350,
+          "reversible": true,
+          "rain": false,
+          "sophy": "no",
+          "turns": 10,
+          "elevation_m": 0.0,
+          "longest_straight_m": 890.0,
+          "roadway": "Tarmac"
+        },
+        {
+          "name": "Infield B",
+          "wiki_page": "Blue Moon Bay Speedway - Infield B",
+          "type": "original",
+          "length_m": 2860,
+          "reversible": true,
+          "rain": false,
+          "sophy": "no",
+          "turns": 5,
+          "elevation_m": 0.0,
+          "longest_straight_m": 890.0,
+          "roadway": "Tarmac"
+        }
+      ],
+      "country_name": "USA"
+    },
+    {
+      "name": "Brands Hatch",
+      "country": "GBR",
+      "layouts": [
+        {
+          "name": "Grand Prix Circuit",
+          "wiki_page": "Brands Hatch GP",
+          "type": "real",
+          "length_m": 3946,
+          "reversible": false,
+          "rain": false,
+          "sophy": "yes",
+          "turns": 9,
+          "elevation_m": 35.0,
+          "longest_straight_m": 475.0,
+          "roadway": "Tarmac",
+          "page_describes_layout": false
+        },
+        {
+          "name": "Indy Circuit",
+          "wiki_page": "Brands Hatch Indy",
+          "type": "real",
+          "length_m": 1944,
+          "reversible": false,
+          "rain": false,
+          "sophy": "no",
+          "turns": 5,
+          "elevation_m": 24.0,
+          "longest_straight_m": 400.0,
+          "roadway": "Tarmac"
+        }
+      ],
+      "country_name": "United Kingdom"
+    },
+    {
+      "name": "Broad Bean Raceway",
+      "country": "JPN",
+      "layouts": [
+        {
+          "name": "Full Course",
+          "wiki_page": "Broad Bean Raceway",
+          "type": "original",
+          "length_m": 1665,
+          "reversible": true,
+          "rain": false,
+          "sophy": "no",
+          "turns": 5,
+          "elevation_m": 0.0,
+          "longest_straight_m": 386.0,
+          "roadway": "Tarmac"
+        }
+      ],
+      "country_name": "Japan"
+    },
+    {
+      "name": "Circuit de Barcelona-Catalunya",
+      "country": "ESP",
+      "layouts": [
+        {
+          "name": "Grand Prix Layout",
+          "wiki_page": "Circuit de Barcelona-Catalunya Grand Prix",
+          "type": "real",
+          "length_m": 4655,
+          "reversible": false,
+          "rain": false,
+          "sophy": "yes",
+          "turns": 16,
+          "elevation_m": 30.0,
+          "longest_straight_m": 1047.0,
+          "roadway": "Tarmac"
+        },
+        {
+          "name": "Grand Prix Layout No Chicane",
+          "wiki_page": "Circuit de Barcelona-Catalunya Grand Prix",
+          "type": "real",
+          "length_m": 4730,
+          "reversible": false,
+          "rain": false,
+          "sophy": "no",
+          "turns": 16,
+          "elevation_m": 30.0,
+          "longest_straight_m": 1047.0,
+          "roadway": "Tarmac",
+          "page_describes_layout": false
+        },
+        {
+          "name": "National Layout",
+          "wiki_page": "Circuit de Barcelona-Catalunya National Layout",
+          "type": "real",
+          "length_m": 2977,
+          "reversible": false,
+          "rain": false,
+          "sophy": "no",
+          "turns": 11,
+          "elevation_m": 28.0,
+          "longest_straight_m": 862.0,
+          "roadway": "Tarmac"
+        },
+        {
+          "name": "Rallycross Layout",
+          "wiki_page": "Circuit de Barcelona-Catalunya Rallycross Layout",
+          "type": "original",
+          "length_m": 1133,
+          "reversible": false,
+          "rain": false,
+          "sophy": "no",
+          "turns": 11,
+          "elevation_m": 11.0,
+          "longest_straight_m": 148.0,
+          "roadway": "Tarmac & Dirt"
+        }
+      ],
+      "country_name": "Spain"
+    },
+    {
+      "name": "Circuit de Sainte-Croix",
+      "country": "FRA",
+      "layouts": [
+        {
+          "name": "Layout A",
+          "wiki_page": "Circuit de Sainte-Croix - A",
+          "type": "original",
+          "length_m": 9477,
+          "reversible": true,
+          "rain": false,
+          "sophy": "no",
+          "turns": 19,
+          "elevation_m": 44.0,
+          "longest_straight_m": 915.0,
+          "roadway": "Tarmac"
+        },
+        {
+          "name": "Layout B",
+          "wiki_page": "Circuit de Sainte-Croix - B",
+          "type": "original",
+          "length_m": 7062,
+          "reversible": true,
+          "rain": false,
+          "sophy": "no",
+          "turns": 14,
+          "elevation_m": 44.0,
+          "longest_straight_m": 915.0,
+          "roadway": "Tarmac"
+        },
+        {
+          "name": "Layout C",
+          "wiki_page": "Circuit de Sainte-Croix - C",
+          "type": "original",
+          "length_m": 10825,
+          "reversible": true,
+          "rain": false,
+          "sophy": "no",
+          "turns": 24,
+          "elevation_m": 44.0,
+          "longest_straight_m": 1807.0,
+          "roadway": "Tarmac"
+        }
+      ],
+      "country_name": "France"
+    },
+    {
+      "name": "Circuit de Spa-Francorchamps",
+      "country": "BEL",
+      "layouts": [
+        {
+          "name": "Full Course",
+          "wiki_page": "Circuit de Spa-Francorchamps",
+          "type": "real",
+          "length_m": 7044,
+          "reversible": false,
+          "rain": true,
+          "sophy": "yes",
+          "turns": 21,
+          "elevation_m": 104.0,
+          "longest_straight_m": 751.8,
+          "roadway": "Tarmac",
+          "page_describes_layout": false
+        },
+        {
+          "name": "24h Layout",
+          "wiki_page": "Circuit de Spa-Francorchamps",
+          "type": "real",
+          "length_m": 7044,
+          "reversible": false,
+          "rain": true,
+          "sophy": "no",
+          "turns": 21,
+          "elevation_m": 104.0,
+          "longest_straight_m": 751.8,
+          "roadway": "Tarmac",
+          "page_describes_layout": false
+        }
+      ],
+      "country_name": "Belgium"
+    },
+    {
+      "name": "Circuit Gilles-Villeneuve",
+      "country": "CAN",
+      "layouts": [
+        {
+          "name": "Full Course",
+          "wiki_page": "Circuit Gilles-Villeneuve",
+          "type": "real",
+          "length_m": 4361,
+          "reversible": false,
+          "rain": false,
+          "sophy": "no",
+          "turns": 14,
+          "elevation_m": null,
+          "longest_straight_m": null,
+          "roadway": "Tarmac"
+        }
+      ],
+      "country_name": "Canada"
+    },
+    {
+      "name": "Colorado Springs",
+      "country": "USA",
+      "layouts": [
+        {
+          "name": "Lake",
+          "wiki_page": "Colorado Springs - Lake",
+          "type": "original",
+          "length_m": 2990,
+          "reversible": true,
+          "rain": false,
+          "sophy": "no",
+          "turns": 15,
+          "elevation_m": 15.0,
+          "longest_straight_m": 177.0,
+          "roadway": "Dirt"
+        }
+      ],
+      "country_name": "USA"
+    },
+    {
+      "name": "Daytona International Speedway",
+      "country": "USA",
+      "layouts": [
+        {
+          "name": "Tri-Oval",
+          "wiki_page": "Daytona Superspeedway",
+          "type": "real",
+          "length_m": 4023,
+          "reversible": false,
+          "rain": false,
+          "sophy": "no",
+          "turns": 3,
+          "elevation_m": 0.0,
+          "longest_straight_m": 914.0,
+          "roadway": "Tarmac"
+        },
+        {
+          "name": "Road Course",
+          "wiki_page": "Daytona Road Course",
+          "type": "real",
+          "length_m": 5729,
+          "reversible": false,
+          "rain": false,
+          "sophy": "no",
+          "turns": 12,
+          "elevation_m": 8.4,
+          "longest_straight_m": 575.0,
+          "roadway": "Tarmac"
+        }
+      ],
+      "country_name": "USA"
+    },
+    {
+      "name": "Deep Forest Raceway",
+      "country": "Switzerland",
+      "layouts": [
+        {
+          "name": "Full Course",
+          "wiki_page": "Deep Forest Raceway",
+          "type": "original",
+          "length_m": 4253,
+          "reversible": true,
+          "rain": false,
+          "sophy": "forwards_only",
+          "turns": 15,
+          "elevation_m": 45.2,
+          "longest_straight_m": 779.0,
+          "roadway": "Tarmac"
+        }
+      ],
+      "country_name": "PDI"
+    },
+    {
+      "name": "Dragon Trail",
+      "country": "CRO",
+      "layouts": [
+        {
+          "name": "Seaside",
+          "wiki_page": "Dragon Trail - Seaside",
+          "type": "original",
+          "length_m": 5209,
+          "reversible": true,
+          "rain": false,
+          "sophy": "forwards_only",
+          "turns": 18,
+          "elevation_m": 38.0,
+          "longest_straight_m": 653.0,
+          "roadway": "Tarmac"
+        },
+        {
+          "name": "Gardens",
+          "wiki_page": "Dragon Trail - Gardens",
+          "type": "original",
+          "length_m": 4352,
+          "reversible": true,
+          "rain": true,
+          "sophy": "no",
+          "turns": 17,
+          "elevation_m": 27.0,
+          "longest_straight_m": 781.0,
+          "roadway": "Tarmac"
+        }
+      ],
+      "country_name": "Croatia"
+    },
+    {
+      "name": "Eiger Nordwand",
+      "country": "Switzerland",
+      "layouts": [
+        {
+          "name": "Full Course",
+          "wiki_page": "Eiger Nordwand Short Track",
+          "type": "original",
+          "length_m": 2436,
+          "reversible": true,
+          "rain": false,
+          "sophy": "no",
+          "turns": 11,
+          "elevation_m": 75.0,
+          "longest_straight_m": 250.0,
+          "roadway": "Tarmac"
+        }
+      ],
+      "country_name": "Switzerland"
+    },
+    {
+      "name": "Fishermans Ranch",
+      "country": "USA",
+      "layouts": [
+        {
+          "name": "Full Course",
+          "wiki_page": "Fisherman's Ranch",
+          "type": "original",
+          "length_m": 6893,
+          "reversible": true,
+          "rain": false,
+          "sophy": "no",
+          "turns": 40,
+          "elevation_m": 145.0,
+          "longest_straight_m": 434.0,
+          "roadway": "Dirt"
+        }
+      ],
+      "country_name": "USA"
+    },
+    {
+      "name": "Fuji International Speedway",
+      "country": "JPN",
+      "layouts": [
+        {
+          "name": "Full Course",
+          "wiki_page": "Fuji International Speedway",
+          "type": "real",
+          "length_m": 4563,
+          "reversible": false,
+          "rain": true,
+          "sophy": "no",
+          "turns": 16,
+          "elevation_m": 37.0,
+          "longest_straight_m": 1475.0,
+          "roadway": "Tarmac"
+        },
+        {
+          "name": "Short Course",
+          "wiki_page": "Fuji International Speedway (Short)",
+          "type": "real",
+          "length_m": 4526,
+          "reversible": false,
+          "rain": true,
+          "sophy": "no",
+          "turns": 14,
+          "elevation_m": 37.0,
+          "longest_straight_m": 1475.0,
+          "roadway": "Tarmac"
+        }
+      ],
+      "country_name": "Japan"
+    },
+    {
+      "name": "Goodwood Motor Circuit",
+      "country": "GBR",
+      "layouts": [
+        {
+          "name": "Full Course",
+          "wiki_page": "Goodwood Motor Circuit",
+          "type": "real",
+          "length_m": 3809,
+          "reversible": false,
+          "rain": false,
+          "sophy": "no",
+          "turns": 7,
+          "elevation_m": 10.0,
+          "longest_straight_m": 514.0,
+          "roadway": "Tarmac"
+        }
+      ],
+      "country_name": "United Kingdom"
+    },
+    {
+      "name": "Grand Valley",
+      "country": "USA",
+      "layouts": [
+        {
+          "name": "Highway 1",
+          "wiki_page": "Grand Valley Highway 1",
+          "type": "original",
+          "length_m": 5099,
+          "reversible": true,
+          "rain": false,
+          "sophy": "forwards_only",
+          "turns": 18,
+          "elevation_m": 97.0,
+          "longest_straight_m": 995.0,
+          "roadway": "Tarmac"
+        },
+        {
+          "name": "South",
+          "wiki_page": "Grand Valley South",
+          "type": "original",
+          "length_m": 3076,
+          "reversible": true,
+          "rain": false,
+          "sophy": "no",
+          "turns": 10,
+          "elevation_m": 85.0,
+          "longest_straight_m": 995.0,
+          "roadway": "Tarmac"
+        }
+      ],
+      "country_name": "USA"
+    },
+    {
+      "name": "High Speed Ring",
+      "country": "JPN",
+      "layouts": [
+        {
+          "name": "Full Course",
+          "wiki_page": "High Speed Ring",
+          "type": "original",
+          "length_m": 4345,
+          "reversible": true,
+          "rain": true,
+          "sophy": "forwards_only",
+          "turns": 6,
+          "elevation_m": 8.5,
+          "longest_straight_m": 752.0,
+          "roadway": "Tarmac",
+          "page_describes_layout": false
+        }
+      ],
+      "country_name": "PDI"
+    },
+    {
+      "name": "Kyoto Driving Park",
+      "country": "JPN",
+      "layouts": [
+        {
+          "name": "Yamagiwa",
+          "wiki_page": "Kyoto Driving Park - Yamagiwa",
+          "type": "original",
+          "length_m": 4912,
+          "reversible": true,
+          "rain": false,
+          "sophy": "no",
+          "turns": 15,
+          "elevation_m": 38.6,
+          "longest_straight_m": 743.0,
+          "roadway": "Tarmac"
+        },
+        {
+          "name": "Miyabi",
+          "wiki_page": "Kyoto Driving Park - Miyabi",
+          "type": "original",
+          "length_m": 1953,
+          "reversible": false,
+          "rain": false,
+          "sophy": "no",
+          "turns": 7,
+          "elevation_m": 17.5,
+          "longest_straight_m": 442.0,
+          "roadway": "Tarmac"
+        },
+        {
+          "name": "Yamagiwa + Miyabi",
+          "wiki_page": "Kyoto Driving Park - Yamagiwa + Miyabi",
+          "type": "original",
+          "length_m": 6846,
+          "reversible": true,
+          "rain": false,
+          "sophy": "no",
+          "turns": 19,
+          "elevation_m": 38.6,
+          "longest_straight_m": 743.0,
+          "roadway": "Tarmac"
+        }
+      ],
+      "country_name": "Japan"
+    },
+    {
+      "name": "Lake Louise",
+      "country": "CAN",
+      "layouts": [
+        {
+          "name": "Tri-Oval",
+          "wiki_page": "Lake Louise Tri-Oval",
+          "type": "original",
+          "length_m": 3068,
+          "reversible": true,
+          "rain": false,
+          "sophy": "no",
+          "turns": 3,
+          "elevation_m": 78.0,
+          "longest_straight_m": 1184.0,
+          "roadway": "Snow"
+        },
+        {
+          "name": "Short Track",
+          "wiki_page": "Lake Louise Short Track",
+          "type": "original",
+          "length_m": 2577,
+          "reversible": true,
+          "rain": false,
+          "sophy": "no",
+          "turns": 7,
+          "elevation_m": 63.0,
+          "longest_straight_m": 1024.0,
+          "roadway": "Snow"
+        },
+        {
+          "name": "Long Track",
+          "wiki_page": "Lake Louise Long Track",
+          "type": "original",
+          "length_m": 3694,
+          "reversible": true,
+          "rain": false,
+          "sophy": "no",
+          "turns": 11,
+          "elevation_m": 78.0,
+          "longest_straight_m": 765.0,
+          "roadway": "Snow"
+        }
+      ],
+      "country_name": "Canada"
+    },
+    {
+      "name": "Michelin Raceway Road Atlanta",
+      "country": "USA",
+      "layouts": [
+        {
+          "name": "Full Course",
+          "wiki_page": "Michelin Raceway Road Atlanta",
+          "type": "real",
+          "length_m": 4088,
+          "reversible": false,
+          "rain": false,
+          "sophy": "yes",
+          "turns": 12,
+          "elevation_m": 38.0,
+          "longest_straight_m": 1275.0,
+          "roadway": "Tarmac"
+        }
+      ],
+      "country_name": "USA"
+    },
+    {
+      "name": "Mount Panorama Circuit",
+      "country": "AUS",
+      "layouts": [
+        {
+          "name": "Full Course",
+          "wiki_page": "Mount Panorama",
+          "type": "real",
+          "length_m": 6213,
+          "reversible": false,
+          "rain": false,
+          "sophy": "yes",
+          "turns": 23,
+          "elevation_m": 174.0,
+          "longest_straight_m": 1916.0,
+          "roadway": "Tarmac"
+        }
+      ],
+      "country_name": "Australia"
+    },
+    {
+      "name": "Northern Isle Speedway",
+      "country": "USA",
+      "layouts": [
+        {
+          "name": "Full Course",
+          "wiki_page": "Northern Isle Speedway",
+          "type": "original",
+          "length_m": 900,
+          "reversible": false,
+          "rain": false,
+          "sophy": "no",
+          "turns": 4,
+          "elevation_m": 0.0,
+          "longest_straight_m": 134.0,
+          "roadway": "Tarmac"
+        }
+      ],
+      "country_name": "USA"
+    },
+    {
+      "name": "Nürburgring",
+      "country": "GER",
+      "layouts": [
+        {
+          "name": "Nordschleife",
+          "wiki_page": "Nürburgring Nordschleife",
+          "type": "real",
+          "length_m": 20832,
+          "reversible": false,
+          "rain": true,
+          "sophy": "no",
+          "turns": 73,
+          "elevation_m": 300.0,
+          "longest_straight_m": 2135.0,
+          "roadway": "Tarmac & Concrete"
+        },
+        {
+          "name": "Nordschleife Tourist",
+          "wiki_page": "Nürburgring Nordschleife",
+          "type": "real",
+          "length_m": 20832,
+          "reversible": false,
+          "rain": true,
+          "sophy": "no",
+          "turns": 73,
+          "elevation_m": 300.0,
+          "longest_straight_m": 2135.0,
+          "roadway": "Tarmac & Concrete"
+        },
+        {
+          "name": "24h",
+          "wiki_page": "Nürburgring 24h",
+          "type": "real",
+          "length_m": 25378,
+          "reversible": false,
+          "rain": true,
+          "sophy": "yes",
+          "turns": 89,
+          "elevation_m": 300.0,
+          "longest_straight_m": 2135.0,
+          "roadway": "Tarmac & Concrete",
+          "page_describes_layout": false
+        },
+        {
+          "name": "Grand Prix",
+          "wiki_page": "Nürburgring GP/F",
+          "type": "real",
+          "length_m": 5148,
+          "reversible": false,
+          "rain": true,
+          "sophy": "no",
+          "turns": 17,
+          "elevation_m": 57.0,
+          "longest_straight_m": 620.0,
+          "roadway": "Tarmac"
+        },
+        {
+          "name": "Endurance",
+          "wiki_page": "Nürburgring Endurance",
+          "type": "real",
+          "length_m": 23864,
+          "reversible": true,
+          "rain": true,
+          "sophy": "no",
+          "turns": 84,
+          "elevation_m": 300.0,
+          "longest_straight_m": 2135.0,
+          "roadway": "Tarmac & Concrete",
+          "page_describes_layout": false
+        },
+        {
+          "name": "Sprint",
+          "wiki_page": "Nürburgring Sprint",
+          "type": "real",
+          "length_m": 3629,
+          "reversible": false,
+          "rain": true,
+          "sophy": "no",
+          "turns": 12,
+          "elevation_m": 33.0,
+          "longest_straight_m": 620.0,
+          "roadway": "Tarmac"
+        }
+      ],
+      "country_name": "Germany"
+    },
+    {
+      "name": "Red Bull Ring",
+      "country": "AUT",
+      "layouts": [
+        {
+          "name": "Full Course",
+          "wiki_page": "Red Bull Ring",
+          "type": "real",
+          "length_m": 4318,
+          "reversible": false,
+          "rain": true,
+          "sophy": "yes",
+          "turns": 9,
+          "elevation_m": 65.5,
+          "longest_straight_m": 939.0,
+          "roadway": "Tarmac"
+        },
+        {
+          "name": "Short Track",
+          "wiki_page": "Red Bull Ring Short Track",
+          "type": "real",
+          "length_m": 2336,
+          "reversible": false,
+          "rain": true,
+          "sophy": "no",
+          "turns": 6,
+          "elevation_m": 32.4,
+          "longest_straight_m": 939.0,
+          "roadway": "Tarmac"
+        }
+      ],
+      "country_name": "Austria"
+    },
+    {
+      "name": "Sardegna - Road Track",
+      "country": "ITA",
+      "layouts": [
+        {
+          "name": "Layout A",
+          "wiki_page": "Sardegna - Road Track - A",
+          "type": "original",
+          "length_m": 5113,
+          "reversible": true,
+          "rain": false,
+          "sophy": "no",
+          "turns": 15,
+          "elevation_m": 38.0,
+          "longest_straight_m": 915.0,
+          "roadway": "Tarmac"
+        },
+        {
+          "name": "Layout B",
+          "wiki_page": "Sardegna - Road Track - B",
+          "type": "original",
+          "length_m": 3893,
+          "reversible": true,
+          "rain": false,
+          "sophy": "forwards_only",
+          "turns": 13,
+          "elevation_m": 56.0,
+          "longest_straight_m": 915.0,
+          "roadway": "Tarmac"
+        },
+        {
+          "name": "Layout C",
+          "wiki_page": "Sardegna - Road Track - C",
+          "type": "original",
+          "length_m": 2661,
+          "reversible": true,
+          "rain": false,
+          "sophy": "no",
+          "turns": 10,
+          "elevation_m": 54.0,
+          "longest_straight_m": 915.0,
+          "roadway": "Tarmac"
+        }
+      ],
+      "country_name": "Italy"
+    },
+    {
+      "name": "Sardegna - Windmills",
+      "country": "ITA",
+      "layouts": [
+        {
+          "name": "Full Course",
+          "wiki_page": "Sardegna - Windmills",
+          "type": "original",
+          "length_m": 3310,
+          "reversible": true,
+          "rain": false,
+          "sophy": "no",
+          "turns": 14,
+          "elevation_m": 75.0,
+          "longest_straight_m": 298.0,
+          "roadway": "Dirt"
+        }
+      ],
+      "country_name": "Italy"
+    },
+    {
+      "name": "Special Stage Route X",
+      "country": "USA",
+      "layouts": [
+        {
+          "name": "Full Course",
+          "wiki_page": "Special Stage Route X",
+          "type": "original",
+          "length_m": 30283,
+          "reversible": false,
+          "rain": false,
+          "sophy": "no",
+          "turns": 2,
+          "elevation_m": 65.0,
+          "longest_straight_m": 12000.0,
+          "roadway": "Tarmac"
+        }
+      ],
+      "country_name": "PDI"
+    },
+    {
+      "name": "Suzuka Circuit",
+      "country": "JPN",
+      "layouts": [
+        {
+          "name": "Full Course",
+          "wiki_page": "Suzuka Circuit",
+          "type": "real",
+          "length_m": 5807,
+          "reversible": false,
+          "rain": true,
+          "sophy": "yes",
+          "turns": 20,
+          "elevation_m": 40.0,
+          "longest_straight_m": 1200.0,
+          "roadway": "Tarmac"
+        },
+        {
+          "name": "East Course",
+          "wiki_page": "Suzuka Circuit East",
+          "type": "real",
+          "length_m": 2243,
+          "reversible": false,
+          "rain": true,
+          "sophy": "no",
+          "turns": 9,
+          "elevation_m": 33.6,
+          "longest_straight_m": 800.0,
+          "roadway": "Tarmac"
+        }
+      ],
+      "country_name": "Japan"
+    },
+    {
+      "name": "Tokyo Expressway",
+      "country": "JPN",
+      "layouts": [
+        {
+          "name": "Central Clockwise",
+          "wiki_page": "Tokyo Expressway - Central Clockwise",
+          "type": "original",
+          "length_m": 4405,
+          "reversible": false,
+          "rain": true,
+          "sophy": "no",
+          "turns": 13,
+          "elevation_m": 8.0,
+          "longest_straight_m": 600.0,
+          "roadway": "Tarmac"
+        },
+        {
+          "name": "East Clockwise",
+          "wiki_page": "Tokyo Expressway - East Clockwise",
+          "type": "original",
+          "length_m": 7301,
+          "reversible": false,
+          "rain": true,
+          "sophy": "yes",
+          "turns": 13,
+          "elevation_m": 32.0,
+          "longest_straight_m": 2000.0,
+          "roadway": "Tarmac"
+        },
+        {
+          "name": "South Clockwise",
+          "wiki_page": "Tokyo Expressway - South Clockwise",
+          "type": "original",
+          "length_m": 5201,
+          "reversible": false,
+          "rain": false,
+          "sophy": "no",
+          "turns": 17,
+          "elevation_m": 24.0,
+          "longest_straight_m": 900.0,
+          "roadway": "Tarmac"
+        },
+        {
+          "name": "Central Counterclockwise",
+          "wiki_page": "Tokyo Expressway - Central Counterclockwise",
+          "type": "original",
+          "length_m": 4369,
+          "reversible": false,
+          "rain": true,
+          "sophy": "no",
+          "turns": 14,
+          "elevation_m": 16.0,
+          "longest_straight_m": 600.0,
+          "roadway": "Tarmac"
+        },
+        {
+          "name": "East Counterclockwise",
+          "wiki_page": "Tokyo Expressway - East Counterclockwise",
+          "type": "original",
+          "length_m": 7192,
+          "reversible": false,
+          "rain": true,
+          "sophy": "no",
+          "turns": 13,
+          "elevation_m": 32.0,
+          "longest_straight_m": 2000.0,
+          "roadway": "Tarmac"
+        },
+        {
+          "name": "South Counterclockwise",
+          "wiki_page": "Tokyo Expressway - South Counterclockwise",
+          "type": "original",
+          "length_m": 6560,
+          "reversible": false,
+          "rain": false,
+          "sophy": "no",
+          "turns": 16,
+          "elevation_m": 24.0,
+          "longest_straight_m": 900.0,
+          "roadway": "Tarmac"
+        }
+      ],
+      "country_name": "Japan"
+    },
+    {
+      "name": "Trial Mountain Circuit",
+      "country": "USA",
+      "layouts": [
+        {
+          "name": "Full Course",
+          "wiki_page": "Trial Mountain Circuit",
+          "type": "original",
+          "length_m": 5434,
+          "reversible": true,
+          "rain": false,
+          "sophy": "forwards_only",
+          "turns": 15,
+          "elevation_m": null,
+          "longest_straight_m": null,
+          "roadway": "Tarmac"
+        }
+      ],
+      "country_name": "PDI"
+    },
+    {
+      "name": "Tsukuba Circuit",
+      "country": "JPN",
+      "layouts": [
+        {
+          "name": "Full Course",
+          "wiki_page": "Tsukuba Circuit",
+          "type": "real",
+          "length_m": 2045,
+          "reversible": false,
+          "rain": true,
+          "sophy": "yes",
+          "turns": 8,
+          "elevation_m": 5.3,
+          "longest_straight_m": 445.0,
+          "roadway": "Tarmac"
+        }
+      ],
+      "country_name": "Japan"
+    },
+    {
+      "name": "Watkins Glen International",
+      "country": "USA",
+      "layouts": [
+        {
+          "name": "Long Course",
+          "wiki_page": "Watkins Glen Long Course",
+          "type": "real",
+          "length_m": 5423,
+          "reversible": false,
+          "rain": false,
+          "sophy": "no",
+          "turns": 11,
+          "elevation_m": 41.1,
+          "longest_straight_m": 560.5,
+          "roadway": "Tarmac"
+        },
+        {
+          "name": "Short Course",
+          "wiki_page": "Watkins Glen Short Course",
+          "type": "real",
+          "length_m": 3942,
+          "reversible": false,
+          "rain": false,
+          "sophy": "no",
+          "turns": 7,
+          "elevation_m": 10.7,
+          "longest_straight_m": 621.8,
+          "roadway": "Tarmac"
+        }
+      ],
+      "country_name": "USA"
+    },
+    {
+      "name": "WeatherTech Raceway Laguna Seca",
+      "country": "USA",
+      "layouts": [
+        {
+          "name": "Full Course",
+          "wiki_page": "WeatherTech Raceway Laguna Seca",
+          "type": "real",
+          "length_m": 3602,
+          "reversible": false,
+          "rain": false,
+          "sophy": "yes",
+          "turns": 11,
+          "elevation_m": null,
+          "longest_straight_m": null,
+          "roadway": "Tarmac"
+        }
+      ],
+      "country_name": "USA"
+    },
+    {
+      "name": "Willow Springs International Raceway",
+      "country": "USA",
+      "layouts": [
+        {
+          "name": "Big Willow",
+          "wiki_page": "Willow Springs International Raceway: Big Willow",
+          "type": "real",
+          "length_m": 3951,
+          "reversible": false,
+          "rain": false,
+          "sophy": "no",
+          "turns": 9,
+          "elevation_m": 50.0,
+          "longest_straight_m": 756.0,
+          "roadway": "Tarmac"
+        },
+        {
+          "name": "Streets of Willow Springs",
+          "wiki_page": "Willow Springs International Raceway: Streets of Willow Springs",
+          "type": "real",
+          "length_m": 2675,
+          "reversible": true,
+          "rain": false,
+          "sophy": "no",
+          "turns": 14,
+          "elevation_m": 20.0,
+          "longest_straight_m": 400.0,
+          "roadway": "Tarmac"
+        },
+        {
+          "name": "Horse Thief Mile",
+          "wiki_page": "Willow Springs International Raceway: Horse Thief Mile",
+          "type": "real",
+          "length_m": 1624,
+          "reversible": true,
+          "rain": false,
+          "sophy": "no",
+          "turns": 11,
+          "elevation_m": 42.0,
+          "longest_straight_m": 216.0,
+          "roadway": "Tarmac"
+        }
+      ],
+      "country_name": "USA"
+    },
+    {
+      "name": "Yas Marina Circuit",
+      "country": "UAE",
+      "layouts": [
+        {
+          "name": "Full Course",
+          "wiki_page": "Yas Marina Circuit",
+          "type": "real",
+          "length_m": 5281,
+          "reversible": false,
+          "rain": false,
+          "sophy": "no",
+          "turns": 16,
+          "elevation_m": 11.0,
+          "longest_straight_m": 1233.0,
+          "roadway": "Tarmac"
+        }
+      ],
+      "country_name": "UAE"
+    }
+  ]
+}
