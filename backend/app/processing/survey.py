@@ -554,10 +554,13 @@ class SurfaceSurvey:
         heading = None
         contacts: dict[str, list[float]] | None = None
         tw_used: float | None = None
-        if speed >= MIN_HEADING_SPEED_MPS and p.wheelbase_m:
+        # speed_mps is its own packet field, decoded separately from the
+        # velocity vector — guard the norm too, or a mismatched packet
+        # (speed reported, ground-plane velocity zero) divides by zero.
+        norm = math.hypot(p.velocity_x, p.velocity_z)
+        if speed >= MIN_HEADING_SPEED_MPS and p.wheelbase_m and norm > 0:
             # Ground-plane forward from velocity; the assumed right vector is
             # exactly what the survey validates (see module docstring).
-            norm = math.hypot(p.velocity_x, p.velocity_z)
             fx, fz = p.velocity_x / norm, p.velocity_z / norm
             self._record_crossings(p, prev, cur, fx, fz)
             rx, rz = fz, -fx
@@ -589,8 +592,7 @@ class SurfaceSurvey:
             for i in range(4):
                 if prev[i] == cur[i]:
                     continue
-                point = contacts[WHEELS[i]]
-                norm = math.hypot(p.velocity_x, p.velocity_z)
+                point = contacts[WHEELS[i]]  # norm > 0: contacts exist
                 self._append_edge(
                     x=point[0], z=point[1],
                     hx=p.velocity_x / norm, hz=p.velocity_z / norm,

@@ -727,6 +727,24 @@ def test_survey_circuit_change_never_pollutes_another_bundle(tmp_path) -> None:
     assert all(e["x"] >= 1000 for e in doc_b["edges"])  # nothing of A leaked
 
 
+def test_survey_transition_survives_speed_velocity_mismatch(tmp_path) -> None:
+    """speed_mps and the velocity vector are separate packet fields; a
+    packet reporting speed with a zero ground-plane velocity must degrade
+    to contacts=None, not divide by zero in the 60 Hz feed path."""
+    from app.processing.survey import SurfaceSurvey
+
+    survey = SurfaceSurvey()
+    survey.start(tmp_path, track_width_m=1.6)
+    common = dict(fmt="C", speed_mps=5.0, velocity=(0.0, 0.0, 0.0), wheelbase_m=2.6)
+    survey.feed(make_packet(surface_types="TTTT", packet_id=1, **common))
+    record = survey.feed(make_packet(surface_types="CTTT", packet_id=2, **common))
+    assert record is not None
+    assert record["contacts"] is None
+    assert record["heading_rad"] is None
+    assert record["border"] == "L"  # the transition itself is still recorded
+    survey.stop()
+
+
 def test_survey_watches_undocumented_flag_bits(tmp_path) -> None:
     """No track-limits field is known; upper flag bits activating is a finding."""
     from app.processing.survey import SurfaceSurvey

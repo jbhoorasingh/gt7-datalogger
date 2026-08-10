@@ -298,8 +298,11 @@ export function SurveyView() {
     setBusy(true);
     try {
       const st = await api.survey.start(width, track.trim());
-      // Everything requested before this moment belongs to the old run.
+      // Everything requested before this moment belongs to the old run —
+      // and the new run's own fetches must be a NEWER generation, or the
+      // guard discards them too and the resumed bundle waits a poll cycle.
       acceptAfter.current = fetchGen.current;
+      fetchGen.current += 1;
       setTrail([]);
       trailLen.current = 0;
       setEdges([]);
