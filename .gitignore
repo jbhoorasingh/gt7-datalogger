@@ -19,6 +19,8 @@ frontend/dist/
 data/*.db
 data/*.db-journal
 data/*.sqlite*
+data/surface_survey_*.jsonl
+data/track-bundles/
 
 # Docs
 site/

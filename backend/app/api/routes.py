@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import math
+import re
 from dataclasses import asdict
-from typing import TYPE_CHECKING, Any
+from functools import lru_cache
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
@@ -126,6 +130,7 @@ CSV_CHANNELS = (
     ("sus_rl", "Susp Travel RL", "mm"),
     ("sus_rr", "Susp Travel RR", "mm"),
     ("aids", "Driver Aids", ""),
+    ("surface", "Surface Mask", ""),
 )
 
 
@@ -212,6 +217,26 @@ async def create_track(request: Request, payload: TrackPayload) -> dict[str, Any
 async def delete_track(request: Request, track_id: int) -> dict[str, str]:
     await svc(request).repo.delete_track(track_id)
     return {"status": "deleted"}
+
+
+@lru_cache(maxsize=1)
+def _load_track_catalog(path: str) -> dict[str, Any]:
+    # The bundled file only changes with a release; cache the parse.
+    data: dict[str, Any] = json.loads(Path(path).read_text(encoding="utf-8"))
+    return data
+
+
+@router.get("/track-catalog")
+async def track_catalog(request: Request) -> dict[str, Any]:
+    """Official GT7 track/layout metadata (bundled data/tracks.json)."""
+    path = svc(request).settings.tracks_json
+    if not path.exists():
+        # The default is relative to backend/; dev servers often run from the
+        # repo root (cars.csv papers over this with GT7_CARS_CSV in .env).
+        path = Path(__file__).resolve().parents[2] / "data" / "tracks.json"
+    if not path.exists():
+        raise HTTPException(404, "track catalog not bundled")
+    return _load_track_catalog(str(path))
 
 
 class ImportPayload(BaseModel):
@@ -399,6 +424,153 @@ async def fuel(request: Request, lap_id: int) -> dict[str, Any]:
         "base_fuel_per_lap": lap["fuel_consumed"],
         "rows": [asdict(r) for r in rows],
     }
+
+
+# --- surface survey (issue #37) ----------------------------------------------
+
+
+class SurveyStartPayload(BaseModel):
+    # Track width isn't broadcast by GT7; the survey applies this assumption
+    # to derive wheel-contact points and measures how far off it lands.
+    track_width_m: float = Field(1.6, gt=0.5, lt=3.0)
+    # Which circuit the samples describe (the per-track grid needs this).
+    # Empty = use the current session's identified track.
+    track: str = Field("", max_length=80)
+
+
+@router.post("/survey/start", dependencies=[Depends(require_admin)])
+async def survey_start(request: Request, payload: SurveyStartPayload) -> dict[str, Any]:
+    service = svc(request)
+    if service.survey.active:
+        # start() would silently keep the old run's width/track otherwise —
+        # a 200 that reflects none of the payload is worse than an error.
+        raise HTTPException(409, "survey already running — stop it first")
+    user_track = payload.track.strip()
+    service.survey.start(
+        service.settings.db_path.parent,
+        payload.track_width_m,
+        track=user_track or service.track_name,
+        track_user_set=bool(user_track),
+        session_id=service.session_id,
+    )
+    return service.survey.status()
+
+
+@router.post("/survey/stop", dependencies=[Depends(require_admin)])
+async def survey_stop(request: Request) -> dict[str, Any]:
+    svc(request).survey.stop()
+    return svc(request).survey.status()
+
+
+@router.get("/survey/status")
+async def survey_status(request: Request) -> dict[str, Any]:
+    return svc(request).survey.status()
+
+
+@router.get("/survey/trail")
+async def survey_trail(
+    request: Request,
+    since: int = Query(0, ge=0, description="index of the first point to return"),
+    epoch: int = Query(-1, description="client's trail epoch; mismatch returns all"),
+) -> dict[str, Any]:
+    """Breadcrumb of the path driven, fetched incrementally.
+
+    The trail is decimated 2:1 when it grows past its cap, which invalidates
+    client point indices — the epoch bumps when that happens and the full
+    trail is returned again.
+    """
+    survey = svc(request).survey
+    if epoch != survey.trail_epoch or since > len(survey.trail):
+        since = 0
+    return {
+        "epoch": survey.trail_epoch,
+        "since": since,
+        "points": survey.trail[since:],
+        "total": len(survey.trail),
+    }
+
+
+@router.get("/survey/edges")
+async def survey_edges(
+    request: Request,
+    since: int = Query(0, ge=0, description="index of the first edge point to return"),
+    epoch: int = Query(-1, description="client's edges epoch; mismatch returns all"),
+) -> dict[str, Any]:
+    """Border-edge points of the whole run — the track taking shape.
+
+    Append-only within a run (the epoch bumps when a new run starts), so
+    incremental fetches are just index slices.
+    """
+    survey = svc(request).survey
+    if epoch != survey.edges_epoch or since > len(survey.edges):
+        since = 0
+    return {
+        "epoch": survey.edges_epoch,
+        "since": since,
+        "points": survey.edges[since:],
+        "total": len(survey.edges),
+    }
+
+
+class SurveyMarkPayload(BaseModel):
+    # side None disarms marking; kind says what boundary is being traced.
+    side: Literal["L", "R"] | None = None
+    kind: Literal["edge", "runoff", "wall"] = "edge"
+
+
+@router.post("/survey/mark", dependencies=[Depends(require_admin)])
+async def survey_mark(request: Request, payload: SurveyMarkPayload) -> dict[str, Any]:
+    """Arm manual boundary marking: trace walls/run-off limits by driving them."""
+    survey = svc(request).survey
+    if not survey.active:
+        raise HTTPException(409, "no survey running")
+    survey.set_mark(payload.side, payload.kind)
+    return survey.status()
+
+
+@router.get("/survey/packet")
+async def survey_packet(request: Request) -> dict[str, Any]:
+    """The latest raw telemetry packet, fully decoded — for eyeballing fields."""
+    packet = svc(request).latest_packet
+    return {"packet": packet.to_dict() if packet is not None else None}
+
+
+@router.get("/survey/export.jsonl")
+async def survey_export(request: Request) -> PlainTextResponse:
+    """Full transition log of the current (or last) survey run."""
+    path = svc(request).survey.log_path
+    if path is None or not path.exists():
+        raise HTTPException(404, "no survey has run yet")
+    return PlainTextResponse(
+        path.read_text(encoding="ascii"),
+        media_type="application/jsonl",
+        headers={"Content-Disposition": f'attachment; filename="{path.name}"'},
+    )
+
+
+# --- track bundles (persistent survey knowledge per circuit) ------------------
+
+
+@router.get("/track-bundles")
+async def track_bundles(request: Request) -> list[dict[str, Any]]:
+    """Every circuit's accumulated survey bundle (perimeters, finish line)."""
+    from app.processing import track_bundle
+
+    return track_bundle.list_bundles(svc(request).settings.db_path.parent)
+
+
+@router.get("/track-bundles/{slug}")
+async def track_bundle_download(request: Request, slug: str) -> dict[str, Any]:
+    """One bundle document — the export unit for a future track-data repo."""
+    from app.processing import track_bundle
+
+    if not re.fullmatch(r"[a-z0-9-]+", slug):
+        raise HTTPException(400, "invalid bundle name")
+    path = svc(request).settings.db_path.parent / track_bundle.BUNDLE_DIR / f"{slug}.json"
+    if not path.exists():
+        raise HTTPException(404, "no bundle for this track")
+    data: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+    return data
 
 
 # --- controls ---------------------------------------------------------------

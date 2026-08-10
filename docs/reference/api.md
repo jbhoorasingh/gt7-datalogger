@@ -65,6 +65,25 @@ Delta values are milliseconds, **positive = slower than the reference**.
 | POST | `/api/control/recording` | `{"recording": bool}` — pause/resume lap recording |
 | POST | `/api/control/log-lap-now` | save the in-progress lap immediately (409 if none) |
 
+## Surface survey
+
+Runs the [surface survey](../internals/surface-survey.md) capture in the 60 Hz
+packet path (packet format C required for surface data).
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/track-catalog` | official GT7 track/layout metadata (bundled `data/tracks.json`: 41 tracks, 85 layouts, lengths, corner counts, reverse configs) |
+| POST | `/api/survey/start` | `{track_width_m?, track?}` — start a run; resets counters, opens a new JSONL log; 409 if a run is already active. `track` labels which circuit the samples describe (default: the session's identified track; picked up mid-run if identification happens later, and a user-typed label is never auto-overwritten) |
+| POST | `/api/survey/stop` | stop and close the log |
+| GET | `/api/survey/status` | track/session the run is tied to, per-wheel char histogram, unknown chars, recent transitions, log path, undocumented flag-bit activity, the finish line located from lap rollovers (`finish`: mean crossing point/heading, crossing count, spread, confidence), and the track width in use — the entered assumption until enough out-and-back edge rides have measured the real axle width (`width_estimate_m`, `width_samples`) |
+| GET | `/api/survey/trail` | breadcrumb of the path driven (`since`/`epoch` for incremental fetch; the epoch bumps when the trail is decimated) |
+| GET | `/api/survey/edges` | every border-edge point of the run — the track taking shape (`since`/`epoch` incremental; append-only within a run). Kinds: `auto` (surface-flip contacts), `straddle` (sampled continuously while one side's wheels are held off the tarmac), `edge`/`runoff`/`wall` (manual marking) |
+| POST | `/api/survey/mark` | `{side: "L"\|"R"\|null, kind: "edge"\|"runoff"\|"wall"}` — arm manual boundary marking: while armed, the survey samples edge points from that side's wheel line every ~2 m, which is how walls and paved run-off limits (invisible to surface chars) get mapped |
+| GET | `/api/survey/packet` | the latest raw telemetry packet, fully decoded — the Survey view's field inspector polls this |
+| GET | `/api/track-bundles` | every circuit's accumulated survey bundle: track, slug, points, runs, finish crossings, updated_at |
+| GET | `/api/track-bundles/{slug}` | one bundle document (versioned `gt7-datalogger-track-bundle` JSON: perimeter edge points grid-deduped to 1 m, finish crossings) — the export unit for a future track-data repo |
+| GET | `/api/survey/export.jsonl` | full log of the current/last run (404 if none). First line is a `{"meta": ...}` header (track, session id, track-width assumption, wheel order); transition records carry the session id and lap, so they join back to the laps recorded during the same drive. Interleaved lines: `{"mark": ...}` for manually-marked boundary points and `{"track": ...}` when the circuit is identified mid-run |
+
 ## Admin
 
 | Method | Path | Purpose |
@@ -94,11 +113,16 @@ Server → browser:
   speed, RPM + redline, gear + suggested gear, throttle/brake %, boost, fuel level and
   capacity, lap counters, best/last lap, session best and previous best, race position,
   tire temps (FL/FR/RL/RR), tire slip, water/oil temps, oil pressure, driver-aids
-  bitmask (TCS=1, ASM=2, handbrake=4, rev limiter=8), car id/name, world position,
+  bitmask (TCS=1, ASM=2, handbrake=4, rev limiter=8), packed per-wheel surface
+  codes (4 bits per wheel, FL lowest; 0 = no data), car id/name, world position,
   in-game time of day, track name, on-track/paused flags.
 - **`lap`** — sent when a lap is saved: id, session, number, time, per-lap metrics, and
   event counts. The UI uses this to refresh lists live.
 - **`session`** — sent on new session, track identification, or track naming.
+- **`survey`** — one per-wheel surface transition while a survey is running:
+  from/to chars, changed wheels, position, velocity, heading, raw rotation
+  floats, and derived wheel-contact points (sent at full 60 Hz resolution —
+  these are single-tick events the throttled telemetry frames would miss).
 - **`status`** — sent on connect and whenever the source or console IP changes.
 - **`voice_callout`** — a Race Engineer callout: `id`, `event_type`, `text`,
   `category`, `priority` (0–100), `created_at_ms`, `expires_at_ms`, `ttl_ms`,

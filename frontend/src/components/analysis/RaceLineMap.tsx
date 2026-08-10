@@ -8,9 +8,14 @@ import type * as echarts from "echarts";
 import type { EChartsOption, SeriesOption } from "echarts";
 import { useEffect, useMemo, useRef } from "react";
 import { CHART_COLORS, EChart } from "@/components/EChart";
-import type { CompareLapEntry } from "@/lib/types";
+import { type CompareLapEntry, kerbWheelCount, looseWheelCount } from "@/lib/types";
 
 const ZONE_COLORS = [CHART_COLORS.brake, CHART_COLORS.coast, CHART_COLORS.throttle];
+
+// Surface-contact halos under the reference line (packet-C recordings):
+// kerb strikes in yellow, wheels on grass/gravel/dirt in orange.
+const KERB_COLOR = "#eab308";
+const LOOSE_COLOR = "#f97316";
 
 // Numbered circles are readable up to about this many corners in view;
 // beyond that (or fully zoomed out on a long track) they collapse to dots.
@@ -133,6 +138,48 @@ export function RaceLineMap({
           },
         };
       });
+      // Surface halos, drawn beneath the input-zone dots. A kerb-only touch
+      // is routine; any loose-surface wheel is the interesting one, so loose
+      // wins when a sample has both (two wheels on the kerb, two on grass).
+      const surface = s.surface;
+      if (surface?.some((v) => v > 0)) {
+        const kerbPts: Array<{ value: number[]; itemStyle: { opacity: number } }> = [];
+        const loosePts: Array<{ value: number[]; itemStyle: { opacity: number } }> = [];
+        for (let i = 0; i < s.dist.length; i++) {
+          const v = surface[i] ?? 0;
+          const bucket =
+            looseWheelCount(v) > 0 ? loosePts : kerbWheelCount(v) > 0 ? kerbPts : null;
+          if (!bucket) continue;
+          const inZoom = zoomRange
+            ? s.dist[i] >= zoomRange[0] && s.dist[i] <= zoomRange[1]
+            : true;
+          bucket.push({
+            value: [s.pos_x[i], s.pos_z[i]],
+            itemStyle: { opacity: inZoom ? 0.55 : 0.1 },
+          });
+        }
+        series.push(
+          {
+            id: "surface-kerb",
+            type: "scatter",
+            data: kerbPts,
+            symbolSize: 8,
+            itemStyle: { color: KERB_COLOR },
+            silent: true,
+            z: 2.5,
+          },
+          {
+            id: "surface-loose",
+            type: "scatter",
+            data: loosePts,
+            symbolSize: 9,
+            itemStyle: { color: LOOSE_COLOR },
+            silent: true,
+            z: 2.6,
+          },
+        );
+      }
+
       const pv = ref.entry.peaks_valleys;
       const peaks = pv.peaks.filter(
         (p) => !zoomRange || (p.dist >= zoomRange[0] && p.dist <= zoomRange[1]),
@@ -252,6 +299,7 @@ export function RaceLineMap({
   }, [laps, cursorDist, step]);
 
   const others = laps.filter((lap) => !lap.isRef);
+  const hasSurface = !!ref?.entry.series.surface?.some((v) => v > 0);
 
   return (
     <div className="relative">
@@ -278,6 +326,24 @@ export function RaceLineMap({
         <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-coast" />coast</span>
         <span className="text-warn">▲ peak</span>
         <span className="text-[#c084fc]">▼ valley</span>
+        {hasSurface && (
+          <>
+            <span>
+              <i
+                className="mr-1 inline-block h-2 w-2 rounded-full"
+                style={{ backgroundColor: KERB_COLOR }}
+              />
+              kerb
+            </span>
+            <span>
+              <i
+                className="mr-1 inline-block h-2 w-2 rounded-full"
+                style={{ backgroundColor: LOOSE_COLOR }}
+              />
+              off-track
+            </span>
+          </>
+        )}
         {(ref?.entry.corners?.length ?? 0) > 0 && (
           <span>
             <i className="mr-1 inline-block h-2.5 w-2.5 rounded-full border border-ink-dim text-center align-middle text-[7px] leading-[9px]">

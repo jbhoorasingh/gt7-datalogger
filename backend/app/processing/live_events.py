@@ -22,10 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from app.models import TelemetryPacket
-
-# Loose surfaces per packet-C surface chars: Dirt, Grass, Sand, snow.
-# "T" (tarmac) and "C" (curb/kerb) count as on-road.
-LOOSE_SURFACES = frozenset("DGSs")
+from app.processing.surface import LOOSE_SURFACES
 
 POSITION_HOLD_TICKS = 60  # ~1 s at 60 Hz
 OFFROAD_MIN_TICKS = 30  # ~0.5 s

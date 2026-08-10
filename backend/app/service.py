@@ -19,6 +19,8 @@ from app.processing.analysis import Samples, time_delta_at
 from app.processing.cars import CarDatabase
 from app.processing.laps import CompletedLap, LapProcessor, SessionInfo
 from app.processing.live_events import LiveEvent, LiveEventWatcher
+from app.processing.surface import encode_surface
+from app.processing.survey import SurfaceSurvey
 from app.processing.tracks import signature_from_samples
 from app.race_engineer import CATEGORIES, VoiceCallout
 from app.race_engineer.manager import RaceEngineerManager
@@ -92,6 +94,7 @@ class TelemetryService:
         self.notifier.url = settings.webhook_url
         self.notifier.enabled = settings.enabled_webhook_events()
         self.event_watcher = LiveEventWatcher()
+        self.survey = SurfaceSurvey()
         self.engineer = RaceEngineerManager(
             enabled=settings.race_engineer,
             verbosity=settings.race_engineer_verbosity,
@@ -120,6 +123,7 @@ class TelemetryService:
 
     async def stop(self) -> None:
         await self.source.stop()
+        self.survey.stop()
         tasks = [c.task for c in self._clients.values() if c.task]
         for t in tasks:
             t.cancel()
@@ -170,6 +174,12 @@ class TelemetryService:
             await self.processor.feed(p)
         for event in self.event_watcher.feed(p):
             self._notify_live_event(event, p)
+        if self.survey.active:
+            # 60 Hz on purpose: transitions are single-tick events that the
+            # downsampled live stream below would miss.
+            record = self.survey.feed(p)
+            if record is not None:
+                self._publish({"type": "survey", "data": record})
         if self.engineer_active:
             self._publish_callouts(self.engineer.on_packet(p))
         now = time.monotonic()
@@ -200,6 +210,14 @@ class TelemetryService:
         self.event_watcher.reset()
         await self._close_previous_session()
         self.session_id = await self.repo.create_session(info, self.cars.name(info.car_id))
+        # A survey spanning a restart keeps labeling its records with the
+        # session its transitions actually belong to. An auto-filled track
+        # label goes back to unknown too — the new session may be a
+        # different circuit, and identification will re-label it; a label
+        # the user typed is theirs and stays.
+        self.survey.session_id = self.session_id
+        if self.survey.active and not self.survey.track_locked:
+            self.survey.set_track("")
         self.engineer.on_session(info, self.session_id)
         self.track_name = ""
         self._session_best_ms = None
@@ -292,6 +310,8 @@ class TelemetryService:
             "time_ms": lap.time_ms,
             "car_id": lap.car_id,
             "counts_for_best": lap.counts_for_best,
+            "off_track_count": lap.off_track_count,
+            "clean_lap": lap.clean_lap,
             "car_name": self.cars.name(lap.car_id),
             "fuel_consumed": round(lap.fuel_consumed, 3),
             "full_throttle_pct": round(lap.full_throttle_pct, 1),
@@ -314,6 +334,10 @@ class TelemetryService:
         if name:
             self.track_name = name
             await self.repo.set_session_track(self.session_id, name)
+            # A survey started before the circuit was known picks the label
+            # up now; an explicit user-picked label is never overwritten.
+            if self.survey.active and not self.survey.track_locked:
+                self.survey.set_track(name)
             log.info("track identified: %s", name)
             self._publish({"type": "session", "data": await self.status()})
 
@@ -324,6 +348,8 @@ class TelemetryService:
             raise ValueError("lap has no position data")
         await self.repo.create_track(name, sig)
         self.track_name = name
+        if self.survey.active and not self.survey.track_locked:
+            self.survey.set_track(name)
         if self.session_id is not None:
             await self.repo.set_session_track(self.session_id, name)
         log.info("track saved: %s (%.0f m)", name, sig.length_m)
@@ -369,6 +395,7 @@ class TelemetryService:
             "oil_temp": round(p.oil_temp, 1),
             "oil_pressure": round(p.oil_pressure, 2),
             "aids": p.aids_bits,
+            "surface": encode_surface(p.surface_types),
             "car_id": p.car_id,
             "car_name": self.cars.name(p.car_id),
             "session_best_ms": session.best_lap_time_ms if session else -1,
@@ -558,14 +585,21 @@ class TelemetryService:
         if not self._clients:
             return
         text = json.dumps(message)
-        droppable = message["type"] == "telemetry"
+        kind = message["type"]
         for client in list(self._clients.values()):
-            if droppable:
+            if kind == "telemetry":
                 client.frame = text
             else:
                 try:
                     client.events.put_nowait(text)
                 except asyncio.QueueFull:
+                    # Survey transitions can burst at 60 Hz (kerb chatter)
+                    # and are recoverable from the status/edges endpoints —
+                    # drop them for a slow client rather than shrinking the
+                    # lap/session lane's minutes-long overflow budget to
+                    # seconds and disconnecting a dashboard mid-session.
+                    if kind == "survey":
+                        continue
                     # Unreadable for minutes — disconnect rather than lose
                     # a lap/session event silently.
                     self._drop_client(client)

@@ -13,6 +13,7 @@ import { EngineerView } from "@/views/EngineerView";
 import { LiveView } from "@/views/LiveView";
 import { OverlayView } from "@/views/OverlayView";
 import { SessionsView } from "@/views/SessionsView";
+import { SurveyView } from "@/views/SurveyView";
 import { useTelemetry } from "@/store/telemetry";
 
 function useRoute(): Route {
@@ -57,6 +58,7 @@ export default function App() {
           {route.view === "live" && <LiveView />}
           {route.view === "analysis" && <AnalysisView request={analysisRequest} />}
           {route.view === "sessions" && <SessionsView />}
+          {route.view === "survey" && <SurveyView />}
           {route.view === "admin" && <AdminView />}
         </main>
         <Toasts />

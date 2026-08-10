@@ -28,6 +28,7 @@ One value per column per tick (~60/s):
 | `tt_fl/fr/rl/rr` | raw tire temps | °C |
 | `sus_fl/fr/rl/rr` | `suspension_travel × 1000` | mm |
 | `aids` | bitmask: TCS=1, ASM=2, handbrake=4, rev limiter=8 | mask |
+| `surface` | per-wheel surface codes, 4 bits each, FL in the lowest nibble (0 = no data, 1 = tarmac, 2 = kerb, 3 = dirt, 4 = grass, 5 = sand, 6 = snow, 7 = other) — packet C only | mask |
 
 **Wheel slip** is a slip-ratio proxy: wheel surface speed divided by car speed. `< 1`
 under braking means the wheel is locking; `> 1` under power means it's spinning. Below
@@ -47,6 +48,8 @@ Computed once when the lap is saved (`n` = number of samples):
 | Max speed | `max(speed)` km/h |
 | Min body height | `min(body_height)` mm |
 | TCS / ASM active % | `100 × count(aid bit set) ÷ n` |
+| Off-track count | excursions where ≥ 3 wheels sat on a loose surface for ≥ 6 ticks; `-1` = unknown (no surface data) |
+| Clean lap | `off_track_count == 0`; `null` = unknown — distinct from `counts_for_best`, which flags partial pit out-laps |
 
 **Engine health** is tracked as running per-lap extremes rather than per-tick columns
 (these values drift over minutes, not corners):

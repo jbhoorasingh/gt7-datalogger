@@ -98,6 +98,10 @@ class LapRow(Base):
     min_oil_pressure: Mapped[float] = mapped_column(default=-1.0)
     # False for partial laps (pit out-laps): excluded from best-lap aggregates
     counts_for_best: Mapped[bool] = mapped_column(default=True)
+    # Track-limits verdict from per-tick surface data (packet C). Distinct
+    # from counts_for_best: -1 / NULL = unknown (no surface data recorded).
+    off_track_count: Mapped[int] = mapped_column(default=-1)
+    clean_lap: Mapped[bool | None] = mapped_column(default=None)
     events_json: Mapped[str] = mapped_column(Text, default="[]")
     gearing_json: Mapped[str] = mapped_column(Text, default="")
     samples_json: Mapped[str] = mapped_column(Text)
@@ -141,6 +145,8 @@ _SQLITE_MIGRATIONS = (
         ("min_oil_pressure", "FLOAT NOT NULL DEFAULT -1"),
         ("events_json", "TEXT NOT NULL DEFAULT '[]'"),
         ("gearing_json", "TEXT NOT NULL DEFAULT ''"),
+        ("off_track_count", "INTEGER NOT NULL DEFAULT -1"),
+        ("clean_lap", "BOOLEAN"),
     )
 )
 

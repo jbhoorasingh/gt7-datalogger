@@ -1,0 +1,795 @@
+"""Live surface survey (issue #37, the seed of #38/#39).
+
+Validates the packet-C `surface_types` encoding and the wheel-contact
+derivation on real hardware: while a survey is running, every per-wheel
+surface char is histogrammed, chars the mapping doesn't know are flagged,
+and every surface TRANSITION is logged with derived wheel-contact positions
+(car position + velocity-heading rotation of (±wheelbase/2, ±track/2)).
+
+This lives server-side in the 60 Hz packet path, not in the browser:
+transitions are single-tick events, and the ~30 Hz live WebSocket stream
+would miss half of them. The Survey view is a window onto this state —
+transitions are pushed to it as they happen, a breadcrumb trail of the path
+driven shows coverage, and the full record is written to a JSONL file for
+offline analysis (raw rotation floats included, so the euler-vs-quaternion
+question can be settled after the drive).
+
+Track width is NOT broadcast by GT7, but it can be MEASURED: riding all four
+wheels over one surface edge and back pins the crossing contact points onto
+a single boundary line. The same wheel's out-and-back crossings give the
+edge DIRECTION (a single one-way pass cannot — the rear wheels retrace the
+fronts' paths, leaving the edge angle unconstrained); opposite-side wheels
+crossing the same line then fix the width, and remaining same-side wheels
+must agree the points are collinear, which rejects two-edged strips, curved
+kerbs and mid-corner crossings. The median over accepted crossings replaces
+the assumed width once enough agree (the assumption remains the fallback,
+and the value stored in the JSONL meta header). The "right" vector is
+assumed to be (forward_z, -forward_x); if kerb contacts come out mirrored
+left/right, that sign is wrong — flip it and note it in
+docs/internals/surface-survey.md.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import math
+from collections import Counter, deque
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+from statistics import median
+from typing import IO, Any
+
+from app.models import TelemetryPacket
+from app.processing import track_bundle
+from app.processing.surface import CHAR_CODES
+
+log = logging.getLogger(__name__)
+
+WHEELS = ("FL", "FR", "RL", "RR")
+MIN_HEADING_SPEED_MPS = 3.0  # below this the velocity heading is noise
+DEFAULT_TRACK_WIDTH_M = 1.6
+RECENT_TRANSITIONS = 50  # kept in memory for the status endpoint / view seed
+
+# GT7 does NOT broadcast a track-limits/penalty field in any known packet —
+# the documented flag bits stop at TCS (bit 11). If one exists it can only
+# hide in the undocumented upper bits, so the survey watches them: any of
+# these ever activating on real hardware is a finding.
+DOCUMENTED_FLAG_BITS = 12  # bits 0..11 are known (SimulatorFlags)
+
+# --- driven-path breadcrumb ---------------------------------------------------
+TRAIL_MIN_STEP_M = 2.0  # don't record a point until the car moved this far
+TRAIL_MAX_POINTS = 20_000  # on overflow the trail is decimated 2:1
+
+# Border-edge points are the track taking shape — every lap adds more, and
+# unlike breadcrumbs each one is unique boundary evidence, so they are kept
+# server-side for the whole run (the browser only ever holds a window of
+# recent transitions) and served incrementally like the trail.
+EDGES_MAX_POINTS = 50_000  # hard backstop; the JSONL always has everything
+
+# Autosave the labeled run's bundle roughly once a minute: dev reloads,
+# crashes and hard kills must never cost more than the last few corners
+# (graceful shutdown saves too, but never rely on shutdowns being graceful).
+AUTOSAVE_PACKETS = 3600  # ~60 s at 60 Hz
+
+# Finish line: GT7 increments current_lap exactly as the car crosses the
+# start/finish line, so each rollover pins a point ON the line. One crossing
+# locates it provisionally; repeat crossings landing close together make it
+# confident. Guards keep menu/restart lap-counter flicker out.
+FINISH_MIN_SPEED_MPS = 5.0
+FINISH_CONFIDENT_CROSSINGS = 2
+FINISH_CONFIDENT_SPREAD_M = 15.0
+FINISH_KEEP = 50
+
+# Manual boundary marking: the driver declares "the boundary is on my
+# left/right right now, and it is <kind>". Needed where surface data is
+# silent — paved run-off reads as plain tarmac, and wall-lined track has no
+# off-surface at all — so while a side is armed, the survey samples edge
+# points from the car's own path (that side's wheel line) every few meters.
+# kind "edge" = ordinary track edge, "runoff" = outer limit of paved
+# run-off (excluded from road fill), "wall" = wall-lined boundary.
+MARK_KINDS = ("edge", "runoff", "wall")
+MARK_STEP_M = 2.0  # one manual edge point per this much travel
+
+# --- track-width auto-estimation ----------------------------------------------
+# A measurement needs an out-and-back ride over ONE edge: the same wheel
+# crossing X→Y and later Y→X (edge direction), at least one opposite-side
+# crossing of the same line (the width equation), and a further same-side
+# crossing agreeing the points are collinear (strip/curve rejection).
+CROSSING_WINDOW_TICKS = 180  # ~3 s at 60 Hz: the whole ride must fit
+CROSSING_HEADING_MIN_DOT = 0.95  # cos ~18°: near-straight rides only
+MIN_EDGE_SEGMENT_M = 1.0  # out/back points closer than this give a bad angle
+COLLINEAR_TOL_M = 0.25  # same-side agreement required of a straight edge
+WIDTH_DENOM_MIN = 0.3  # crossing too perpendicular: no width information
+WIDTH_RANGE_M = (0.8, 2.4)  # plausible axle track widths
+WIDTH_MIN_SAMPLES = 3  # accepted rides needed before the estimate is used
+WIDTH_KEEP_SAMPLES = 200
+
+
+def _border_side(prev: str, cur: str) -> str | None:
+    """"L"/"R" when a transition unambiguously belongs to one track border.
+
+    Wheel order is FL FR RL RR: indices 0/2 are the left side, 1/3 the
+    right. The verdict needs the whole opposite side on plain tarmac in
+    both states — once wheels of both sides are off the racing surface the
+    car may be anywhere (deep excursion, re-entry), so no side is claimed.
+    """
+    changed = [i for i in range(4) if prev[i] != cur[i]]
+    if not changed:
+        return None
+    left = all(i in (0, 2) for i in changed)
+    right = all(i in (1, 3) for i in changed)
+    if left and all(prev[i] == "T" and cur[i] == "T" for i in (1, 3)):
+        return "L"
+    if right and all(prev[i] == "T" and cur[i] == "T" for i in (0, 2)):
+        return "R"
+    return None
+
+
+@dataclass(slots=True)
+class _Crossing:
+    """One wheel's char flip, positioned for the width solver."""
+
+    pid: int
+    wheel: int  # index into WHEELS
+    sig: tuple[str, str]  # (from char, to char)
+    px: float  # car position, pulled back half a tick: the flip is seen on
+    pz: float  # the first packet AFTER the wheel crossed the line
+    fx: float  # forward unit (from velocity)
+    fz: float
+    wheelbase_m: float
+    surface: str  # full 4-char state AFTER the flip (for same-line gating)
+
+
+class SurfaceSurvey:
+    """Feed packets while active; ask for status; stop to close the log."""
+
+    def __init__(self) -> None:
+        self.active = False
+        self.track_width_m = DEFAULT_TRACK_WIDTH_M
+        self.started_at: str | None = None
+        # What this run describes: the per-track grid (#38) needs samples
+        # keyed by circuit, and the JSONL must be joinable back to the laps
+        # recorded during the same drive. Both may update mid-run (session
+        # restart, late track identification).
+        self.track = ""
+        # True when the label was typed by the user (never auto-overwritten);
+        # auto-filled labels follow identification across circuit changes.
+        self.track_locked = False
+        self.session_id: int | None = None
+        self.log_path: Path | None = None
+        self._out: IO[str] | None = None
+        self._prev: str | None = None
+        self.packets = 0
+        self.no_surface_packets = 0
+        self.transitions = 0
+        self.char_counts: list[Counter[str]] = [Counter() for _ in WHEELS]
+        self.unknown_chars: Counter[str] = Counter()
+        self.recent: deque[dict[str, Any]] = deque(maxlen=RECENT_TRANSITIONS)
+        # Path driven while surveying, decimated 2:1 whenever it overflows.
+        # The epoch tells incremental readers their point indices went stale.
+        self.trail: list[list[float]] = []
+        self.trail_epoch = 0
+        self._trail_step = TRAIL_MIN_STEP_M
+        # Every border-edge point of the run — the track taking shape.
+        # Append-only within a run; the epoch bumps when a new run starts.
+        # Deduped on the bundle grid at append time, so re-driving mapped
+        # ground refines nothing into duplicates (in memory or on the map).
+        self.edges: list[dict[str, Any]] = []
+        self.edges_epoch = 0
+        self._edge_keys: set[tuple[int, int, str, str]] = set()
+        # Manual marking state (see MARK_KINDS above).
+        self.mark_side: str | None = None  # "L" | "R" | None = off
+        self.mark_kind: str = "edge"
+        self._last_mark: tuple[float, float] | None = None
+        self._last_straddle: tuple[float, float] | None = None
+        self._prev_lap: int | None = None
+        self.finish_crossings: list[dict[str, float]] = []
+        self._data_dir: Path | None = None
+        self._since_autosave = 0
+        # Meta of the bundle this run resumed from (None = fresh circuit).
+        self.bundle_info: dict[str, Any] | None = None
+        self._crossings: deque[_Crossing] = deque(maxlen=64)
+        self._width_estimates: list[float] = []
+        # Undocumented packet-flag bits seen active: bit index -> tick count.
+        self.unknown_flag_ticks: Counter[int] = Counter()
+
+    def start(
+        self,
+        data_dir: Path,
+        track_width_m: float,
+        track: str = "",
+        track_user_set: bool = False,
+        session_id: int | None = None,
+    ) -> None:
+        if self.active:
+            return
+        self.track_width_m = track_width_m
+        self.track = track
+        self.track_locked = track_user_set
+        self.session_id = session_id
+        self.started_at = datetime.now(UTC).isoformat()
+        self.packets = 0
+        self.no_surface_packets = 0
+        self.transitions = 0
+        self.char_counts = [Counter() for _ in WHEELS]
+        self.unknown_chars = Counter()
+        self.recent.clear()
+        self._prev = None
+        self.trail = []
+        self.trail_epoch += 1
+        self._trail_step = TRAIL_MIN_STEP_M
+        self.edges = []
+        self.edges_epoch += 1
+        self._edge_keys = set()
+        self.mark_side = None
+        self.mark_kind = "edge"
+        self._last_mark = None
+        self._last_straddle = None
+        self._prev_lap = None
+        self.finish_crossings = []
+        self._data_dir = data_dir
+        self._since_autosave = 0
+        self.bundle_info = None
+        self._crossings.clear()
+        self._width_estimates = []  # widths are per-car; a new run may swap cars
+        self.unknown_flag_ticks = Counter()
+        data_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+        self.log_path = data_dir / f"surface_survey_{ts}.jsonl"
+        self._out = self.log_path.open("w", encoding="ascii")
+        # Header line, so the log stays self-describing offline: the track
+        # width assumption in particular is invisible in the records that
+        # were derived with it (each record also carries the tw_m it used).
+        self._out.write(json.dumps({"meta": {
+            "started_at": self.started_at,
+            "track_width_m": track_width_m,
+            "track": track,
+            "session_id": session_id,
+            "wheels": list(WHEELS),
+        }}, separators=(",", ":")) + "\n")
+        self._out.flush()
+        self.active = True
+        log.info("surface survey started (track %r, width %.2f m) -> %s",
+                 track or "?", track_width_m, self.log_path)
+        if self.track:
+            self._load_bundle()  # start from everything already mapped here
+
+    def set_track(self, name: str) -> None:
+        """Update the circuit label mid-run — and put it in the JSONL, which
+        must stay joinable to a circuit offline (a header written before
+        identification carries no label)."""
+        if name == self.track:
+            return
+        if self.active and self.track:
+            # Leaving a labeled circuit (session restart; the next one may be
+            # a different track): flush what this run learned to its bundle,
+            # then clear the run's evidence so it can never pollute another
+            # circuit's bundle. If the same circuit is identified again, the
+            # bundle load below restores everything just saved.
+            self._save_bundle(count_run=False)
+            self.edges = []
+            self.edges_epoch += 1
+            self._edge_keys = set()
+            self.finish_crossings = []
+            self.bundle_info = None
+        self.track = name
+        if self.active and self._out is not None and name:
+            self._out.write(json.dumps({"track": name}, separators=(",", ":")) + "\n")
+            self._out.flush()
+        if self.active and name:
+            self._load_bundle()
+
+    def _load_bundle(self) -> None:
+        if self._data_dir is None or not self.track:
+            return
+        doc = track_bundle.load(self._data_dir, self.track)
+        if doc is None:
+            return
+        # Bundle first, this run's (few, pre-identification) points merged in;
+        # the list is replaced wholesale, so incremental readers must resync.
+        self.edges = track_bundle.merge_edges(doc["edges"], self.edges)
+        self.edges_epoch += 1
+        self._edge_keys = {track_bundle.edge_key(e) for e in self.edges}
+        self.finish_crossings = track_bundle.merge_finish(
+            doc["finish_crossings"], self.finish_crossings
+        )
+        self.bundle_info = {**doc["meta"], "points": len(doc["edges"])}
+        log.info("resumed track bundle %r: %d points from %d runs",
+                 self.track, len(doc["edges"]), doc["meta"]["runs"])
+
+    def _save_bundle(self, count_run: bool) -> None:
+        if self._data_dir is None or not self.track:
+            return
+        if not self.edges and not self.finish_crossings:
+            return
+        self._since_autosave = 0
+        self.bundle_info = track_bundle.save(
+            self._data_dir, self.track, self.edges, self.finish_crossings, count_run
+        )
+
+    def stop(self) -> None:
+        if self.active:
+            self._save_bundle(count_run=True)
+        self.active = False
+        if self._out is not None:
+            self._out.close()
+            self._out = None
+        if self.transitions or self.packets:
+            log.info("surface survey stopped: %d packets, %d transitions",
+                     self.packets, self.transitions)
+
+    @property
+    def width_estimate_m(self) -> float | None:
+        """Median of the accepted edge-crossing measurements, if any."""
+        if not self._width_estimates:
+            return None
+        return round(median(self._width_estimates), 3)
+
+    @property
+    def width_in_use_m(self) -> float:
+        """Width applied to contact derivation: measured once trusted."""
+        estimate = self.width_estimate_m
+        if estimate is not None and len(self._width_estimates) >= WIDTH_MIN_SAMPLES:
+            return estimate
+        return self.track_width_m
+
+    def feed(self, p: TelemetryPacket) -> dict[str, Any] | None:
+        """Record one packet; returns the transition record when one occurred."""
+        self.packets += 1
+        self._since_autosave += 1
+        if self._since_autosave >= AUTOSAVE_PACKETS:
+            self._since_autosave = 0
+            self._save_bundle(count_run=False)
+        if p.surface_types is None:
+            self.no_surface_packets += 1
+            return None
+        if p.is_paused or not p.is_on_track:
+            return None
+        self._append_trail(p)
+        self._watch_finish_line(p)
+        if self.mark_side is not None:
+            self._append_manual_edge(p)
+        else:
+            self._append_straddle_edge(p)
+        for bit in range(DOCUMENTED_FLAG_BITS, 16):
+            if p.flags & (1 << bit):
+                if self.unknown_flag_ticks[bit] == 0:
+                    log.warning("undocumented packet flag bit %d active (flags=0x%04x) "
+                                "at (%.1f, %.1f)", bit, p.flags, p.position_x, p.position_z)
+                self.unknown_flag_ticks[bit] += 1
+        surface = p.surface_types
+        for i, ch in enumerate(surface):
+            self.char_counts[i][ch] += 1
+            if ch not in CHAR_CODES:
+                if self.unknown_chars[ch] == 0:
+                    log.warning("NEW surface char %r on %s at (%.1f, %.1f)",
+                                ch, WHEELS[i], p.position_x, p.position_z)
+                self.unknown_chars[ch] += 1
+        record = None
+        if self._prev is not None and surface != self._prev:
+            record = self._transition(p, self._prev, surface)
+            self.transitions += 1
+            self.recent.append(record)
+            if self._out is not None:
+                self._out.write(json.dumps(record, separators=(",", ":")) + "\n")
+                self._out.flush()  # export must see it while the run is live
+        self._prev = surface
+        return record
+
+    def _watch_finish_line(self, p: TelemetryPacket) -> None:
+        """Each lap rollover pins a point on the start/finish line.
+
+        Only exact +1 increments between racing laps count: menu flicker,
+        restarts (counter falls back) and grid starts (0 -> 1 away from the
+        line) all fail the guards.
+        """
+        prev = self._prev_lap
+        self._prev_lap = p.current_lap
+        if prev is None or prev < 1 or p.current_lap != prev + 1:
+            return
+        if p.speed_mps < FINISH_MIN_SPEED_MPS:
+            return
+        norm = math.hypot(p.velocity_x, p.velocity_z)
+        if norm <= 0 or len(self.finish_crossings) >= FINISH_KEEP:
+            return
+        crossing = {
+            "x": round(p.position_x, 3), "z": round(p.position_z, 3),
+            "hx": round(p.velocity_x / norm, 5), "hz": round(p.velocity_z / norm, 5),
+            "lap": float(p.current_lap),
+        }
+        self.finish_crossings.append(crossing)
+        if self._out is not None:
+            self._out.write(json.dumps({"finish": crossing}, separators=(",", ":")) + "\n")
+            self._out.flush()
+        log.info("finish-line crossing #%d at (%.1f, %.1f)",
+                 len(self.finish_crossings), p.position_x, p.position_z)
+
+    def _finish_summary(self) -> dict[str, Any] | None:
+        """Mean crossing point + heading; confident once repeats agree."""
+        if not self.finish_crossings:
+            return None
+        n = len(self.finish_crossings)
+        mx = sum(c["x"] for c in self.finish_crossings) / n
+        mz = sum(c["z"] for c in self.finish_crossings) / n
+        spread = max(
+            math.hypot(c["x"] - mx, c["z"] - mz) for c in self.finish_crossings
+        )
+        hx = sum(c["hx"] for c in self.finish_crossings)
+        hz = sum(c["hz"] for c in self.finish_crossings)
+        norm = math.hypot(hx, hz)
+        if norm < 0.1:  # crossings disagree on direction; trust the first
+            hx, hz = self.finish_crossings[0]["hx"], self.finish_crossings[0]["hz"]
+        else:
+            hx, hz = hx / norm, hz / norm
+        return {
+            "x": round(mx, 2), "z": round(mz, 2),
+            "hx": round(hx, 5), "hz": round(hz, 5),
+            "crossings": n,
+            "spread_m": round(spread, 1),
+            "confident": n >= FINISH_CONFIDENT_CROSSINGS
+            and spread <= FINISH_CONFIDENT_SPREAD_M,
+        }
+
+    def set_mark(self, side: str | None, kind: str) -> None:
+        """Arm or disarm manual boundary marking (validated by the API layer)."""
+        self.mark_side = side
+        self.mark_kind = kind
+        self._last_mark = None
+        if side is not None:
+            log.info("marking %s boundary on the %s side", kind, side)
+
+    def _append_manual_edge(self, p: TelemetryPacket) -> None:
+        """One edge point at the armed side's wheel line, every few meters.
+
+        This is what maps boundaries the surface chars cannot see: hug the
+        wall / white line / run-off limit and the driven line becomes the
+        boundary polyline.
+        """
+        if p.speed_mps < MIN_HEADING_SPEED_MPS:
+            return
+        if self._last_mark is not None:
+            lx, lz = self._last_mark
+            dx, dz = p.position_x - lx, p.position_z - lz
+            if dx * dx + dz * dz < MARK_STEP_M**2:
+                return
+        norm = math.hypot(p.velocity_x, p.velocity_z)
+        if norm <= 0:
+            return
+        fx, fz = p.velocity_x / norm, p.velocity_z / norm
+        rx, rz = fz, -fx
+        lat = -self.width_in_use_m / 2.0 if self.mark_side == "L" else self.width_in_use_m / 2.0
+        self._last_mark = (p.position_x, p.position_z)
+        self._append_edge(
+            x=p.position_x + lat * rx, z=p.position_z + lat * rz,
+            hx=fx, hz=fz, side=self.mark_side or "L", kind=self.mark_kind,
+            pid=p.packet_id,
+        )
+
+    def _append_straddle_edge(self, p: TelemetryPacket) -> None:
+        """Continuous automatic border tracing, no button required.
+
+        Surface flips only pin the border at the moment a wheel crosses it;
+        a lap driven with one side's wheels HELD off the track produces
+        almost no flips and would leave the border untraced between them.
+        But that sustained state is itself the evidence: both wheels of one
+        side off the tarmac while the other side is fully on it means the
+        car is straddling that border, so the off-side wheel line traces
+        it — one point per couple of meters, exactly like manual marking.
+        """
+        surface = p.surface_types
+        assert surface is not None  # feed() returned before this otherwise
+        left_off = surface[0] != "T" and surface[2] != "T"
+        right_off = surface[1] != "T" and surface[3] != "T"
+        left_on = surface[0] == "T" and surface[2] == "T"
+        right_on = surface[1] == "T" and surface[3] == "T"
+        if left_off and right_on:
+            side = "L"
+        elif right_off and left_on:
+            side = "R"
+        else:
+            # Fully on, fully off, or diagonal — no border underneath the car.
+            self._last_straddle = None
+            return
+        if p.speed_mps < MIN_HEADING_SPEED_MPS:
+            return
+        if self._last_straddle is not None:
+            lx, lz = self._last_straddle
+            dx, dz = p.position_x - lx, p.position_z - lz
+            if dx * dx + dz * dz < MARK_STEP_M**2:
+                return
+        norm = math.hypot(p.velocity_x, p.velocity_z)
+        if norm <= 0:
+            return
+        fx, fz = p.velocity_x / norm, p.velocity_z / norm
+        rx, rz = fz, -fx
+        lat = -self.width_in_use_m / 2.0 if side == "L" else self.width_in_use_m / 2.0
+        self._last_straddle = (p.position_x, p.position_z)
+        self._append_edge(
+            x=p.position_x + lat * rx, z=p.position_z + lat * rz,
+            hx=fx, hz=fz, side=side, kind="straddle", pid=p.packet_id,
+        )
+
+    def _append_edge(
+        self, x: float, z: float, hx: float, hz: float, side: str, kind: str, pid: int
+    ) -> None:
+        edge = {
+            "x": round(x, 3), "z": round(z, 3),
+            "hx": round(hx, 5), "hz": round(hz, 5),
+            "side": side, "kind": kind,
+        }
+        key = track_bundle.edge_key(edge)
+        if key in self._edge_keys:
+            return  # this meter of boundary is already evidenced
+        self._edge_keys.add(key)
+        if self._out is not None and kind != "auto":
+            # "auto" edges are reconstructable from the transition records;
+            # manual and straddle-sampled ones exist nowhere else, so they
+            # go to the JSONL too (as "mark" lines) — BEFORE the memory cap,
+            # which must never cost log completeness.
+            self._out.write(
+                json.dumps({"mark": {**edge, "pid": pid}}, separators=(",", ":")) + "\n"
+            )
+        if len(self.edges) >= EDGES_MAX_POINTS:
+            return  # in-memory backstop only; the JSONL has everything
+        self.edges.append(edge)
+
+    def _append_trail(self, p: TelemetryPacket) -> None:
+        x, z = p.position_x, p.position_z
+        if self.trail:
+            lx, lz = self.trail[-1]
+            if (x - lx) ** 2 + (z - lz) ** 2 < self._trail_step**2:
+                return
+        self.trail.append([round(x, 2), round(z, 2)])
+        if len(self.trail) > TRAIL_MAX_POINTS:
+            # Halve the resolution instead of forgetting the oldest laps —
+            # coverage of the whole drive is the point of the trail.
+            self.trail = self.trail[::2]
+            self._trail_step *= 2
+            self.trail_epoch += 1
+
+    def _transition(self, p: TelemetryPacket, prev: str, cur: str) -> dict[str, Any]:
+        speed = p.speed_mps
+        heading = None
+        contacts: dict[str, list[float]] | None = None
+        tw_used: float | None = None
+        if speed >= MIN_HEADING_SPEED_MPS and p.wheelbase_m:
+            # Ground-plane forward from velocity; the assumed right vector is
+            # exactly what the survey validates (see module docstring).
+            norm = math.hypot(p.velocity_x, p.velocity_z)
+            fx, fz = p.velocity_x / norm, p.velocity_z / norm
+            self._record_crossings(p, prev, cur, fx, fz)
+            rx, rz = fz, -fx
+            half_wb = p.wheelbase_m / 2.0
+            tw_used = self.width_in_use_m
+            half_tw = tw_used / 2.0
+            offsets = {
+                "FL": (half_wb, -half_tw),
+                "FR": (half_wb, half_tw),
+                "RL": (-half_wb, -half_tw),
+                "RR": (-half_wb, half_tw),
+            }
+            heading = math.atan2(p.velocity_x, p.velocity_z)
+            contacts = {
+                w: [
+                    round(p.position_x + fwd * fx + lat * rx, 3),
+                    round(p.position_z + fwd * fz + lat * rz, 3),
+                ]
+                for w, (fwd, lat) in offsets.items()
+            }
+        # Which track border this contact belongs to, relative to the
+        # direction of travel: wheels of one side touching kerb/loose while
+        # the whole other side stays on tarmac can only happen at that
+        # side's edge of the road. Accumulated left/right-tagged points ARE
+        # the two perimeter polylines forming — kept in self.edges for the
+        # whole run so the map can draw the track taking shape lap by lap.
+        border = _border_side(prev, cur)
+        if border is not None and contacts is not None:
+            for i in range(4):
+                if prev[i] == cur[i]:
+                    continue
+                point = contacts[WHEELS[i]]
+                norm = math.hypot(p.velocity_x, p.velocity_z)
+                self._append_edge(
+                    x=point[0], z=point[1],
+                    hx=p.velocity_x / norm, hz=p.velocity_z / norm,
+                    side=border, kind="auto", pid=p.packet_id,
+                )
+        return {
+            "n": self.transitions + 1,
+            "pid": p.packet_id,
+            "session_id": self.session_id,
+            "lap": p.current_lap,
+            "from": prev,
+            "to": cur,
+            "changed": [WHEELS[i] for i in range(4) if prev[i] != cur[i]],
+            "border": border,
+            # Manual marking active while this transition happened, if any.
+            "mark": self.mark_kind if self.mark_side is not None else None,
+            "pos": [round(p.position_x, 3), round(p.position_y, 3), round(p.position_z, 3)],
+            "vel": [round(p.velocity_x, 3), round(p.velocity_y, 3), round(p.velocity_z, 3)],
+            "speed_mps": round(speed, 2),
+            "heading_rad": round(heading, 5) if heading is not None else None,
+            # Raw orientation fields, for settling euler-vs-quaternion offline.
+            "rotation": [p.rotation_pitch, p.rotation_yaw, p.rotation_roll],
+            "rel_north": p.rel_orientation_to_north,
+            "wheelbase_m": p.wheelbase_m,
+            # Raw flags, so undocumented bits can be correlated with
+            # off-track moments offline (no track-limits field is known).
+            "flags": p.flags,
+            "tw_m": round(tw_used, 3) if tw_used is not None else None,
+            "contacts": contacts,
+        }
+
+    # --- track-width estimation ----------------------------------------------
+
+    def _record_crossings(
+        self, p: TelemetryPacket, prev: str, cur: str, fx: float, fz: float
+    ) -> None:
+        assert p.wheelbase_m is not None
+        # The flip is observed on the first packet after the wheel crossed,
+        # so pull the position back half a tick to center the timing error.
+        px = p.position_x - p.velocity_x * (0.5 / 60.0)
+        pz = p.position_z - p.velocity_z * (0.5 / 60.0)
+        for i in range(4):
+            if prev[i] == cur[i]:
+                continue
+            self._crossings.append(_Crossing(
+                pid=p.packet_id, wheel=i, sig=(prev[i], cur[i]),
+                px=px, pz=pz, fx=fx, fz=fz, wheelbase_m=p.wheelbase_m,
+                surface=cur,
+            ))
+        self._try_estimate_width(p.packet_id)
+
+    def _try_estimate_width(self, pid: int) -> None:
+        recent = [c for c in self._crossings if pid - c.pid <= CROSSING_WINDOW_TICKS]
+        groups: dict[frozenset[str], list[_Crossing]] = {}
+        for c in recent:
+            groups.setdefault(frozenset(c.sig), []).append(c)
+        for key, group in groups.items():
+            width = self._estimate_from_group(group)
+            if width is None:
+                continue
+            self._width_estimates.append(width)
+            del self._width_estimates[:-WIDTH_KEEP_SAMPLES]
+            log.info("track width measured: %.2f m (median %.2f m over %d rides)",
+                     width, self.width_estimate_m or 0.0, len(self._width_estimates))
+            # This edge ride is spent; keep events of other boundary types.
+            remaining = [c for c in self._crossings if frozenset(c.sig) != key]
+            self._crossings.clear()
+            self._crossings.extend(remaining)
+
+    def _estimate_from_group(self, group: list[_Crossing]) -> float | None:
+        """One width measurement from an out-and-back ride over one edge.
+
+        Every crossing pins a contact point P + a·f + b·(tw/2)·r onto the
+        edge line n·x = const (a = ±wheelbase/2 and b = ±1 known per wheel).
+        The same wheel's out/back crossings both lie on the line and their
+        b-terms cancel, giving n without knowing tw; each opposite-side
+        crossing then yields tw; remaining same-side crossings must agree
+        the points are collinear or the "edge" wasn't one straight line.
+        """
+        if len(group) < 4:
+            return None
+        f0 = group[0]
+        for c in group[1:]:
+            if c.fx * f0.fx + c.fz * f0.fz < CROSSING_HEADING_MIN_DOT:
+                return None
+
+        def a_of(c: _Crossing) -> float:
+            return c.wheelbase_m / 2.0 if c.wheel in (0, 1) else -c.wheelbase_m / 2.0
+
+        def b_of(c: _Crossing) -> float:
+            return -1.0 if c.wheel in (0, 2) else 1.0  # left wheels sit at -tw/2
+
+        # Edge direction: the same wheel's out/back pair, widest apart.
+        by_wheel: dict[int, list[_Crossing]] = {}
+        for c in group:
+            by_wheel.setdefault(c.wheel, []).append(c)
+        pair: tuple[_Crossing, _Crossing] | None = None
+        best_len = MIN_EDGE_SEGMENT_M
+        for events in by_wheel.values():
+            for i, one in enumerate(events):
+                for two in events[i + 1:]:
+                    if one.sig != (two.sig[1], two.sig[0]):
+                        continue
+                    a = a_of(one)
+                    dx = (two.px - one.px) + a * (two.fx - one.fx)
+                    dz = (two.pz - one.pz) + a * (two.fz - one.fz)
+                    length = math.hypot(dx, dz)
+                    if length > best_len:
+                        best_len = length
+                        pair = (one, two)
+        if pair is None:
+            return None
+        out, back = pair
+        a = a_of(out)
+        ex = ((back.px - out.px) + a * (back.fx - out.fx)) / best_len
+        ez = ((back.pz - out.pz) + a * (back.fz - out.fz)) / best_len
+        nx, nz = ez, -ex  # normal sign is irrelevant: |tw| is the answer
+
+        def along_normal(c: _Crossing, tw: float) -> float:
+            rx, rz = c.fz, -c.fx
+            return (nx * c.px + nz * c.pz + a_of(c) * (nx * c.fx + nz * c.fz)
+                    + b_of(c) * (tw / 2.0) * (nx * rx + nz * rz))
+
+        # Same-side crossings must land on the pair's line, or this was a
+        # two-edged strip / curved kerb — no straight edge to measure against.
+        side = b_of(out)
+        reference = along_normal(out, self.width_in_use_m)
+        validated = False
+        for c in group:
+            if c is out or c is back or b_of(c) != side:
+                continue
+            if abs(along_normal(c, self.width_in_use_m) - reference) > COLLINEAR_TOL_M:
+                return None
+            validated = True
+        if not validated:
+            return None
+
+        candidates: list[float] = []
+        # A genuine full ride has the pair-side wheels already off tarmac
+        # when the opposite side crosses the same line. Weaving a narrow
+        # lane with boundaries on BOTH sides (grass left AND right) leaves
+        # them on tarmac at that moment — the opposite wheels crossed a
+        # DIFFERENT parallel line, and using them would solve for the lane
+        # separation instead of the axle width.
+        pair_wheels = (0, 2) if side < 0 else (1, 3)
+        for m in group:
+            if b_of(m) == side:
+                continue
+            if all(m.surface[i] == "T" for i in pair_wheels):
+                continue
+            for anchor in (out, back):
+                denom = (
+                    b_of(anchor) * (nx * anchor.fz + nz * -anchor.fx)
+                    - b_of(m) * (nx * m.fz + nz * -m.fx)
+                )
+                if abs(denom) < WIDTH_DENOM_MIN:
+                    continue
+                num = (
+                    nx * (m.px - anchor.px) + nz * (m.pz - anchor.pz)
+                    + a_of(m) * (nx * m.fx + nz * m.fz)
+                    - a_of(anchor) * (nx * anchor.fx + nz * anchor.fz)
+                )
+                candidates.append(2.0 * num / denom)
+        if not candidates:
+            return None
+        width = abs(median(candidates))
+        if not WIDTH_RANGE_M[0] <= width <= WIDTH_RANGE_M[1]:
+            return None
+        return round(width, 3)
+
+    def status(self) -> dict[str, Any]:
+        return {
+            "active": self.active,
+            "started_at": self.started_at,
+            "track": self.track,
+            "session_id": self.session_id,
+            "track_width_m": self.track_width_m,
+            "width_estimate_m": self.width_estimate_m,
+            "width_samples": len(self._width_estimates),
+            "width_in_use_m": round(self.width_in_use_m, 3),
+            "packets": self.packets,
+            "no_surface_packets": self.no_surface_packets,
+            "transitions": self.transitions,
+            "trail_points": len(self.trail),
+            "trail_epoch": self.trail_epoch,
+            "edge_points": len(self.edges),
+            "edges_epoch": self.edges_epoch,
+            "finish": self._finish_summary(),
+            "bundle": self.bundle_info,
+            "mark_side": self.mark_side,
+            "mark_kind": self.mark_kind,
+            "histogram": {
+                WHEELS[i]: dict(self.char_counts[i].most_common())
+                for i in range(len(WHEELS))
+            },
+            "chars_seen": sorted({c for counter in self.char_counts for c in counter}),
+            "known_chars": sorted(CHAR_CODES),
+            "unknown_chars": dict(self.unknown_chars),
+            "unknown_flag_bits": {str(bit): n for bit, n in self.unknown_flag_ticks.items()},
+            "recent": list(self.recent),
+            "log_path": str(self.log_path) if self.log_path else None,
+        }

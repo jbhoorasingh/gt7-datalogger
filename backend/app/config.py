@@ -25,6 +25,8 @@ class Settings(BaseSettings):
 
     db_path: Path = Path("data/gt7.db")
     cars_csv: Path = Path("data/cars.csv")
+    # Official GT7 track/layout metadata (see scripts/build_track_metadata.py)
+    tracks_json: Path = Path("data/tracks.json")
     sample_lap: Path = Path("data/sample_lap.json")
 
     http_host: str = "0.0.0.0"

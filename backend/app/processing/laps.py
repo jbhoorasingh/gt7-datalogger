@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from statistics import median
 
 from app.models import TelemetryPacket
+from app.processing.surface import encode_surface, off_track_excursions
 
 log = logging.getLogger(__name__)
 
@@ -59,6 +60,7 @@ SAMPLE_COLUMNS = (
     "tt_fl", "tt_fr", "tt_rl", "tt_rr",
     "sus_fl", "sus_fr", "sus_rl", "sus_rr",  # suspension compression, mm
     "aids",  # AidsBits mask: TCS | ASM | handbrake | rev limiter
+    "surface",  # packed per-wheel surface codes (see processing/surface.py)
 )
 
 
@@ -105,6 +107,11 @@ class CompletedLap:
     max_water_temp: float = 0.0
     max_oil_temp: float = 0.0
     min_oil_pressure: float = -1.0  # sampled above idle rpm only; -1 = unknown
+    # Track-limits verdict from the per-tick surface column. Distinct from
+    # counts_for_best (which flags partial pit out-laps): a lap can be full
+    # AND dirty. -1/None = unknown (recorded without packet-C surface data).
+    off_track_count: int = -1
+    clean_lap: bool | None = None
     # Static per lap: {"ratios": [...], "top_speed": float, "rpm_alert": float}
     gearing: dict[str, object] | None = None
     events: list[dict[str, object]] = field(default_factory=list)
@@ -155,6 +162,10 @@ class CompletedLap:
         if len(aids) == n:
             self.tcs_active_pct = pct([bool(int(v) & AidsBits.TCS) for v in aids])
             self.asm_active_pct = pct([bool(int(v) & AidsBits.ASM) for v in aids])
+        surface = s.get("surface") or []
+        if len(surface) == n:
+            self.off_track_count = off_track_excursions(surface)
+            self.clean_lap = self.off_track_count == 0 if self.off_track_count >= 0 else None
         self.events = detect_events(s)
 
 
@@ -417,6 +428,7 @@ class LapProcessor:
         s["sus_rl"].append(round(p.suspension_rl * 1000, 1))
         s["sus_rr"].append(round(p.suspension_rr * 1000, 1))
         s["aids"].append(float(p.aids_bits))
+        s["surface"].append(float(encode_surface(p.surface_types)))
         # Engine-health aggregates (per-lap, not per-tick)
         self._max_water = max(self._max_water, p.water_temp)
         self._max_oil = max(self._max_oil, p.oil_temp)

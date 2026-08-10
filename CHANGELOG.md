@@ -5,6 +5,47 @@ Notable changes to GT7 Datalogger. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Per-tick surface data is now recorded** (packet C): each lap stores a
+  packed per-wheel `surface` sample column. Every lap gets an honest
+  track-limits verdict — an off-track excursion count (3+ wheels on
+  grass/gravel/dirt for ≥ 0.1 s) and a `clean_lap` flag, shown as an
+  **Off-track** column in the Sessions lap table. The Analysis race-line map
+  shades where wheels touched kerbs (yellow) or left the road (orange).
+  Laps recorded before this release, or without packet format C, show "–"
+  (unknown) rather than pretending to be clean. (#17)
+- **Survey view** (new tab): validates GT7's `surface_types` encoding and the
+  wheel-contact derivation on a real PS5, from any browser on the LAN while
+  driving. Capture runs server-side in the 60 Hz packet path (the ~30 Hz live
+  stream would miss single-tick transitions); the view shows the live
+  per-wheel surface, the char histogram with a loud banner for unknown chars,
+  and every transition's derived contact points on a scatter map. The full
+  transition log (raw rotation floats included) is downloadable as JSONL,
+  feeding the findings note at `docs/internals/surface-survey.md`. Runs are
+  tied to the live session — lap recording continues alongside — and labeled
+  with the circuit being surveyed (picked from the official GT7 track
+  catalog, or auto-identified — even mid-run, when the label is appended to
+  the log as a `track` line). The JSONL meta header carries the label and
+  width assumption; every record carries the session id and lap.
+  The survey map draws the track taking shape lap by lap: border evidence
+  accumulates server-side for the whole run (left/right perimeters draw
+  themselves as edge ticks, the road fills in wherever opposite borders
+  face each other), driving with one side's wheels held off the track
+  traces that border continuously (straddle sampling — not just at the
+  crossing moments), manual marking buttons trace boundaries surface data
+  cannot see (walls, paved run-off limits) from the driven wheel line, a
+  raw-packet inspector shows every decoded field live with changes
+  highlighted, a completeness card grades each perimeter against the driven
+  loop (percent, largest gap, closed ✓) and locates the finish line from
+  lap rollovers, per-circuit **track bundles** persist everything across
+  runs and app restarts (grid-deduped so they converge; resumed
+  automatically, downloadable via `/api/track-bundles`), and the
+  track-width assumption calibrates
+  itself: riding all four wheels over an edge and back measures the real
+  axle width, which replaces the assumption once three rides agree. Live
+  frames now carry the packed `surface` value. (#37)
+
 ## [0.4.1] - 2026-08-07
 
 ### Fixed

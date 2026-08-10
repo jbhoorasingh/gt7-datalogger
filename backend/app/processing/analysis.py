@@ -14,6 +14,11 @@ Samples = dict[str, list[float]]
 
 DEFAULT_STEP_M = 5.0
 
+# Discrete per-tick columns (packed bitfields) where linear interpolation
+# would fabricate values that decode to nonsense — resampled with
+# nearest-neighbor instead.
+NEAREST_COLUMNS = frozenset({"surface"})
+
 
 def _interp(xs: list[float], ys: list[float], x: float) -> float:
     """Linear interpolation with edge clamping. xs must be ascending."""
@@ -44,8 +49,23 @@ def resample_by_distance(
     cols = columns or tuple(k for k in samples if k != "dist")
     for col in cols:
         ys = samples[col]
-        out[col] = [round(_interp(dist, ys, d), 4) for d in grid]
+        if col in NEAREST_COLUMNS:
+            out[col] = [_nearest(dist, ys, d) for d in grid]
+        else:
+            out[col] = [round(_interp(dist, ys, d), 4) for d in grid]
     return out
+
+
+def _nearest(xs: list[float], ys: list[float], x: float) -> float:
+    """Value of the sample nearest to x. xs must be ascending."""
+    if not xs:
+        return 0.0
+    i = bisect_left(xs, x)
+    if i <= 0:
+        return ys[0]
+    if i >= len(xs):
+        return ys[-1]
+    return ys[i] if xs[i] - x < x - xs[i - 1] else ys[i - 1]
 
 
 def time_delta_at(dist_m: float, t_s: float, ref: Samples) -> float | None:

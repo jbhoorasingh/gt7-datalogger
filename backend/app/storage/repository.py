@@ -43,6 +43,8 @@ def lap_summary(row: LapRow) -> dict[str, Any]:
         "max_oil_temp": row.max_oil_temp,
         "min_oil_pressure": row.min_oil_pressure,
         "counts_for_best": row.counts_for_best,
+        "off_track_count": row.off_track_count,
+        "clean_lap": row.clean_lap,
         "event_counts": _event_counts(row.events_json),
     }
 
@@ -90,6 +92,8 @@ class Repository:
                 tcs_active_pct=lap.tcs_active_pct,
                 asm_active_pct=lap.asm_active_pct,
                 counts_for_best=lap.counts_for_best,
+                off_track_count=lap.off_track_count,
+                clean_lap=lap.clean_lap,
                 max_water_temp=lap.max_water_temp,
                 max_oil_temp=lap.max_oil_temp,
                 min_oil_pressure=lap.min_oil_pressure,

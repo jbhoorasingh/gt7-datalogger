@@ -10,7 +10,11 @@ import type {
   LogRecord,
   RaceEngineerDiagnostics,
   SessionSummary,
+  SurveyEdge,
+  SurveyStatus,
   Track,
+  TrackBundleInfo,
+  TrackCatalog,
   VoiceCallout,
 } from "./types";
 
@@ -85,7 +89,31 @@ export const api = {
     send<ConnectionStatus>("/api/control/recording", "POST", { recording }),
   logLapNow: () => send<{ id: number }>("/api/control/log-lap-now", "POST"),
 
+  survey: {
+    status: () => get<SurveyStatus>("/api/survey/status"),
+    start: (trackWidthM: number, track: string) =>
+      send<SurveyStatus>("/api/survey/start", "POST", {
+        track_width_m: trackWidthM,
+        track,
+      }),
+    stop: () => send<SurveyStatus>("/api/survey/stop", "POST"),
+    trail: (since: number, epoch: number) =>
+      get<{ epoch: number; since: number; points: [number, number][]; total: number }>(
+        `/api/survey/trail?since=${since}&epoch=${epoch}`,
+      ),
+    edges: (since: number, epoch: number) =>
+      get<{ epoch: number; since: number; points: SurveyEdge[]; total: number }>(
+        `/api/survey/edges?since=${since}&epoch=${epoch}`,
+      ),
+    mark: (side: "L" | "R" | null, kind: "edge" | "runoff" | "wall") =>
+      send<SurveyStatus>("/api/survey/mark", "POST", { side, kind }),
+    packet: () => get<{ packet: Record<string, unknown> | null }>("/api/survey/packet"),
+    exportUrl: "/api/survey/export.jsonl",
+  },
+
   tracks: () => get<Track[]>("/api/tracks"),
+  trackCatalog: () => get<TrackCatalog>("/api/track-catalog"),
+  trackBundles: () => get<TrackBundleInfo[]>("/api/track-bundles"),
   createTrack: (name: string, lapId: number) =>
     send<{ id: number; name: string }>("/api/tracks", "POST", { name, lap_id: lapId }),
   deleteTrack: (id: number) => send<{ status: string }>(`/api/tracks/${id}`, "DELETE"),

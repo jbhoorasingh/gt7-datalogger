@@ -25,6 +25,7 @@ export interface LiveFrame {
   oil_temp: number;
   oil_pressure: number;
   aids: number; // AIDS_* bitmask
+  surface: number; // packed per-wheel SURFACE_* codes; 0 = no data (pre-C format)
   car_id: number;
   car_name: string;
   session_best_ms: number;
@@ -75,6 +76,8 @@ export interface LapSummary {
   max_oil_temp?: number;
   min_oil_pressure?: number; // -1 = unknown
   counts_for_best?: boolean; // false = partial lap (pit out-lap)
+  off_track_count?: number; // excursions past track limits; -1 = unknown
+  clean_lap?: boolean | null; // null = unknown (no surface data recorded)
   event_counts?: Record<string, number>;
 }
 
@@ -84,6 +87,132 @@ export const AIDS_TCS = 1;
 export const AIDS_ASM = 2;
 export const AIDS_HANDBRAKE = 4;
 export const AIDS_REV_LIMITER = 8;
+
+// Per-tick packed surface codes stored in the "surface" sample column:
+// 4 bits per wheel, FL in the lowest nibble (FL | FR<<4 | RL<<8 | RR<<12).
+// Mirrors backend app/processing/surface.py.
+export const SURFACE_NONE = 0; // recorded without packet-C surface data
+export const SURFACE_TARMAC = 1;
+export const SURFACE_KERB = 2;
+export const SURFACE_DIRT = 3;
+export const SURFACE_GRASS = 4;
+export const SURFACE_SAND = 5;
+export const SURFACE_SNOW = 6;
+export const SURFACE_OTHER = 7;
+
+export function surfaceWheelCodes(v: number): [number, number, number, number] {
+  return [v & 0xf, (v >> 4) & 0xf, (v >> 8) & 0xf, (v >> 12) & 0xf];
+}
+
+export function looseWheelCount(v: number): number {
+  return surfaceWheelCodes(v).filter((c) => c >= SURFACE_DIRT && c <= SURFACE_SNOW).length;
+}
+
+export function kerbWheelCount(v: number): number {
+  return surfaceWheelCodes(v).filter((c) => c === SURFACE_KERB).length;
+}
+
+// --- Surface survey (mirrors backend app/processing/survey.py) ---------------
+
+export const SURVEY_WHEELS = ["FL", "FR", "RL", "RR"] as const;
+
+// One per-wheel surface change, pushed over the WebSocket as it happens and
+// kept in the survey status' `recent` ring.
+export interface SurveyTransition {
+  n: number;
+  pid: number;
+  session_id: number | null;
+  lap: number;
+  from: string; // 4 surface chars, FL FR RL RR
+  to: string;
+  changed: string[]; // wheels whose char flipped
+  // Track border this contact belongs to, relative to travel direction:
+  // set when one side touched kerb/loose while the other stayed on tarmac.
+  border: "L" | "R" | null;
+  // Manual marking kind active when this transition happened, if any.
+  mark: string | null;
+  pos: [number, number, number]; // x, y, z
+  vel: [number, number, number];
+  speed_mps: number;
+  heading_rad: number | null; // null below ~3 m/s (velocity heading is noise)
+  rotation: [number, number, number];
+  rel_north: number;
+  wheelbase_m: number | null;
+  flags: number; // raw packet flags (undocumented-bit correlation)
+  tw_m: number | null; // track width used for this record's contacts
+  // Derived wheel-contact points [x, z]; null when heading was unavailable
+  contacts: Record<string, [number, number]> | null;
+}
+
+// One border-edge point — the unit of "the track taking shape". kind
+// "auto" comes from surface transitions; "straddle" is sampled continuously
+// while one side's wheels are held off the tarmac (the border traces itself
+// as you drive along it); "edge"/"runoff"/"wall" come from the driver
+// holding a marking button while driving the boundary.
+export interface SurveyEdge {
+  x: number;
+  z: number;
+  hx: number; // travel-direction unit at the moment of evidence
+  hz: number;
+  side: "L" | "R";
+  kind: "auto" | "straddle" | "edge" | "runoff" | "wall";
+}
+
+// Start/finish line located from lap rollovers (GT7 increments current_lap
+// exactly on the line). Provisional after one crossing; confident once
+// repeat crossings land within meters of each other.
+export interface SurveyFinish {
+  x: number;
+  z: number;
+  hx: number; // travel direction across the line
+  hz: number;
+  crossings: number;
+  spread_m: number;
+  confident: boolean;
+}
+
+// A circuit's persisted survey bundle, as listed by /api/track-bundles.
+export interface TrackBundleInfo {
+  track: string;
+  slug: string;
+  runs: number;
+  updated_at: string;
+  points: number;
+  finish_crossings: number;
+}
+
+export interface SurveyStatus {
+  active: boolean;
+  started_at: string | null;
+  track: string; // circuit label; picked at start or auto-identified mid-run
+  session_id: number | null; // session the transitions belong to
+  track_width_m: number; // the assumption entered at start
+  width_estimate_m: number | null; // median of measured edge crossings
+  width_samples: number; // accepted crossing measurements so far
+  width_in_use_m: number; // what contact derivation actually uses
+  trail_points: number;
+  trail_epoch: number;
+  edge_points: number;
+  edges_epoch: number;
+  finish: SurveyFinish | null;
+  // Persistent per-circuit knowledge this run resumed from / saves into
+  // (data/track-bundles/<slug>.json). null = fresh circuit.
+  bundle: { track: string; runs: number; updated_at: string; points: number } | null;
+  mark_side: "L" | "R" | null; // manual boundary marking armed on this side
+  mark_kind: "edge" | "runoff" | "wall";
+  packets: number;
+  no_surface_packets: number;
+  transitions: number;
+  histogram: Record<string, Record<string, number>>; // wheel -> char -> count
+  chars_seen: string[];
+  known_chars: string[];
+  unknown_chars: Record<string, number>;
+  // Undocumented packet-flag bits (12–15) seen active: bit -> tick count.
+  // GT7 has no known track-limits field; one ever activating is a finding.
+  unknown_flag_bits: Record<string, number>;
+  recent: SurveyTransition[];
+  log_path: string | null;
+}
 
 export type EventType = "lockup" | "wheelspin" | "bottoming" | "kerb";
 
@@ -118,6 +247,20 @@ export interface Track {
   name: string;
   length_m: number;
   created_at: string;
+}
+
+// Official GT7 track/layout metadata (bundled data/tracks.json — only the
+// fields the UI reads; the endpoint returns more).
+export interface TrackCatalog {
+  tracks: {
+    name: string;
+    layouts: {
+      name: string;
+      official_name: string;
+      length_m: number;
+      reverse: { official_id: string; turns: number } | null;
+    }[];
+  }[];
 }
 
 export type Samples = Record<string, number[]>;
@@ -348,6 +491,7 @@ export type WsMessage =
   | { type: "lap"; data: LapSummary }
   | { type: "status"; data: ConnectionStatus }
   | { type: "session"; data: ConnectionStatus }
+  | { type: "survey"; data: SurveyTransition }
   | { type: "voice_callout"; data: VoiceCallout }
   | { type: "voice_output_status"; data: { active_client_id: string } }
   | { type: "race_engineer_status"; data: RaceEngineerStatus };

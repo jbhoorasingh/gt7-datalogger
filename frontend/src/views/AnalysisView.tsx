@@ -38,6 +38,10 @@ const CORNER_COLUMNS = [
   "throttle", "brake",
 ];
 
+// The race-line map shades where wheels touched kerb/grass/gravel whenever
+// the lap carries the per-tick surface column (packet C recordings).
+const MAP_COLUMNS = ["surface"];
+
 export function AnalysisView({ request }: { request: AnalysisRequest }) {
   const units = useSettings((s) => s.units);
   const lapEpoch = useTelemetry((s) => s.lapEpoch);
@@ -143,7 +147,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
   // The request always carries the per-corner columns for the Corner Detail
   // widget on top of whatever the picked panels need.
   const requestColumns = useMemo(
-    () => [...new Set([...columnsForChannels(channelKeys), ...CORNER_COLUMNS])],
+    () => [...new Set([...columnsForChannels(channelKeys), ...CORNER_COLUMNS, ...MAP_COLUMNS])],
     [channelKeys],
   );
   useEffect(() => {
