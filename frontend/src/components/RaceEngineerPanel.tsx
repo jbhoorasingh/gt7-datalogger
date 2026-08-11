@@ -150,12 +150,27 @@ export function RaceEngineerPanel({ compact = false }: { compact?: boolean }) {
             s.setVoice(e.target.value, voice?.lang ?? s.lang);
           }}
         >
-          <option value="">Browser default</option>
-          {voices.map((v) => (
-            <option key={v.voiceURI} value={v.voiceURI}>
-              {v.name} ({v.lang})
-            </option>
-          ))}
+          <option value="">Browser default (on-device voice)</option>
+          {/* On-device voices first and in their own group: a network-backed
+              voice accepts speak() and can then never start, which surfaces
+              only as "no response from the speech engine". The flat list gave
+              no way to tell the two apart. */}
+          {(["local", "network"] as const).map((kind) => {
+            const group = voices.filter((v) => v.localService === (kind === "local"));
+            if (!group.length) return null;
+            return (
+              <optgroup
+                key={kind}
+                label={kind === "local" ? "On-device (recommended)" : "Network — may not start"}
+              >
+                {group.map((v) => (
+                  <option key={v.voiceURI} value={v.voiceURI}>
+                    {v.name} ({v.lang})
+                  </option>
+                ))}
+              </optgroup>
+            );
+          })}
         </select>
       </label>
 

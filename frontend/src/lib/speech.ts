@@ -86,15 +86,27 @@ export function pickVoice(
   opts: { voiceURI: string; lang: string },
 ): SpeechSynthesisVoice | null {
   if (voices.length === 0) return null;
+  // An explicit choice is honoured even if it is network-backed: it is the
+  // user's, and the failure path below reports clearly when it never starts.
   const exact = voices.find((v) => v.voiceURI === opts.voiceURI);
   if (exact) return exact;
+  // Otherwise prefer ON-DEVICE voices at every tier. Chrome mixes local
+  // system voices with network-backed Google ones in a single flat list
+  // (~200 entries on macOS), and a network voice ACCEPTS speak() and can
+  // then never start — no error, no `onstart`, just the watchdog firing
+  // "no response from the speech engine". Local voices start immediately
+  // and work offline, which is what live race callouts need anyway.
   const lang = opts.lang || "en";
-  const sameLang = voices.find((v) => v.lang === lang);
-  if (sameLang) return sameLang;
-  const samePrefix = voices.find((v) => v.lang.startsWith(lang.split("-")[0]));
-  if (samePrefix) return samePrefix;
-  const english = voices.find((v) => v.lang.startsWith("en"));
-  return english ?? voices.find((v) => v.default) ?? voices[0];
+  const base = lang.split("-")[0];
+  const preferLocal = (list: SpeechSynthesisVoice[]) =>
+    list.find((v) => v.localService) ?? list[0];
+  const sameLang = voices.filter((v) => v.lang === lang);
+  if (sameLang.length) return preferLocal(sameLang);
+  const samePrefix = voices.filter((v) => v.lang.startsWith(base));
+  if (samePrefix.length) return preferLocal(samePrefix);
+  const english = voices.filter((v) => v.lang.startsWith("en"));
+  if (english.length) return preferLocal(english);
+  return voices.find((v) => v.default) ?? voices[0];
 }
 
 export function isExpired(item: QueuedCallout, now: number): boolean {
@@ -324,12 +336,49 @@ export class VoiceQueue {
     // voices are often network-backed and take seconds to begin — a deadline
     // tight enough to catch a dead engine quickly would cancel speech that was
     // merely slow, which is worse than waiting.
-    this.watchdog = window.setTimeout(() => {
-      cancelIfSpeaking();
-      finish("speech_error", `no response from the speech engine (${engineDetail()})`);
-    }, START_TIMEOUT_MS);
+    //
+    // If it never starts, try ONCE more with an on-device voice before giving
+    // up. Chrome accepts an utterance for a network-backed voice and can then
+    // silently drop it — no start, no end, no error — and an explicitly chosen
+    // voice is honoured by pickVoice precisely because it is the user's
+    // choice, so the only way out of that hole is to fall back here and say
+    // so. Local voices are synthesised on the machine and always start.
+    const armWatchdog = (retried: boolean) => {
+      this.watchdog = window.setTimeout(() => {
+        cancelIfSpeaking();
+        const local = retried ? null : localFallbackVoice(voice);
+        if (local) {
+          this.hooks.onSpeechFailure?.(
+            `${voice?.name ?? "the chosen voice"} never started — trying ${local.name}`,
+          );
+          utterance.voice = local;
+          utterance.lang = local.lang;
+          armWatchdog(true);
+          speak(utterance);
+          return;
+        }
+        finish("speech_error", `no response from the speech engine (${engineDetail(voice)})`);
+      }, START_TIMEOUT_MS);
+    };
+    armWatchdog(false);
     speak(utterance);
   }
+}
+
+/** An on-device voice to retry with, or null if `voice` already was one. */
+function localFallbackVoice(
+  voice: SpeechSynthesisVoice | null,
+): SpeechSynthesisVoice | null {
+  if (voice?.localService) return null;
+  const voices = getVoices();
+  const lang = voice?.lang ?? "en";
+  return (
+    voices.find((v) => v.localService && v.lang === lang)
+    ?? voices.find((v) => v.localService && v.lang.startsWith(lang.split("-")[0]))
+    ?? voices.find((v) => v.localService && v.lang.startsWith("en"))
+    ?? voices.find((v) => v.localService)
+    ?? null
+  );
 }
 
 /**
@@ -384,15 +433,25 @@ function cancelIfSpeaking(): void {
 }
 
 /** What the engine looks like right now — the detail a failure report needs. */
-export function engineDetail(): string {
+export function engineDetail(tried?: SpeechSynthesisVoice | null): string {
   if (!speechSupported()) return "no speech synthesis in this browser";
-  const voices = getVoices().length;
-  if (voices === 0) {
+  const all = getVoices();
+  if (all.length === 0) {
     return "no voices are installed — on Linux, Chrome needs a speech engine "
       + "(speech-dispatcher); otherwise try another browser";
   }
   const state = window.speechSynthesis.paused ? ", engine paused" : "";
-  return `${voices} voices available${state}`;
+  // Name the voice that was actually attempted. "199 voices available" says
+  // the list is fine and nothing about the one that stayed silent, which is
+  // the only part that matters when the engine accepts an utterance and drops
+  // it — and whether it was on-device separates a dead voice from a dead
+  // engine without anyone opening a console.
+  if (tried === undefined) return `${all.length} voices available${state}`;
+  const local = all.filter((v) => v.localService).length;
+  const who = tried
+    ? `tried ${tried.name}${tried.localService ? " (on-device)" : " (network)"}`
+    : "no voice could be selected";
+  return `${who}; ${all.length} voices, ${local} on-device${state}`;
 }
 
 /** Whether an error event is just our own cancel() coming back to us. */
@@ -448,10 +507,30 @@ export function speakTest(text: string, opts: SpeechOptions, hooks: SpeakHooks =
   // voices can take several seconds to begin, and calling that a failure
   // reports a broken engine to someone whose engine is about to speak.
   // Nothing is cancelled here either: a late start is still a start.
+  // ...and if it truly never starts, retry once on an on-device voice before
+  // reporting a dead engine. Chrome silently drops utterances bound to
+  // network-backed voices, and Test voice is exactly where someone is trying
+  // to find that out.
   let settled = false;
-  const timer = window.setTimeout(() => {
-    if (!settled) hooks.onError?.(`no response from the speech engine (${engineDetail()})`);
-  }, START_TIMEOUT_MS);
+  let timer = 0;
+  let attempted = voice;
+  const arm = (retried: boolean) => {
+    timer = window.setTimeout(() => {
+      if (settled) return;
+      const local = retried ? null : localFallbackVoice(attempted);
+      if (local) {
+        cancelIfSpeaking();
+        attempted = local;
+        utterance.voice = local;
+        utterance.lang = local.lang;
+        arm(true);
+        speak(utterance);
+        return;
+      }
+      hooks.onError?.(`no response from the speech engine (${engineDetail(attempted)})`);
+    }, START_TIMEOUT_MS);
+  };
+  arm(false);
   const settle = () => {
     settled = true;
     window.clearTimeout(timer);
