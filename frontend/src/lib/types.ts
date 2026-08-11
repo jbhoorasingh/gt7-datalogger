@@ -256,6 +256,7 @@ export interface SessionSummary {
   started_at: string;
   car_id: number;
   car_name: string;
+  car_category: string; // packet C: "Gr.3", "Gr.4", "N300"...; "" when unknown
   note: string;
   track_name: string;
   lap_count: number;

@@ -24,7 +24,24 @@ export function SessionsView() {
   const [naming, setNaming] = useState<number | null>(null); // session id
   const [deletingSession, setDeletingSession] = useState<number | null>(null);
   const [deletingLap, setDeletingLap] = useState<{ sessionId: number; lapId: number } | null>(null);
+  // Car category (packet C) as a grouping key: "show me only the Gr.3 runs".
+  // Empty string = no filter; sessions recorded without packet C have no
+  // category and are only reachable from "All".
+  const [category, setCategory] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
+
+  // Only offer categories actually present, so the control disappears
+  // entirely on a history recorded before packet C.
+  const categories = [
+    ...new Set((sessions ?? []).map((s) => s.car_category).filter(Boolean)),
+  ].sort();
+  // Deleting the last session of the filtered category would otherwise leave
+  // the filter set to a value with no chip and no rows — a blank list with no
+  // way back. Fall back to unfiltered whenever the selection stops existing.
+  const active = categories.includes(category) ? category : "";
+  const visible = (sessions ?? []).filter(
+    (s) => !active || s.car_category === active,
+  );
 
   const refresh = useCallback(() => {
     api.sessions()
@@ -128,8 +145,28 @@ export function SessionsView() {
         </div>
       )}
 
+      {categories.length > 0 && (
+        <div className="mb-2 flex flex-wrap items-center gap-1">
+          <span className="mr-1 text-xs text-ink-dim">Category</span>
+          {["", ...categories].map((c) => (
+            <button
+              key={c || "all"}
+              onClick={() => setCategory(c)}
+              aria-pressed={active === c}
+              className={`rounded-full px-3 py-1 text-xs transition-colors ${
+                active === c
+                  ? "bg-accent/15 text-accent"
+                  : "text-ink-dim hover:bg-panel-2 hover:text-ink"
+              }`}
+            >
+              {c || "All"}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="space-y-2">
-        {(sessions ?? []).map((s) => (
+        {visible.map((s) => (
           <div key={s.id} className="rounded-xl bg-panel">
             <div className="flex w-full items-center gap-4 px-4 py-3">
               {/* Click-to-toggle convenience area. Deliberately a div, not a
@@ -142,6 +179,11 @@ export function SessionsView() {
               >
                 <span className="font-tabular text-sm text-ink-dim">#{s.id}</span>
                 <span className="truncate font-medium">{s.car_name}</span>
+                {s.car_category && (
+                  <span className="shrink-0 rounded-full bg-panel-2 px-2 py-0.5 text-xs text-ink-dim">
+                    {s.car_category}
+                  </span>
+                )}
                 {s.track_name ? (
                   <span className="rounded-full bg-accent/10 px-2 py-0.5 text-xs text-accent">
                     {s.track_name}

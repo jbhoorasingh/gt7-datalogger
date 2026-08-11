@@ -173,3 +173,37 @@ async def test_survey_edges_serve_the_shape_the_map_draws(client, tmp_path) -> N
     assert point["run"] == 1 and point["tw"] == 1.6
     assert {"x", "z", "hx", "hz", "side"} <= set(point)
     survey.stop()
+
+
+async def test_car_category_is_persisted_and_served(client) -> None:
+    """Packet C broadcasts the category ("Gr.3", "Gr.4"...) and it was being
+    dropped. It is the free grouping key for "best in a Gr.3 car here" (#19),
+    so it has to survive onto the session AND the lap — denormalised like
+    car_id, so filtering never needs a join.
+    """
+    c, service = client
+    for lap in range(1, 3):
+        for tick in range(60):
+            await service.processor.feed(
+                parse_packet(build_packet(
+                    fmt="C", car_id=42, car_category="Gr.3", current_lap=lap,
+                    last_lap_time_ms=61_000 if lap > 1 else -1,
+                    flags=ON_TRACK, packet_id=lap * 100 + tick,
+                    position=(float(tick), 0.0, 0.0), surface_types="TTTT",
+                ))
+            )
+
+    sessions = (await c.get("/api/sessions")).json()
+    assert sessions, "a session should have been created"
+    assert sessions[0]["car_category"] == "Gr.3"
+
+    laps = (await c.get("/api/laps")).json()
+    assert laps and laps[0]["car_category"] == "Gr.3"
+
+
+async def test_laps_without_packet_c_have_a_blank_category(client) -> None:
+    """Format A carries no category; blank must not read as a real one."""
+    c, service = client
+    await drive_laps(service, laps=1)
+    laps = (await c.get("/api/laps")).json()
+    assert laps[0]["car_category"] == ""

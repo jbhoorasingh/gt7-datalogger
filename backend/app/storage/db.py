@@ -25,6 +25,9 @@ class SessionRow(Base):
     started_at: Mapped[str]
     car_id: Mapped[int]
     car_name: Mapped[str]
+    # Broadcast in packet C ("Gr.3", "Gr.4", "N300"...). Stored on the lap too,
+    # denormalised like car_id, so category filtering never needs the join.
+    car_category: Mapped[str] = mapped_column(default="")
     note: Mapped[str] = mapped_column(default="")
     track_name: Mapped[str] = mapped_column(default="")
 
@@ -80,6 +83,7 @@ class LapRow(Base):
     time_ms: Mapped[int]
     finished_at: Mapped[str]
     car_id: Mapped[int]
+    car_category: Mapped[str] = mapped_column(default="")
     fuel_start: Mapped[float]
     fuel_end: Mapped[float]
     fuel_consumed: Mapped[float]
@@ -129,6 +133,11 @@ _SQLITE_MIGRATIONS = (
         "track_name",
         "ALTER TABLE sessions ADD COLUMN track_name VARCHAR NOT NULL DEFAULT ''",
     ),
+    (
+        "sessions",
+        "car_category",
+        "ALTER TABLE sessions ADD COLUMN car_category VARCHAR NOT NULL DEFAULT ''",
+    ),
     ("laps", "tod_ms", "ALTER TABLE laps ADD COLUMN tod_ms INTEGER NOT NULL DEFAULT -1"),
     (
         "laps",
@@ -147,6 +156,7 @@ _SQLITE_MIGRATIONS = (
         ("gearing_json", "TEXT NOT NULL DEFAULT ''"),
         ("off_track_count", "INTEGER NOT NULL DEFAULT -1"),
         ("clean_lap", "BOOLEAN"),
+        ("car_category", "VARCHAR NOT NULL DEFAULT ''"),
     )
 )
 

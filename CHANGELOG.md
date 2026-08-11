@@ -46,6 +46,15 @@ Notable changes to GT7 Datalogger. The format follows
   axle width, which replaces the assumption once three rides agree. Live
   frames now carry the packed `surface` value. (#37)
 
+- **Car category is a first-class dimension.** Packet C broadcasts the
+  category ("Gr.3", "Gr.4", "N300"…) and it was decoded and thrown away.
+  It is now stored on the session and, denormalised like `car_id`, on every
+  lap — so grouping by it never needs a join — and served by the sessions
+  and laps APIs. The Sessions list shows it as a badge and offers category
+  filter chips, which appear only when a category is actually present, so a
+  history recorded before packet C looks unchanged. Laps without packet C
+  keep a blank category rather than being lumped into a real one. (#19)
+
 - **Border records carry elevation, and measured axle track is remembered
   per car.** GT7 broadcasts position on all three axes and the car id
   (`carCode`), both of which were being thrown away by the survey. Bundles

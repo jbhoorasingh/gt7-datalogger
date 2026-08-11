@@ -26,6 +26,7 @@ def lap_summary(row: LapRow) -> dict[str, Any]:
         "time_ms": row.time_ms,
         "finished_at": row.finished_at,
         "car_id": row.car_id,
+        "car_category": row.car_category,
         "fuel_start": row.fuel_start,
         "fuel_end": row.fuel_end,
         "fuel_consumed": row.fuel_consumed,
@@ -65,7 +66,10 @@ class Repository:
 
     async def create_session(self, info: SessionInfo, car_name: str) -> int:
         async with self._sf() as db:
-            row = SessionRow(started_at=info.started_at, car_id=info.car_id, car_name=car_name)
+            row = SessionRow(
+                started_at=info.started_at, car_id=info.car_id, car_name=car_name,
+                car_category=info.car_category,
+            )
             db.add(row)
             await db.commit()
             return row.id
@@ -75,6 +79,7 @@ class Repository:
             row = LapRow(
                 session_id=session_id,
                 number=lap.number,
+                car_category=lap.car_category,
                 time_ms=lap.time_ms,
                 finished_at=lap.finished_at,
                 car_id=lap.car_id,
@@ -126,6 +131,7 @@ class Repository:
                     "started_at": s.started_at,
                     "car_id": s.car_id,
                     "car_name": s.car_name,
+                    "car_category": s.car_category,
                     "note": s.note,
                     "track_name": s.track_name,
                     "lap_count": count,

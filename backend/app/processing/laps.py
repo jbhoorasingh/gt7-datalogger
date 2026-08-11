@@ -123,6 +123,7 @@ class CompletedLap:
     # when `invalidated_best` fires. Only the short ones: a longer lap does not
     # prove that every earlier lap was partial.
     partial_lap_numbers: list[int] = field(default_factory=list)
+    car_category: str = ""  # packet C: "Gr.3", "Gr.4", "N300"...
     # True once enough full laps agree on the track's length for the span
     # check to be trustworthy. Coaching waits for this.
     span_confirmed: bool = False
@@ -175,6 +176,7 @@ class SessionInfo:
     started_at: str
     lap_count: int = 0
     best_lap_time_ms: int = -1
+    car_category: str = ""  # packet C: "Gr.3", "Gr.4", "N300"...
 
 
 LapCallback = Callable[[CompletedLap], Awaitable[None]]
@@ -251,6 +253,7 @@ class LapProcessor:
         if self._session is None or lap_reset:
             self._session = SessionInfo(
                 car_id=p.car_id,
+                car_category=p.car_category or "",
                 started_at=datetime.now(UTC).isoformat(),
             )
             self._current_lap = -1
@@ -298,6 +301,7 @@ class LapProcessor:
                 time_ms=p.last_lap_time_ms,
                 finished_at=datetime.now(UTC).isoformat(),
                 car_id=p.car_id,
+                car_category=p.car_category or "",
                 samples=finished_samples,
                 fuel_start=fuel_start,
                 fuel_end=p.fuel_level,
