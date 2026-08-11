@@ -1,11 +1,18 @@
-// Minimal hash router: #/live, #/analysis, #/sessions, #/admin, with optional
+// Minimal hash router: #/live, #/analysis, #/sessions, #/tracks, #/admin, with optional
 // query params (#/analysis?session=3&laps=12,15&ref=15). The URL is the single
 // source of truth for cross-view handoff (Sessions/Live → Analysis) and makes
 // every view bookmarkable. The /overlay path is handled separately (lib/overlay).
 
-export type View = "live" | "analysis" | "sessions" | "survey" | "admin";
+export type View = "live" | "analysis" | "sessions" | "survey" | "tracks" | "admin";
 
-const VIEWS: readonly View[] = ["live", "analysis", "sessions", "survey", "admin"];
+const VIEWS: readonly View[] = [
+  "live",
+  "analysis",
+  "sessions",
+  "survey",
+  "tracks",
+  "admin",
+];
 
 export interface Route {
   view: View;

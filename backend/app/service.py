@@ -15,6 +15,7 @@ from fastapi import WebSocket
 from app.config import Settings
 from app.models import TelemetryPacket
 from app.notify import Notifier
+from app.processing import track_bundle
 from app.processing.analysis import Samples, time_delta_at
 from app.processing.cars import CarDatabase
 from app.processing.laps import CompletedLap, LapProcessor, SessionInfo
@@ -101,6 +102,9 @@ class TelemetryService:
             categories=settings.enabled_callout_categories(),
             units=settings.race_engineer_units,
         )
+        # Authored corners outrank detection, and the bundles they live in are
+        # this class's business, not the engineer's (#48).
+        self.engineer.corner_source = self.authored_corners
         # client_id of the browser currently allowed to speak, and the last
         # one that held the claim (restored when the same page reconnects).
         self._active_voice_client = ""
@@ -117,6 +121,28 @@ class TelemetryService:
         self._clients: dict[WebSocket, _ClientStream] = {}
         self._last_ws_send = 0.0
         self._ws_interval = 1.0 / settings.ws_rate
+        # Authored corners per circuit slug, read out of the track bundle
+        # (#48). Cached because the bundle is a multi-megabyte document and
+        # the corners in it are a few hundred bytes — parsing the whole thing
+        # at every lap boundary to re-read seventeen apexes would be absurd.
+        # Invalidated when the refine view saves.
+        self._authored: dict[str, list[dict[str, Any]]] = {}
+
+    def authored_corners(self, track: str) -> list[dict[str, Any]]:
+        """A circuit's hand-labelled corners, if it has any. Blocking: the
+        callers run it on a worker thread."""
+        if not track:
+            return []
+        key = track_bundle.slugify(track)
+        corners = self._authored.get(key)
+        if corners is None:
+            doc = track_bundle.load(self.settings.db_path.parent, track)
+            corners = doc["corners"] if doc else []
+            self._authored[key] = corners
+        return corners
+
+    def invalidate_authored_corners(self, track: str) -> None:
+        self._authored.pop(track_bundle.slugify(track), None)
 
     async def start(self) -> None:
         await self.source.start()

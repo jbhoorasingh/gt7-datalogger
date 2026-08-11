@@ -64,6 +64,7 @@ nav:
       - Live view: guide/live-view.md
       - Analysis view: guide/analysis-view.md
       - Sessions view: guide/sessions-view.md
+      - Tracks view: guide/tracks-view.md
       - Overlay & streaming: guide/overlay.md
       - Driver dashboard: guide/dash.md
       - Race Engineer (voice): guide/race-engineer.md
@@ -83,4 +84,5 @@ nav:
   - Reference:
       - REST & WebSocket API: reference/api.md
       - Lap file format: reference/lap-file-format.md
+      - Track bundle format: reference/track-bundle-format.md
       - Troubleshooting: reference/troubleshooting.md

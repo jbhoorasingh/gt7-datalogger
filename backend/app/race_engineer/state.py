@@ -128,6 +128,19 @@ class EngineerContext:
                 return int(corner["n"])
         return None
 
+    def corner_name(self, number: int | None) -> str:
+        """A corner's hand-given name, if this circuit's corners were labelled.
+
+        Only authored corners carry one — detection has nothing to name a
+        corner after (#48).
+        """
+        if number is None:
+            return ""
+        for corner in self.corners:
+            if int(corner["n"]) == number:
+                return str(corner.get("name") or "")
+        return ""
+
     def corner_ahead(self, dist_m: float, window_m: float) -> int | None:
         """The corner a driver at this distance is braking for, if any.
 

@@ -159,8 +159,8 @@ imported at build time like `data/tracks.json`. Width calibration stays out:
 it belongs to the car, not the circuit.
 
 A meter of border is **one fact, voted on** (format v2). Each record carries
-`votes[kind] = [count, last_run]`, and the kind it resolves to follows one
-rule: **hand-marked kinds beat inferred ones outright**, majority inside
+`votes[kind][source] = [count, last_run]`, and the kind it resolves to
+follows one rule: **hand-marked kinds beat inferred ones outright**, majority inside
 each tier. That is not a tie-break preference — the surface chars are
 *blind* to walls and paved run-off (both read as plain `T`), so an
 auto/straddle point at a marked meter is not evidence against the mark, only
@@ -179,9 +179,26 @@ recorded as run 0 so the next real run outranks it.
 Votes count **runs, not samples** — the ~60 s autosave re-merges the same
 run's evidence repeatedly, and without the run stamp a long session would
 inflate its own votes by however many times it happened to autosave.
-(Open for [#40](https://github.com/jbhoorasingh/gt7-datalogger/issues/40):
-run ordinals are local to one installation, so merging two people's bundles
-needs a source id before these counts mean anything across them.)
+
+They also count runs **per source** (format v4). Run ordinals are local: my
+run 7 and your run 7 are unrelated facts, so a merge keyed on the ordinal
+alone would double-count one and silently drop the other depending on which
+ordinals happened to collide, and the counts would stop being a census of
+independent observations — which is the only reading under which "majority"
+resolves anything. Every installation stamps a **source id** (12 hex
+characters, generated once into `data/source-id.json`) on the votes it casts,
+and a merge advances each source's own highest run. Two people who each drove
+a meter once have seen it twice between them; re-pulling the same shared
+bundle changes nothing. That is what made import and cross-machine merge
+possible ([#47](https://github.com/jbhoorasingh/gt7-datalogger/issues/47)) —
+see the [format reference](../reference/track-bundle-format.md).
+
+Bundles also carry **authored** knowledge from v4: corners and sections
+labelled by hand in the [Tracks view](../guide/tracks-view.md), anchored to
+world positions rather than lap distances. Authored data outranks derived
+data — the same principle the voting already follows — so a labelled circuit's
+corner numbering stops being re-inferred from each lap's curvature
+([#48](https://github.com/jbhoorasingh/gt7-datalogger/issues/48)).
 
 Records also carry the provenance needed to second-guess them: `run` (which
 run first evidenced the meter) and `tw` (the axle track width in use when it

@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import io
-import json
 import math
-import re
 from dataclasses import asdict
-from functools import lru_cache
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -223,26 +220,6 @@ async def delete_track(request: Request, track_id: int) -> dict[str, str]:
     return {"status": "deleted"}
 
 
-@lru_cache(maxsize=1)
-def _load_track_catalog(path: str) -> dict[str, Any]:
-    # The bundled file only changes with a release; cache the parse.
-    data: dict[str, Any] = json.loads(Path(path).read_text(encoding="utf-8"))
-    return data
-
-
-@router.get("/track-catalog")
-async def track_catalog(request: Request) -> dict[str, Any]:
-    """Official GT7 track/layout metadata (bundled data/tracks.json)."""
-    path = svc(request).settings.tracks_json
-    if not path.exists():
-        # The default is relative to backend/; dev servers often run from the
-        # repo root (cars.csv papers over this with GT7_CARS_CSV in .env).
-        path = Path(__file__).resolve().parents[2] / "data" / "tracks.json"
-    if not path.exists():
-        raise HTTPException(404, "track catalog not bundled")
-    return _load_track_catalog(str(path))
-
-
 class ImportPayload(BaseModel):
     format: str
     version: int
@@ -378,6 +355,12 @@ async def compare(
         raise HTTPException(404, f"reference lap {ref} not found")
     events_by_id = await svc(request).repo.get_laps_events(lap_ids)
 
+    # The circuit's authored corners, if it has been labelled (#48). Reading
+    # them parses the track bundle the first time, which is a multi-megabyte
+    # document — off the event loop.
+    track = await svc(request).repo.track_for_lap(ref)
+    authored = await asyncio.to_thread(svc(request).authored_corners, track)
+
     out: dict[str, Any] = {"ref": ref, "step": step, "channels": list(columns), "laps": {}}
     for lap_id, samples in samples_by_id.items():
         present = tuple(c for c in columns if c in samples)
@@ -388,8 +371,10 @@ async def compare(
         }
         if lap_id == ref:
             # Corner numbering comes from the reference lap only, so every
-            # overlaid lap shares one consistent set of map markers.
-            entry["corners"] = analysis.detect_corners(samples)
+            # overlaid lap shares one consistent set of map markers — and from
+            # the circuit's authored corners when it has them, so the numbering
+            # is the same in every session too, not just within this one.
+            entry["corners"] = analysis.corners_for_lap(samples, authored)
         else:
             entry["delta"] = analysis.time_delta_series(samples, samples_by_id[ref], step)
         out["laps"][str(lap_id)] = entry
@@ -594,29 +579,9 @@ async def survey_export(request: Request) -> PlainTextResponse:
     )
 
 
-# --- track bundles (persistent survey knowledge per circuit) ------------------
-
-
-@router.get("/track-bundles")
-async def track_bundles(request: Request) -> list[dict[str, Any]]:
-    """Every circuit's accumulated survey bundle (perimeters, finish line)."""
-    from app.processing import track_bundle
-
-    return track_bundle.list_bundles(svc(request).settings.db_path.parent)
-
-
-@router.get("/track-bundles/{slug}")
-async def track_bundle_download(request: Request, slug: str) -> dict[str, Any]:
-    """One bundle document — the export unit for a future track-data repo."""
-    from app.processing import track_bundle
-
-    if not re.fullmatch(r"[a-z0-9-]+", slug):
-        raise HTTPException(400, "invalid bundle name")
-    path = svc(request).settings.db_path.parent / track_bundle.BUNDLE_DIR / f"{slug}.json"
-    if not path.exists():
-        raise HTTPException(404, "no bundle for this track")
-    data: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
-    return data
+# Track bundles, the track catalog and the merged management view live in
+# app/api/tracks.py — they are one subject (what this installation knows about
+# circuits) and they outgrew being a section of this file.
 
 
 # --- controls ---------------------------------------------------------------

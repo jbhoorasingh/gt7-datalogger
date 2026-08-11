@@ -348,3 +348,89 @@ def test_corners_two_distinct_corners_near_line_not_stitched() -> None:
     )
     corners = analysis.detect_corners(lap)
     assert len(corners) == 3
+
+
+# --- authored corners (#48) ---------------------------------------------------
+
+
+def _authored(*apexes, names=()):
+    return [
+        {"n": i + 1, "name": names[i] if i < len(names) else "",
+         "direction": None, "apex": {"x": x, "z": z},
+         "entry": None, "exit": None, "note": ""}
+        for i, (x, z) in enumerate(apexes)
+    ]
+
+
+def test_authored_corners_are_placed_on_the_lap_that_drove_them() -> None:
+    """Corners are anchored to POSITIONS, not lap distances: distance depends
+    on the racing line taken, so each lap has to resolve its own."""
+    lap = track_lap([("straight", 200), ("arc", 60, 90), ("straight", 300)])
+    detected = analysis.detect_corners(lap)
+    assert len(detected) == 1
+    apex = (float(detected[0]["apex_x"]), float(detected[0]["apex_z"]))
+
+    corners = analysis.project_corners(lap, _authored(apex, names=("Rettifilo",)))
+    assert len(corners) == 1
+    c = corners[0]
+    assert c["name"] == "Rettifilo" and c["authored"] is True
+    assert c["apex_dist"] == pytest.approx(float(detected[0]["apex_dist"]), abs=15.0)
+    assert c["entry_dist"] < c["apex_dist"] < c["exit_dist"]
+    assert c["direction"] == "R"
+
+
+def test_authored_numbering_survives_a_lap_detection_disagrees_about() -> None:
+    """The real problem with detect_corners(): it runs PER LAP, off the racing
+    LINE. A driver who straightlines an S takes the same tarmac on a shallower
+    arc, detection stops calling it a corner, and every corner after it
+    renumbers — so "turn 4" in one lap's report is "turn 2" in the next, and
+    cross-lap comparison (#21, #22) is built on sand."""
+    committed = track_lap([("straight", 150), ("arc", 70, 80), ("straight", 200),
+                           ("arc", 200, 32), ("arc", 200, -32), ("straight", 200),
+                           ("arc", 60, 100), ("straight", 150)])
+    straightlined = track_lap([("straight", 150), ("arc", 70, 80), ("straight", 200),
+                               ("arc", 400, 16), ("arc", 400, -16), ("straight", 200),
+                               ("arc", 60, 100), ("straight", 150)])
+    detected_a = analysis.detect_corners(committed)
+    detected_b = analysis.detect_corners(straightlined)
+    assert len(detected_a) == 4 and len(detected_b) == 2
+    # The last corner is the same one on both laps, and detection calls it 4
+    # on one and 2 on the other. That is the bug, in one assertion.
+    assert detected_a[-1]["n"] != detected_b[-1]["n"]
+    assert detected_a[-1]["apex_z"] == pytest.approx(detected_b[-1]["apex_z"], abs=15)
+
+    authored = _authored(*[(float(c["apex_x"]), float(c["apex_z"])) for c in detected_a])
+    on_a = analysis.corners_for_lap(committed, authored)
+    on_b = analysis.corners_for_lap(straightlined, authored)
+    assert [c["n"] for c in on_a] == [c["n"] for c in on_b] == [1, 2, 3, 4]
+    # Same numbers, same tarmac — the apex is the authored position on every
+    # lap, not wherever this lap's curvature peaked.
+    assert [(c["apex_x"], c["apex_z"]) for c in on_a] == [
+        (c["apex_x"], c["apex_z"]) for c in on_b
+    ]
+    assert all(c["authored"] for c in on_b)
+    # ...while each lap still resolves its own distances, because the line
+    # taken decides how far along the lap the corner falls.
+    assert on_a[-1]["apex_dist"] != on_b[-1]["apex_dist"]
+
+
+def test_authored_corners_from_another_layout_fall_back_to_detection() -> None:
+    """A bundle whose corners land nowhere near this lap describes a different
+    circuit; generic corners beat none."""
+    lap = track_lap([("straight", 200), ("arc", 60, 90), ("straight", 300)])
+    corners = analysis.corners_for_lap(lap, _authored((50_000.0, 50_000.0)))
+    assert corners == analysis.detect_corners(lap)
+
+
+def test_authored_entry_and_exit_anchors_are_used_when_marked() -> None:
+    lap = track_lap([("straight", 200), ("arc", 60, 90), ("straight", 300)])
+    i_entry, i_apex = 60, 105
+    authored = [{
+        "n": 1, "name": "", "direction": "L", "note": "",
+        "apex": {"x": lap["pos_x"][i_apex], "z": lap["pos_z"][i_apex]},
+        "entry": {"x": lap["pos_x"][i_entry], "z": lap["pos_z"][i_entry]},
+        "exit": None,
+    }]
+    c = analysis.project_corners(lap, authored)[0]
+    assert c["entry_dist"] == pytest.approx(lap["dist"][i_entry], abs=2.0)
+    assert c["direction"] == "L"  # the label wins over what the lap looks like

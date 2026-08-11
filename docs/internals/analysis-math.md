@@ -117,6 +117,31 @@ Display rule: numbered circles while ≤ 30 corners are in view (the zoomed sect
 or the whole lap); beyond that they collapse to small dots. The Corner Detail
 widget shows the current corner (`T5 R`) while the cursor is inside one.
 
+### Authored corners outrank detection
+
+Detection is a fallback. It has to run per lap and it works off the **racing
+line**, so a driver who straightlines an S takes the same tarmac on a
+shallower arc, the arc drops below the 25° significance threshold, and every
+corner after it renumbers — "turn 4" then means different tarmac from one lap
+to the next, which is no foundation for a per-corner report card or real
+sectors.
+
+Once a circuit's corners have been labelled by hand in the
+[Tracks view](../guide/tracks-view.md), they replace detection everywhere
+(`corners_for_lap`). Authored corners are anchored to world **positions**, not
+lap distances, because distance depends on the line taken; each lap resolves
+its own `apex_dist`/`entry_dist`/`exit_dist` by finding where it passed the
+anchor. An anchor further than **60 m** from anything the lap drove is not on
+this lap and is dropped — and if that leaves nothing, the lap falls back to
+detection, because a bundle describing a different layout should not cost the
+lap its corners entirely. Where a corner has no marked entry/exit, the extent
+is ±75 m around the apex, clipped at the midpoint to its neighbours.
+
+`angle_deg` and an unset `direction` are still measured from the lap itself:
+they describe what this lap did through a corner whose identity is already
+settled. So a driver who straightlined turn 7 gets a small angle *against
+turn 7*, rather than turn 7 disappearing.
+
 ## Cursor synchronization
 
 All the "synced" behavior is one shared value: the cursor's grid index

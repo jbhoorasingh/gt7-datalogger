@@ -49,7 +49,7 @@ builder; the server only checks the version and a 64 KB size cap.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/api/analysis/compare` | `laps` (CSV ids), `ref` (id), `step` (m, default 5, 0.5–50), `channels` (optional CSV) → per-lap distance-resampled series, speed peaks/valleys, events, and delta-vs-reference |
+| GET | `/api/analysis/compare` | `laps` (CSV ids), `ref` (id), `step` (m, default 5, 0.5–50), `channels` (optional CSV) → per-lap distance-resampled series, speed peaks/valleys, events, and delta-vs-reference. The reference lap also carries `corners`: the circuit's [authored corners](../guide/tracks-view.md#labelling-corners) when it has them (`authored: true`, and a `name` when given), otherwise detected from that lap's curvature |
 | GET | `/api/analysis/deviation` | `session_id`, `count` (2–20, default 5) → median speed + standard deviation by distance across the best N laps |
 | GET | `/api/analysis/fuel` | `lap_id` → relative fuel-map table for settings −5…+5 |
 
@@ -72,7 +72,6 @@ packet path (packet format C required for surface data).
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/api/track-catalog` | official GT7 track/layout metadata (bundled `data/tracks.json`: 41 tracks, 85 layouts, lengths, corner counts, reverse configs) |
 | POST | `/api/survey/start` | `{track_width_m?, track?}` — start a run; resets counters, opens a new JSONL log; 409 if a run is already active. `track` labels which circuit the samples describe (default: the session's identified track; picked up mid-run if identification happens later, and a user-typed label is never auto-overwritten) |
 | POST | `/api/survey/stop` | stop and close the log |
 | POST | `/api/survey/track` | `{track}` — name the circuit a **running** survey is describing; 409 if none is running, 422 if the name is blank. A run started before the track was known keeps everything it has gathered and merges it into that circuit's bundle (a survey with no label saves no bundle at all). The label is marked as the driver's own, so auto-identification will not override it. Re-assigning an already-labelled run is a *circuit change*, not a correction: its evidence is flushed to the previous circuit first — to fix a wrong label, rebuild from the JSONL with `backend/scripts/jsonl_to_bundle.py` |
@@ -81,9 +80,27 @@ packet path (packet format C required for surface data).
 | GET | `/api/survey/edges` | every border-edge point of the run — the track taking shape (`since`/`epoch` incremental; append-only within a run). Kinds: `auto` (surface-flip contacts), `straddle` (sampled continuously while one side's wheels are held off the tarmac), `edge`/`runoff`/`wall` (manual marking) |
 | POST | `/api/survey/mark` | `{side: "L"\|"R"\|null, kind: "edge"\|"runoff"\|"wall"}` — arm manual boundary marking: while armed, the survey samples edge points from that side's wheel line every ~2 m, which is how boundaries invisible to the surface chars (walls, and track edges with paved run-off beyond) get mapped |
 | GET | `/api/survey/packet` | the latest raw telemetry packet, fully decoded — the Survey view's field inspector polls this |
-| GET | `/api/track-bundles` | every circuit's accumulated survey bundle: track, slug, points, runs, finish crossings, updated_at |
-| GET | `/api/track-bundles/{slug}` | one bundle document (versioned `gt7-datalogger-track-bundle` JSON: perimeter edge points grid-deduped to 1 m, finish crossings) — the export unit for a future track-data repo |
+| GET | `/api/survey/logs` | every survey run's JSONL, summarised (track, marks, transitions, finish crossings, size) and flagged `orphaned` when it gathered evidence and never reached a circuit — a run that saved no bundle at all and exists only as this file |
+| POST | `/api/survey/logs/{name}/assign` | `{track}` — rebuild an orphaned run from its log and merge it into that circuit through the normal voting path, exactly as if it had been named while driving. 409 while that run is still going (its evidence is in memory and saves on stop); 404 for a name that is not a log in the data directory |
 | GET | `/api/survey/export.jsonl` | full log of the current/last run (404 if none). First line is a `{"meta": ...}` header (track, session id, track-width assumption, wheel order); transition records carry the session id and lap, so they join back to the laps recorded during the same drive. Interleaved lines: `{"mark": ...}` for manually-marked boundary points and `{"track": ...}` when the circuit is identified mid-run |
+
+## Track bundles & management
+
+The joined view of the three sources of track knowledge, and the export /
+import path for [track bundles](track-bundle-format.md). See the
+[Tracks view](../guide/tracks-view.md).
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/track-catalog` | official GT7 track/layout metadata (bundled `data/tracks.json`: 41 tracks, 85 layouts, lengths, corner counts, reverse configs) |
+| GET | `/api/track-overview` | one row per circuit, merged across the DB's named tracks, the survey bundles and the official catalog: `named` (auto-identification will work), bundle stats (points, runs, sources, elevation %, finish crossings, corners), session count, the confirmed `official` match and — only when there is none — a `suggestion` with its confidence and reasoning. Also lists the survey logs and this installation's source id |
+| GET | `/api/track-bundles` | every circuit's bundle, with the same stats |
+| GET | `/api/track-bundles/{slug}` | one bundle document — the export unit, and what import consumes |
+| POST | `/api/track-bundles/import` | merge a bundle document from elsewhere. `?track=` overrides the document's own label, which is how a near-miss name lands on the right circuit. Every field is validated and rebuilt before anything is merged; versions 1–4 are accepted and upgraded. Your own authored corners and confirmed layout match are never overwritten (`corners_kept` says when incoming ones were dropped). 400 on any malformed document, 413 over 64 MB |
+| PATCH | `/api/track-bundles/{slug}` | `{track?}` renames — **merging** when the new name is an existing bundle, which is the fix for one circuit living under two spellings. `{official, set_official: true}` records the confirmed official layout (`official: null` clears it) |
+| DELETE | `/api/track-bundles/{slug}` | remove a bundle (the survey JSONL logs are untouched) |
+| GET | `/api/track-bundles/{slug}/corners` | the circuit's authored corners and sections |
+| PUT | `/api/track-bundles/{slug}/corners` | `{corners?, sections?}` — replace them; omitted lists are left alone. Renumbered from list order. 404 when the circuit has no bundle: corners are anchored to positions on a surveyed map |
 
 ## Admin
 

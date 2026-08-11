@@ -217,8 +217,11 @@ class SurfaceSurvey:
         self.edges_epoch = 0
         self._edge_index: dict[tuple[int, int, str], dict[str, Any]] = {}
         # Ordinal of this run in its circuit's bundle: votes are counted once
-        # per run, so every vote cast this run carries it.
+        # per run, so every vote cast this run carries it — alongside this
+        # installation's source id, without which the ordinal means nothing
+        # once two people's bundles meet (#47).
         self._run_no = 1
+        self._source = ""
         # Manual marking state (see MARK_KINDS above).
         self.mark_side: str | None = None  # "L" | "R" | None = off
         self.mark_kind: str = "edge"
@@ -275,6 +278,7 @@ class SurfaceSurvey:
         self.edges_epoch += 1
         self._edge_index = {}
         self._run_no = 1
+        self._source = track_bundle.source_id(data_dir)
         self.mark_side = None
         self.mark_kind = "edge"
         self._last_mark = None
@@ -356,12 +360,16 @@ class SurfaceSurvey:
         # Now that the circuit is known, so is this run's ordinal in it. Any
         # points laid before identification voted under a placeholder run
         # number that the bundle's own history outranks — restamp them, or
-        # the pre-identification evidence merges in as no vote at all.
-        self._run_no = doc["meta"]["runs"] + 1
+        # the pre-identification evidence merges in as no vote at all. The
+        # ordinal counts THIS installation's runs: a bundle pulled from
+        # someone who has driven here 30 times must not push our run 2 to 31.
+        self._run_no = doc["meta"]["source_runs"].get(self._source, 0) + 1
         for e in self.edges:
             e["run"] = self._run_no
-            for vote in e["votes"].values():
-                vote[1] = self._run_no
+            for sources in e["votes"].values():
+                mine = sources.get(self._source)
+                if mine is not None:
+                    mine[1] = self._run_no
         # Bundle first, this run's (few, pre-identification) points merged in;
         # the list is replaced wholesale, so incremental readers must resync.
         self.edges = track_bundle.merge_edges(doc["edges"], self.edges)
@@ -693,13 +701,13 @@ class SurfaceSurvey:
         key = track_bundle.edge_key({"x": x, "z": z, "side": side})
         known = self._edge_index.get(key)
         if known is not None:
-            prior = known["votes"].get(kind)
+            prior = known["votes"].get(kind, {}).get(self._source)
             if prior is not None and prior[1] >= self._run_no:
                 return  # this run already read this metre as this kind
             # Same metre, something new to say about it: a hand-marked wall
             # over ground the straddle tracer had called plain road, or a
             # second run agreeing. Either way it is a vote, not a duplicate.
-            track_bundle.cast_vote(known, kind, self._run_no)
+            track_bundle.cast_vote(known, kind, self._run_no, self._source)
             if known.get("y") is None and y is not None:
                 known["y"] = round(y, 3)  # metre mapped before v3: fill it in
             self._log_mark(x, z, hx, hz, side, kind, pid, y)
@@ -710,7 +718,8 @@ class SurfaceSurvey:
         if len(self.edges) >= EDGES_MAX_POINTS:
             return
         edge = track_bundle.new_edge(
-            x, z, hx, hz, side, kind, self._run_no, self.width_in_use_m, y
+            x, z, hx, hz, side, kind, self._run_no, self._source,
+            self.width_in_use_m, y,
         )
         self._edge_index[key] = edge
         self.edges.append(edge)
@@ -994,6 +1003,9 @@ class SurfaceSurvey:
             "edges_epoch": self.edges_epoch,
             "finish": self._finish_summary(),
             "bundle": self.bundle_info,
+            # This installation's id, stamped on every vote this run casts.
+            "source": self._source,
+            "run_no": self._run_no,
             "mark_side": self.mark_side,
             "mark_kind": self.mark_kind,
             "histogram": {

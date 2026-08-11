@@ -169,7 +169,11 @@ async def test_survey_edges_serve_the_shape_the_map_draws(client, tmp_path) -> N
     assert body["total"] == 1  # one metre of border, not two points
     point = body["points"][0]
     assert point["kind"] == "runoff"  # the hand mark, resolved server-side
-    assert point["votes"] == {"straddle": [1, 1], "runoff": [1, 1]}
+    # Votes are per kind per SOURCE — the installation id is what keeps two
+    # people's run ordinals from being read as the same fact (#47).
+    src = body["points"][0]["votes"]["runoff"]
+    assert list(src.values()) == [[1, 1]]
+    assert point["votes"] == {"straddle": src, "runoff": src}
     assert point["run"] == 1 and point["tw"] == 1.6
     assert {"x", "z", "hx", "hz", "side"} <= set(point)
     survey.stop()

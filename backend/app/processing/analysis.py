@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 from bisect import bisect_left
 from dataclasses import dataclass
+from typing import Any
 
 Samples = dict[str, list[float]]
 
@@ -319,6 +320,180 @@ def detect_corners(samples: Samples) -> list[dict[str, float | int | str]]:
             }
         )
     return corners
+
+
+# --- authored corners (#48) ---------------------------------------------------
+# Hand-labelled corners live in the track bundle and outrank detection. The
+# reason is not only accuracy: detect_corners() runs PER LAP, so a lap that
+# carries less speed through a shallow bend may not register it as a corner at
+# all, and every corner after it renumbers. Cross-lap and cross-session
+# comparison — the ground #21's report card and #22's sectors are built on —
+# cannot rest on numbering that moves. Authored corners are stable by
+# construction; all a lap contributes is where along ITS distance axis they
+# fell.
+
+# An apex anchor further than this from anything the lap drove is not on this
+# lap: a bundle for a different layout, or a corner marked off the road.
+CORNER_ANCHOR_MAX_M = 60.0
+# Extent used when a corner was labelled with an apex but no entry/exit. Half
+# of a fairly generous corner, clipped at the midpoint to its neighbours —
+# enough for "which corner is this braking event for" without pretending the
+# turn-in point is known.
+CORNER_DEFAULT_HALF_M = 75.0
+
+
+def _lap_path(samples: Samples) -> tuple[list[float], list[float], list[float], list[float]]:
+    """Strictly-increasing (dist, x, z, speed) — duplicates break projection."""
+    dist = samples.get("dist") or []
+    xs = samples.get("pos_x") or []
+    zs = samples.get("pos_z") or []
+    speed = samples.get("speed") or []
+    n = min(len(dist), len(xs), len(zs))
+    if n < 2:
+        return [], [], [], []
+    speed = speed[:n] if len(speed) >= n else [0.0] * n
+    keep = [0]
+    for i in range(1, n):
+        if dist[i] > dist[keep[-1]]:
+            keep.append(i)
+    return (
+        [dist[i] for i in keep], [xs[i] for i in keep],
+        [zs[i] for i in keep], [speed[i] for i in keep],
+    )
+
+
+def _nearest_index(xs: list[float], zs: list[float], x: float, z: float) -> tuple[int, float]:
+    best_i, best_d2 = 0, float("inf")
+    for i in range(len(xs)):
+        d2 = (xs[i] - x) ** 2 + (zs[i] - z) ** 2
+        if d2 < best_d2:
+            best_i, best_d2 = i, d2
+    return best_i, math.sqrt(best_d2)
+
+
+def project_corners(
+    samples: Samples, authored: list[dict[str, Any]]
+) -> list[dict[str, float | int | str]]:
+    """Place a circuit's authored corners on one lap's distance axis.
+
+    Corners are anchored to world POSITIONS, not lap distances, because
+    distance depends on the racing line taken — a corner pinned at 1,240 m on
+    one lap sits somewhere else on the next. So each lap resolves its own
+    apex/entry/exit distances by finding where it passed the anchor, and the
+    identity (number, name, direction) comes from the bundle unchanged.
+    """
+    d, xs, zs, speeds = _lap_path(samples)
+    if len(d) < 8:
+        return []
+    placed: list[tuple[float, dict[str, Any], int]] = []
+    for corner in authored:
+        apex = corner.get("apex") or {}
+        try:
+            ax, az = float(apex["x"]), float(apex["z"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        i, gap = _nearest_index(xs, zs, ax, az)
+        if gap > CORNER_ANCHOR_MAX_M:
+            continue  # this corner is not on this lap
+        placed.append((d[i], corner, i))
+    if not placed:
+        return []
+    placed.sort(key=lambda t: t[0])
+
+    out: list[dict[str, float | int | str]] = []
+    for pos, (apex_dist, corner, apex_i) in enumerate(placed):
+        far = CORNER_DEFAULT_HALF_M * 2  # no neighbour on this side to clip to
+        prev_dist = placed[pos - 1][0] if pos > 0 else d[0] - far
+        next_dist = placed[pos + 1][0] if pos + 1 < len(placed) else d[-1] + far
+        entry = _anchor_dist(corner.get("entry"), d, xs, zs)
+        exit_ = _anchor_dist(corner.get("exit"), d, xs, zs)
+        if entry is None:
+            entry = max(apex_dist - CORNER_DEFAULT_HALF_M, (apex_dist + prev_dist) / 2, d[0])
+        if exit_ is None:
+            exit_ = min(apex_dist + CORNER_DEFAULT_HALF_M, (apex_dist + next_dist) / 2, d[-1])
+        lo = bisect_left(d, entry)
+        hi = bisect_left(d, exit_)
+        window = speeds[lo : max(hi + 1, lo + 1)] or [speeds[apex_i]]
+        out.append({
+            "n": int(corner.get("n", pos + 1)),
+            "name": str(corner.get("name") or ""),
+            # The apex is the AUTHORED position, not the nearest sample: it is
+            # the same point on every lap, which is the whole point.
+            "apex_dist": round(apex_dist, 1),
+            "apex_x": round(float(corner["apex"]["x"]), 1),
+            "apex_z": round(float(corner["apex"]["z"]), 1),
+            "entry_dist": round(entry, 1),
+            "exit_dist": round(exit_, 1),
+            "direction": str(corner.get("direction") or _turn_direction(xs, zs, lo, hi)),
+            "min_speed": round(min(window), 1),
+            "angle_deg": round(_turn_angle_deg(xs, zs, lo, hi), 1),
+            "authored": True,
+        })
+    return out
+
+
+def _anchor_dist(
+    point: Any, d: list[float], xs: list[float], zs: list[float]
+) -> float | None:
+    if not isinstance(point, dict):
+        return None
+    try:
+        px, pz = float(point["x"]), float(point["z"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    i, gap = _nearest_index(xs, zs, px, pz)
+    return d[i] if gap <= CORNER_ANCHOR_MAX_M else None
+
+
+def _turn_angle_deg(xs: list[float], zs: list[float], lo: int, hi: int) -> float:
+    """Heading change the lap actually made across the corner's extent.
+
+    Descriptive only — unlike detection, nothing here decides whether the
+    corner exists. A driver who straightlined a chicane gets a small number
+    against a corner that is still corner 7.
+    """
+    if hi - lo < 4:
+        return 0.0
+    total = 0.0
+    step = max(1, (hi - lo) // 16)
+    prev: float | None = None
+    for i in range(lo, hi + 1, step):
+        j = min(i + step, hi)
+        dx, dz = xs[j] - xs[i], zs[j] - zs[i]
+        if dx == 0 and dz == 0:
+            continue
+        heading = math.atan2(dz, dx)
+        if prev is not None:
+            total += _wrap_angle(heading - prev)
+        prev = heading
+    return abs(math.degrees(total))
+
+
+def _turn_direction(xs: list[float], zs: list[float], lo: int, hi: int) -> str:
+    if hi - lo < 4:
+        return "R"
+    dx0, dz0 = xs[lo + 1] - xs[lo], zs[lo + 1] - zs[lo]
+    dx1, dz1 = xs[hi] - xs[hi - 1], zs[hi] - zs[hi - 1]
+    turn = _wrap_angle(math.atan2(dz1, dx1) - math.atan2(dz0, dx0))
+    # Positive heading delta is CCW in raw x/z, but the map (and GT7's own
+    # view) renders z inverted — that's a right-hander.
+    return "R" if turn > 0 else "L"
+
+
+def corners_for_lap(
+    samples: Samples, authored: list[dict[str, Any]] | None = None
+) -> list[dict[str, float | int | str]]:
+    """A lap's corners: the circuit's authored ones if it has any, else detected.
+
+    Falling back on an empty projection is deliberate — an authored set that
+    places nothing on this lap means the bundle describes a different layout,
+    and generic corners beat no corners.
+    """
+    if authored:
+        projected = project_corners(samples, authored)
+        if projected:
+            return projected
+    return detect_corners(samples)
 
 
 def _thresholds(curv: list[float]) -> tuple[float, float]:

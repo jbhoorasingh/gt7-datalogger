@@ -187,8 +187,16 @@ export function CornerDetail({
       </div>
       <div className="mt-2 text-center font-tabular text-xs text-ink-dim">
         {inCorner && (
-          <span className="mr-2 rounded border border-edge px-1 py-0.5 text-[10px] text-ink">
+          <span
+            className="mr-2 rounded border border-edge px-1 py-0.5 text-[10px] text-ink"
+            title={
+              inCorner.authored
+                ? "Labelled by hand in this circuit's bundle — the same number every lap and every session"
+                : "Detected from this lap's curvature; the numbering can differ between laps"
+            }
+          >
             T{inCorner.n} {inCorner.direction}
+            {inCorner.name ? ` · ${inCorner.name}` : ""}
           </span>
         )}
         F/R balance{" "}

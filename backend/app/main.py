@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import logbuffer
-from app.api import admin, layouts, routes, ws
+from app.api import admin, layouts, routes, tracks, ws
 from app.config import get_settings
 from app.processing.cars import CarDatabase
 from app.race_engineer import VERBOSITY_MODES
@@ -99,6 +99,7 @@ def create_app() -> FastAPI:
     app.include_router(routes.router)
     app.include_router(admin.router)
     app.include_router(layouts.router)
+    app.include_router(tracks.router)
     app.include_router(ws.router)
     if FRONTEND_DIST.exists():
         # SPA deep links: /overlay?... and /dash?... must serve the app (the

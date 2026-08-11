@@ -160,9 +160,11 @@ export interface SurveyEdge {
   // One metre of border is one record; `kind` is what its votes settled on
   // (hand-marked kinds beat inferred ones — the surface chars cannot see a
   // wall or paved run-off). Resolved server-side, so consumers can just read
-  // it; `votes` is the evidence behind it as [count, last run] per kind.
+  // it; `votes` is the evidence behind it, as [count, last run] per kind PER
+  // SOURCE — the installation id is what stops two people's run ordinals
+  // being read as one fact when their bundles merge (#47).
   kind: SurveyKind;
-  votes?: Partial<Record<SurveyKind, [number, number]>>;
+  votes?: Partial<Record<SurveyKind, Record<string, [number, number]>>>;
   run?: number; // run ordinal that first evidenced this metre
   tw?: number | null; // axle track width in use when it was laid
 }
@@ -180,6 +182,25 @@ export interface SurveyFinish {
   confident: boolean;
 }
 
+// Which official GT7 configuration a bundle is, once a human has confirmed
+// it. Never inferred silently: GT7 broadcasts no track id and the catalog
+// carries no world coordinates, so the match is a suggestion, not a lookup.
+export interface OfficialMatch {
+  track: string;
+  layout: string;
+  official_id: string;
+  official_name: string;
+  turns: number;
+  length_m: number;
+  reverse: boolean;
+}
+
+// The same shape as the server suggests it, with its reasoning attached.
+export interface OfficialSuggestion extends OfficialMatch {
+  confidence: number;
+  why: string;
+}
+
 // A circuit's persisted survey bundle, as listed by /api/track-bundles.
 export interface TrackBundleInfo {
   track: string;
@@ -188,6 +209,71 @@ export interface TrackBundleInfo {
   updated_at: string;
   points: number;
   finish_crossings: number;
+  // Elevation only fills in by RE-DRIVING: bundles built before v3 sit near
+  // 0 % until their metres are driven again.
+  elevation_points: number;
+  elevation_pct: number;
+  manual_points: number;
+  corners: number;
+  sections: number;
+  sources: number; // installations whose evidence is in this bundle
+  official: OfficialMatch | null;
+  source_runs: Record<string, number>;
+}
+
+// One hand-labelled corner. Anchored to a POSITION, not a lap distance —
+// distance depends on the racing line taken (#48).
+export interface AuthoredCorner {
+  n: number;
+  name: string;
+  direction: "L" | "R" | null;
+  apex: { x: number; z: number };
+  entry: { x: number; z: number } | null;
+  exit: { x: number; z: number } | null;
+  note: string;
+}
+
+export interface AuthoredSection {
+  n: number;
+  name: string;
+  start: { x: number; z: number };
+  end: { x: number; z: number };
+}
+
+// A survey run's JSONL. `orphaned` = it gathered evidence and never reached a
+// circuit, so it saved no bundle at all and exists only as this file (#45).
+export interface SurveyLog {
+  name: string;
+  track: string;
+  started_at: string;
+  session_id: number | null;
+  track_width_m: number | null;
+  marks: number;
+  transitions: number;
+  finish_crossings: number;
+  bytes: number;
+  orphaned: boolean;
+}
+
+// One circuit as the management view sees it: the three sources of track
+// knowledge joined, so the rows where they disagree are visible (#46).
+export interface TrackOverviewRow {
+  slug: string;
+  name: string;
+  named: boolean; // in the DB tracks table -> auto-identification works
+  track_id: number | null;
+  length_m: number | null;
+  bundle: TrackBundleInfo | null;
+  sessions: number;
+  official: OfficialMatch | null;
+  suggestion: OfficialSuggestion | null;
+}
+
+export interface TrackOverview {
+  source: string; // this installation's id
+  tracks: TrackOverviewRow[];
+  logs: SurveyLog[];
+  catalog_configs: number;
 }
 
 export interface SurveyStatus {
@@ -293,7 +379,10 @@ export interface PeakValley {
   z: number;
 }
 
-// Auto-detected corner on the reference lap (numbered from the start line)
+// A corner on the reference lap, numbered from the start line. Detected from
+// this lap's curvature, unless the circuit has authored corners in its
+// bundle — those outrank detection and keep their numbering across laps and
+// sessions (`authored`, and they may carry a name).
 export interface Corner {
   n: number;
   apex_dist: number;
@@ -304,6 +393,8 @@ export interface Corner {
   direction: "L" | "R";
   min_speed: number;
   angle_deg: number;
+  name?: string;
+  authored?: boolean;
 }
 
 export interface CompareLapEntry {

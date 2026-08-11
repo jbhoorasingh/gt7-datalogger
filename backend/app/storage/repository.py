@@ -276,6 +276,18 @@ class Repository:
             await db.execute(delete(TrackRow).where(TrackRow.id == track_id))
             await db.commit()
 
+    async def track_for_lap(self, lap_id: int) -> str:
+        """The circuit label of the session a lap belongs to, if it has one."""
+        async with self._sf() as db:
+            name = (
+                await db.execute(
+                    select(SessionRow.track_name)
+                    .join(LapRow, LapRow.session_id == SessionRow.id)
+                    .where(LapRow.id == lap_id)
+                )
+            ).scalar_one_or_none()
+            return name or ""
+
     async def set_session_track(self, session_id: int, track_name: str) -> None:
         async with self._sf() as db:
             row = await db.get(SessionRow, session_id)

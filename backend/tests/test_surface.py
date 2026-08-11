@@ -616,10 +616,15 @@ def test_survey_locates_finish_line_from_lap_rollovers(tmp_path) -> None:
     assert len(logged) == 2
 
 
-def _edge(x=10.0, z=5.0, side="L", kind="auto", run=1):
+SRC = "aaaaaaaaaaaa"  # this installation
+OTHER = "bbbbbbbbbbbb"  # somebody else's
+
+
+def _edge(x=10.0, z=5.0, side="L", kind="auto", run=1, source=SRC):
     from app.processing.track_bundle import new_edge
 
-    return new_edge(x=x, z=z, hx=1.0, hz=0.0, side=side, kind=kind, run=run, tw=1.6)
+    return new_edge(x=x, z=z, hx=1.0, hz=0.0, side=side, kind=kind, run=run,
+                    source=source, tw=1.6)
 
 
 def test_track_bundle_merge_dedups_on_grid() -> None:
@@ -651,33 +656,58 @@ def test_track_bundle_votes_resolve_one_kind_per_metre() -> None:
     # Manual marks beat automatic inference outright: the surface chars are
     # blind to run-off, so an auto point there is not evidence against it.
     assert merged[0]["kind"] == "runoff"
-    assert merged[0]["votes"] == {"auto": [1, 1], "runoff": [1, 2]}
+    assert merged[0]["votes"] == {"auto": {SRC: [1, 1]}, "runoff": {SRC: [1, 2]}}
     # ...and majority within the manual tier is the way back from a mis-mark.
     merged = merge_edges(merged, [_edge(kind="edge", run=3)])
     merged = merge_edges(merged, [_edge(kind="edge", run=4)])
     assert merged[0]["kind"] == "edge"
 
 
+def test_votes_are_counted_per_source_not_per_ordinal() -> None:
+    """Two installations' run 1 are unrelated facts (#47).
+
+    Keyed on the ordinal alone, a stranger's run 1 lands at or below the
+    watermark our own run 1 already set, so it merges in as no vote at all —
+    the evidence is silently dropped and "majority" stops meaning a census of
+    independent observations.
+    """
+    from app.processing.track_bundle import merge_edges, vote_count
+
+    mine = _edge(kind="runoff", run=1, source=SRC)
+    theirs = _edge(kind="runoff", run=1, source=OTHER)
+    merged = merge_edges([mine], [theirs])
+    assert len(merged) == 1  # same metre of the same circuit
+    assert vote_count(merged[0]["votes"], "runoff") == 2  # two observers, not one
+    assert merged[0]["votes"]["runoff"] == {SRC: [1, 1], OTHER: [1, 1]}
+    # Re-merging the same foreign evidence is idempotent — pulling a shared
+    # bundle twice must not manufacture agreement.
+    merged = merge_edges(merged, [_edge(kind="runoff", run=1, source=OTHER)])
+    assert vote_count(merged[0]["votes"], "runoff") == 2
+
+
 def test_track_bundle_votes_count_runs_not_saves(tmp_path) -> None:
     """The ~60 s autosave re-merges the same run; votes must not inflate."""
-    from app.processing.track_bundle import load, save
+    from app.processing.track_bundle import load, save, source_id
 
+    src = source_id(tmp_path)
     for _ in range(5):
-        save(tmp_path, "Ring", [_edge(kind="auto", run=1)], [], count_run=False)
+        save(tmp_path, "Ring", [_edge(kind="auto", run=1, source=src)], [], count_run=False)
     doc = load(tmp_path, "Ring")
     assert doc is not None
-    assert doc["edges"][0]["votes"] == {"auto": [1, 1]}  # not [5, 1]
-    save(tmp_path, "Ring", [_edge(kind="auto", run=2)], [], count_run=True)
+    assert doc["edges"][0]["votes"] == {"auto": {src: [1, 1]}}  # not [5, 1]
+    save(tmp_path, "Ring", [_edge(kind="auto", run=2, source=src)], [], count_run=True)
     doc = load(tmp_path, "Ring")
     assert doc is not None
-    assert doc["edges"][0]["votes"] == {"auto": [2, 2]}  # a real second run
+    assert doc["edges"][0]["votes"] == {"auto": {src: [2, 2]}}  # a real second run
+    assert doc["meta"]["source_runs"] == {src: 1}
+    assert doc["meta"]["runs"] == 1
 
 
 def test_track_bundle_upgrades_v1_in_place(tmp_path) -> None:
     """Existing v1 bundles keep their evidence and gain a resolved kind."""
     import json
 
-    from app.processing.track_bundle import BUNDLE_FORMAT, bundle_path, load
+    from app.processing.track_bundle import BUNDLE_FORMAT, bundle_path, load, source_id
 
     v1 = {
         "format": BUNDLE_FORMAT, "version": 1,
@@ -696,13 +726,18 @@ def test_track_bundle_upgrades_v1_in_place(tmp_path) -> None:
 
     doc = load(tmp_path, "Ring")
     assert doc is not None
-    assert doc["version"] == 3  # v1 -> votes -> elevation field, in one read
+    # v1 -> votes -> elevation field -> attributed votes, in one read
+    assert doc["version"] == 4
     assert len(doc["edges"]) == 2  # the co-located pair collapsed to one cell
     contested = next(e for e in doc["edges"] if e["side"] == "L")
     assert contested["kind"] == "runoff"  # the mark wins, at last
-    assert contested["votes"] == {"straddle": [1, 0], "runoff": [1, 0]}
+    src = source_id(tmp_path)
+    assert contested["votes"] == {"straddle": {src: [1, 0]}, "runoff": {src: [1, 0]}}
     assert contested["run"] == 0 and contested["tw"] is None  # unknown, honestly
     assert contested["y"] is None  # elevation was not captured back then
+    # A file that predates source ids could only have been written here, so
+    # naming this installation as its source is lossless.
+    assert doc["meta"]["source_runs"] == {src: 3}
 
 
 def test_track_bundle_refuses_a_newer_format(tmp_path) -> None:
@@ -1056,21 +1091,22 @@ def test_elevation_backfills_into_older_records(tmp_path) -> None:
     from app.processing.track_bundle import merge_edges, new_edge
 
     flat = new_edge(x=10.0, z=5.0, hx=1.0, hz=0.0, side="L", kind="auto",
-                    run=1, tw=1.6)  # pre-v3: no y
+                    run=1, source=SRC, tw=1.6)  # pre-v3: no y
     assert flat["y"] is None
     merged = merge_edges([flat], [new_edge(x=10.0, z=5.0, hx=1.0, hz=0.0, side="L",
-                                           kind="auto", run=2, tw=1.6, y=31.25)])
+                                           kind="auto", run=2, source=SRC, tw=1.6,
+                                           y=31.25)])
     assert len(merged) == 1
     assert merged[0]["y"] == pytest.approx(31.25)
 
 
-def test_v2_bundle_upgrades_to_v3_with_null_elevation(tmp_path) -> None:
+def test_v2_bundle_upgrades_with_null_elevation_and_attributed_votes(tmp_path) -> None:
     import json
 
-    from app.processing.track_bundle import BUNDLE_FORMAT, bundle_path, load, new_edge
+    from app.processing.track_bundle import BUNDLE_FORMAT, bundle_path, load, source_id
 
-    e = new_edge(x=1.0, z=0.0, hx=1.0, hz=0.0, side="L", kind="auto", run=1, tw=1.6)
-    del e["y"]  # exactly how v2 wrote it
+    e = {"x": 1.0, "z": 0.0, "hx": 1.0, "hz": 0.0, "side": "L", "kind": "auto",
+         "votes": {"auto": [1, 1]}, "run": 1, "tw": 1.6}  # exactly how v2 wrote it
     path = bundle_path(tmp_path, "Ring")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({
@@ -1079,9 +1115,12 @@ def test_v2_bundle_upgrades_to_v3_with_null_elevation(tmp_path) -> None:
     }), encoding="utf-8")
     doc = load(tmp_path, "Ring")
     assert doc is not None
-    assert doc["version"] == 3
+    assert doc["version"] == 4
     assert doc["edges"][0]["y"] is None  # honest about not knowing
-    assert doc["edges"][0]["votes"] == {"auto": [1, 1]}  # v2 votes preserved
+    # v2 votes preserved, and now attributed to the only machine that could
+    # have cast them.
+    assert doc["edges"][0]["votes"] == {"auto": {source_id(tmp_path): [1, 1]}}
+    assert doc["corners"] == [] and doc["sections"] == []
 
 
 # --- per-car width memory ------------------------------------------------------

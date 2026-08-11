@@ -2,19 +2,24 @@ import type { LayoutConfig, LayoutSummary } from "./layout";
 import type {
   AdminSettings,
   AdminStats,
+  AuthoredCorner,
+  AuthoredSection,
   CompareResult,
   ConnectionStatus,
   DeviationResult,
   FuelMapResult,
   LapSummary,
   LogRecord,
+  OfficialMatch,
   RaceEngineerDiagnostics,
   SessionSummary,
   SurveyEdge,
+  SurveyLog,
   SurveyStatus,
   Track,
   TrackBundleInfo,
   TrackCatalog,
+  TrackOverview,
   VoiceCallout,
 } from "./types";
 
@@ -34,6 +39,28 @@ export function setAdminToken(token: string): void {
 function authHeaders(): Record<string, string> {
   const t = getAdminToken();
   return t ? { "X-API-Key": t } : {};
+}
+
+// A whole bundle document, as exported and as import consumes it.
+export interface TrackBundleDoc {
+  format: string;
+  version: number;
+  meta: { track: string; runs: number; source_runs: Record<string, number>;
+          updated_at: string; official: OfficialMatch | null };
+  edges: SurveyEdge[];
+  finish_crossings: { x: number; z: number; hx: number; hz: number; lap: number }[];
+  corners: AuthoredCorner[];
+  sections: AuthoredSection[];
+}
+
+export interface BundleMergeResult {
+  track: string;
+  slug: string;
+  points: number;
+  added_points: number;
+  runs: number;
+  sources: number;
+  corners_kept?: boolean;
 }
 
 async function fail(url: string, resp: Response): Promise<never> {
@@ -111,15 +138,62 @@ export const api = {
       send<SurveyStatus>("/api/survey/mark", "POST", { side, kind }),
     packet: () => get<{ packet: Record<string, unknown> | null }>("/api/survey/packet"),
     exportUrl: "/api/survey/export.jsonl",
+    // Every run's JSONL, and whether it ever reached a circuit. A run that
+    // went nowhere exists only as this file.
+    logs: () => get<SurveyLog[]>("/api/survey/logs"),
+    assignLog: (name: string, track: string) =>
+      send<Record<string, unknown>>(
+        `/api/survey/logs/${encodeURIComponent(name)}/assign`,
+        "POST",
+        { track },
+      ),
   },
 
   tracks: () => get<Track[]>("/api/tracks"),
   trackCatalog: () => get<TrackCatalog>("/api/track-catalog"),
   trackBundles: () => get<TrackBundleInfo[]>("/api/track-bundles"),
+  trackOverview: () => get<TrackOverview>("/api/track-overview"),
   createTrack: (name: string, lapId: number) =>
     send<{ id: number; name: string }>("/api/tracks", "POST", { name, lap_id: lapId }),
   deleteTrack: (id: number) => send<{ status: string }>(`/api/tracks/${id}`, "DELETE"),
   lapCsvUrl: (lapId: number) => `/api/laps/${lapId}/export.csv`,
+
+  bundles: {
+    get: (slug: string) => get<TrackBundleDoc>(`/api/track-bundles/${slug}`),
+    downloadUrl: (slug: string) => `/api/track-bundles/${slug}`,
+    // `track` collapses a near-miss name onto an existing circuit rather than
+    // importing it as a second bundle of the same tarmac.
+    import: (doc: unknown, track?: string) =>
+      send<BundleMergeResult>(
+        `/api/track-bundles/import${track ? `?track=${encodeURIComponent(track)}` : ""}`,
+        "POST",
+        doc,
+      ),
+    rename: (slug: string, track: string) =>
+      send<BundleMergeResult>(`/api/track-bundles/${slug}`, "PATCH", { track }),
+    setOfficial: (slug: string, official: OfficialMatch | null) =>
+      send<{ slug: string }>(`/api/track-bundles/${slug}`, "PATCH", {
+        official,
+        set_official: true,
+      }),
+    remove: (slug: string) => send<{ status: string }>(`/api/track-bundles/${slug}`, "DELETE"),
+    corners: (slug: string) =>
+      get<{
+        track: string;
+        corners: AuthoredCorner[];
+        sections: AuthoredSection[];
+        official: OfficialMatch | null;
+      }>(`/api/track-bundles/${slug}/corners`),
+    setCorners: (
+      slug: string,
+      body: { corners?: AuthoredCorner[]; sections?: AuthoredSection[] },
+    ) =>
+      send<{ track: string; corners: AuthoredCorner[]; sections: AuthoredSection[] }>(
+        `/api/track-bundles/${slug}/corners`,
+        "PUT",
+        body,
+      ),
+  },
 
   layouts: {
     list: () => get<LayoutSummary[]>("/api/layouts"),

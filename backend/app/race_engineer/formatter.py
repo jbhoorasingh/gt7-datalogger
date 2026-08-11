@@ -150,6 +150,13 @@ def spoken_wheels(wheels: list[str]) -> str:
     return "all-wheel" if len(keys) == 4 else "multiple wheel"
 
 
-def spoken_corner(number: int | None) -> str:
-    """Corner reference, or a positional hint when the corner is unknown."""
+def spoken_corner(number: int | None, name: str = "") -> str:
+    """Corner reference, or a positional hint when the corner is unknown.
+
+    A circuit whose corners have been labelled by hand (#48) carries their
+    names, and "you lost three tenths in the Parabolica" is what an engineer
+    actually says — so the name wins over the number whenever there is one.
+    """
+    if name:
+        return name
     return f"turn {spoken_int(number)}" if number else "the next braking zone"

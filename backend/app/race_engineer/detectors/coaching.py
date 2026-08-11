@@ -115,7 +115,7 @@ class CoachingDetector(Detector):
                 event_type="braking_early" if early else "braking_late",
                 text=(
                     f"You are braking {'early' if early else 'late'} into "
-                    f"{spoken_corner(worst_corner)}, about "
+                    f"{spoken_corner(worst_corner, ctx.corner_name(worst_corner))}, about "
                     f"{spoken_distance(abs(worst_delta), ctx.units)}."
                 ),
                 message_key=f"coaching.braking_{'early' if early else 'late'}",
@@ -179,7 +179,7 @@ class CoachingDetector(Detector):
         # Wording differs when the corner is unknown: "lockups into the next
         # braking zone" and "wheelspin on the exit of the next braking zone"
         # both read as mistakes.
-        where = spoken_corner(corner)
+        where = spoken_corner(corner, ctx.corner_name(corner))
         if kind == "lockup":
             into = "into" if corner else "in"
             text = f"Repeated {spoken_wheels([wheel])} lockups {into} {where}."
@@ -257,11 +257,12 @@ class CoachingDetector(Detector):
 
         if detail:
             text = (
-                f"You lost {spoken_gap(worst_loss)} in {spoken_corner(number)}. {detail}"
+                f"You lost {spoken_gap(worst_loss)} in "
+                f"{spoken_corner(number, ctx.corner_name(number))}. {detail}"
             )
         else:
             text = (
-                f"Most time was lost in {spoken_corner(number)}. "
+                f"Most time was lost in {spoken_corner(number, ctx.corner_name(number))}. "
                 f"You were {spoken_gap(worst_loss)} slower."
             )
         return [

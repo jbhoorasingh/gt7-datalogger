@@ -16,10 +16,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Callable
 from typing import Any
 
 from app.models import TelemetryPacket
-from app.processing.analysis import detect_corners
+from app.processing.analysis import corners_for_lap
 from app.processing.laps import CompletedLap, SessionInfo
 from app.processing.live_events import LiveEvent
 from app.race_engineer.detectors import (
@@ -92,6 +93,10 @@ class RaceEngineerManager:
         self.ack_counts: dict[str, int] = {}
         # Why the browser last failed to speak, in its own words.
         self.last_ack_reason = ""
+        # Where a circuit's authored corners come from, when it has any.
+        # Injected by TelemetryService (which owns the bundle cache) rather
+        # than read here, so the manager keeps knowing nothing about files.
+        self.corner_source: Callable[[str], list[dict[str, Any]]] | None = None
 
     # --- configuration ------------------------------------------------------
 
@@ -226,7 +231,11 @@ class RaceEngineerManager:
 
         Corner detection costs 10-90 ms — far too much for the packet path, so
         it runs on a worker thread at a lap boundary and only when a callout
-        that names corners is actually enabled.
+        that names corners is actually enabled. The circuit's authored corners
+        (#48) are fetched on the same thread: reading them means parsing the
+        track bundle the first time, and they turn "the next corner" into
+        "turn four" — and, more importantly, keep the number meaning the same
+        corner from one lap to the next.
         """
         samples = self._pending_reference
         self._pending_reference = None
@@ -236,8 +245,15 @@ class RaceEngineerManager:
         if not {"coaching", "chassis"} & self.effective_categories:
             self.ctx.corners = []
             return
+        track = self.ctx.track_name
+        source = self.corner_source
+
+        def _corners() -> list[dict[str, Any]]:
+            authored = source(track) if source is not None else []
+            return corners_for_lap(samples, authored)
+
         try:
-            self.ctx.corners = await asyncio.to_thread(detect_corners, samples)
+            self.ctx.corners = await asyncio.to_thread(_corners)
         except Exception:  # noqa: BLE001 - coaching is optional, never fatal
             log.warning("corner detection failed; coaching calls stay generic", exc_info=True)
             self.ctx.corners = []

@@ -7,6 +7,59 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Added
 
+- **Tracks view** (new tab): the three sources of track knowledge, joined —
+  the DB's named tracks (which is what makes auto-identification work), the
+  survey bundles, and the bundled official GT7 catalog. Having one is not
+  having the others, and until now nothing said so: that gap is how a survey
+  ran for ~55 minutes attached to no circuit at all. Each row shows what is
+  present and what is missing (auto-ID, survey, official layout, metres
+  mapped, runs and contributing sources, elevation completeness — which only
+  fills in by re-driving — finish line located, corners labelled against the
+  official turn count) with the action for each gap beside it: assign an
+  orphaned run, rename (which **merges** when the new name is an existing
+  bundle, fixing one circuit living under two near-miss spellings), confirm
+  the official layout, label corners, export, import, delete. One endpoint
+  (`/api/track-overview`) does the join, because the interesting rows are the
+  ones where the sources disagree. (#46)
+- **Orphaned survey runs are now visible and recoverable from the browser.** A
+  survey with no circuit label saves no bundle at all, so such a run existed
+  only as its JSONL. The Tracks view lists every one of them and assigns it to
+  a circuit, replaying the log through the normal merge path — the same job
+  `scripts/jsonl_to_bundle.py` does, which now shares the code. (#45, #46)
+- **Bundle import and cross-machine merge**, so survey work moves between
+  machines and people and fidelity accumulates instead of one copy winning.
+  The prerequisite was a **source id**: run ordinals are local, so my run 7
+  and your run 7 are unrelated facts, and merging on the ordinal alone would
+  double-count one and silently drop the other depending on which ordinals
+  collided. Every installation now stamps a per-installation id (generated
+  once into `data/source-id.json`) on every vote it casts; a merge advances
+  each source's own highest run, so two people who each drove a metre once
+  have seen it twice between them and re-importing the same shared bundle
+  changes nothing. Imports are validated field by field before anything is
+  merged — an import writes into the same store the app surveys into — and
+  versions 1 through 4 are accepted and upgraded. The format is now published
+  as a schema (`docs/reference/track-bundle-format.md`), since the point is
+  other tools reading it — and contributed bundles now have a home at
+  [gt7-datalogger-track-data](https://github.com/jbhoorasingh/gt7-datalogger-track-data),
+  which lists every GT7 configuration, publishes a downloadable pack, and
+  [draws each surveyed circuit](https://jbhoorasingh.github.io/gt7-datalogger-track-data/)
+  so a contribution can be eyeballed before it is merged. (#47)
+- **Authored corners and sections, labelled by hand and stored in the
+  bundle** (format v4), with a refine view: open a surveyed circuit's map and
+  click your way around it, naming corners and optionally marking turn-in and
+  exit. Authored data outranks derived data, the same principle the border
+  voting already follows. `detect_corners()` runs *per lap* off the racing
+  line, so a driver who straightlines an S drops it below the significance
+  threshold and every corner after it renumbers — "turn 4" meaning different
+  tarmac from one lap to the next is no foundation for a per-corner report
+  card (#21) or real sectors (#22). Labelled corners are anchored to world
+  positions (distance depends on the line taken), so each lap resolves its own
+  distances while the numbering holds still. They take over in the analysis
+  endpoint and in Race Engineer callouts, which now speak the name — "you lost
+  three tenths in the Parabolica" rather than "in turn four" — and they travel
+  with export/import, which is a large part of what makes a shared bundle
+  worth pulling. Sections are the input real sectors need, since GT7
+  broadcasts none. (#48)
 - **Per-tick surface data is now recorded** (packet C): each lap stores a
   packed per-wheel `surface` sample column. Every lap gets an honest
   track-limits verdict — an off-track excursion count (3+ wheels on

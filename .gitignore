@@ -22,6 +22,9 @@ data/*.sqlite*
 data/surface_survey_*.jsonl
 data/track-bundles/
 data/car-widths.json
+# This installation's identity, stamped on the votes it casts. Committing it
+# would hand every clone the same id and merge their evidence as one source's.
+data/source-id.json
 
 # Docs
 site/
