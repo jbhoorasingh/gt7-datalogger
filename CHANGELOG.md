@@ -46,6 +46,26 @@ Notable changes to GT7 Datalogger. The format follows
   axle width, which replaces the assumption once three rides agree. Live
   frames now carry the packed `surface` value. (#37)
 
+- **Axle track width now measures itself from ordinary cornering.** Every
+  corner is a measurement: the outer wheels cover a larger arc, so their
+  rolling speeds differ by exactly the yaw rate times the axle track
+  (`|v_outer - v_inner| = |yaw| * width`, from the broadcast `wheel_rps`,
+  `tire_radius` and `angular_velocity_y`). It needs no deliberate driving and
+  settles in seconds — on real hardware it reached a trusted figure of
+  **1.74 m within ~12 seconds of normal laps**, where the existing
+  ride-an-edge-out-and-back estimator had accepted **zero** samples across an
+  entire session of heavy edge riding. Both axles are offered each tick and
+  the plausible range decides which one spoke, so a spool or locked
+  differential — this test car's rear wheels report identical speeds even
+  coasting — costs nothing and no drivetrain layout has to be declared.
+  Braking ticks are skipped (ABS modulates wheels individually and threw up
+  1.22 / 2.03 / 4.87 m readings); throttle is not gated, because wheelspin
+  already shows up as an axle mean that disagrees with the car's speed, and
+  gating it would have discarded most of a racing lap. The Survey view says
+  which number it is serving — cornering, edge ride, or assumption — and
+  when nothing has landed yet it names the gate doing the rejecting instead
+  of sitting silently on the assumption. (#38)
+
 ### Fixed
 
 - **Survey coverage no longer invents gaps on ground that is already

@@ -67,15 +67,51 @@ Open questions to answer while driving:
 ## 2. Wheel-contact derivation (fill in)
 
 Contact point = car position + heading rotation of (±wheelbase/2, ±track/2).
-Wheelbase is broadcast in packet C; **track width is not** — the survey
-starts from an assumption (the input next to Start survey, default 1.6 m)
-and then **measures** it: ride all four wheels over one edge and back. The
-same wheel's out/back crossings pin the edge's direction, opposite-side
+Wheelbase is broadcast in packet C; **track width is not broadcast directly
+— but it is derivable, and every corner derives it.** The outer wheels of an
+axle cover a larger arc than the inner ones, so their rolling speeds differ
+by exactly the yaw rate times the axle track:
+
+```
+|v_outer - v_inner| = |yaw rate| * track_width       v = wheel_rps * tire_radius
+```
+
+`wheel_rps`, `tire_radius` and `angular_velocity_y` are all broadcast and
+were already decoded, so this costs nothing and needs no special driving. It
+reached a trusted 1.74 m within ~12 seconds of ordinary laps on real
+hardware. Taking magnitudes means GT7's yaw sign convention never has to be
+pinned down.
+
+Two things learned doing it on hardware:
+
+- **A locked/spool differential makes its axle useless here.** The test car's
+  rear wheels report identical speeds to the centimetre even coasting
+  (`-82.31 / -82.31` at zero throttle), so the rear axle answers ~0. Both
+  axles are therefore offered each tick and the plausible range picks the
+  free one — no drivetrain layout ever has to be declared, and a locked axle
+  self-rejects.
+- **Braking corrupts it; throttle does not.** ABS modulates wheels
+  individually: the same capture that gave a steady 1.7–1.8 m produced 1.22,
+  2.03 and 4.87 m under brake pressure. Throttle needs no gate, because
+  wheelspin lifts an axle's *mean* off the car's speed and is caught by the
+  slip check — gating throttle would discard most of a racing lap.
+
+The older fallback still exists: ride all four wheels over one edge and back.
+The same wheel's out/back crossings pin the edge's direction, opposite-side
 crossings of the same line fix the width, and remaining same-side crossings
 must agree the points are collinear (which rejects two-edged strips, curved
-kerbs and mid-corner crossings). Once three rides agree, the measured median
-replaces the assumption for contact derivation — the status line shows which
-is in force, and every JSONL record carries the `tw_m` it was derived with.
+kerbs and mid-corner crossings). It is exact when it fires, but it demands a
+deliberate manoeuvre and across a full real session of heavy edge riding it
+accepted **zero** samples — which is why cornering outranks it. The status
+line names whichever is in force, and every JSONL record carries the `tw_m`
+it was derived with.
+
+**Scale check, before anyone plans a backfill:** the measured 1.74 m against
+the 1.6 m assumption is a 0.14 m width error, so points laid under the
+assumption sit **7 cm** off laterally — 7% of the 1 m dedup cell. Recording
+`tw` per point keeps correction possible, but at this magnitude the grid
+cannot represent the correction and re-deriving old points is not worth
+doing. It would take a width error above ~2 m to move a point a full cell.
 Heading comes from ground-plane velocity; the raw rotation floats +
 `rel_orientation_to_north` are logged for offline comparison.
 

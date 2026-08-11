@@ -72,6 +72,26 @@ function tickClass(e: SurveyEdge): number {
 
 const MARK_KINDS = ["edge", "runoff", "wall"] as const;
 
+// Why no cornering sample has landed yet. The old edge-ride estimator could
+// sit at "assumed" for an entire session without ever saying what it was
+// waiting for; naming the gate that rejected the most ticks turns a silent
+// stall into something the driver can act on.
+const WIDTH_STALL: Record<string, string> = {
+  straight: "no corner yet — needs sustained steering",
+  on_pedals: "always on throttle or brakes — needs a coasting corner",
+  slip: "wheels slipping — needs a corner with grip",
+  slow: "too slow",
+  implausible: "readings out of range",
+};
+
+function WidthStall({ rejects }: { rejects: SurveyStatus["yaw_rejects"] }) {
+  const entries = Object.entries(rejects) as [string, number][];
+  if (!entries.length) return null;
+  const [why] = entries.sort((a, b) => b[1] - a[1])[0];
+  const hint = WIDTH_STALL[why];
+  return hint ? <> · {hint}</> : null;
+}
+
 // The same transition can arrive twice — once in a status poll's `recent`
 // ring and once over the WebSocket, in either order — so state is always
 // merged by the run-unique record number instead of blindly appended.
@@ -830,16 +850,19 @@ export function SurveyView() {
           · width
           in use{" "}
           <span className="text-ink">{status.width_in_use_m.toFixed(2)} m</span>{" "}
-          {status.width_samples >= 3 ? (
+          {status.width_source === "cornering" ? (
+            <span className="text-throttle">
+              (measured from {status.yaw_samples} cornering samples)
+            </span>
+          ) : status.width_source === "edge-ride" ? (
             <span className="text-throttle">
               (measured from {status.width_samples} edge crossings)
             </span>
           ) : (
             <>
-              (assumed
-              {status.width_samples > 0 &&
-                ` — measuring: ${status.width_samples}/3 crossings`}
-              )
+              (assumed — measuring from cornering: {status.yaw_samples}/
+              {status.yaw_needed}
+              {status.yaw_samples === 0 && <WidthStall rejects={status.yaw_rejects} />})
             </>
           )}{" "}
           · lap recording continues alongside — laps saved during the run keep

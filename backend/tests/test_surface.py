@@ -877,3 +877,153 @@ def test_survey_watches_undocumented_flag_bits(tmp_path) -> None:
         survey.feed(make_packet(fmt="C", surface_types="TTTT", packet_id=pid, flags=flags))
     assert survey.status()["unknown_flag_bits"] == {"13": 2}
     survey.stop()
+
+
+# --- axle track width from cornering ------------------------------------------
+
+
+def _corner_packets(width_m: float, *, yaw=0.4, speed=30.0, radius=0.33,
+                    throttle=0, brake=0, spin=1.0, rear_spin=1.0, ticks=90,
+                    lock=None):
+    """A steady corner with a KNOWN axle track, so the solver has one answer.
+
+    Outer wheels cover the larger arc: |v_outer - v_inner| = yaw * width.
+    Mean wheel speed equals car speed, so the anti-slip gate passes unless
+    `spin` (all wheels) or `rear_spin` (driven axle only) breaks it.
+    `lock="rear"` forces that axle's wheels to
+    identical speed, which is what a spool/locked diff does on real hardware.
+    """
+    inner = speed - yaw * width_m / 2.0
+    outer = speed + yaw * width_m / 2.0
+    rl, rr = (outer, inner)
+    fl, fr = (outer, inner)
+    if lock == "rear":
+        rl = rr = speed
+    if lock == "front":
+        fl = fr = speed
+    for i in range(ticks):
+        yield make_packet(
+            fmt="C", surface_types="TTTT", packet_id=i, current_lap=3,
+            position=(float(i), 0.0, 0.0), velocity=(speed, 0.0, 0.0),
+            speed_mps=speed, wheelbase_m=2.6, angular_velocity=(0.0, yaw, 0.0),
+            throttle=throttle, brake=brake,
+            wheel_rps=(fl * spin / radius, fr * spin / radius,
+                       rl * rear_spin / radius, rr * rear_spin / radius),
+            tire_radius=(radius,) * 4,
+        )
+
+
+def test_width_measured_from_cornering(tmp_path) -> None:
+    """The axle track falls out of any corner — no special driving needed."""
+    from app.processing.survey import SurfaceSurvey
+
+    survey = SurfaceSurvey()
+    survey.start(tmp_path, track_width_m=1.6, track="Ring", track_user_set=True)
+    assert survey.width_source == "assumed"
+    for p in _corner_packets(1.82):
+        survey.feed(p)
+    assert survey.yaw_width_m == pytest.approx(1.82, abs=0.01)
+    assert survey.width_source == "cornering"
+    # ...and it is what the contact-point derivation actually applies.
+    assert survey.width_in_use_m == pytest.approx(1.82, abs=0.01)
+    survey.stop()
+
+
+def test_width_survives_a_locked_differential(tmp_path) -> None:
+    """A spool/locked axle reports both wheels at identical speed and so
+    carries no width information. Real hardware does exactly this: the test
+    car's rear wheels read the same to the centimetre even coasting. The
+    free axle must still be heard, without anyone declaring the drivetrain."""
+    from app.processing.survey import SurfaceSurvey
+
+    for locked in ("rear", "front"):
+        survey = SurfaceSurvey()
+        survey.start(tmp_path, track_width_m=1.6, track="Ring", track_user_set=True)
+        for p in _corner_packets(1.82, lock=locked):
+            survey.feed(p)
+        assert survey.yaw_width_m == pytest.approx(1.82, abs=0.01), locked
+        survey.stop()
+
+
+def test_width_ignores_braking_ticks(tmp_path) -> None:
+    """ABS modulates wheels individually; the same real capture that gave a
+    steady 1.7-1.8 m produced 1.22, 2.03 and 4.87 m under brake pressure."""
+    from app.processing.survey import SurfaceSurvey
+
+    survey = SurfaceSurvey()
+    survey.start(tmp_path, track_width_m=1.6, track="Ring", track_user_set=True)
+    for p in _corner_packets(1.82, brake=200):
+        survey.feed(p)
+    assert survey.yaw_width_m is None
+    assert survey.status()["yaw_rejects"].get("braking")
+    survey.stop()
+
+
+def test_width_measures_on_throttle(tmp_path) -> None:
+    """Throttle needs no gate: wheelspin lifts an axle's mean off the car's
+    speed (caught by the slip check) and a torque-locked axle self-rejects.
+    Gating it out would have discarded most of a real racing lap."""
+    from app.processing.survey import SurfaceSurvey
+
+    survey = SurfaceSurvey()
+    survey.start(tmp_path, track_width_m=1.6, track="Ring", track_user_set=True)
+    for p in _corner_packets(1.82, throttle=255):
+        survey.feed(p)
+    assert survey.yaw_width_m == pytest.approx(1.82, abs=0.01)
+    survey.stop()
+
+
+def test_width_ignores_wheelspin(tmp_path) -> None:
+    """Wheels turning 8% faster than the car is spin, not geometry."""
+    from app.processing.survey import SurfaceSurvey
+
+    survey = SurfaceSurvey()
+    survey.start(tmp_path, track_width_m=1.6, track="Ring", track_user_set=True)
+    for p in _corner_packets(1.82, spin=1.08, rear_spin=1.08):
+        survey.feed(p)
+    assert survey.yaw_width_m is None
+    assert survey.status()["yaw_rejects"].get("slip")
+    survey.stop()
+
+
+def test_spin_on_the_driven_axle_alone_does_not_block_the_measurement(tmp_path) -> None:
+    """Power-on oversteer spins the driven axle for most of a corner exit.
+    The other axle is still rolling truthfully and should be believed."""
+    from app.processing.survey import SurfaceSurvey
+
+    survey = SurfaceSurvey()
+    survey.start(tmp_path, track_width_m=1.6, track="Ring", track_user_set=True)
+    for p in _corner_packets(1.82, rear_spin=1.08):
+        survey.feed(p)
+    assert survey.yaw_width_m == pytest.approx(1.82, abs=0.01)
+    survey.stop()
+
+
+def test_width_needs_a_corner_not_a_straight(tmp_path) -> None:
+    """Straight-line running carries no width information at all."""
+    from app.processing.survey import SurfaceSurvey
+
+    survey = SurfaceSurvey()
+    survey.start(tmp_path, track_width_m=1.6, track="Ring", track_user_set=True)
+    for p in _corner_packets(1.82, yaw=0.0):
+        survey.feed(p)
+    assert survey.yaw_width_m is None
+    assert survey.status()["yaw_rejects"].get("straight")
+    assert survey.width_in_use_m == 1.6  # the assumption still stands
+    survey.stop()
+
+
+def test_cornering_width_outranks_the_edge_ride_estimate(tmp_path) -> None:
+    """Cornering converges in a corner or two; the edge-ride solver needs a
+    deliberate manoeuvre and in a full real session accepted nothing."""
+    from app.processing.survey import SurfaceSurvey
+
+    survey = SurfaceSurvey()
+    survey.start(tmp_path, track_width_m=1.6, track="Ring", track_user_set=True)
+    survey._width_estimates = [1.40, 1.40, 1.40]  # a settled edge-ride result
+    assert survey.width_source == "edge-ride"
+    for p in _corner_packets(1.82):
+        survey.feed(p)
+    assert survey.width_source == "cornering"
+    assert survey.width_in_use_m == pytest.approx(1.82, abs=0.01)
+    survey.stop()

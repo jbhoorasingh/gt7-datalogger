@@ -199,6 +199,15 @@ export interface SurveyStatus {
   width_estimate_m: number | null; // median of measured edge crossings
   width_samples: number; // accepted crossing measurements so far
   width_in_use_m: number; // what contact derivation actually uses
+  // Axle track measured from cornering — every corner is a sample, so this
+  // normally settles long before a deliberate edge ride produces anything.
+  width_source: "cornering" | "edge-ride" | "assumed";
+  yaw_width_m: number | null;
+  yaw_samples: number;
+  yaw_needed: number;
+  yaw_rejects: Partial<Record<
+    "slow" | "straight" | "on_pedals" | "slip" | "implausible", number
+  >>;
   trail_points: number;
   trail_epoch: number;
   edge_points: number;
