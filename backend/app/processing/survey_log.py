@@ -16,6 +16,7 @@ JSONL exists, let alone how to run a script against it (#46).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import math
@@ -44,6 +45,7 @@ def summarize(path: Path) -> dict[str, Any]:
     started_at = ""
     session_id: int | None = None
     width = None
+    source = ""
     marks = transitions = finish = 0
     try:
         with path.open("r", encoding="utf-8", errors="replace") as handle:
@@ -57,6 +59,7 @@ def summarize(path: Path) -> dict[str, Any]:
                     started_at = meta.get("started_at", "") or started_at
                     session_id = meta.get("session_id")
                     width = meta.get("track_width_m")
+                    source = str(meta.get("source", "") or "")
                 elif line.startswith(_TRACK):
                     try:
                         # Identification arriving mid-run: the LAST label the
@@ -78,6 +81,7 @@ def summarize(path: Path) -> dict[str, Any]:
         "started_at": started_at,
         "session_id": session_id,
         "track_width_m": width,
+        "source": source,
         "marks": marks,
         "transitions": transitions,
         "finish_crossings": finish,
@@ -162,34 +166,64 @@ def edges_from_log(
     return edges, finish, logged_track
 
 
+def source_for(summary: dict[str, Any], path: Path) -> str:
+    """Whose evidence a logged run is — the machine that DROVE it.
+
+    Not the machine replaying it. Logs travel (that is what the CLI is for),
+    and stamping the destination would let the same physical run be counted
+    twice if the machine that recorded it ever contributes its own bundle.
+    Logs written before the id was recorded get a synthetic one derived from
+    the file, which is stable across replays of the same log and distinct
+    from any real installation's.
+    """
+    recorded = summary.get("source") or ""
+    if track_bundle.is_source_id(recorded):
+        return recorded
+    seed = f"{path.name}|{summary.get('started_at', '')}|{summary.get('bytes', 0)}"
+    return "0" + hashlib.sha256(seed.encode("utf-8", "replace")).hexdigest()[
+        : track_bundle.SOURCE_ID_CHARS - 1
+    ]
+
+
 def assign(data_dir: Path, path: Path, track: str) -> dict[str, Any]:
     """Rebuild a logged run under `track` and merge it into that bundle.
 
-    Counted as a real run of this installation: it is one, it just went to
-    its circuit late.
+    Counted as a real run of whoever drove it: it is one, it just went to its
+    circuit late.
     """
     name = track.strip()
     if not name:
         raise track_bundle.BundleError("a track name is required")
-    source = track_bundle.source_id(data_dir)
-    run = track_bundle.next_run(data_dir, name)
+    summary = summarize(path)
+    source = source_for(summary, path)
+    doc = track_bundle.load(data_dir, name)
+    run = max(
+        doc["meta"]["source_runs"].get(source, 0) if doc else 0,
+        track_bundle.watermarks(doc["edges"]).get(source, 0) if doc else 0,
+    ) + 1
     edges, finish, logged_track = edges_from_log(path, run, source)
     if not edges and not finish:
         raise track_bundle.BundleError(
             "nothing to recover — no marks, transitions or crossings in that log"
         )
-    existing = track_bundle.load(data_dir, name)
-    before = len(existing["edges"]) if existing else 0
-    meta = track_bundle.save(data_dir, name, edges, finish, count_run=True)
-    # Record the label in the log itself, exactly as a live run does when the
-    # circuit is identified mid-drive. Without this the run keeps reporting as
-    # orphaned after it has been rescued — which reads as "that didn't work"
-    # and invites assigning it a second time, merging the same run twice.
+    # Label the log BEFORE merging. This marker is the only durable record
+    # that the run has been rescued, and a log can be read-only even when the
+    # bundle directory is not (a file copied off another machine, say). Doing
+    # it afterwards and swallowing the failure reports success while leaving
+    # the run listed as orphaned — so the obvious retry merges it twice.
     try:
         with path.open("a", encoding="ascii") as handle:
             handle.write(json.dumps({"track": name}, separators=(",", ":")) + "\n")
-    except OSError as exc:  # the merge already happened; the log is a record
-        log.warning("could not label survey log %s: %s", path.name, exc)
+    except OSError as exc:
+        raise track_bundle.BundleError(
+            f"cannot record the assignment in {path.name} ({exc}) — refusing to "
+            "merge, because a run that cannot be marked as rescued would be "
+            "offered for rescue again"
+        ) from exc
+
+    before = len(doc["edges"]) if doc else 0
+    meta = track_bundle.save(data_dir, name, edges, finish, count_run=True,
+                             source=source)
     doc = track_bundle.load(data_dir, name)
     stats = track_bundle.stats(doc) if doc else {}
     return {
@@ -198,6 +232,7 @@ def assign(data_dir: Path, path: Path, track: str) -> dict[str, Any]:
         "log": path.name,
         "logged_track": logged_track,
         "run": run,
+        "source": source,
         "recovered_points": len(edges),
         "added_points": stats.get("points", before) - before,
     }

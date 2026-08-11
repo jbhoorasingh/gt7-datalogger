@@ -450,11 +450,17 @@ export function CornerEditor({
                   </button>
                   <button
                     className="btn-danger ml-auto"
-                    onClick={() => {
+                    // The row selects on click, so without this the parent
+                    // re-selects index i straight after the removal — which is
+                    // now a DIFFERENT corner, and an armed entry/exit mode
+                    // would place its next anchor on the wrong one.
+                    onClick={(e) => {
+                      e.stopPropagation();
                       setCorners((prev) =>
                         prev.filter((_, j) => j !== i).map((x, k) => ({ ...x, n: k + 1 })),
                       );
                       setSelected(-1);
+                      setMode(null);
                       setDirty(true);
                     }}
                   >
@@ -526,9 +532,11 @@ export function CornerEditor({
                   </button>
                   <button
                     className="btn-danger"
-                    onClick={() => {
+                    onClick={(e) => {
+                      e.stopPropagation();  // as above: the row selects on click
                       setSections((prev) => prev.filter((_, j) => j !== i));
                       setSelectedSection(-1);
+                      setMode(null);
                       setDirty(true);
                     }}
                   >

@@ -175,10 +175,23 @@ async def assign_log(
         # Its evidence is still in memory and will be saved on stop; merging
         # the partial log now would count the same run twice.
         raise HTTPException(409, "that run is still going — stop the survey first")
+    target = payload.track.strip()
+    already = survey_log.summarize(path)["track"]
+    if already and track_bundle.slugify(already) == track_bundle.slugify(target):
+        # The view hides a rescued run, but a retry — a double-click, a
+        # repeated request — still lands here, and assign() would allocate the
+        # next run and merge the same evidence again, inflating exactly the
+        # counts the whole format is careful about. Re-assigning to a
+        # DIFFERENT circuit stays allowed: that is the mis-label correction.
+        raise HTTPException(
+            409, f"that run has already been assigned to {already!r}"
+        )
     try:
-        return survey_log.assign(directory, path, payload.track)
+        result = survey_log.assign(directory, path, target)
     except track_bundle.BundleError as exc:
         raise HTTPException(400, str(exc)) from exc
+    svc(request).invalidate_authored_corners(result["track"])
+    return result
 
 
 # --- bundles ------------------------------------------------------------------
@@ -220,19 +233,37 @@ async def import_bundle(request: Request) -> dict[str, Any]:
     length = request.headers.get("content-length")
     if length is not None and length.isdigit() and int(length) > MAX_IMPORT_BYTES:
         raise HTTPException(413, "bundle too large")
-    raw = await request.body()
-    if len(raw) > MAX_IMPORT_BYTES:
-        raise HTTPException(413, "bundle too large")
+    # Read the body in chunks and stop AT the cap. `await request.body()`
+    # buffers the whole payload first, so a chunked upload — which carries no
+    # Content-Length for the check above to catch — could make the process
+    # allocate a gigabyte for a limit it claims to enforce.
+    chunks: list[bytes] = []
+    size = 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > MAX_IMPORT_BYTES:
+            raise HTTPException(413, "bundle too large")
+        chunks.append(chunk)
     try:
-        payload = json.loads(raw)
+        payload = json.loads(b"".join(chunks))
     except ValueError as exc:
         raise HTTPException(400, f"not valid JSON: {exc}") from exc
     target = request.query_params.get("track")
+    if target is not None:
+        # The document's own label is capped and PATCH goes through Pydantic;
+        # this one arrives raw off the query string, and an overlong value
+        # reaches the filesystem as a filename and fails as a 500.
+        target = target.strip()[: track_bundle.MAX_TRACK_NAME]
+        if not target:
+            raise HTTPException(400, "track override cannot be blank")
     try:
         doc = track_bundle.validate_document(payload)
-        return track_bundle.merge_document(data_dir(request), doc, track=target)
+        result = track_bundle.merge_document(data_dir(request), doc, track=target)
     except track_bundle.BundleError as exc:
         raise HTTPException(400, f"invalid bundle: {exc}") from exc
+    # An import can give a circuit its first authored corners.
+    svc(request).invalidate_authored_corners(result["track"])
+    return result
 
 
 class BundlePatch(BaseModel):
@@ -264,19 +295,46 @@ async def patch_bundle(
             track_bundle.set_official(directory, doc["meta"]["track"], official)
             result["official"] = official
         if payload.track is not None:
+            _refuse_if_surveying(request, slug, "renamed")
             # Renaming onto an existing bundle MERGES: two near-miss spellings
             # of one circuit are one circuit, and keeping them apart was the
             # bug, not the feature.
+            was = track_bundle.load_slug(directory, slug)
             result.update(track_bundle.rename(directory, slug, payload.track))
+            if was is not None:
+                svc(request).invalidate_authored_corners(was["meta"]["track"])
+            svc(request).invalidate_authored_corners(payload.track)
     except track_bundle.BundleError as exc:
         raise HTTPException(400, str(exc)) from exc
     return result
 
 
+def _refuse_if_surveying(request: Request, slug: str, verb: str) -> None:
+    """A live survey holds its circuit's name in memory and writes by it.
+
+    Move the bundle out from under it and the next autosave — or the stop —
+    recreates the old one under the old name, splitting the circuit again,
+    which is the exact thing rename exists to repair. Nothing here can retarget
+    a running survey safely, so it waits for the survey to stop.
+    """
+    survey = svc(request).survey
+    if survey.active and survey.track and track_bundle.slugify(survey.track) == slug:
+        raise HTTPException(
+            409,
+            f"a survey is running on this circuit — it cannot be {verb} until "
+            "that run stops, or its next save would recreate this bundle",
+        )
+
+
 @router.delete("/track-bundles/{slug}", dependencies=[Depends(require_admin)])
 async def delete_bundle(request: Request, slug: str) -> dict[str, str]:
-    if not track_bundle.delete(data_dir(request), _slug(slug)):
+    directory = data_dir(request)
+    _refuse_if_surveying(request, _slug(slug), "deleted")
+    doc = track_bundle.load_slug(directory, _slug(slug))
+    if not track_bundle.delete(directory, _slug(slug)):
         raise HTTPException(404, "no bundle for this track")
+    if doc is not None:
+        svc(request).invalidate_authored_corners(doc["meta"]["track"])
     return {"status": "deleted"}
 
 

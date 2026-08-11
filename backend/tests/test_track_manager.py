@@ -486,3 +486,240 @@ async def test_saving_corners_invalidates_the_cached_set(client) -> None:
     await c.put("/api/track-bundles/ring/corners",
                 json={"corners": [{"name": "Turn 1", "apex": {"x": 10, "z": 5}}]})
     assert [x["name"] for x in service.authored_corners("Ring")] == ["Turn 1"]
+
+
+# --- review follow-ups --------------------------------------------------------
+
+
+def test_a_killed_run_does_not_make_the_next_one_invisible(tmp_path) -> None:
+    """The autosave writes a run's votes as it goes; `meta.runs` only counts a
+    run that ENDED. A process killed in between leaves votes at run N behind a
+    counter saying N-1 — and if the next run then reuses N, every metre it
+    re-observes merges in as already counted. That silently discards exactly
+    the evidence the autosave exists to protect."""
+    from app.processing import survey as survey_mod
+
+    src = track_bundle.source_id(tmp_path)
+    survey = survey_mod.SurfaceSurvey()
+    survey.start(tmp_path, track_width_m=1.6, track="Ring", track_user_set=True)
+    for i in range(5):
+        survey._append_edge(x=float(i), z=0.0, hx=1.0, hz=0.0, side="L",
+                            kind="wall", pid=i)
+    survey._save_bundle(count_run=False)  # the autosave...
+    # ...and then the process dies. No stop(), so no count_run=True.
+    doc = track_bundle.load(tmp_path, "Ring")
+    assert doc is not None
+    assert doc["meta"]["source_runs"] == {src: 0} or doc["meta"]["runs"] == 0
+    assert track_bundle.watermarks(doc["edges"])[src] == 1  # the votes know
+
+    second = survey_mod.SurfaceSurvey()
+    second.start(tmp_path, track_width_m=1.6, track="Ring", track_user_set=True)
+    assert second._run_no == 2, "reused the dead run's ordinal"
+    for i in range(5):
+        second._append_edge(x=float(i), z=0.0, hx=1.0, hz=0.0, side="L",
+                            kind="wall", pid=i)
+    second.stop()
+
+    after = track_bundle.load(tmp_path, "Ring")
+    assert after is not None
+    # Two independent observations of that metre, not one.
+    assert track_bundle.vote_count(after["edges"][0]["votes"], "wall") == 2
+
+
+@pytest.mark.parametrize(
+    ("votes", "why"),
+    [
+        ({"edge": {FOREIGN: [1000000, 1]}}, "a million votes cast on run 1"),
+        ({"edge": {FOREIGN: [3, 2]}}, "three votes across two runs"),
+        ({"edge": {FOREIGN: [1.5, 2]}}, "a fractional count"),
+    ],
+)
+async def test_import_rejects_impossible_vote_counts(client, votes, why) -> None:
+    """A source casts at most one vote per kind per run, so a count above its
+    own run ordinal is a claim no driving could produce. Unchecked, one such
+    record outvotes every hand mark at that metre — in a scheme whose whole
+    premise is that the counts are a census of real observations."""
+    c, _service, tmp = client
+    doc = _foreign_bundle(n=2)
+    doc["edges"][0]["votes"] = votes
+    resp = await c.post("/api/track-bundles/import", json=doc)
+    assert resp.status_code == 400, why
+    assert track_bundle.load(tmp, "Ring") is None
+
+
+async def test_import_repairs_run_counters_that_undercount_their_votes(client) -> None:
+    """`source_runs` is authoritative for the next ordinal, so a document
+    whose counters sit below its own votes would hand its owner an ordinal
+    already present in the file."""
+    c, _service, tmp = client
+    doc = _foreign_bundle(n=3, runs=4)
+    doc["meta"]["source_runs"] = {}  # says nothing about the source it uses
+    assert (await c.post("/api/track-bundles/import", json=doc)).status_code == 200
+
+    stored = track_bundle.load(tmp, "Ring")
+    assert stored is not None
+    assert stored["meta"]["source_runs"][FOREIGN] == 4
+    assert stored["meta"]["runs"] == 4
+
+
+@pytest.mark.parametrize("runs", [{FOREIGN: -3}, {FOREIGN: 2.5}])
+async def test_import_rejects_nonsense_run_counters(client, runs) -> None:
+    c, _service, tmp = client
+    doc = _foreign_bundle()
+    doc["meta"]["source_runs"] = runs
+    assert (await c.post("/api/track-bundles/import", json=doc)).status_code == 400
+    assert track_bundle.load(tmp, "Ring") is None
+
+
+async def test_two_anonymous_bundles_are_not_confused_for_one_source(client) -> None:
+    """Pre-v4 files carry no source id, so one is synthesised from the
+    document. Derived from a sample of it, two people's bundles of the same
+    circuit could collide into a single 'source' — and their overlapping
+    votes would then be dropped as one person's duplicates."""
+    c, _service, tmp = client
+    mine = _foreign_bundle(version=2, n=80, track="Ring")
+    theirs = _foreign_bundle(version=2, n=80, track="Ring")
+    # Identical opening metres and run count; they differ only further in.
+    theirs["edges"][79] = {**theirs["edges"][79], "x": 999.0}
+
+    await c.post("/api/track-bundles/import", json=mine)
+    await c.post("/api/track-bundles/import", json=theirs)
+
+    stored = track_bundle.load(tmp, "Ring")
+    assert stored is not None
+    shared = next(e for e in stored["edges"] if e["x"] == 0.0)
+    assert len(shared["votes"]["edge"]) == 2, "two contributors read as one"
+
+
+async def test_a_rescued_run_cannot_be_rescued_again(client, tmp_path) -> None:
+    """The view hides a rescued log, but a retry still reaches the endpoint —
+    and a second merge inflates both the vote counts and the run count."""
+    c, service, tmp = client
+    survey = service.survey
+    survey.start(tmp, track_width_m=1.6)
+    for i in range(4):
+        survey._append_edge(x=float(i), z=0.0, hx=1.0, hz=0.0, side="L",
+                            kind="wall", pid=i)
+    name = survey.log_path.name
+    survey.stop()
+
+    first = await c.post(f"/api/survey/logs/{name}/assign", json={"track": "Ring"})
+    assert first.status_code == 200
+    again = await c.post(f"/api/survey/logs/{name}/assign", json={"track": "Ring"})
+    assert again.status_code == 409
+
+    doc = track_bundle.load(tmp, "Ring")
+    assert doc is not None and doc["meta"]["runs"] == 1
+    # ...but re-assigning to a DIFFERENT circuit is the mis-label correction.
+    other = await c.post(f"/api/survey/logs/{name}/assign", json={"track": "Elsewhere"})
+    assert other.status_code == 200
+
+
+async def test_a_replayed_log_stays_the_evidence_of_whoever_drove_it(client) -> None:
+    """Logs travel between machines. Stamping the replaying installation would
+    let one physical run be counted twice, once by each machine, if the one
+    that recorded it ever contributes its own bundle."""
+    c, service, tmp = client
+    survey = service.survey
+    survey.start(tmp, track_width_m=1.6)
+    recorded_by = survey._source
+    for i in range(4):
+        survey._append_edge(x=float(i), z=0.0, hx=1.0, hz=0.0, side="L",
+                            kind="wall", pid=i)
+    name = survey.log_path.name
+    survey.stop()
+
+    # Pretend the log came from elsewhere by rewriting the id in its header.
+    path = tmp / name
+    lines = path.read_text().splitlines()
+    lines[0] = lines[0].replace(recorded_by, "aaaa0000bbbb")
+    path.write_text("\n".join(lines) + "\n")
+
+    await c.post(f"/api/survey/logs/{name}/assign", json={"track": "Ring"})
+    doc = track_bundle.load(tmp, "Ring")
+    assert doc is not None
+    assert list(doc["edges"][0]["votes"]["wall"]) == ["aaaa0000bbbb"]
+    assert track_bundle.source_id(tmp) not in doc["meta"]["source_runs"]
+
+
+async def test_a_failed_assignment_marker_aborts_the_merge(client, monkeypatch) -> None:
+    """The marker is the only durable record that a run was rescued. Merging
+    first and swallowing a failed write reports success while leaving the run
+    listed as orphaned — so the obvious retry merges it a second time."""
+    c, service, tmp = client
+    survey = service.survey
+    survey.start(tmp, track_width_m=1.6)
+    survey._append_edge(x=1.0, z=0.0, hx=1.0, hz=0.0, side="L", kind="wall", pid=1)
+    name = survey.log_path.name
+    survey.stop()
+    (tmp / name).chmod(0o444)
+
+    resp = await c.post(f"/api/survey/logs/{name}/assign", json={"track": "Ring"})
+    assert resp.status_code == 400
+    assert "rescued" in resp.json()["detail"]
+    assert track_bundle.load(tmp, "Ring") is None  # nothing merged
+
+
+async def test_a_circuit_being_surveyed_cannot_be_renamed_or_deleted(client) -> None:
+    """The survey holds its circuit's name in memory and saves by it, so
+    moving the bundle out from under a live run just recreates the old one on
+    the next autosave — splitting the circuit rename exists to repair."""
+    c, service, tmp = client
+    await c.post("/api/track-bundles/import", json=_foreign_bundle(track="Ring"))
+    service.survey.start(tmp, track_width_m=1.6, track="Ring", track_user_set=True)
+
+    assert (await c.patch("/api/track-bundles/ring",
+                          json={"track": "Ring Proper"})).status_code == 409
+    assert (await c.delete("/api/track-bundles/ring")).status_code == 409
+    service.survey.stop()
+    assert (await c.patch("/api/track-bundles/ring",
+                          json={"track": "Ring Proper"})).status_code == 200
+
+
+async def test_every_bundle_change_drops_the_cached_corners(client) -> None:
+    """Analysis and the Race Engineer read corners through a cache, because
+    the bundle they live in is megabytes. Any path that can change a circuit's
+    authored corners has to invalidate it, not just the corner editor's save."""
+    c, service, tmp = client
+    _bundle_with_corners(tmp, "Ring")
+    assert service.authored_corners("Ring") == []  # caches the empty answer
+
+    incoming = _foreign_bundle(track="Ring")
+    incoming["corners"] = [{"n": 1, "name": "Imported", "apex": {"x": 1, "z": 5}}]
+    await c.post("/api/track-bundles/import", json=incoming)
+    assert [x["name"] for x in service.authored_corners("Ring")] == ["Imported"]
+
+    await c.patch("/api/track-bundles/ring", json={"track": "Ring Two"})
+    assert service.authored_corners("Ring") == []
+    assert [x["name"] for x in service.authored_corners("Ring Two")] == ["Imported"]
+
+    await c.delete("/api/track-bundles/ring-two")
+    assert service.authored_corners("Ring Two") == []
+
+
+async def test_the_track_override_cannot_be_an_arbitrary_filename(client) -> None:
+    c, _service, _tmp = client
+    resp = await c.post(f"/api/track-bundles/import?track={'x' * 500}",
+                        json=_foreign_bundle())
+    assert resp.status_code == 200  # capped, not crashed
+    assert len(resp.json()["track"]) <= track_bundle.MAX_TRACK_NAME
+    assert (await c.post("/api/track-bundles/import?track=%20%20",
+                         json=_foreign_bundle())).status_code == 400
+
+
+async def test_import_stops_reading_an_oversized_body(client, monkeypatch) -> None:
+    """The size check ran after the whole body was buffered, so a chunked
+    upload — which carries no Content-Length — could still make the process
+    allocate far past the advertised cap."""
+    from app.api import tracks as tracks_api
+
+    monkeypatch.setattr(tracks_api, "MAX_IMPORT_BYTES", 2048)
+    c, _service, _tmp = client
+
+    async def chunks():
+        for _ in range(64):
+            yield b"x" * 512
+
+    resp = await c.post("/api/track-bundles/import", content=chunks(),
+                        headers={"Content-Type": "application/json"})
+    assert resp.status_code == 413

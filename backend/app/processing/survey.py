@@ -308,6 +308,13 @@ class SurfaceSurvey:
             "track_width_m": track_width_m,
             "track": track,
             "session_id": session_id,
+            # Whose driving this is. A log can be copied to another machine
+            # and replayed there (scripts/jsonl_to_bundle.py exists for
+            # exactly that), and without the id recorded here the replay
+            # would stamp the DESTINATION installation — so if the machine
+            # that actually drove it ever contributes too, one run counts
+            # twice across the merge as two people's evidence.
+            "source": self._source,
             "wheels": list(WHEELS),
         }}, separators=(",", ":")) + "\n")
         self._out.flush()
@@ -363,7 +370,14 @@ class SurfaceSurvey:
         # the pre-identification evidence merges in as no vote at all. The
         # ordinal counts THIS installation's runs: a bundle pulled from
         # someone who has driven here 30 times must not push our run 2 to 31.
-        self._run_no = doc["meta"]["source_runs"].get(self._source, 0) + 1
+        # Against the votes as well as the counter: a run killed before it
+        # stopped left votes stamped at an ordinal the counter never caught up
+        # to, and reusing it would make everything this run re-observes on that
+        # ground merge in as already counted.
+        self._run_no = max(
+            doc["meta"]["source_runs"].get(self._source, 0),
+            track_bundle.watermarks(doc["edges"]).get(self._source, 0),
+        ) + 1
         for e in self.edges:
             e["run"] = self._run_no
             for sources in e["votes"].values():

@@ -2,7 +2,7 @@
 // Dialog: portal, backdrop, focus trap + restore, Escape, aria wiring.
 
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 
 function Dialog({
   open,
@@ -73,6 +73,7 @@ export function PromptDialog({
   placeholder,
   submitLabel = "Save",
   initialValue = "",
+  suggestions,
   onSubmit,
   onCancel,
 }: {
@@ -82,6 +83,11 @@ export function PromptDialog({
   placeholder?: string;
   submitLabel?: string;
   initialValue?: string;
+  // Offered as a datalist rather than a fixed list: the value is free text
+  // (a circuit nobody has named yet is a legitimate answer), but where the
+  // whole problem is near-miss spellings, the existing names should be one
+  // keystroke away.
+  suggestions?: string[];
   onSubmit: (value: string) => void;
   onCancel: () => void;
 }) {
@@ -91,6 +97,7 @@ export function PromptDialog({
     if (open) setValue(initialValue);
   }, [open, initialValue]);
 
+  const listId = useId();
   const submit = () => {
     const v = value.trim();
     if (v) onSubmit(v);
@@ -104,6 +111,7 @@ export function PromptDialog({
       )}
       <input
         value={value}
+        list={suggestions ? listId : undefined}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter") submit();
@@ -111,6 +119,13 @@ export function PromptDialog({
         placeholder={placeholder}
         className="mb-4 w-full rounded-md border border-edge bg-panel-2 px-3 py-1.5 text-sm placeholder:text-ink-dim/60 focus:border-accent focus:outline-none"
       />
+      {suggestions && (
+        <datalist id={listId}>
+          {suggestions.map((s) => (
+            <option key={s} value={s} />
+          ))}
+        </datalist>
+      )}
       <div className="flex justify-end gap-2">
         <button className="btn" onClick={onCancel}>
           Cancel

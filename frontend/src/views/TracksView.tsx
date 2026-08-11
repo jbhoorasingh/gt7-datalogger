@@ -17,7 +17,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CornerEditor } from "@/components/tracks/CornerEditor";
-import { ConfirmDialog } from "@/components/ui/Dialog";
+import { ConfirmDialog, PromptDialog } from "@/components/ui/Dialog";
 import { Tip } from "@/components/ui/Tooltip";
 import { api } from "@/lib/api";
 import { getAdminToken } from "@/lib/api";
@@ -60,10 +60,8 @@ export function TracksView() {
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<TrackOverviewRow | null>(null);
   const [renaming, setRenaming] = useState<TrackOverviewRow | null>(null);
-  const [renameTo, setRenameTo] = useState("");
   const [deleting, setDeleting] = useState<TrackOverviewRow | null>(null);
   const [assigning, setAssigning] = useState<SurveyLog | null>(null);
-  const [assignTo, setAssignTo] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
   const importTarget = useRef<string | undefined>(undefined);
 
@@ -190,10 +188,7 @@ export function TracksView() {
                 <button
                   className="btn ml-auto"
                   disabled={busy}
-                  onClick={() => {
-                    setAssigning(log);
-                    setAssignTo("");
-                  }}
+                  onClick={() => setAssigning(log)}
                 >
                   Assign to a track…
                 </button>
@@ -350,10 +345,7 @@ export function TracksView() {
                   className="btn"
                   disabled={!b || busy}
                   title="Rename — and if the new name is another bundle, merge into it. Two spellings of one circuit are one circuit."
-                  onClick={() => {
-                    setRenaming(row);
-                    setRenameTo(row.name);
-                  }}
+                  onClick={() => setRenaming(row)}
                 >
                   Rename…
                 </button>
@@ -395,96 +387,36 @@ export function TracksView() {
         }}
       />
 
-      <NameDialog
+      <PromptDialog
         open={renaming != null}
         title={`Rename ${renaming?.name ?? ""}`}
-        body="Renaming onto an existing bundle merges the two — which is the fix for one circuit living under two near-miss spellings."
-        value={renameTo}
-        options={knownNames}
-        onChange={setRenameTo}
+        label="Renaming onto an existing bundle merges the two — which is the fix for one circuit living under two near-miss spellings."
+        placeholder="track name"
+        submitLabel="Rename"
+        initialValue={renaming?.name ?? ""}
+        suggestions={knownNames}
         onCancel={() => setRenaming(null)}
-        onConfirm={() => {
+        onSubmit={(name) => {
           const row = renaming;
-          const name = renameTo.trim();
           setRenaming(null);
-          if (row && name) void run("Renamed", () => api.bundles.rename(row.slug, name));
+          if (row) void run("Renamed", () => api.bundles.rename(row.slug, name));
         }}
       />
 
-      <NameDialog
+      <PromptDialog
         open={assigning != null}
         title="Assign this run to a track"
-        body="The log is replayed through the normal merge path, so the result is the same as having named the circuit while driving."
-        value={assignTo}
-        options={knownNames}
-        onChange={setAssignTo}
+        label="The log is replayed through the normal merge path, so the result is the same as having named the circuit while driving."
+        placeholder="track name"
+        submitLabel="Assign"
+        suggestions={knownNames}
         onCancel={() => setAssigning(null)}
-        onConfirm={() => {
+        onSubmit={(name) => {
           const log = assigning;
-          const name = assignTo.trim();
           setAssigning(null);
-          if (log && name) {
-            void run("Run recovered", () => api.survey.assignLog(log.name, name));
-          }
+          if (log) void run("Run recovered", () => api.survey.assignLog(log.name, name));
         }}
       />
-    </div>
-  );
-}
-
-/** Free-text name with suggestions — near-miss names are the problem here, so
- *  every existing track is one keystroke away. */
-function NameDialog({
-  open,
-  title,
-  body,
-  value,
-  options,
-  onChange,
-  onCancel,
-  onConfirm,
-}: {
-  open: boolean;
-  title: string;
-  body: string;
-  value: string;
-  options: string[];
-  onChange: (v: string) => void;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4">
-      <div className="w-full max-w-sm rounded-xl border border-edge bg-panel p-4 shadow-xl shadow-black/40">
-        <h3 className="mb-2 text-sm font-semibold">{title}</h3>
-        <p className="mb-3 text-xs text-ink-dim">{body}</p>
-        <input
-          autoFocus
-          list="track-names"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") onConfirm();
-            if (e.key === "Escape") onCancel();
-          }}
-          className="w-full rounded border border-edge bg-panel-2 px-2 py-1.5 text-sm text-ink"
-          placeholder="track name"
-        />
-        <datalist id="track-names">
-          {options.map((name) => (
-            <option key={name} value={name} />
-          ))}
-        </datalist>
-        <div className="mt-4 flex justify-end gap-2">
-          <button className="btn" onClick={onCancel}>
-            Cancel
-          </button>
-          <button className="btn" disabled={!value.trim()} onClick={onConfirm}>
-            Confirm
-          </button>
-        </div>
-      </div>
     </div>
   );
 }

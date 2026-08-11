@@ -143,6 +143,11 @@ def source_id(data_dir: Path) -> str:
     return value
 
 
+def is_source_id(value: Any) -> bool:
+    """Whether a string is a well-formed installation id."""
+    return isinstance(value, str) and bool(_SOURCE_RE.match(value))
+
+
 def edge_key(e: dict[str, Any]) -> tuple[int, int, str]:
     """One record per metre per side — kind is voted on, not part of identity."""
     return (round(e["x"] / GRID_M), round(e["z"] / GRID_M), e["side"])
@@ -158,6 +163,37 @@ def vote_count(votes: Votes, kind: str) -> int:
 
 def vote_totals(votes: Votes) -> dict[str, int]:
     return {kind: vote_count(votes, kind) for kind in votes}
+
+
+def watermarks(edges: list[dict[str, Any]]) -> dict[str, int]:
+    """The highest run each source has actually cast a vote at.
+
+    `meta.source_runs` is only advanced when a run ENDS (`count_run`), while
+    the ~60 s autosave writes that run's votes as it goes. A run killed before
+    it stops therefore leaves votes stamped run N behind a counter that still
+    says N-1 — and the next run would then reuse N, at which point
+    `_merge_votes` reads its re-observations of that ground as already counted
+    and drops them. Which is precisely the evidence the autosave existed to
+    protect. The votes are the record; the counter follows them.
+    """
+    seen: dict[str, int] = {}
+    for edge in edges:
+        for sources in edge.get("votes", {}).values():
+            for source, entry in sources.items():
+                if entry[1] > seen.get(source, 0):
+                    seen[source] = entry[1]
+    return seen
+
+
+def reconcile_runs(
+    source_runs: dict[str, int], edges: list[dict[str, Any]]
+) -> dict[str, int]:
+    """Raise the per-source run counters to the evidence on disk."""
+    out = dict(source_runs)
+    for source, run in watermarks(edges).items():
+        if run > out.get(source, 0):
+            out[source] = run
+    return dict(sorted(out.items()))
 
 
 def resolve_kind(votes: Votes) -> str:
@@ -422,10 +458,17 @@ def save(
     edges: list[dict[str, Any]],
     finish_crossings: list[dict[str, float]],
     count_run: bool,
+    source: str | None = None,
 ) -> dict[str, Any]:
-    """Merge a run's evidence into the circuit's bundle; returns its meta."""
+    """Merge a run's evidence into the circuit's bundle; returns its meta.
+
+    `source` is whose run this is, defaulting to this installation. Replaying
+    a log recorded elsewhere passes the id it was recorded under, so the run
+    is counted against the machine that drove it and not the one replaying —
+    otherwise the votes say one thing and the run counter another.
+    """
     existing = load(data_dir, track)
-    source = source_id(data_dir)
+    source = source or source_id(data_dir)
     merged_edges = merge_edges(existing["edges"] if existing else [], edges)
     merged_finish = merge_finish(
         existing["finish_crossings"] if existing else [], finish_crossings
@@ -433,6 +476,10 @@ def save(
     source_runs = dict(existing["meta"]["source_runs"]) if existing else {}
     if count_run:
         source_runs[source] = source_runs.get(source, 0) + 1
+    # Deliberately NOT reconciled against the votes here: an autosave is not a
+    # finished run, and counting one would make `runs` climb mid-session. The
+    # lag that leaves after a crash is handled where it actually does damage —
+    # in the choice of the NEXT run's ordinal (see next_run and watermarks).
     doc = _document(
         track, merged_edges, merged_finish, source_runs,
         # Authored knowledge is never touched by a survey run: a driver
@@ -457,8 +504,13 @@ def next_run(data_dir: Path, track: str) -> int:
     doc = load(data_dir, track)
     if doc is None:
         return 1
-    mine: int = doc["meta"]["source_runs"].get(source_id(data_dir), 0)
-    return mine + 1
+    source = source_id(data_dir)
+    counted: int = doc["meta"]["source_runs"].get(source, 0)
+    # Defensively against the evidence too, not just the counter: a bundle
+    # written by a build that predates reconcile_runs — or one repaired by
+    # hand — can still hold votes above it, and reusing that ordinal would
+    # make this run's agreement invisible.
+    return max(counted, watermarks(doc["edges"]).get(source, 0)) + 1
 
 
 def stats(doc: dict[str, Any]) -> dict[str, Any]:
@@ -559,6 +611,18 @@ def _number(value: Any, field: str, limit: float = 1e7) -> float:
     return number
 
 
+def _integer(value: Any, field: str, limit: float = 1e7) -> int:
+    """A whole number, refused rather than truncated.
+
+    `int(1.9)` silently becoming 1 is the kind of quiet repair that makes a
+    malformed document look like a well-formed one.
+    """
+    number = _number(value, field, limit)
+    if number != int(number):
+        raise BundleError(f"{field} must be a whole number")
+    return int(number)
+
+
 def _text(value: Any, field: str, limit: int) -> str:
     if not isinstance(value, str):
         raise BundleError(f"{field} must be a string")
@@ -582,10 +646,20 @@ def _validate_votes(raw: Any, where: str) -> Votes:
                 raise BundleError(f"{where}: {source!r} is not a source id")
             if not isinstance(entry, list) or len(entry) != 2:
                 raise BundleError(f"{where}: votes.{kind}.{source} must be [count, run]")
-            count = int(_number(entry[0], f"{where}: vote count", limit=1e6))
-            run = int(_number(entry[1], f"{where}: vote run", limit=1e6))
-            if count < 1 or run < 0:
-                raise BundleError(f"{where}: votes.{kind}.{source} is out of range")
+            count = _integer(entry[0], f"{where}: vote count", limit=1e6)
+            run = _integer(entry[1], f"{where}: vote run", limit=1e6)
+            # A source casts at most ONE vote per kind per run, so a count
+            # above its own run ordinal is not evidence — it is a claim no
+            # amount of driving could produce. Left unchecked, a single
+            # imported record saying [1000000, 1] outvotes every hand mark at
+            # that metre, in a tier system whose whole premise is that the
+            # counts are a census. (Run 0 is the v1 upgrade's stamp, which
+            # legitimately carries one vote.)
+            if count < 1 or run < 0 or count > max(run, 1):
+                raise BundleError(
+                    f"{where}: votes.{kind}.{source} = [{count}, {run}] is not a "
+                    "possible vote — count must be 1..run"
+                )
             bucket[str(source)] = [count, run]
         votes[kind] = bucket
     return votes
@@ -787,10 +861,16 @@ def validate_document(raw: Any) -> dict[str, Any]:
         for source, count in runs_raw.items():
             if not _SOURCE_RE.match(str(source)):
                 raise BundleError(f"meta.source_runs: {source!r} is not a source id")
-            source_runs[str(source)] = int(
-                _number(count, f"meta.source_runs.{source}", limit=1e6)
-            )
-        doc["meta"]["source_runs"] = source_runs
+            runs = _integer(count, f"meta.source_runs.{source}", limit=1e6)
+            if runs < 0:
+                raise BundleError(f"meta.source_runs.{source} cannot be negative")
+            source_runs[str(source)] = runs
+        # The counters are declared authoritative, so they have to cover the
+        # evidence: a source that voted at run 9 but is absent here — or
+        # listed at 3 — would hand its next run an ordinal whose votes are
+        # already present, and that run's agreement would merge in as nothing.
+        doc["meta"]["source_runs"] = reconcile_runs(source_runs, doc["edges"])
+        doc["meta"]["runs"] = sum(doc["meta"]["source_runs"].values())
     else:
         # Pre-v4 evidence is anonymous, and it is NOT ours: attributing it to
         # this installation would make the sender's runs collide with our own
@@ -806,13 +886,20 @@ def _foreign_source(doc: dict[str, Any]) -> str:
     Derived from the track name and the document's own contents, so
     re-importing the same file twice merges idempotently instead of counting
     the stranger's evidence a second time under a fresh id.
+
+    Every record feeds the hash, not a leading sample: two people's bundles of
+    one circuit are distinguished by the metres they each happened to map, and
+    truncating the seed is exactly what would let two of them collide into a
+    single "source" whose overlapping votes are then dropped as duplicates.
+    Hashing 5,000 records costs a few milliseconds, once, per import.
     """
-    seed = json.dumps(
-        [doc["meta"]["track"], doc["meta"]["runs"],
-         [[e["x"], e["z"], e["side"]] for e in doc["edges"][:64]]],
-        separators=(",", ":"),
-    )
-    return hashlib.sha256(seed.encode("ascii", "replace")).hexdigest()[:SOURCE_ID_CHARS]
+    digest = hashlib.sha256()
+    digest.update(doc["meta"]["track"].encode("utf-8", "replace"))
+    digest.update(str(doc["meta"]["runs"]).encode("ascii"))
+    for edge in doc["edges"]:
+        digest.update(f"|{edge['x']},{edge['z']},{edge['side']},{edge['kind']}"
+                      .encode("ascii", "replace"))
+    return digest.hexdigest()[:SOURCE_ID_CHARS]
 
 
 def merge_document(
@@ -838,6 +925,7 @@ def merge_document(
         # Each source's own highest run count wins. Adding them would count
         # the same runs again every time the same bundle is re-imported.
         source_runs[source] = max(source_runs.get(source, 0), count)
+    source_runs = reconcile_runs(source_runs, edges)
     # Authored data is never overwritten by an import: someone else's corner
     # numbering replacing yours silently is the one outcome nobody wants back.
     corners = existing["corners"] if existing and existing["corners"] else doc["corners"]
