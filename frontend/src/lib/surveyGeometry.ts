@@ -135,10 +135,9 @@ export function borderCoverage(
     R: new Map(),
   };
   for (const e of edges) {
-    // Run-off limits are excluded from the road FILL (they bound the
-    // run-off, not the road) but they absolutely count as coverage: the
-    // driver traced that section's boundary on purpose, and grading it as
-    // a gap forever would send them back to re-drive finished work.
+    // Every kind counts as coverage: the driver traced that section's
+    // boundary on purpose, and grading it as a gap forever would send them
+    // back to re-drive finished work.
     const key = `${Math.floor(e.x / COVER_RADIUS_M)}:${Math.floor(e.z / COVER_RADIUS_M)}`;
     const bucket = cellsBySide[e.side].get(key);
     if (bucket) bucket.push(e);
@@ -296,10 +295,17 @@ export function borderCoverage(
 }
 
 // Quads [x1,z1, x2,z2, x3,z3, x4,z4] spanning left→right wherever a left
-// border point has a right border point directly across from it. Run-off
-// limits bound the run-off, not the road, so they never contribute.
+// border point has a right border point directly across from it.
+//
+// Every kind contributes, "runoff" included. It used to be excluded, on the
+// reading that it bounded the run-off rather than the road — but that is not
+// how it gets used, and measurably so: all 946 run-off marks across the
+// author's three circuits sit with the OPPOSITE border 12-14 m across,
+// against a measured road width of 12.7 m. They are track edges that happen
+// to have pavement beyond them. Excluding them drew no road at all through
+// exactly the corners someone had taken the trouble to survey.
 export function roadQuads(edges: SurveyEdge[]): number[][] {
-  const usable = edges.filter((e) => e.kind !== "runoff");
+  const usable = edges;
   const rights = new Map<string, SurveyEdge[]>();
   for (const e of usable) {
     if (e.side !== "R") continue;

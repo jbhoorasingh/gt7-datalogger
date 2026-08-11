@@ -60,7 +60,7 @@ const RUNOFF_COLOR = "#a855f7";
 const WALL_COLOR = "#ef4444";
 const ROAD_FILL = "rgba(148, 163, 184, 0.16)";
 const TICK_HALF_LENGTH_M = 2;
-// Tick stroke by encoded class: 0 = left, 1 = right, 2 = run-off limit,
+// Tick stroke by encoded class: 0 = left, 1 = right, 2 = run-off edge,
 // 3 = wall (manual kinds override the side color so they stand out).
 const TICK_COLORS = [LEFT_BORDER_COLOR, RIGHT_BORDER_COLOR, RUNOFF_COLOR, WALL_COLOR];
 
@@ -71,6 +71,25 @@ function tickClass(e: SurveyEdge): number {
 }
 
 const MARK_KINDS = ["edge", "runoff", "wall"] as const;
+
+// All three tags mark the SAME thing — the edge of the racing surface,
+// where the surface chars cannot see it. They differ only in what lies
+// beyond, which is what lap-validity judging needs to know: running wide
+// onto pavement is not running wide into gravel.
+const MARK_HELP: Record<(typeof MARK_KINDS)[number], { what: string; when: string }> = {
+  edge: {
+    what: "Track edge, with nothing notable beyond it.",
+    when: "The default: a painted line or kerb edge the surface chars cannot see because there is tarmac either side.",
+  },
+  runoff: {
+    what: "Track edge, with paved run-off beyond it.",
+    when: "Same boundary as 'edge' — the tag records that going wide here puts you on pavement, not grass. Mark the edge itself, not the far side of the run-off.",
+  },
+  wall: {
+    what: "Track edge, with a wall, barrier or fence beyond it.",
+    when: "Use where there is no off-surface to run onto at all.",
+  },
+};
 
 // Why no cornering sample has landed yet. The old edge-ride estimator could
 // sit at "assumed" for an entire session without ever saying what it was
@@ -493,7 +512,7 @@ export function SurveyView() {
       {
         // Perimeter ticks: every edge point of the run drawn as a short
         // segment along the travel direction — left/right borders in their
-        // side colors, manually-marked run-off limits and walls in theirs.
+        // side colors, manually-marked run-off edges and walls in theirs.
         id: "border-ticks",
         type: "custom",
         data: edges.map((p) => [p.x, p.z, p.hx, p.hz, tickClass(p)]),
@@ -817,7 +836,7 @@ export function SurveyView() {
               }`}
               onClick={() => setMark(status.mark_side, kind)}
             >
-              {kind === "runoff" ? "run-off limit" : kind}
+              {kind === "runoff" ? "run-off edge" : kind}
             </button>
           ))}
           {status.mark_side != null && (
@@ -826,6 +845,19 @@ export function SurveyView() {
               drive along the boundary
             </span>
           )}
+
+          {/* Guidance for the selected tag. Always visible rather than a
+              tooltip: the choice is made while driving, and the run-off vs
+              edge distinction is the one that actually gets mis-tagged. */}
+          <div className="w-full border-t border-edge pt-2 text-[11px] leading-relaxed text-ink-dim">
+            <span className="text-ink">
+              {status.mark_kind === "runoff" ? "run-off edge" : status.mark_kind}
+            </span>{" "}
+            — {MARK_HELP[status.mark_kind as keyof typeof MARK_HELP]?.what}{" "}
+            <span className="text-ink-dim/80">
+              {MARK_HELP[status.mark_kind as keyof typeof MARK_HELP]?.when}
+            </span>
+          </div>
         </div>
       )}
 
@@ -961,7 +993,7 @@ export function SurveyView() {
                 className="mr-1 inline-block h-0.5 w-4 align-middle"
                 style={{ backgroundColor: RUNOFF_COLOR }}
               />
-              run-off limit
+              run-off edge
             </span>
             <span>
               <i
