@@ -88,17 +88,35 @@ export interface Coverage {
 //   heading ~180° across a few dozen meters, so the corner's own evidence
 //   is heavily rotated yet CLOSE — without this tier hairpins report
 //   eternal gaps in sections the driver plainly traced.
-// - Opposite (beyond ~120°): never — that's the other leg of the hairpin,
-//   which is the ghost the heading gate exists to prevent.
+// - Opposite (beyond ~120°): a SHORT radius only — shorter than the rotated
+//   tier. This used to be "never, at any distance", on the theory that
+//   antiparallel evidence must belong to the other leg of a hairpin. That
+//   produced a reproducible false gap: on a real East End run the car drove
+//   127 m down the middle of a fully-mapped 12.7 m road, left evidence 7.8 m
+//   to port and right evidence 5.6 m to starboard, and BOTH borders reported
+//   a gap because every point there had been recorded traversing that
+//   stretch the other way (dot -1.00). The beacon then sent the driver back
+//   over finished ground. A border belongs to the road, not to the direction
+//   it was first seen from; at these distances nothing else can physically
+//   be beside you. The far leg of a hairpin sits well outside this radius,
+//   so the ghost it was guarding against stays guarded.
 const COVER_RADIUS_M = 30;
 const COVER_RADIUS_NEAR_M = 15;
+const COVER_RADIUS_OPPOSITE_M = 10;
 const HEADING_ALIGN_MIN_DOT = 0.5;
 const HEADING_OPPOSITE_DOT = -0.5;
 const COVER_MIN_TRAIL = 50; // too little driving to grade against
 const CLOSED_MIN_PCT = 97;
 const CLOSED_MAX_GAP_M = 40;
 const GAP_MIN_DRAW_M = 12; // don't clutter the map with sub-noise stretches
-const GAP_OFFSET_M = 4; // drawn beside the trail, toward the gap's side
+// Gap beacons are drawn out where the border should be, not beside the
+// driven line: a fixed 4 m offset put them ~2.5 m INSIDE a 13 m road, so the
+// marker sat between the two borders and pointed at tarmac rather than at
+// the edge the driver is being sent to touch. The offset instead follows the
+// road's own half-width, taken from how far evidence actually sits from the
+// trail on the stretches that DO have it.
+const GAP_OFFSET_FALLBACK_M = 6;
+const GAP_OFFSET_MIN_M = 3;
 
 // Grade the border evidence against the driven loop: for every trail point,
 // is there border evidence of each side nearby? The trail is the reference
@@ -126,15 +144,21 @@ export function borderCoverage(
     if (bucket) bucket.push(e);
     else cellsBySide[e.side].set(key, [e]);
   }
+  // Distance to the nearest qualifying evidence, or null when this side is
+  // unevidenced here. The distance feeds the gap beacons' offset: on the
+  // stretches that ARE mapped it is how far the border sits from the driven
+  // line, which is the best estimate available for where to draw the border
+  // on the stretches that are not.
   const near = (
     cells: Map<string, SurveyEdge[]>,
     x: number,
     z: number,
     tdx: number,
     tdz: number,
-  ): boolean => {
+  ): number | null => {
     const cx = Math.floor(x / COVER_RADIUS_M);
     const cz = Math.floor(z / COVER_RADIUS_M);
+    let best: number | null = null;
     for (let gx = cx - 1; gx <= cx + 1; gx++) {
       for (let gz = cz - 1; gz <= cz + 1; gz++) {
         for (const e of cells.get(`${gx}:${gz}`) ?? []) {
@@ -144,16 +168,17 @@ export function borderCoverage(
               ? COVER_RADIUS_M
               : dot >= HEADING_OPPOSITE_DOT
                 ? COVER_RADIUS_NEAR_M
-                : 0;
-          if (reach === 0) continue;
+                : COVER_RADIUS_OPPOSITE_M;
           const dx = e.x - x;
           const dz = e.z - z;
-          if (dx * dx + dz * dz > reach * reach) continue;
-          return true;
+          const d2 = dx * dx + dz * dz;
+          if (d2 > reach * reach) continue;
+          const d = Math.sqrt(d2);
+          if (best === null || d < best) best = d;
         }
       }
     }
-    return false;
+    return best;
   };
 
   interface Gap {
@@ -162,6 +187,7 @@ export function borderCoverage(
     lengthM: number;
   }
   const covered = { L: 0, R: 0 };
+  const borderDistances: number[] = [];
   let both = 0;
   const gaps: Record<"L" | "R", Gap[]> = { L: [], R: [] };
   const open: Record<"L" | "R", Gap | null> = { L: null, R: null };
@@ -190,8 +216,10 @@ export function borderCoverage(
     const tdz = (bz - az) / dirLen;
     let onRoad = true;
     for (const side of ["L", "R"] as const) {
-      if (near(cellsBySide[side], x, z, tdx, tdz)) {
+      const distance = near(cellsBySide[side], x, z, tdx, tdz);
+      if (distance !== null) {
         covered[side]++;
+        borderDistances.push(distance);
         if (open[side]) {
           gaps[side].push(open[side]);
           open[side] = null;
@@ -212,8 +240,17 @@ export function borderCoverage(
     if (open[side]) gaps[side].push(open[side]);
   }
 
+  // How far this track's border sits from the driven line, median over the
+  // stretches that have evidence (see `near`). A gap has none of its own, so
+  // its border position can only be inferred from the rest of the lap.
+  const borderOffsetM = (() => {
+    if (!borderDistances.length) return GAP_OFFSET_FALLBACK_M;
+    const sorted = [...borderDistances].sort((a, b) => a - b);
+    return Math.max(GAP_OFFSET_MIN_M, sorted[Math.floor(sorted.length / 2)]);
+  })();
+
   // A gap drawn ON the trail would be ambiguous between sides — offset each
-  // stretch a few meters toward the side whose border is missing there.
+  // stretch out toward the side whose border is missing there.
   const offsetSegment = (start: number, end: number, sign: number): [number, number][] => {
     const points: [number, number][] = [];
     for (let i = start; i <= end; i++) {
@@ -224,7 +261,7 @@ export function borderCoverage(
       const dx = (bx - ax) / len;
       const dz = (bz - az) / len;
       // Right normal is (dz, -dx); the left side sits along its negation.
-      points.push([x + sign * dz * GAP_OFFSET_M, z + sign * -dx * GAP_OFFSET_M]);
+      points.push([x + sign * dz * borderOffsetM, z + sign * -dx * borderOffsetM]);
     }
     return points;
   };

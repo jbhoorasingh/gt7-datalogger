@@ -46,6 +46,47 @@ Notable changes to GT7 Datalogger. The format follows
   axle width, which replaces the assumption once three rides agree. Live
   frames now carry the packed `surface` value. (#37)
 
+### Fixed
+
+- **Survey coverage no longer invents gaps on ground that is already
+  mapped.** Border evidence recorded travelling the opposite direction was
+  ignored at any distance, on the theory that it had to belong to the other
+  leg of a hairpin. On a real East End run that put a 127 m "go touch this"
+  gap on *both* borders while the car drove down the middle of a fully
+  mapped 12.7 m road, with evidence 5.6 m to starboard and 7.8 m to port. A
+  border belongs to the road, not to the direction it was first seen from,
+  so opposite-heading evidence now counts within a short radius — closer
+  than anything on a neighbouring leg can be, so the ghost gaps that gate
+  was guarding against stay guarded. The same run's gaps drop from 127 m to
+  6 m, below the drawing threshold. (#39)
+- **Gap beacons point at the border instead of at tarmac.** They were drawn
+  a fixed 4 m off the driven line, which on a 13 m road placed them ~2.5 m
+  *inside* the road, between the two borders. The offset now follows the
+  road's own half-width, measured from where evidence actually sits on the
+  stretches that have it. (#39)
+- **Hand-marked boundaries no longer lose to the surface reader.** Track
+  bundles keyed evidence by kind as well as position, so marking a meter as
+  a run-off limit stored a second point beside the automatic one instead of
+  correcting it — and because the map only drops `runoff` points from the
+  road fill, the surviving twin kept that meter drawn as road. The mark
+  looked accepted and changed nothing. Across the author's real bundles this
+  hit 105 meters at Lago Maggiore Centre and 6 at East End. (#38)
+
+### Changed
+
+- **Track bundles are now format v2: one voted record per meter of border.**
+  Kinds observed at a meter are votes on what it is, resolved with
+  hand-marked kinds beating inferred ones (the surface chars cannot see a
+  wall or paved run-off, so an automatic point there is not evidence against
+  a mark) and majority inside each tier — which is also how a mis-mark is
+  undone. Re-driving mapped ground can now correct the map instead of only
+  extending it. Votes count runs rather than samples, so the periodic
+  autosave cannot inflate them. Records carry provenance (`run`, and the
+  axle track width `tw` they were derived with), which leaves the door open
+  to correcting straddle points offline once a better width is known.
+  Existing v1 bundles upgrade in place the first time they are read; nothing
+  needs re-driving. Files grow roughly 30% for the added evidence. (#38)
+
 ## [0.4.1] - 2026-08-07
 
 ### Fixed

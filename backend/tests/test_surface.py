@@ -616,18 +616,137 @@ def test_survey_locates_finish_line_from_lap_rollovers(tmp_path) -> None:
     assert len(logged) == 2
 
 
+def _edge(x=10.0, z=5.0, side="L", kind="auto", run=1):
+    from app.processing.track_bundle import new_edge
+
+    return new_edge(x=x, z=z, hx=1.0, hz=0.0, side=side, kind=kind, run=run, tw=1.6)
+
+
 def test_track_bundle_merge_dedups_on_grid() -> None:
+    from app.processing.track_bundle import edge_key, merge_edges
+
+    a = _edge()
+    near_a = _edge(x=10.3)  # same 1 m cell -> same fact, not a second point
+    far = _edge(x=14.0)
+    other_side = _edge(side="R")
+    merged = merge_edges([a], [near_a, far, other_side])
+    assert len(merged) == 3
+    keys = {edge_key(e) for e in merged}
+    assert keys == {(10, 5, "L"), (14, 5, "L"), (10, 5, "R")}
+
+
+def test_track_bundle_votes_resolve_one_kind_per_metre() -> None:
+    """A metre of border is one fact; kinds seen there are votes on it.
+
+    v1 keyed on kind too, so a hand-marked run-off limit was stored NEXT TO
+    the auto/straddle point it contradicted and the consumer kept both — the
+    metre stayed in the road fill despite the mark (112 such cells in the
+    author's Lago Centre bundle).
+    """
     from app.processing.track_bundle import merge_edges
 
-    a = {"x": 10.0, "z": 5.0, "hx": 1.0, "hz": 0.0, "side": "L", "kind": "auto"}
-    near_a = {**a, "x": 10.3}  # same 1 m cell -> duplicate evidence
-    far = {**a, "x": 14.0}
-    other_kind = {**a, "kind": "wall"}
-    other_side = {**a, "side": "R"}
-    merged = merge_edges([a], [near_a, far, other_kind, other_side])
-    assert a in merged and far in merged and other_kind in merged and other_side in merged
-    assert near_a not in merged
-    assert len(merged) == 4
+    auto = _edge(kind="auto", run=1)
+    merged = merge_edges([auto], [_edge(kind="runoff", run=2)])
+    assert len(merged) == 1
+    # Manual marks beat automatic inference outright: the surface chars are
+    # blind to run-off, so an auto point there is not evidence against it.
+    assert merged[0]["kind"] == "runoff"
+    assert merged[0]["votes"] == {"auto": [1, 1], "runoff": [1, 2]}
+    # ...and majority within the manual tier is the way back from a mis-mark.
+    merged = merge_edges(merged, [_edge(kind="edge", run=3)])
+    merged = merge_edges(merged, [_edge(kind="edge", run=4)])
+    assert merged[0]["kind"] == "edge"
+
+
+def test_track_bundle_votes_count_runs_not_saves(tmp_path) -> None:
+    """The ~60 s autosave re-merges the same run; votes must not inflate."""
+    from app.processing.track_bundle import load, save
+
+    for _ in range(5):
+        save(tmp_path, "Ring", [_edge(kind="auto", run=1)], [], count_run=False)
+    doc = load(tmp_path, "Ring")
+    assert doc is not None
+    assert doc["edges"][0]["votes"] == {"auto": [1, 1]}  # not [5, 1]
+    save(tmp_path, "Ring", [_edge(kind="auto", run=2)], [], count_run=True)
+    doc = load(tmp_path, "Ring")
+    assert doc is not None
+    assert doc["edges"][0]["votes"] == {"auto": [2, 2]}  # a real second run
+
+
+def test_track_bundle_upgrades_v1_in_place(tmp_path) -> None:
+    """Existing v1 bundles keep their evidence and gain a resolved kind."""
+    import json
+
+    from app.processing.track_bundle import BUNDLE_FORMAT, bundle_path, load
+
+    v1 = {
+        "format": BUNDLE_FORMAT, "version": 1,
+        "meta": {"track": "Ring", "runs": 3, "updated_at": "2026-08-10T00:00:00+00:00"},
+        # The defeated-run-off case, exactly as v1 stored it.
+        "edges": [
+            {"x": 1.0, "z": 0.0, "hx": 1.0, "hz": 0.0, "side": "L", "kind": "straddle"},
+            {"x": 1.1, "z": 0.0, "hx": 1.0, "hz": 0.0, "side": "L", "kind": "runoff"},
+            {"x": 9.0, "z": 0.0, "hx": 1.0, "hz": 0.0, "side": "R", "kind": "auto"},
+        ],
+        "finish_crossings": [],
+    }
+    path = bundle_path(tmp_path, "Ring")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(v1), encoding="utf-8")
+
+    doc = load(tmp_path, "Ring")
+    assert doc is not None
+    assert doc["version"] == 2
+    assert len(doc["edges"]) == 2  # the co-located pair collapsed to one cell
+    contested = next(e for e in doc["edges"] if e["side"] == "L")
+    assert contested["kind"] == "runoff"  # the mark wins, at last
+    assert contested["votes"] == {"straddle": [1, 0], "runoff": [1, 0]}
+    assert contested["run"] == 0 and contested["tw"] is None  # unknown, honestly
+
+
+def test_track_bundle_refuses_a_newer_format(tmp_path) -> None:
+    """Better to ignore a future bundle than to save a lossy read over it."""
+    import json
+
+    from app.processing.track_bundle import BUNDLE_FORMAT, bundle_path, load
+
+    path = bundle_path(tmp_path, "Ring")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({
+        "format": BUNDLE_FORMAT, "version": 99,
+        "meta": {"track": "Ring", "runs": 1}, "edges": [], "finish_crossings": [],
+    }), encoding="utf-8")
+    assert load(tmp_path, "Ring") is None
+
+
+def test_survey_marking_overrides_mapped_ground(tmp_path) -> None:
+    """Driving a wall the straddle tracer already called road must re-label it."""
+    from app.processing.survey import SurfaceSurvey
+
+    common = dict(fmt="C", velocity=(30.0, 0.0, 0.0), speed_mps=30.0, wheelbase_m=2.6)
+    survey = SurfaceSurvey()
+    survey.start(tmp_path, track_width_m=1.6, track="Ring", track_user_set=True)
+    # One side held off-tarmac traces that border as "straddle".
+    for i in range(41):
+        survey.feed(make_packet(surface_types="GTGT", packet_id=i, current_lap=1,
+                                position=(i * 0.5, 0.0, 0.0), **common))
+    from app.processing.track_bundle import edge_key
+
+    straddled = {edge_key(e) for e in survey.edges if e["kind"] == "straddle"}
+    assert straddled
+
+    # Same ground, now hand-marked as a wall on that side.
+    survey.set_mark("L", "wall")
+    for i in range(41):
+        survey.feed(make_packet(surface_types="TTTT", packet_id=100 + i, current_lap=1,
+                                position=(i * 0.5, 0.0, 0.0), **common))
+    by_key = {edge_key(e): e for e in survey.edges}
+    assert len(by_key) == len(survey.edges)  # votes on known metres, no duplicates
+    for key in straddled:
+        cell = by_key[key]
+        assert cell["kind"] == "wall", "the mark must win over the straddle trace"
+        assert "straddle" in cell["votes"]  # the outvoted evidence is kept
+    survey.stop()
 
 
 def test_survey_bundle_persists_track_knowledge_across_runs(tmp_path) -> None:

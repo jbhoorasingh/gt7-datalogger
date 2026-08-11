@@ -112,7 +112,7 @@ always has everything).
 
 Track knowledge also outlives the run: each circuit's perimeter evidence and
 finish crossings merge into a **track bundle**
-(`data/track-bundles/<slug>.json`, grid-deduped to one point per meter so it
+(`data/track-bundles/<slug>.json`, one record per meter per side so it
 converges instead of growing). A new survey on the same circuit resumes from
 its bundle — the map opens with everything ever mapped — and saves back on
 stop and on circuit changes (a run's evidence is flushed and cleared when
@@ -121,6 +121,39 @@ Bundles are versioned, self-describing documents downloadable via
 `/api/track-bundles/{slug}`, designed to graduate into their own repo and be
 imported at build time like `data/tracks.json`. Width calibration stays out:
 it belongs to the car, not the circuit.
+
+A meter of border is **one fact, voted on** (format v2). Each record carries
+`votes[kind] = [count, last_run]`, and the kind it resolves to follows one
+rule: **hand-marked kinds beat inferred ones outright**, majority inside
+each tier. That is not a tie-break preference — the surface chars are
+*blind* to walls and paved run-off (both read as plain `T`), so an
+auto/straddle point at a marked meter is not evidence against the mark, only
+evidence that the char stream could not see it. Majority within the manual
+tier is the way back from a mis-mark (mark it correctly twice and it wins).
+
+Format v1 keyed on kind as well, so contradictions were stored side by side
+instead of resolved, and the consumer kept both: it drops `runoff` points
+from the road fill, but the co-located twin survived the filter and held the
+meter in the road anyway. Measured on the author's real bundles, v1 →v2
+found 892 of 4634 contested cells at Lago Centre (19%), including **105
+meters where a hand-marked run-off limit had been silently overruled** by an
+auto/straddle point. Bundles upgrade in place on load, voting everything v1
+recorded as run 0 so the next real run outranks it.
+
+Votes count **runs, not samples** — the ~60 s autosave re-merges the same
+run's evidence repeatedly, and without the run stamp a long session would
+inflate its own votes by however many times it happened to autosave.
+(Open for [#40](https://github.com/jbhoorasingh/gt7-datalogger/issues/40):
+run ordinals are local to one installation, so merging two people's bundles
+needs a source id before these counts mean anything across them.)
+
+Records also carry the provenance needed to second-guess them: `run` (which
+run first evidenced the meter) and `tw` (the axle track width in use when it
+was laid). `tw` earns its bytes because straddle points — 52% of Lago
+Centre, 88% of East End — sit at ±tw/2 from the car centre and carry the
+whole width-estimate error; recording it keeps open the option of correcting
+their lateral offset offline once a better width is known. Position itself
+stays first-seen, which keeps file diffs small.
 
 The **Track completeness** card answers "is it ready?": per-border coverage
 of the driven loop (percent + the largest remaining gap, i.e. where to

@@ -149,13 +149,22 @@ export interface SurveyTransition {
 // while one side's wheels are held off the tarmac (the border traces itself
 // as you drive along it); "edge"/"runoff"/"wall" come from the driver
 // holding a marking button while driving the boundary.
+export type SurveyKind = "auto" | "straddle" | "edge" | "runoff" | "wall";
+
 export interface SurveyEdge {
   x: number;
   z: number;
   hx: number; // travel-direction unit at the moment of evidence
   hz: number;
   side: "L" | "R";
-  kind: "auto" | "straddle" | "edge" | "runoff" | "wall";
+  // One metre of border is one record; `kind` is what its votes settled on
+  // (hand-marked kinds beat inferred ones — the surface chars cannot see a
+  // wall or paved run-off). Resolved server-side, so consumers can just read
+  // it; `votes` is the evidence behind it as [count, last run] per kind.
+  kind: SurveyKind;
+  votes?: Partial<Record<SurveyKind, [number, number]>>;
+  run?: number; // run ordinal that first evidenced this metre
+  tw?: number | null; // axle track width in use when it was laid
 }
 
 // Start/finish line located from lap rollovers (GT7 increments current_lap

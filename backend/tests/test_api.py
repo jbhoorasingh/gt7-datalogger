@@ -150,3 +150,26 @@ async def test_fuel_endpoint(client) -> None:
     resp = await c.get(f"/api/analysis/fuel?lap_id={laps[0]['id']}")
     assert resp.status_code == 200
     assert len(resp.json()["rows"]) == 11
+
+
+async def test_survey_edges_serve_the_shape_the_map_draws(client, tmp_path) -> None:
+    """/survey/edges is the map's only source of border geometry.
+
+    It must carry a resolved `kind` per metre — the frontend colours ticks and
+    excludes run-off from the road fill by it, and must never have to reduce
+    votes itself — with the evidence alongside for the raw inspector.
+    """
+    c, service = client
+    survey = service.survey
+    survey.start(tmp_path, track_width_m=1.6, track="Ring", track_user_set=True)
+    survey._append_edge(x=10.0, z=5.0, hx=1.0, hz=0.0, side="L", kind="straddle", pid=1)
+    survey._append_edge(x=10.2, z=5.0, hx=1.0, hz=0.0, side="L", kind="runoff", pid=2)
+
+    body = (await c.get("/api/survey/edges")).json()
+    assert body["total"] == 1  # one metre of border, not two points
+    point = body["points"][0]
+    assert point["kind"] == "runoff"  # the hand mark, resolved server-side
+    assert point["votes"] == {"straddle": [1, 1], "runoff": [1, 1]}
+    assert point["run"] == 1 and point["tw"] == 1.6
+    assert {"x", "z", "hx", "hz", "side"} <= set(point)
+    survey.stop()

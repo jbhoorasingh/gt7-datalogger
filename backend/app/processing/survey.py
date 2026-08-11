@@ -174,11 +174,15 @@ class SurfaceSurvey:
         self._trail_step = TRAIL_MIN_STEP_M
         # Every border-edge point of the run — the track taking shape.
         # Append-only within a run; the epoch bumps when a new run starts.
-        # Deduped on the bundle grid at append time, so re-driving mapped
-        # ground refines nothing into duplicates (in memory or on the map).
+        # One record per metre per side on the bundle grid; re-driving mapped
+        # ground casts a vote on what that metre is rather than duplicating
+        # it, so the map can change its mind (see track_bundle).
         self.edges: list[dict[str, Any]] = []
         self.edges_epoch = 0
-        self._edge_keys: set[tuple[int, int, str, str]] = set()
+        self._edge_index: dict[tuple[int, int, str], dict[str, Any]] = {}
+        # Ordinal of this run in its circuit's bundle: votes are counted once
+        # per run, so every vote cast this run carries it.
+        self._run_no = 1
         # Manual marking state (see MARK_KINDS above).
         self.mark_side: str | None = None  # "L" | "R" | None = off
         self.mark_kind: str = "edge"
@@ -222,7 +226,8 @@ class SurfaceSurvey:
         self._trail_step = TRAIL_MIN_STEP_M
         self.edges = []
         self.edges_epoch += 1
-        self._edge_keys = set()
+        self._edge_index = {}
+        self._run_no = 1
         self.mark_side = None
         self.mark_kind = "edge"
         self._last_mark = None
@@ -271,7 +276,8 @@ class SurfaceSurvey:
             self._save_bundle(count_run=False)
             self.edges = []
             self.edges_epoch += 1
-            self._edge_keys = set()
+            self._edge_index = {}
+            self._run_no = 1
             self.finish_crossings = []
             self.bundle_info = None
         self.track = name
@@ -287,11 +293,20 @@ class SurfaceSurvey:
         doc = track_bundle.load(self._data_dir, self.track)
         if doc is None:
             return
+        # Now that the circuit is known, so is this run's ordinal in it. Any
+        # points laid before identification voted under a placeholder run
+        # number that the bundle's own history outranks — restamp them, or
+        # the pre-identification evidence merges in as no vote at all.
+        self._run_no = doc["meta"]["runs"] + 1
+        for e in self.edges:
+            e["run"] = self._run_no
+            for vote in e["votes"].values():
+                vote[1] = self._run_no
         # Bundle first, this run's (few, pre-identification) points merged in;
         # the list is replaced wholesale, so incremental readers must resync.
         self.edges = track_bundle.merge_edges(doc["edges"], self.edges)
         self.edges_epoch += 1
-        self._edge_keys = {track_bundle.edge_key(e) for e in self.edges}
+        self._edge_index = {track_bundle.edge_key(e): e for e in self.edges}
         self.finish_crossings = track_bundle.merge_finish(
             doc["finish_crossings"], self.finish_crossings
         )
@@ -514,26 +529,50 @@ class SurfaceSurvey:
     def _append_edge(
         self, x: float, z: float, hx: float, hz: float, side: str, kind: str, pid: int
     ) -> None:
-        edge = {
-            "x": round(x, 3), "z": round(z, 3),
-            "hx": round(hx, 5), "hz": round(hz, 5),
-            "side": side, "kind": kind,
-        }
-        key = track_bundle.edge_key(edge)
-        if key in self._edge_keys:
-            return  # this meter of boundary is already evidenced
-        self._edge_keys.add(key)
-        if self._out is not None and kind != "auto":
-            # "auto" edges are reconstructable from the transition records;
-            # manual and straddle-sampled ones exist nowhere else, so they
-            # go to the JSONL too (as "mark" lines) — BEFORE the memory cap,
-            # which must never cost log completeness.
-            self._out.write(
-                json.dumps({"mark": {**edge, "pid": pid}}, separators=(",", ":")) + "\n"
-            )
+        x, z = round(x, 3), round(z, 3)
+        key = track_bundle.edge_key({"x": x, "z": z, "side": side})
+        known = self._edge_index.get(key)
+        if known is not None:
+            prior = known["votes"].get(kind)
+            if prior is not None and prior[1] >= self._run_no:
+                return  # this run already read this metre as this kind
+            # Same metre, something new to say about it: a hand-marked wall
+            # over ground the straddle tracer had called plain road, or a
+            # second run agreeing. Either way it is a vote, not a duplicate.
+            track_bundle.cast_vote(known, kind, self._run_no)
+            self._log_mark(x, z, hx, hz, side, kind, pid)
+            return
+        # The log line goes out BEFORE the memory cap, which must never cost
+        # log completeness; the JSONL has everything.
+        self._log_mark(x, z, hx, hz, side, kind, pid)
         if len(self.edges) >= EDGES_MAX_POINTS:
-            return  # in-memory backstop only; the JSONL has everything
+            return
+        edge = track_bundle.new_edge(
+            x, z, hx, hz, side, kind, self._run_no, self.width_in_use_m
+        )
+        self._edge_index[key] = edge
         self.edges.append(edge)
+
+    def _log_mark(
+        self, x: float, z: float, hx: float, hz: float, side: str, kind: str, pid: int
+    ) -> None:
+        """"auto" edges are reconstructable from the transition records;
+        manual and straddle-sampled ones exist nowhere else, so they go to
+        the JSONL too — one line per vote actually cast, so a re-drive of
+        mapped ground does not spam the log.
+
+        The width logged is the one in use NOW, which is what placed this
+        sample; the bundle record keeps the width it was first laid with, and
+        after a re-vote on known ground the two legitimately differ.
+        """
+        if self._out is None or kind == "auto":
+            return
+        line = {
+            "x": x, "z": z, "hx": round(hx, 5), "hz": round(hz, 5),
+            "side": side, "kind": kind, "run": self._run_no,
+            "tw": round(self.width_in_use_m, 3), "pid": pid,
+        }
+        self._out.write(json.dumps({"mark": line}, separators=(",", ":")) + "\n")
 
     def _append_trail(self, p: TelemetryPacket) -> None:
         x, z = p.position_x, p.position_z
