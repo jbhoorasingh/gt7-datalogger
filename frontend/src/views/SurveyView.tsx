@@ -289,6 +289,20 @@ export function SurveyView() {
     return () => window.clearInterval(id);
   }, []);
 
+  async function assignTrack() {
+    const name = track.trim();
+    if (!name) return;
+    setBusy(true);
+    try {
+      setStatus(await api.survey.setTrack(name));
+      toast(`Survey assigned to "${name}"`, "success");
+    } catch {
+      toast("Could not assign the track", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function setMark(side: "L" | "R" | null, kind: "edge" | "runoff" | "wall") {
     try {
       setStatus(await api.survey.mark(side, kind));
@@ -729,7 +743,6 @@ export function SurveyView() {
             <input
               list="survey-tracks"
               value={track}
-              disabled={active}
               placeholder="unidentified"
               onChange={(e) => {
                 setTrack(e.target.value);
@@ -743,6 +756,23 @@ export function SurveyView() {
                 <option key={name} value={name} />
               ))}
             </datalist>
+            {/* A run started before the circuit was known accumulates against
+                nothing, and a survey with no label saves no bundle at all —
+                so the label has to be settable mid-run, not only at start. */}
+            {active && track.trim() !== (status?.track ?? "") && (
+              <button
+                className="btn btn-accent whitespace-nowrap"
+                disabled={busy || !track.trim()}
+                onClick={assignTrack}
+                title={
+                  status?.track
+                    ? `Currently "${status.track}" — reassigning flushes this run's evidence to it first`
+                    : "Attach everything this run has gathered to this circuit"
+                }
+              >
+                {status?.track ? "Reassign" : "Assign"}
+              </button>
+            )}
           </label>
           <label
             className="flex items-center gap-1.5 text-xs text-ink-dim"

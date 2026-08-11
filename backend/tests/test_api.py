@@ -207,3 +207,30 @@ async def test_laps_without_packet_c_have_a_blank_category(client) -> None:
     await drive_laps(service, laps=1)
     laps = (await c.get("/api/laps")).json()
     assert laps[0]["car_category"] == ""
+
+
+async def test_survey_track_can_be_assigned_mid_run(client, tmp_path) -> None:
+    """A survey started before the circuit was known must be attachable to
+    one without losing what it gathered (#45)."""
+    c, service = client
+    service.survey.start(tmp_path, track_width_m=1.6, track="")
+    assert (await c.get("/api/survey/status")).json()["track"] == ""
+
+    resp = await c.post("/api/survey/track", json={"track": "Dragon Trail - Gardens"})
+    assert resp.status_code == 200
+    assert resp.json()["track"] == "Dragon Trail - Gardens"
+    assert service.survey.track_locked is True  # auto-ID must not override
+    service.survey.stop()
+
+
+async def test_assigning_a_track_needs_a_running_survey(client) -> None:
+    c, _ = client
+    resp = await c.post("/api/survey/track", json={"track": "Somewhere"})
+    assert resp.status_code == 409
+
+
+async def test_assigning_rejects_an_empty_track(client, tmp_path) -> None:
+    c, service = client
+    service.survey.start(tmp_path, track_width_m=1.6, track="")
+    assert (await c.post("/api/survey/track", json={"track": ""})).status_code == 422
+    service.survey.stop()

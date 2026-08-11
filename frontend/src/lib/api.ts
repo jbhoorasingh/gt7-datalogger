@@ -97,6 +97,8 @@ export const api = {
         track,
       }),
     stop: () => send<SurveyStatus>("/api/survey/stop", "POST"),
+    setTrack: (track: string) =>
+      send<SurveyStatus>("/api/survey/track", "POST", { track }),
     trail: (since: number, epoch: number) =>
       get<{ epoch: number; since: number; points: [number, number][]; total: number }>(
         `/api/survey/trail?since=${since}&epoch=${epoch}`,

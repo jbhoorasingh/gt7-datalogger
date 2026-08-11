@@ -21,6 +21,7 @@ data/*.db-journal
 data/*.sqlite*
 data/surface_survey_*.jsonl
 data/track-bundles/
+data/car-widths.json
 
 # Docs
 site/

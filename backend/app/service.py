@@ -342,20 +342,6 @@ class TelemetryService:
             log.info("track identified: %s", name)
             self._publish({"type": "session", "data": await self.status()})
 
-    async def name_current_track(self, name: str, lap_samples: dict[str, list[float]]) -> None:
-        """Save the current circuit under a name and tag the session with it."""
-        sig = signature_from_samples(lap_samples)
-        if sig is None:
-            raise ValueError("lap has no position data")
-        await self.repo.create_track(name, sig)
-        self.track_name = name
-        if self.survey.active and not self.survey.track_locked:
-            self.survey.set_track(name)
-        if self.session_id is not None:
-            await self.repo.set_session_track(self.session_id, name)
-        log.info("track saved: %s (%.0f m)", name, sig.length_m)
-        self._publish({"type": "session", "data": await self.status()})
-
     # --- live stream --------------------------------------------------------
 
     def _live_frame(self, p: TelemetryPacket) -> dict[str, Any]:

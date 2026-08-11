@@ -313,10 +313,18 @@ class SurfaceSurvey:
         if self.track:
             self._load_bundle()  # start from everything already mapped here
 
-    def set_track(self, name: str) -> None:
+    def set_track(self, name: str, lock: bool = False) -> None:
         """Update the circuit label mid-run — and put it in the JSONL, which
         must stay joinable to a circuit offline (a header written before
-        identification carries no label)."""
+        identification carries no label).
+
+        `lock` marks the label as the driver's own, so later
+        auto-identification leaves it alone. Assigning a label to a run that
+        had none keeps everything it has accumulated: the flush below only
+        fires when LEAVING an already-labeled circuit.
+        """
+        if lock:
+            self.track_locked = True
         if name == self.track:
             return
         if self.active and self.track:

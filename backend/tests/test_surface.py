@@ -1132,3 +1132,64 @@ def test_swapping_cars_discards_the_previous_cars_samples(tmp_path) -> None:
         survey.feed(p)
     assert survey.yaw_width_m is None  # starting over for the new car
     survey.stop()
+
+
+# --- assigning a survey to a track (#45) ---------------------------------------
+
+
+def test_unlabeled_run_keeps_its_work_when_assigned(tmp_path) -> None:
+    """The failure this exists for: a survey left running through a race with
+    no circuit label. `_save_bundle` refuses an empty label, so stopping would
+    have written nothing at all — an hour of driving recoverable only from the
+    JSONL. Assigning the label must keep everything already gathered."""
+    from app.processing.survey import SurfaceSurvey
+    from app.processing.track_bundle import load
+
+    common = dict(fmt="C", velocity=(30.0, 0.0, 0.0), speed_mps=30.0, wheelbase_m=2.6)
+    survey = SurfaceSurvey()
+    survey.start(tmp_path, track_width_m=1.6, track="")  # started before it was known
+    for i in range(41):
+        survey.feed(make_packet(surface_types="GTGT", packet_id=i, current_lap=1,
+                                position=(i * 0.5, 3.0, 0.0), **common))
+    gathered = len(survey.edges)
+    assert gathered > 0
+    assert survey.status()["track"] == ""
+
+    survey.set_track("Dragon Trail - Gardens", lock=True)
+    assert len(survey.edges) == gathered, "assigning must not discard the run's work"
+    assert survey.track_locked is True  # auto-identification must not override
+
+    survey.stop()
+    doc = load(tmp_path, "Dragon Trail - Gardens")
+    assert doc is not None
+    assert len(doc["edges"]) == gathered
+
+
+def test_auto_identification_never_overrides_a_driver_assignment(tmp_path) -> None:
+    from app.processing.survey import SurfaceSurvey
+
+    survey = SurfaceSurvey()
+    survey.start(tmp_path, track_width_m=1.6, track="")
+    survey.set_track("Dragon Trail - Gardens", lock=True)
+    assert survey.track_locked is True
+    survey.stop()
+
+
+def test_reassigning_a_labeled_run_flushes_to_the_previous_circuit(tmp_path) -> None:
+    """Changing an existing label is a circuit change, not a correction: one
+    track's driving must never land in another's bundle."""
+    from app.processing.survey import SurfaceSurvey
+    from app.processing.track_bundle import load
+
+    common = dict(fmt="C", velocity=(30.0, 0.0, 0.0), speed_mps=30.0, wheelbase_m=2.6)
+    survey = SurfaceSurvey()
+    survey.start(tmp_path, track_width_m=1.6, track="Circuit A", track_user_set=True)
+    for i in range(41):
+        survey.feed(make_packet(surface_types="GTGT", packet_id=i, current_lap=1,
+                                position=(i * 0.5, 0.0, 0.0), **common))
+    on_a = len(survey.edges)
+    survey.set_track("Circuit B", lock=True)
+    assert survey.edges == []  # A's evidence went to A, not B
+    survey.stop()
+    doc_a = load(tmp_path, "Circuit A")
+    assert doc_a is not None and len(doc_a["edges"]) == on_a

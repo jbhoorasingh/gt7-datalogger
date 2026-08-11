@@ -46,6 +46,23 @@ Notable changes to GT7 Datalogger. The format follows
   axle width, which replaces the assumption once three rides agree. Live
   frames now carry the packed `surface` value. (#37)
 
+- **A running survey can be assigned to a track, and a past one rebuilt from
+  its log.** A survey left running through a race gathered 1,087 border metres
+  against no circuit at all — and a survey with no label writes no bundle, so
+  stopping it would have discarded the lot. The track field is now live during
+  a run with an explicit Assign action (`POST /api/survey/track`), which keeps
+  everything already gathered and merges it into that circuit's bundle;
+  reassigning an already-labelled run still flushes to the previous circuit
+  first, so one track's driving can never land in another's. Naming the
+  circuit from the current session (Sessions -> "name track...") now labels a
+  running survey too. For runs that ended unlabelled,
+  `backend/scripts/jsonl_to_bundle.py` rebuilds a bundle from the JSONL —
+  `mark` lines carry straddle and manual edges verbatim, transitions carry the
+  contact points `auto` edges reconstruct from — and merges it under a chosen
+  track. Used to recover the run above: 1,529 samples collapsing to exactly
+  the 1,087 cells the live survey held, with elevation on all of them.
+  Re-importing the same log adds nothing, so it is safe to re-run. (#45)
+
 - **Car category is a first-class dimension.** Packet C broadcasts the
   category ("Gr.3", "Gr.4", "N300"…) and it was decoded and thrown away.
   It is now stored on the session and, denormalised like `car_id`, on every
