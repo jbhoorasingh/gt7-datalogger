@@ -42,7 +42,7 @@ from statistics import median
 from typing import IO, Any
 
 from app.models import TelemetryPacket
-from app.processing import track_bundle
+from app.processing import car_width, track_bundle
 from app.processing.surface import CHAR_CODES
 
 log = logging.getLogger(__name__)
@@ -237,6 +237,12 @@ class SurfaceSurvey:
         # say which gate is eating the data, not just sit at "assumed".
         self._yaw_widths: list[float] = []
         self._yaw_rejects: Counter[str] = Counter()
+        # Width already measured for the car being driven, from earlier runs
+        # (GT7 broadcasts the car id). Applied from the first tick, so a run
+        # no longer lays its opening points at the assumption.
+        self._car_id: int | None = None
+        self._car_widths: dict[int, dict[str, Any]] = {}
+        self._remembered_width_m: float | None = None
         # Undocumented packet-flag bits seen active: bit index -> tick count.
         self.unknown_flag_ticks: Counter[int] = Counter()
 
@@ -282,6 +288,9 @@ class SurfaceSurvey:
         self._width_estimates = []  # widths are per-car; a new run may swap cars
         self._yaw_widths = []
         self._yaw_rejects = Counter()
+        self._car_id = None
+        self._car_widths = car_width.load(data_dir)
+        self._remembered_width_m = None
         self.unknown_flag_ticks = Counter()
         data_dir.mkdir(parents=True, exist_ok=True)
         ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
@@ -370,6 +379,7 @@ class SurfaceSurvey:
     def stop(self) -> None:
         if self.active:
             self._save_bundle(count_run=True)
+            self._save_car_width()
         self.active = False
         if self._out is not None:
             self._out.close()
@@ -377,6 +387,28 @@ class SurfaceSurvey:
         if self.transitions or self.packets:
             log.info("surface survey stopped: %d packets, %d transitions",
                      self.packets, self.transitions)
+
+    def _follow_car(self, p: TelemetryPacket) -> None:
+        """Track which car is being driven; its width is a different number."""
+        if p.car_id == self._car_id:
+            return
+        self._car_id = p.car_id
+        self._yaw_widths = []  # samples belong to the car that produced them
+        self._yaw_rejects = Counter()
+        known = self._car_widths.get(p.car_id)
+        self._remembered_width_m = known["width_m"] if known else None
+        if self._remembered_width_m is not None:
+            log.info("car %s: applying remembered axle track %.3f m",
+                     p.car_id, self._remembered_width_m)
+
+    def _save_car_width(self) -> None:
+        """Persist this run's measurement, if it produced one."""
+        measured = self.yaw_width_m
+        if self._data_dir is None or self._car_id is None or measured is None:
+            return
+        self._car_widths = car_width.remember(
+            self._data_dir, self._car_id, measured, len(self._yaw_widths)
+        )
 
     def _measure_width_from_yaw(self, p: TelemetryPacket) -> None:
         """One axle-track sample from this tick's cornering, if it qualifies.
@@ -440,6 +472,8 @@ class SurfaceSurvey:
         """Which number width_in_use_m is currently serving."""
         if self.yaw_width_m is not None:
             return "cornering"
+        if self._remembered_width_m is not None:
+            return "car-memory"
         if (self.width_estimate_m is not None
                 and len(self._width_estimates) >= WIDTH_MIN_SAMPLES):
             return "edge-ride"
@@ -455,6 +489,8 @@ class SurfaceSurvey:
         cornering = self.yaw_width_m
         if cornering is not None:
             return cornering
+        if self._remembered_width_m is not None:
+            return self._remembered_width_m
         estimate = self.width_estimate_m
         if estimate is not None and len(self._width_estimates) >= WIDTH_MIN_SAMPLES:
             return estimate
@@ -467,11 +503,13 @@ class SurfaceSurvey:
         if self._since_autosave >= AUTOSAVE_PACKETS:
             self._since_autosave = 0
             self._save_bundle(count_run=False)
+            self._save_car_width()
         if p.surface_types is None:
             self.no_surface_packets += 1
             return None
         if p.is_paused or not p.is_on_track:
             return None
+        self._follow_car(p)
         self._measure_width_from_yaw(p)
         self._append_trail(p)
         self._watch_finish_line(p)
@@ -589,6 +627,7 @@ class SurfaceSurvey:
         self._last_mark = (p.position_x, p.position_z)
         self._append_edge(
             x=p.position_x + lat * rx, z=p.position_z + lat * rz,
+            y=p.position_y,
             hx=fx, hz=fz, side=self.mark_side or "L", kind=self.mark_kind,
             pid=p.packet_id,
         )
@@ -634,11 +673,13 @@ class SurfaceSurvey:
         self._last_straddle = (p.position_x, p.position_z)
         self._append_edge(
             x=p.position_x + lat * rx, z=p.position_z + lat * rz,
+            y=p.position_y,
             hx=fx, hz=fz, side=side, kind="straddle", pid=p.packet_id,
         )
 
     def _append_edge(
-        self, x: float, z: float, hx: float, hz: float, side: str, kind: str, pid: int
+        self, x: float, z: float, hx: float, hz: float, side: str, kind: str,
+        pid: int, y: float | None = None,
     ) -> None:
         x, z = round(x, 3), round(z, 3)
         key = track_bundle.edge_key({"x": x, "z": z, "side": side})
@@ -651,21 +692,24 @@ class SurfaceSurvey:
             # over ground the straddle tracer had called plain road, or a
             # second run agreeing. Either way it is a vote, not a duplicate.
             track_bundle.cast_vote(known, kind, self._run_no)
-            self._log_mark(x, z, hx, hz, side, kind, pid)
+            if known.get("y") is None and y is not None:
+                known["y"] = round(y, 3)  # metre mapped before v3: fill it in
+            self._log_mark(x, z, hx, hz, side, kind, pid, y)
             return
         # The log line goes out BEFORE the memory cap, which must never cost
         # log completeness; the JSONL has everything.
-        self._log_mark(x, z, hx, hz, side, kind, pid)
+        self._log_mark(x, z, hx, hz, side, kind, pid, y)
         if len(self.edges) >= EDGES_MAX_POINTS:
             return
         edge = track_bundle.new_edge(
-            x, z, hx, hz, side, kind, self._run_no, self.width_in_use_m
+            x, z, hx, hz, side, kind, self._run_no, self.width_in_use_m, y
         )
         self._edge_index[key] = edge
         self.edges.append(edge)
 
     def _log_mark(
-        self, x: float, z: float, hx: float, hz: float, side: str, kind: str, pid: int
+        self, x: float, z: float, hx: float, hz: float, side: str, kind: str,
+        pid: int, y: float | None = None,
     ) -> None:
         """"auto" edges are reconstructable from the transition records;
         manual and straddle-sampled ones exist nowhere else, so they go to
@@ -679,7 +723,8 @@ class SurfaceSurvey:
         if self._out is None or kind == "auto":
             return
         line = {
-            "x": x, "z": z, "hx": round(hx, 5), "hz": round(hz, 5),
+            "x": x, "z": z, "y": round(y, 3) if y is not None else None,
+            "hx": round(hx, 5), "hz": round(hz, 5),
             "side": side, "kind": kind, "run": self._run_no,
             "tw": round(self.width_in_use_m, 3), "pid": pid,
         }
@@ -744,7 +789,7 @@ class SurfaceSurvey:
                     continue
                 point = contacts[WHEELS[i]]  # norm > 0: contacts exist
                 self._append_edge(
-                    x=point[0], z=point[1],
+                    x=point[0], z=point[1], y=p.position_y,
                     hx=p.velocity_x / norm, hz=p.velocity_z / norm,
                     side=border, kind="auto", pid=p.packet_id,
                 )
@@ -924,6 +969,8 @@ class SurfaceSurvey:
             "width_samples": len(self._width_estimates),
             "width_in_use_m": round(self.width_in_use_m, 3),
             "width_source": self.width_source,
+            "car_id": self._car_id,
+            "remembered_width_m": self._remembered_width_m,
             "yaw_width_m": self.yaw_width_m,
             "yaw_samples": len(self._yaw_widths),
             "yaw_needed": YAW_MIN_SAMPLES,

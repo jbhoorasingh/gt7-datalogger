@@ -854,6 +854,13 @@ export function SurveyView() {
             <span className="text-throttle">
               (measured from {status.yaw_samples} cornering samples)
             </span>
+          ) : status.width_source === "car-memory" ? (
+            <span className="text-throttle">
+              (measured for this car on an earlier run
+              {status.yaw_samples > 0 &&
+                ` — re-checking: ${status.yaw_samples}/${status.yaw_needed}`}
+              )
+            </span>
           ) : status.width_source === "edge-ride" ? (
             <span className="text-throttle">
               (measured from {status.width_samples} edge crossings)

@@ -53,7 +53,7 @@ from typing import Any
 log = logging.getLogger(__name__)
 
 BUNDLE_FORMAT = "gt7-datalogger-track-bundle"
-BUNDLE_VERSION = 2
+BUNDLE_VERSION = 3
 BUNDLE_DIR = "track-bundles"
 GRID_M = 1.0  # dedup cell: one record per metre per side
 MAX_POINTS = 50_000
@@ -106,10 +106,15 @@ def cast_vote(e: dict[str, Any], kind: str, run: int) -> None:
 
 def new_edge(
     x: float, z: float, hx: float, hz: float, side: str,
-    kind: str, run: int, tw: float | None,
+    kind: str, run: int, tw: float | None, y: float | None = None,
 ) -> dict[str, Any]:
     e: dict[str, Any] = {
         "x": round(x, 3), "z": round(z, 3),
+        # Elevation. GT7 broadcasts position on all three axes, so this is
+        # free, and a border without it can only ever describe a flat track.
+        # Null on records laid before v3; re-driving that metre fills it in
+        # (see merge_edges), so it is recoverable rather than lost.
+        "y": round(y, 3) if y is not None else None,
         "hx": round(hx, 5), "hz": round(hz, 5),
         "side": side, "kind": kind,
         "votes": {}, "run": run,
@@ -140,6 +145,11 @@ def merge_edges(
             index[key] = copy
             merged.append(copy)
             continue
+        # Elevation backfill: a metre first mapped before v3 has no `y`, and
+        # the next pass over it supplies one. Geometry otherwise stays
+        # first-seen, but a null is not a measurement to defend.
+        if cur.get("y") is None and e.get("y") is not None:
+            cur["y"] = e["y"]
         for kind, (count, last_run) in e["votes"].items():
             prior = cur["votes"].get(kind)
             if prior is None:
@@ -181,7 +191,8 @@ def _upgrade_v1(edges: list[dict[str, Any]]) -> list[dict[str, Any]]:
         cur = index.get(key)
         if cur is None:
             cur = {
-                "x": old["x"], "z": old["z"], "hx": old["hx"], "hz": old["hz"],
+                "x": old["x"], "z": old["z"], "y": None,
+                "hx": old["hx"], "hz": old["hz"],
                 "side": old["side"], "kind": old["kind"],
                 "votes": {}, "run": 0, "tw": None,
             }
@@ -189,6 +200,13 @@ def _upgrade_v1(edges: list[dict[str, Any]]) -> list[dict[str, Any]]:
             out.append(cur)
         cast_vote(cur, old["kind"], 0)
     return out
+
+
+def _add_elevation_field(edges: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """v2 -> v3: records predate elevation capture; a re-drive fills them."""
+    for e in edges:
+        e.setdefault("y", None)
+    return edges
 
 
 def load(data_dir: Path, track: str) -> dict[str, Any] | None:
@@ -208,9 +226,11 @@ def load(data_dir: Path, track: str) -> dict[str, Any] | None:
             return None
         if version < BUNDLE_VERSION:
             before = len(doc["edges"])
-            doc["edges"] = _upgrade_v1(doc["edges"])
+            if version < 2:
+                doc["edges"] = _upgrade_v1(doc["edges"])
+            doc["edges"] = _add_elevation_field(doc["edges"])
             doc["version"] = BUNDLE_VERSION
-            log.info("upgraded track bundle %s v%s -> v%d (%d points -> %d "
+            log.info("upgraded track bundle %s v%s -> v%d (%d records -> %d "
                      "voted cells)", path.name, version, BUNDLE_VERSION,
                      before, len(doc["edges"]))
         return doc

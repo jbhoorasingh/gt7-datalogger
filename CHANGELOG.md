@@ -46,6 +46,21 @@ Notable changes to GT7 Datalogger. The format follows
   axle width, which replaces the assumption once three rides agree. Live
   frames now carry the packed `surface` value. (#37)
 
+- **Border records carry elevation, and measured axle track is remembered
+  per car.** GT7 broadcasts position on all three axes and the car id
+  (`carCode`), both of which were being thrown away by the survey. Bundles
+  are now format v3 with a `y` on every border record — without it a bundle
+  can only ever describe a flat track, and there is no reconstructing it
+  later for straddle and manual points, which are the overwhelming majority.
+  Records mapped before v3 carry `null` and are filled in by re-driving that
+  metre, so it is recoverable rather than lost; v1 and v2 bundles upgrade in
+  place on load. Axle track measured from cornering is now saved per car to
+  `data/car-widths.json` and applied from the first tick of the next run in
+  that car, instead of every run laying its opening points at the 1.6 m
+  assumption until the first corner. Swapping cars mid-run discards the
+  previous car's samples, and a short run never overwrites a
+  better-evidenced measurement. (#38)
+
 - **Axle track width now measures itself from ordinary cornering.** Every
   corner is a measurement: the outer wheels cover a larger arc, so their
   rolling speeds differ by exactly the yaw rate times the axle track
@@ -94,7 +109,7 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Changed
 
-- **Track bundles are now format v2: one voted record per meter of border.**
+- **Track bundles are now format v3: one voted record per meter of border.**
   Kinds observed at a meter are votes on what it is, resolved with
   hand-marked kinds beating inferred ones (the surface chars cannot see a
   wall or paved run-off, so an automatic point there is not evidence against
@@ -104,8 +119,10 @@ Notable changes to GT7 Datalogger. The format follows
   autosave cannot inflate them. Records carry provenance (`run`, and the
   axle track width `tw` they were derived with), which leaves the door open
   to correcting straddle points offline once a better width is known.
-  Existing v1 bundles upgrade in place the first time they are read; nothing
-  needs re-driving. Files grow roughly 30% for the added evidence. (#38)
+  Existing bundles upgrade in place the first time they are read; nothing
+  needs re-driving. (v2 introduced the voting; v3 added the elevation
+  field above — they ship together.) Files grow roughly 30% for the added
+  evidence. (#38)
 
 ## [0.4.1] - 2026-08-07
 

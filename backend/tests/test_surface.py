@@ -696,12 +696,13 @@ def test_track_bundle_upgrades_v1_in_place(tmp_path) -> None:
 
     doc = load(tmp_path, "Ring")
     assert doc is not None
-    assert doc["version"] == 2
+    assert doc["version"] == 3  # v1 -> votes -> elevation field, in one read
     assert len(doc["edges"]) == 2  # the co-located pair collapsed to one cell
     contested = next(e for e in doc["edges"] if e["side"] == "L")
     assert contested["kind"] == "runoff"  # the mark wins, at last
     assert contested["votes"] == {"straddle": [1, 0], "runoff": [1, 0]}
     assert contested["run"] == 0 and contested["tw"] is None  # unknown, honestly
+    assert contested["y"] is None  # elevation was not captured back then
 
 
 def test_track_bundle_refuses_a_newer_format(tmp_path) -> None:
@@ -884,7 +885,7 @@ def test_survey_watches_undocumented_flag_bits(tmp_path) -> None:
 
 def _corner_packets(width_m: float, *, yaw=0.4, speed=30.0, radius=0.33,
                     throttle=0, brake=0, spin=1.0, rear_spin=1.0, ticks=90,
-                    lock=None):
+                    lock=None, car_id=7):
     """A steady corner with a KNOWN axle track, so the solver has one answer.
 
     Outer wheels cover the larger arc: |v_outer - v_inner| = yaw * width.
@@ -906,6 +907,7 @@ def _corner_packets(width_m: float, *, yaw=0.4, speed=30.0, radius=0.33,
             fmt="C", surface_types="TTTT", packet_id=i, current_lap=3,
             position=(float(i), 0.0, 0.0), velocity=(speed, 0.0, 0.0),
             speed_mps=speed, wheelbase_m=2.6, angular_velocity=(0.0, yaw, 0.0),
+            car_id=car_id,
             throttle=throttle, brake=brake,
             wheel_rps=(fl * spin / radius, fr * spin / radius,
                        rl * rear_spin / radius, rr * rear_spin / radius),
@@ -1026,4 +1028,107 @@ def test_cornering_width_outranks_the_edge_ride_estimate(tmp_path) -> None:
         survey.feed(p)
     assert survey.width_source == "cornering"
     assert survey.width_in_use_m == pytest.approx(1.82, abs=0.01)
+    survey.stop()
+
+
+# --- elevation on border records ----------------------------------------------
+
+
+def test_edges_carry_elevation(tmp_path) -> None:
+    """GT7 broadcasts position on all three axes; a border without the third
+    can only ever describe a flat track."""
+    from app.processing.survey import SurfaceSurvey
+
+    common = dict(fmt="C", velocity=(30.0, 0.0, 0.0), speed_mps=30.0, wheelbase_m=2.6)
+    survey = SurfaceSurvey()
+    survey.start(tmp_path, track_width_m=1.6, track="Ring", track_user_set=True)
+    for i in range(41):
+        survey.feed(make_packet(surface_types="GTGT", packet_id=i, current_lap=1,
+                                position=(i * 0.5, 12.5, 0.0), **common))
+    assert survey.edges
+    assert all(e["y"] == pytest.approx(12.5) for e in survey.edges)
+    survey.stop()
+
+
+def test_elevation_backfills_into_older_records(tmp_path) -> None:
+    """A metre mapped before v3 has no elevation; the next pass supplies one,
+    so it is recoverable by re-driving rather than lost."""
+    from app.processing.track_bundle import merge_edges, new_edge
+
+    flat = new_edge(x=10.0, z=5.0, hx=1.0, hz=0.0, side="L", kind="auto",
+                    run=1, tw=1.6)  # pre-v3: no y
+    assert flat["y"] is None
+    merged = merge_edges([flat], [new_edge(x=10.0, z=5.0, hx=1.0, hz=0.0, side="L",
+                                           kind="auto", run=2, tw=1.6, y=31.25)])
+    assert len(merged) == 1
+    assert merged[0]["y"] == pytest.approx(31.25)
+
+
+def test_v2_bundle_upgrades_to_v3_with_null_elevation(tmp_path) -> None:
+    import json
+
+    from app.processing.track_bundle import BUNDLE_FORMAT, bundle_path, load, new_edge
+
+    e = new_edge(x=1.0, z=0.0, hx=1.0, hz=0.0, side="L", kind="auto", run=1, tw=1.6)
+    del e["y"]  # exactly how v2 wrote it
+    path = bundle_path(tmp_path, "Ring")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({
+        "format": BUNDLE_FORMAT, "version": 2,
+        "meta": {"track": "Ring", "runs": 1}, "edges": [e], "finish_crossings": [],
+    }), encoding="utf-8")
+    doc = load(tmp_path, "Ring")
+    assert doc is not None
+    assert doc["version"] == 3
+    assert doc["edges"][0]["y"] is None  # honest about not knowing
+    assert doc["edges"][0]["votes"] == {"auto": [1, 1]}  # v2 votes preserved
+
+
+# --- per-car width memory ------------------------------------------------------
+
+
+def test_measured_width_is_remembered_per_car(tmp_path) -> None:
+    """Width is a property of the car, and GT7 broadcasts which car it is —
+    so a second run should not lay its opening points at the assumption."""
+    from app.processing.survey import SurfaceSurvey
+
+    one = SurfaceSurvey()
+    one.start(tmp_path, track_width_m=1.6, track="Ring", track_user_set=True)
+    for p in _corner_packets(1.82, ticks=120):
+        one.feed(p)
+    assert one.width_source == "cornering"
+    one.stop()
+
+    # A fresh run in the same car knows the width from the very first tick.
+    two = SurfaceSurvey()
+    two.start(tmp_path, track_width_m=1.6, track="Ring", track_user_set=True)
+    two.feed(next(iter(_corner_packets(1.82, yaw=0.0, ticks=1))))
+    assert two.width_source == "car-memory"
+    assert two.width_in_use_m == pytest.approx(1.82, abs=0.01)
+    two.stop()
+
+
+def test_car_width_keeps_the_better_measured_value(tmp_path) -> None:
+    """A three-corner run must not overwrite a full session's measurement."""
+    from app.processing.car_width import load, remember
+
+    remember(tmp_path, car_id=42, width_m=1.80, samples=900)
+    remember(tmp_path, car_id=42, width_m=1.20, samples=61)  # thinner evidence
+    assert load(tmp_path)[42]["width_m"] == pytest.approx(1.80)
+    remember(tmp_path, car_id=42, width_m=1.76, samples=4000)
+    assert load(tmp_path)[42]["width_m"] == pytest.approx(1.76)
+
+
+def test_swapping_cars_discards_the_previous_cars_samples(tmp_path) -> None:
+    """Widths are per-car; samples from the old one must not carry over."""
+    from app.processing.survey import SurfaceSurvey
+
+    survey = SurfaceSurvey()
+    survey.start(tmp_path, track_width_m=1.6, track="Ring", track_user_set=True)
+    for p in _corner_packets(1.82, ticks=120):
+        survey.feed(p)
+    assert survey.yaw_width_m == pytest.approx(1.82, abs=0.01)
+    for p in _corner_packets(1.40, ticks=5, car_id=99):
+        survey.feed(p)
+    assert survey.yaw_width_m is None  # starting over for the new car
     survey.stop()

@@ -201,7 +201,9 @@ export interface SurveyStatus {
   width_in_use_m: number; // what contact derivation actually uses
   // Axle track measured from cornering — every corner is a sample, so this
   // normally settles long before a deliberate edge ride produces anything.
-  width_source: "cornering" | "edge-ride" | "assumed";
+  width_source: "cornering" | "car-memory" | "edge-ride" | "assumed";
+  car_id: number | null;
+  remembered_width_m: number | null; // measured for this car on an earlier run
   yaw_width_m: number | null;
   yaw_samples: number;
   yaw_needed: number;
