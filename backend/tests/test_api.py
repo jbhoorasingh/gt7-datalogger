@@ -234,3 +234,16 @@ async def test_assigning_rejects_an_empty_track(client, tmp_path) -> None:
     service.survey.start(tmp_path, track_width_m=1.6, track="")
     assert (await c.post("/api/survey/track", json={"track": ""})).status_code == 422
     service.survey.stop()
+
+
+async def test_a_blank_track_never_locks_an_unlabeled_survey(client, tmp_path) -> None:
+    """A whitespace-only name is worse than no name: stripped it labels
+    nothing, and locking on it would block auto-identification from ever
+    rescuing the run — leaving a survey that can only ever write no bundle."""
+    c, service = client
+    service.survey.start(tmp_path, track_width_m=1.6, track="")
+    resp = await c.post("/api/survey/track", json={"track": "   "})
+    assert resp.status_code == 422
+    assert service.survey.track == ""
+    assert service.survey.track_locked is False  # auto-ID must still be able to
+    service.survey.stop()

@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from app.api.auth import require_admin
 from app.processing import analysis
@@ -436,6 +436,21 @@ async def fuel(request: Request, lap_id: int) -> dict[str, Any]:
 class SurveyTrackPayload(BaseModel):
     track: str = Field(..., min_length=1, max_length=80)
 
+    @field_validator("track")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        """Reject a name that is only whitespace.
+
+        `min_length` passes "   ", which strips to nothing — and assigning an
+        empty label would LOCK the survey against auto-identification while
+        still leaving it unlabeled. That is strictly worse than the bug this
+        endpoint exists to fix: the run could then never be rescued at all.
+        """
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("track name cannot be blank")
+        return stripped
+
 
 class SurveyStartPayload(BaseModel):
     # Track width isn't broadcast by GT7; the survey applies this assumption
@@ -489,7 +504,7 @@ async def survey_set_track(request: Request, payload: SurveyTrackPayload) -> dic
     survey = svc(request).survey
     if not survey.active:
         raise HTTPException(409, "no survey is running")
-    survey.set_track(payload.track.strip(), lock=True)
+    survey.set_track(payload.track, lock=True)
     return survey.status()
 
 
