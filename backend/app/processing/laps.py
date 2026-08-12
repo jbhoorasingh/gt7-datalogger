@@ -50,6 +50,24 @@ SPANS_FOR_MEDIAN = 3
 # and the real partials sat at 88 %, 88 %, 81 %, 65 % and 40 %.
 PROVISIONAL_SPAN_RATIO = 0.93
 
+# Columns only the extended packet formats can fill (#15, #16, #18). Unlike
+# every other column these are NOT appended on ticks that lack them, and a lap
+# that did not carry one from start to finish drops it entirely — see
+# prune_optional for why zero-filling would be worse than absence.
+#
+#   steer                       packet B  wheel_rotation, radians as broadcast
+#   acc_lat/acc_long/acc_vert   packet B  sway/surge/heave, raw accelerometer
+#                                         units (calibrated in analysis.py —
+#                                         GT7 documents no unit for these)
+#   throttle_f/brake_f          packet ~  pedal AFTER the aids acted on it, %;
+#                                         the gap to throttle/brake is the
+#                                         intervention, measured not inferred
+OPTIONAL_COLUMNS = (
+    "steer",
+    "acc_lat", "acc_long", "acc_vert",
+    "throttle_f", "brake_f",
+)
+
 # Columnar per-tick series kept for each lap. Column order matters for the
 # frontend; keep in sync with frontend/src/lib/types.ts.
 SAMPLE_COLUMNS = (
@@ -61,11 +79,32 @@ SAMPLE_COLUMNS = (
     "sus_fl", "sus_fr", "sus_rl", "sus_rr",  # suspension compression, mm
     "aids",  # AidsBits mask: TCS | ASM | handbrake | rev limiter
     "surface",  # packed per-wheel surface codes (see processing/surface.py)
+    *OPTIONAL_COLUMNS,
 )
 
 
 def new_sample_store() -> dict[str, list[float]]:
     return {c: [] for c in SAMPLE_COLUMNS}
+
+
+def prune_optional(samples: dict[str, list[float]]) -> list[str]:
+    """Drop optional columns this lap did not carry all the way through.
+
+    An optional column is only appended on the ticks that actually supplied
+    it, so a lap recorded on packet A leaves `steer` empty and a lap that
+    switched format mid-way leaves it short. Both are dropped whole rather
+    than padded: a zero-filled steering trace reads as "the driver never
+    turned", and a flat zero g-g scatter reads as "the car never gripped" —
+    lies that an absent panel does not tell. Consumers already treat a
+    missing column as "this recording has no such channel".
+
+    Mutates `samples` and returns what it removed.
+    """
+    n = len(samples.get("t") or [])
+    dropped = [c for c in OPTIONAL_COLUMNS if c in samples and len(samples[c]) != n]
+    for column in dropped:
+        del samples[column]
+    return dropped
 
 
 def _time_weights(t: list[float]) -> list[float]:
@@ -142,6 +181,11 @@ class CompletedLap:
         s = self.samples
         n = len(s["t"])
         self.total_ticks = n
+        # Before anything reads them: a half-populated optional column would
+        # otherwise be persisted and then silently mis-align with `dist`.
+        dropped = prune_optional(s)
+        if dropped:
+            log.debug("lap %d: dropped incomplete channels %s", self.number, dropped)
         if n == 0:
             return
         # Percentages are time-weighted: after a dropped-frame gap a sample
@@ -433,6 +477,21 @@ class LapProcessor:
         s["sus_rr"].append(round(p.suspension_rr * 1000, 1))
         s["aids"].append(float(p.aids_bits))
         s["surface"].append(float(encode_surface(p.surface_types)))
+        # Optional columns: appended only on the ticks that carried them, so a
+        # recording made on a narrower packet format ends up without the
+        # column rather than with a column of invented zeros (prune_optional).
+        if p.wheel_rotation is not None:
+            s["steer"].append(round(p.wheel_rotation, 4))
+        if p.sway is not None:
+            s["acc_lat"].append(round(p.sway, 3))
+        if p.surge is not None:
+            s["acc_long"].append(round(p.surge, 3))
+        if p.heave is not None:
+            s["acc_vert"].append(round(p.heave, 3))
+        if p.throttle_filtered is not None:
+            s["throttle_f"].append(round(p.throttle_filtered / 2.55, 1))
+        if p.brake_filtered is not None:
+            s["brake_f"].append(round(p.brake_filtered / 2.55, 1))
         # Engine-health aggregates (per-lap, not per-tick)
         self._max_water = max(self._max_water, p.water_temp)
         self._max_oil = max(self._max_oil, p.oil_temp)

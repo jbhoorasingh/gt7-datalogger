@@ -1,10 +1,18 @@
-"""Database engine + ORM models. SQLite by default; any SQLAlchemy async URL works."""
+"""Database engine + ORM models. SQLite by default; any SQLAlchemy async URL works.
+
+Schema changes go through Alembic (`app/migrations/`), not through this file:
+`init_db` upgrades to head at startup. See `docs/internals/architecture.md`.
+"""
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
-from sqlalchemy import ForeignKey, Index, Text
+from alembic import command
+from alembic.config import Config
+from alembic.runtime.migration import MigrationContext
+from sqlalchemy import Connection, ForeignKey, Index, Text, inspect
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -12,6 +20,12 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+log = logging.getLogger(__name__)
+
+# The revision every pre-Alembic database is stamped at once it has been
+# brought up to that shape (see _catch_up_legacy).
+BASELINE_REVISION = "0001_baseline"
 
 
 class Base(DeclarativeBase):
@@ -126,8 +140,11 @@ def make_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession
     return async_sessionmaker(engine, expire_on_commit=False)
 
 
-# Columns added after the initial release; applied to existing SQLite files.
-_SQLITE_MIGRATIONS = (
+# Columns added between the initial release and the adoption of Alembic, kept
+# ONLY to carry a pre-Alembic SQLite file up to the baseline revision before it
+# is stamped. This list is frozen: every schema change from here on is a
+# revision under app/migrations/versions/. (#14)
+_LEGACY_SQLITE_COLUMNS = (
     (
         "sessions",
         "track_name",
@@ -161,11 +178,57 @@ _SQLITE_MIGRATIONS = (
 )
 
 
+def alembic_config() -> Config:
+    """Alembic Config built in Python — no ini file involved at runtime.
+
+    `script_location` is resolved from the package so it works from any
+    working directory (the app is started from the repo root as often as from
+    backend/) and survives an editable install. No URL: the app always hands
+    Alembic a live connection instead (see `_upgrade`), so a second engine
+    against the same SQLite file never exists.
+    """
+    cfg = Config()
+    cfg.set_main_option("script_location", str(Path(__file__).resolve().parents[1] / "migrations"))
+    return cfg
+
+
+def _catch_up_legacy(conn: Connection) -> bool:
+    """Bring a pre-Alembic SQLite database up to the baseline shape.
+
+    Returns True when this database predates migrations and was (or already
+    was) at baseline — the caller stamps it rather than running the baseline
+    revision, which would try to CREATE tables that are sitting right there.
+
+    A database with no `sessions` table at all is simply new: it gets the
+    baseline revision like any fresh install.
+    """
+    inspector = inspect(conn)
+    tables = set(inspector.get_table_names())
+    if "alembic_version" in tables or "sessions" not in tables:
+        return False
+    log.info("pre-Alembic database found — bringing it to %s", BASELINE_REVISION)
+    for table, column, ddl in _LEGACY_SQLITE_COLUMNS:
+        if table not in tables:
+            continue
+        if column not in {c["name"] for c in inspector.get_columns(table)}:
+            conn.exec_driver_sql(ddl)
+    return True
+
+
+def _upgrade(conn: Connection) -> None:
+    """Run migrations on an already-open (sync) connection."""
+    cfg = alembic_config()
+    cfg.attributes["connection"] = conn
+    if _catch_up_legacy(conn):
+        command.stamp(cfg, BASELINE_REVISION)
+    before = MigrationContext.configure(conn).get_current_revision()
+    command.upgrade(cfg, "head")
+    after = MigrationContext.configure(conn).get_current_revision()
+    if before != after:
+        log.info("database schema %s -> %s", before or "empty", after)
+
+
 async def init_db(engine: AsyncEngine) -> None:
+    """Create or upgrade the schema. Safe to call on every startup."""
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-        if engine.dialect.name == "sqlite":
-            for table, column, ddl in _SQLITE_MIGRATIONS:
-                info = await conn.exec_driver_sql(f"PRAGMA table_info({table})")
-                if column not in {row[1] for row in info}:
-                    await conn.exec_driver_sql(ddl)
+        await conn.run_sync(_upgrade)

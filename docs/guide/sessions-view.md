@@ -19,6 +19,15 @@ sparkline** (chronological lap times with the best lap dotted in accent), and th
 Click a row (or the chevron) to expand its lap table; **Analyze** opens the session in
 Analysis with *latest vs best* selected.
 
+## Category filter
+
+When GT7 broadcasts the car's class (packet C — "Gr.3", "Gr.4", "N300"…), it appears as
+a chip on each row and a filter strip above the list: *show me only the Gr.3 runs*. Only
+classes actually present are offered, so the strip disappears entirely on a history
+recorded before packet C, and **All** is the only way back to sessions that have no
+class at all. A session whose own class is blank — its very first packet was a narrower
+format — takes the class its laps recorded.
+
 ## Lap table
 
 Per lap: time (best in accent), Δ to session best, fuel used, full-throttle %,

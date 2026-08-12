@@ -12,6 +12,12 @@ import type { Samples } from "@/lib/types";
 
 export type ChannelGroup = "Driving" | "Tires & wheels" | "Chassis" | "Engine";
 
+// Broadcast accelerometer channels carry no documented unit; the compare
+// endpoint fits them against physics and returns a multiplier to g. This is
+// the fallback the stacked charts use before that fit lands (and when it is
+// too weak to trust): assume m/s², which is what the fit usually confirms.
+const G = 9.80665;
+
 export interface ChannelDef {
   key: string;
   title: string;
@@ -41,6 +47,60 @@ export const CHANNELS: ChannelDef[] = [
   { key: "rpm", title: "RPM", group: "Engine", height: 1 },
   { key: "boost", title: "Boost (bar)", group: "Engine", height: 0.7 },
   { key: "yaw_rate", title: "Yaw rate (rad/s)", group: "Driving", height: 0.8 },
+  // Steering, at last (#15): understeer is more lock with no more rotation,
+  // and that only shows next to the yaw-rate trace above.
+  { key: "steer", title: "Steering (rad)", group: "Driving", height: 0.8 },
+
+  // --- Driver aids, measured rather than inferred (#18) ---
+  // The pedal AFTER the aids acted on it. Plotted against the raw pedal these
+  // two lines separate exactly where ABS/TCS intervened; the derived channels
+  // below are that separation on its own.
+  { key: "throttle_f", title: "Throttle applied %", group: "Driving", height: 0.8 },
+  { key: "brake_f", title: "Brake applied %", group: "Driving", height: 0.8 },
+  {
+    key: "tcs_cut",
+    title: "TCS cut (% throttle)",
+    group: "Driving",
+    height: 0.7,
+    columns: ["throttle", "throttle_f"],
+    derive: (s, i) => Math.max(0, (s.throttle?.[i] ?? 0) - (s.throttle_f?.[i] ?? 0)),
+  },
+  {
+    key: "abs_release",
+    title: "ABS release (% brake)",
+    group: "Driving",
+    height: 0.7,
+    columns: ["brake", "brake_f"],
+    derive: (s, i) => Math.max(0, (s.brake?.[i] ?? 0) - (s.brake_f?.[i] ?? 0)),
+  },
+
+  // --- Accelerometer (#16). The g-g panel calibrates these properly; as
+  // traces they assume m/s², which is what the fit reports on every capture
+  // seen so far. Vertical has no independent reference to check it against.
+  {
+    key: "acc_lat",
+    title: "Lateral g",
+    group: "Chassis",
+    height: 0.9,
+    derive: (s, i) => (s.acc_lat?.[i] ?? 0) / G,
+    columns: ["acc_lat"],
+  },
+  {
+    key: "acc_long",
+    title: "Longitudinal g",
+    group: "Chassis",
+    height: 0.9,
+    derive: (s, i) => (s.acc_long?.[i] ?? 0) / G,
+    columns: ["acc_long"],
+  },
+  {
+    key: "acc_vert",
+    title: "Vertical g",
+    group: "Chassis",
+    height: 0.7,
+    derive: (s, i) => (s.acc_vert?.[i] ?? 0) / G,
+    columns: ["acc_vert"],
+  },
 
   // --- Tires & wheels ---
   { key: "tire_slip", title: "Tire spd / car spd", group: "Tires & wheels", height: 0.8 },

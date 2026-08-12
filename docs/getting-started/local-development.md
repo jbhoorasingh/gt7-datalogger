@@ -48,7 +48,24 @@ pytest
 ```
 
 The test suite exercises the packet decoder, lap detection, derived-channel math, event
-detection, and the REST API against fixture data — no PlayStation required.
+detection, schema migrations (including a first-release database being upgraded in
+place), and the REST API against fixture data — no PlayStation required.
+
+## Changing the schema
+
+Models live in `backend/app/storage/db.py`; every change to them needs an
+[Alembic](https://alembic.sqlalchemy.org/) revision, which `init_db` then applies on
+startup:
+
+```bash
+cd backend
+.venv/bin/alembic revision --autogenerate -m "add whatever"
+```
+
+`alembic.ini` points at `../data/gt7.db` — pass `-x db=…` or edit it to autogenerate
+against a different database. Review what comes out before committing (SQLite cannot
+alter a column in place, so batch mode rewrites the table), and keep the history to a
+single head.
 
 ## Project layout
 
@@ -58,6 +75,7 @@ backend/
     telemetry/    # UDP listener, Salsa20 decrypt, packet decode, simulator
     processing/   # lap detection, derived channels, events, tracks, cars
     storage/      # SQLAlchemy async engine + repository
+    migrations/   # Alembic revisions (run to head on startup)
     api/          # REST routes, WebSocket, admin endpoints
     service.py    # wires capture → processing → storage → broadcast
   tests/

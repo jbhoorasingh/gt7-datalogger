@@ -4,6 +4,7 @@ import type {
   AdminStats,
   AuthoredCorner,
   AuthoredSection,
+  CategoryBest,
   CompareResult,
   ConnectionStatus,
   DeviationResult,
@@ -19,6 +20,7 @@ import type {
   Track,
   TrackBundleInfo,
   TrackCatalog,
+  TrackOutline,
   TrackOverview,
   VoiceCallout,
 } from "./types";
@@ -95,7 +97,18 @@ async function send<T>(url: string, method: string, body?: unknown): Promise<T> 
 
 export const api = {
   status: () => get<ConnectionStatus>("/api/status"),
-  sessions: () => get<SessionSummary[]>("/api/sessions"),
+  // `category` is the packet-C car class ("Gr.3", "N300"…); blank = every
+  // session, which is also the only way to reach pre-packet-C recordings.
+  sessions: (category = "") =>
+    get<SessionSummary[]>(
+      `/api/sessions${category ? `?category=${encodeURIComponent(category)}` : ""}`,
+    ),
+  // Fastest full lap at a circuit in a car category (#19); null when nothing
+  // has been recorded there in that class yet.
+  categoryBest: (track: string, category: string) =>
+    get<CategoryBest | null>(
+      `/api/laps/best?track=${encodeURIComponent(track)}&category=${encodeURIComponent(category)}`,
+    ),
   sessionLaps: (id: number) => get<LapSummary[]>(`/api/sessions/${id}/laps`),
   laps: () => get<LapSummary[]>("/api/laps"),
   lapDetail: (id: number, withSamples = true) =>
@@ -149,10 +162,22 @@ export const api = {
       ),
   },
 
+  // The surveyed road under a lap, compiled server-side (#51). Always
+  // resolves — a circuit with no bundle answers with an empty outline.
+  trackOutline: (lapId: number) => get<TrackOutline>(`/api/track-outline?lap_id=${lapId}`),
+
   tracks: () => get<Track[]>("/api/tracks"),
   trackCatalog: () => get<TrackCatalog>("/api/track-catalog"),
   trackBundles: () => get<TrackBundleInfo[]>("/api/track-bundles"),
   trackOverview: () => get<TrackOverview>("/api/track-overview"),
+  // Name every unlabelled session that was driven on a surveyed circuit (#41).
+  // New sessions do this for themselves as they are recorded; this is for the
+  // history that predates the bundles.
+  identifySessions: () =>
+    send<{ checked: number; identified: number; tracks: Record<string, number> }>(
+      "/api/tracks/identify",
+      "POST",
+    ),
   createTrack: (name: string, lapId: number) =>
     send<{ id: number; name: string }>("/api/tracks", "POST", { name, lap_id: lapId }),
   deleteTrack: (id: number) => send<{ status: string }>(`/api/tracks/${id}`, "DELETE"),

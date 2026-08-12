@@ -3,11 +3,19 @@
 Lets the whole stack (lap detection, storage, live dashboard) run without a
 PlayStation. The track is a rounded-rectangle circuit with two hard braking
 zones; laps vary slightly so comparison/deviation charts have real content.
+
+The car is deliberately **self-consistent**: it advances along the circuit at
+the speed it reports, turns at the rate its own line demands, and its
+accelerometer is that motion rather than a decorative sine. Features that check
+one broadcast channel against another — the g-g diagram's calibration, the
+ABS/TCS intervention traces — can only be exercised without a console if the
+synthetic data would pass the same check real data has to.
 """
 
 from __future__ import annotations
 
 import asyncio
+import bisect
 import logging
 import math
 import random
@@ -56,6 +64,104 @@ SCENARIOS: dict[str, SimScenario] = {
 
 def scenario_for(name: str) -> SimScenario:
     return SCENARIOS.get(name, SCENARIOS["practice"])
+
+
+# --- the circuit ---------------------------------------------------------------
+#
+# A closed parametric curve, re-parameterised by ARC LENGTH and scaled so one
+# lap of it measures exactly TRACK_LENGTH. Walking the parameter at a constant
+# rate instead — which is what this used to do — makes the car cover ground
+# faster through the tight parts than the speed it reports, and every quantity
+# derived from the path then disagrees with the telemetry: the yaw rate comes
+# out several times too high, and a lateral acceleration built from it is not a
+# number any real car produces. Arc length costs one table at import.
+
+_PATH_STEPS = 4096
+
+
+def _build_path() -> tuple[list[float], list[float], list[float]]:
+    xs: list[float] = []
+    zs: list[float] = []
+    for i in range(_PATH_STEPS + 1):
+        a = i / _PATH_STEPS * 2 * math.pi
+        xs.append(500 * math.cos(a) + 80 * math.cos(3 * a))
+        zs.append(300 * math.sin(a) + 40 * math.sin(2 * a))
+    cumulative = [0.0]
+    for i in range(_PATH_STEPS):
+        cumulative.append(
+            cumulative[-1] + math.hypot(xs[i + 1] - xs[i], zs[i + 1] - zs[i])
+        )
+    scale = TRACK_LENGTH / cumulative[-1]
+    return (
+        [c * scale for c in cumulative],
+        [x * scale for x in xs],
+        [z * scale for z in zs],
+    )
+
+
+_PATH_S, _PATH_X, _PATH_Z = _build_path()
+
+# How hard the simulated car may corner. Whatever the driver model wants to do
+# is capped at sqrt(GRIP / curvature), because a target speed picked from lap
+# fraction alone knows nothing about the shape of the corner it is entering —
+# and a car taken through this circuit's 46 m radius at 260 km/h broadcasts an
+# eleven-g accelerometer, which is not data any feature should be tuned on.
+GRIP_M_S2 = 14.0
+
+
+def _build_curvature() -> list[float]:
+    """Signed curvature (1/m) at each path sample.
+
+    Measured over a window rather than between neighbouring samples: the path
+    is a table of straight segments, so a one-segment difference is a staircase
+    whose steps land wherever the sampling happens to fall. Curvature is what
+    the whole driver model rests on — the yaw rate it broadcasts is `v × k`,
+    which is exact and smooth where differencing consecutive positions each
+    tick is neither.
+    """
+    n = _PATH_STEPS
+    window = max(2, n // 256)  # ~12 m of track
+    curvature = [0.0] * (n + 1)
+    for i in range(n):
+        a, b, c = i, (i + window) % n, (i + 2 * window) % n
+        h0 = math.atan2(_PATH_Z[b] - _PATH_Z[a], _PATH_X[b] - _PATH_X[a])
+        h1 = math.atan2(_PATH_Z[c] - _PATH_Z[b], _PATH_X[c] - _PATH_X[b])
+        ds = math.hypot(_PATH_X[b] - _PATH_X[a], _PATH_Z[b] - _PATH_Z[a])
+        turn = math.remainder(h1 - h0, math.tau)
+        curvature[(i + window) % n] = turn / ds if ds > 0 else 0.0
+    curvature[n] = curvature[0]
+    return curvature
+
+
+_PATH_K = _build_curvature()
+
+
+def _sample_index(distance: float) -> tuple[int, float]:
+    d = distance % TRACK_LENGTH
+    i = min(max(bisect.bisect_right(_PATH_S, d) - 1, 0), _PATH_STEPS - 1)
+    span = _PATH_S[i + 1] - _PATH_S[i]
+    return i, (d - _PATH_S[i]) / span if span > 0 else 0.0
+
+
+def _position_at(distance: float) -> tuple[float, float]:
+    """World position this many meters into the lap."""
+    i, f = _sample_index(distance)
+    return (
+        _PATH_X[i] + (_PATH_X[i + 1] - _PATH_X[i]) * f,
+        _PATH_Z[i] + (_PATH_Z[i + 1] - _PATH_Z[i]) * f,
+    )
+
+
+def _curvature_at(distance: float) -> float:
+    i, f = _sample_index(distance)
+    return _PATH_K[i] + (_PATH_K[i + 1] - _PATH_K[i]) * f
+
+
+def _grip_limit(distance: float) -> float:
+    """Fastest this corner can be taken (m/s), looking a little way ahead so
+    the driver is already slowing when it arrives rather than in it."""
+    k = abs(_curvature_at(distance + 25.0))
+    return math.sqrt(GRIP_M_S2 / k) if k > 1e-6 else 1e6
 
 
 def _speed_profile(s: float, jitter: float) -> float:
@@ -125,9 +231,15 @@ class SimTelemetrySource:
         lap_jitter = rng.uniform(-1.5, 1.5)
 
         while True:
+            previous_speed = speed
             s = (distance % TRACK_LENGTH) / TRACK_LENGTH
-            target = _speed_profile(s, lap_jitter)
-            ahead = _speed_profile((s + 0.006) % 1.0, lap_jitter)
+            # The profile says how fast the driver WANTS to go here; the
+            # circuit's own radius says how fast the car can.
+            target = min(_speed_profile(s, lap_jitter), _grip_limit(distance))
+            ahead = min(
+                _speed_profile((s + 0.006) % 1.0, lap_jitter),
+                _grip_limit(distance + 0.006 * TRACK_LENGTH),
+            )
             # Driver model: brake into corners, lift-and-coast just before the
             # brake point, full throttle on straights, hold speed otherwise.
             if target < speed - 2.0:
@@ -143,6 +255,14 @@ class SimTelemetrySource:
                 throttle = 255 if target > 55 else int(140 + rng.uniform(-30, 30))
                 brake = 0
                 speed = target
+            # Rate limit whatever the branches decided. Each of them can snap
+            # straight onto `target` when it is close, and a 2 m/s step inside
+            # one 60 Hz tick is 120 m/s² — a twelve-g spike in the broadcast
+            # longitudinal accelerometer, from a car that never braked harder
+            # than 2.2 g.
+            speed = min(
+                max(speed, previous_speed - 22.0 * TICK), previous_speed + 9.0 * TICK
+            )
             distance += speed * TICK
             fuel -= FUEL_PER_LAP * sim.fuel_rate * (speed * TICK) / TRACK_LENGTH
             if fuel <= 0:
@@ -164,10 +284,15 @@ class SimTelemetrySource:
                 if position > 1 and lap % 2 == 0:
                     position -= 1
 
-            # Position on a rounded-rectangle circuit
-            angle = s * 2 * math.pi
-            px = 500 * math.cos(angle) + 80 * math.cos(3 * angle)
-            pz = 300 * math.sin(angle) + 40 * math.sin(2 * angle)
+            px, pz = _position_at(distance)
+
+            # Yaw rate the circuit itself demands at this speed, rather than
+            # an arbitrary sine. Everything downstream that claims to describe
+            # the car's rotation — the broadcast angular velocity, the
+            # accelerometer, the steering angle, body roll — comes from this
+            # one number, so the simulated car turns exactly as fast as its own
+            # line says it does.
+            yaw_rate = speed * _curvature_at(distance)
 
             gear = min(6, max(1, int(speed / 11) + 1))
             rpm = 2000 + (speed * 3.6 % 60) / 60 * 5500 + gear * 100
@@ -192,7 +317,7 @@ class SimTelemetrySource:
 
             # Suspension compression (m): braking loads the front axle,
             # cornering loads the outside; corner 1 apex adds a kerb strike.
-            lat = math.sin(angle * 2) * 0.3  # matches angular velocity below
+            lat = yaw_rate  # the car's actual rotation, see above
             front = 0.030 + (0.028 if brake > 100 else 0.0)
             rear = 0.030 + (0.012 if throttle > 200 else 0.0)
             roll = lat * 0.02
@@ -247,10 +372,20 @@ class SimTelemetrySource:
                 # Packet C extension: exercises the full parse path in dev.
                 fmt="C",
                 wheel_rotation=lat * 1.2,
-                sway=lat * 6.0,
-                surge=(throttle - brake) / 255 * 5.0,
-                throttle_filtered=throttle,
-                brake_filtered=brake,
+                # Accelerations consistent with the motion actually simulated
+                # (m/s^2): lateral is v*omega with omega the yaw rate sent
+                # above, longitudinal is the real speed delta. They used to be
+                # arbitrary multiples, which meant the g-g diagram's
+                # calibration correctly refused to trust them and the panel
+                # could never be exercised in dev (#16).
+                sway=speed * lat,
+                surge=(speed - previous_speed) / TICK,
+                # Applied pedal, i.e. after the aids acted. TCS trims throttle
+                # while the rears spin, ABS bleeds brake while the fronts
+                # lock — without this the two channels were byte-identical to
+                # the raw ones and the intervention traces (#18) drew nothing.
+                throttle_filtered=int(throttle * 0.55) if spinning else throttle,
+                brake_filtered=int(brake * 0.7) if locking else brake,
                 surface_types="CTTT" if kerb else "TTTT",
                 lap_time_ms=int((tick - lap_start_tick) * TICK * 1000),
                 wheel_steering_rad=(lat * 0.3, lat * 0.3),

@@ -43,8 +43,13 @@ async def status(request: Request) -> dict[str, Any]:
 
 
 @router.get("/sessions")
-async def sessions(request: Request) -> list[dict[str, Any]]:
-    return await svc(request).repo.list_sessions()
+async def sessions(
+    request: Request,
+    category: str = Query(
+        "", max_length=16, description="car category (packet C), e.g. Gr.3 — all when blank"
+    ),
+) -> list[dict[str, Any]]:
+    return await svc(request).repo.list_sessions(category.strip() or None)
 
 
 @router.delete("/sessions/{session_id}", dependencies=[Depends(require_admin)])
@@ -69,6 +74,20 @@ async def laps(request: Request) -> list[dict[str, Any]]:
     for lap in laps:
         lap["car_name"] = cars.name(lap["car_id"])
     return laps
+
+
+@router.get("/laps/best")
+async def best_lap(
+    request: Request,
+    track: str = Query(..., min_length=1, max_length=80),
+    category: str = Query(..., min_length=1, max_length=16),
+) -> dict[str, Any] | None:
+    """Fastest full lap at a circuit in one car category (#19).
+
+    Declared BEFORE /laps/{lap_id}: FastAPI matches in declaration order, and
+    "best" would otherwise be handed to the lap-id route as a path parameter.
+    """
+    return await svc(request).repo.best_lap_in(track.strip(), category.strip())
 
 
 @router.get("/laps/{lap_id}")
@@ -128,6 +147,14 @@ CSV_CHANNELS = (
     ("sus_rr", "Susp Travel RR", "mm"),
     ("aids", "Driver Aids", ""),
     ("surface", "Surface Mask", ""),
+    ("steer", "Steering Angle", "rad"),
+    # Raw broadcast units — see analysis.accel_calibration for what they turn
+    # out to be. Exported unconverted so an external tool calibrates its own way.
+    ("acc_lat", "Accel Lateral", ""),
+    ("acc_long", "Accel Longitudinal", ""),
+    ("acc_vert", "Accel Vertical", ""),
+    ("throttle_f", "Throttle Applied", "%"),
+    ("brake_f", "Brake Applied", "%"),
 )
 
 
@@ -361,7 +388,16 @@ async def compare(
     track = await svc(request).repo.track_for_lap(ref)
     authored = await asyncio.to_thread(svc(request).authored_corners, track)
 
-    out: dict[str, Any] = {"ref": ref, "step": step, "channels": list(columns), "laps": {}}
+    out: dict[str, Any] = {
+        "ref": ref,
+        "step": step,
+        "channels": list(columns),
+        # Unit + sign calibration for the broadcast accelerometer, fitted on
+        # the REFERENCE lap and applied to every lap in the comparison, so the
+        # g-g diagram plots them all on one axis (#16).
+        "accel": analysis.accel_calibration(samples_by_id[ref]),
+        "laps": {},
+    }
     for lap_id, samples in samples_by_id.items():
         present = tuple(c for c in columns if c in samples)
         entry: dict[str, Any] = {
@@ -369,6 +405,11 @@ async def compare(
             "peaks_valleys": analysis.speed_peaks_valleys(samples),
             "events": events_by_id.get(lap_id, []),
         }
+        if out["accel"]["available"] and "acc_lat" in samples:
+            # Peaks come from the RAW ticks, not the resampled series the
+            # scatter draws: distance resampling smooths exactly the moments a
+            # traction-circle readout is about.
+            entry["gg"] = analysis.gg_extremes(samples, out["accel"])
         if lap_id == ref:
             # Corner numbering comes from the reference lap only, so every
             # overlaid lap shares one consistent set of map markers — and from

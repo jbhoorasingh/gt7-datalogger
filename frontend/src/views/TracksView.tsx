@@ -90,6 +90,29 @@ export function TracksView() {
     }
   };
 
+  // Not routed through `run`: the interesting part of the result is WHICH
+  // circuits were recognised and how many sessions each of them claimed, and
+  // "no match at all" is a perfectly good outcome rather than a failure.
+  const onIdentify = async () => {
+    setBusy(true);
+    try {
+      const r = await api.identifySessions();
+      const breakdown = Object.entries(r.tracks)
+        .map(([track, n]) => `${n}× ${track}`)
+        .join(", ");
+      if (r.identified === 0) {
+        toast(`No surveyed circuit matched any of the ${r.checked} unlabelled sessions`);
+      } else {
+        toastSuccess(`Named ${r.identified} of ${r.checked} sessions — ${breakdown}`);
+      }
+      refresh();
+    } catch (e) {
+      toastError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const onImportFile = async (file: File) => {
     const target = importTarget.current;
     importTarget.current = undefined;
@@ -129,6 +152,9 @@ export function TracksView() {
   const rows = data?.tracks ?? [];
   const orphans = (data?.logs ?? []).filter((l) => l.orphaned);
   const knownNames = rows.map((r) => r.name);
+  // Identification needs something to match against; with no bundle at all
+  // the button would only ever be able to say "nothing to compare with".
+  const bundleCount = rows.filter((r) => r.bundle != null).length;
 
   return (
     <div className="mx-auto max-w-6xl space-y-3 p-3">
@@ -138,6 +164,15 @@ export function TracksView() {
           named tracks, survey bundles and the official catalog, in one place
         </span>
         <div className="ml-auto flex items-center gap-2">
+          <Tip content="Match every unlabelled session against the surveyed circuits and name the ones that were driven on them. New sessions do this by themselves.">
+            <button
+              className="btn"
+              disabled={busy || bundleCount === 0}
+              onClick={onIdentify}
+            >
+              Identify sessions
+            </button>
+          </Tip>
           <button
             className="btn"
             disabled={busy}
@@ -211,13 +246,20 @@ export function TracksView() {
             <div key={row.slug} className="rounded-xl bg-panel p-3">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm font-semibold">{row.name}</span>
+                {/* Either source identifies a session, so the chip reflects
+                    whether identification WORKS here — not whether one
+                    particular mechanism is present. Saying "no auto-ID" on a
+                    surveyed circuit would send someone off to name a track
+                    that already recognises itself. */}
                 <Flag
-                  ok={row.named}
+                  ok={row.named || b != null}
                   label="auto-ID"
                   title={
                     row.named
-                      ? "This circuit has a geometry signature, so future sessions identify it on their own"
-                      : "No geometry signature — sessions here will NOT be identified. Name it from a lap in Sessions."
+                      ? "This circuit has a geometry signature, so sessions here identify themselves"
+                      : b != null
+                        ? "Sessions here identify themselves by matching the surveyed road — no signature needed"
+                        : "Neither a geometry signature nor a survey — sessions here will NOT be identified. Name it from a lap in Sessions, or survey it."
                   }
                 />
                 <Flag

@@ -30,6 +30,53 @@ One value per column per tick (~60/s):
 | `aids` | bitmask: TCS=1, ASM=2, handbrake=4, rev limiter=8 | mask |
 | `surface` | per-wheel surface codes, 4 bits each, FL in the lowest nibble (0 = no data, 1 = tarmac, 2 = kerb, 3 = dirt, 4 = grass, 5 = sand, 6 = snow, 7 = other) — packet C only | mask |
 
+### Optional columns
+
+These need an extended packet format, and a lap that did not carry one from start to
+finish **does not have the column at all** rather than a column of zeros. A zero-filled
+steering trace reads as "the driver never turned"; an absent panel says nothing false.
+The rule is enforced once, at lap completion (`prune_optional` in
+`app/processing/laps.py`), so it also covers a recording whose packet format changed
+mid-lap.
+
+| Column | Needs | Formula | Unit |
+| --- | --- | --- | --- |
+| `steer` | packet B | `wheel_rotation` as broadcast | rad |
+| `acc_lat` | packet B | `sway`, raw | see below |
+| `acc_long` | packet B | `surge`, raw | see below |
+| `acc_vert` | packet B | `heave`, raw | see below |
+| `throttle_f` | packet ~ | `throttle_filtered ÷ 2.55` | % |
+| `brake_f` | packet ~ | `brake_filtered ÷ 2.55` | % |
+
+**Filtered pedals** are the pedal position *after* the aids acted on it. The gap to the
+raw `throttle` / `brake` column is the intervention itself — TCS trimming throttle, ABS
+bleeding brake pressure — measured rather than inferred from the aids bitmask, which
+only says whether an aid was active at all.
+
+### Accelerometer units are calibrated, not assumed
+
+GT7 documents neither a unit nor a sign convention for `sway`/`heave`/`surge`, and the
+simulator source cannot prove what a real console sends. The channels are therefore
+stored raw, and `analysis.accel_calibration()` fits each axis against physics the same
+lap already recorded:
+
+| Axis | Reference | Recovers |
+| --- | --- | --- |
+| lateral | `v × ω`, with `ω` the **signed** yaw rate taken from the driven path (the stored `yaw_rate` column is absolute, so it cannot settle the sign) | unit and sign |
+| longitudinal | `dv/dt` from the speed trace | unit and sign |
+| vertical | — | nothing; no independent reference exists |
+
+Each fit is a least-squares slope forced through the origin (zero acceleration must mean
+zero reading), graded by R² **about zero** rather than a mean-centred correlation — a
+long constant-rate braking zone makes both series near-constant, where Pearson *r*
+collapses into numerical noise. A fit needs ≥ 150 qualifying samples and R² ≥ 0.75; below
+that the axis reports `fitted: false`, falls back to assuming m/s², and the g-g panel
+says the scale is unverified.
+
+The result is delivered as `g_per_unit` — multiply the raw channel by it to get g, sign
+included — on the `accel` key of `/api/analysis/compare`, fitted on the reference lap and
+applied to every lap in the comparison so they share one axis.
+
 **Wheel slip** is a slip-ratio proxy: wheel surface speed divided by car speed. `< 1`
 under braking means the wheel is locking; `> 1` under power means it's spinning. Below
 1 m/s car speed the ratio is meaningless, so all four are pinned to `1.0`.
@@ -71,6 +118,9 @@ These are computed in the browser from the stored columns, never persisted:
 | Tire temp front / rear avg | mean of the two front / rear corners |
 | **Tire temp F−R balance** | `mean(tt_fl, tt_fr) − mean(tt_rl, tt_rr)` °C — positive = fronts running hotter (push/understeer working the fronts) |
 | Susp travel front / rear avg | mean of the two front / rear corners |
+| **TCS cut** | `max(0, throttle − throttle_f)` % — how much throttle traction control took away |
+| **ABS release** | `max(0, brake − brake_f)` % — how much brake pressure ABS gave back |
+| Lateral / longitudinal / vertical g | `acc_* ÷ 9.80665` as a trace (assumes m/s²; the g-g panel uses the fitted scale instead) |
 
 Laps recorded before per-corner channels existed simply skip these lines rather than
 erroring.
@@ -92,7 +142,7 @@ speed_i = top_speed × (ratio_top ÷ ratio_i)
 If you browse the code or `TODO.md` you'll see channels grouped into tiers. That's a
 **roadmap grouping**, not a runtime concept: Tier 1 = surface data already in the packet
 (per-corner slip/temps/suspension, aids, engine health, gearing — all implemented),
-Tier 2 = derived analytics like sector splits and g-g diagrams (largely future work),
-Tier 3+ = larger features (overlay, webhooks, strategy — implemented). There is no
-lateral-G, brake-temp, or slip-angle channel — GT7 doesn't send them and they aren't
-synthesized.
+Tier 2 = derived analytics like sector splits (sectors still future work; the g-g
+diagram is implemented from the broadcast accelerometer rather than derived from speed
+deltas), Tier 3+ = larger features (overlay, webhooks, strategy — implemented). There is
+no brake-temp or slip-angle channel — GT7 doesn't send them and they aren't synthesized.

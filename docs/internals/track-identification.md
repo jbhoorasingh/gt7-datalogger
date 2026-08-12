@@ -1,8 +1,12 @@
 # Track identification
 
 GT7 telemetry doesn't include the track name — but its world coordinates are fixed per
-circuit. The datalogger exploits that: name a circuit once, and every future session on
-it is tagged automatically from lap geometry.
+circuit. The datalogger exploits that in two ways, tried in order:
+
+1. **A stored signature**, written when you name a circuit by hand.
+2. **A [survey bundle](../guide/tracks-view.md)** — the surveyed road itself.
+
+A name a person typed outranks anything inferred, so the signature goes first.
 
 ## The signature
 
@@ -43,11 +47,60 @@ track badge appears in the UI immediately.
   If you drive both directions regularly, include the direction in the name you give
   the first one you record.
 
+## Matching against a survey bundle
+
+The signature has a bootstrapping hole, and it is not a small one: a signature only
+exists once somebody has *named* a circuit. Survey a track, and the app has a
+metre-accurate map of it while still being unable to recognise the next session driven
+there — so the track badge, the outline under the race line, category bests and corner
+labels all stay empty on a circuit it has mapped in detail. Having surveyed a track and
+having named it were two separate facts, and nothing joined them.
+
+So when no signature matches, the lap is compared against the survey bundles. A bundle
+is a strictly better fingerprint than a bounding box — it is the road, not a rectangle
+around it — and matching asks the only question that matters: **did this lap drive on
+this surveyed tarmac?**
+
+- Border records go into a 20 m occupancy grid, coarse enough to span a carriageway so
+  the answer doesn't depend on which line through the corner was taken.
+- Up to 600 evenly spread positions from the lap are tested against the 3×3
+  neighbourhood of their own cell.
+- The circuit scoring highest wins if it covers **≥ 60 %** of the lap **and** beats the
+  runner-up by **≥ 25 percentage points**.
+
+Both thresholds matter. The coverage floor is well below the 100 % a fully surveyed
+circuit scores, because a bundle only covers ground that has actually been driven — a
+half-finished survey should still recognise its own circuit. The margin exists because
+two configurations of one venue share tarmac, so the loser is never near zero; when the
+two are close the evidence genuinely doesn't distinguish them, and the session is left
+unnamed rather than given a wrong name silently.
+
+!!! note "Calibration"
+    Measured over 321 real recorded sessions scored against three bundles, the result
+    is sharply bimodal: 13 sessions at 100 %, 5 more at 65–85 % (all on the circuit with
+    the thinnest survey — 406 border records), then **nothing at all** until 33 %, below
+    which sit the 302 sessions driven at circuits with no bundle. The 60 % cut sits in
+    the middle of that empty band.
+
+Fingerprints are cached against the bundle files' identity, so a re-survey, an import or
+a rename rebuilds them without anyone having to remember to.
+
+## Naming sessions that were recorded first
+
+New sessions identify themselves as they are recorded, but a history recorded before a
+circuit was surveyed has already missed its chance. **Tracks → Identify sessions**
+(`POST /api/tracks/identify`) re-runs the bundle match over every unlabelled session —
+using each one's *shortest* usable lap, since a lap is a sample blob of a few hundred
+kilobytes and this is the difference between reading a gigabyte and reading a fraction
+of it. Sessions with no confident match are left alone.
+
 ## Managing tracks
 
 - `POST /api/tracks {name, lap_id}` — what the *name track…* dialog calls; stores the
   signature and back-fills the current session's track name.
 - `GET /api/tracks` / `DELETE /api/tracks/{id}` — list and remove signatures.
+- `POST /api/tracks/identify` — name every unlabelled session that was driven on a
+  surveyed circuit.
 
 Deleting a track signature doesn't touch any session data — it only stops future
-auto-matching.
+auto-matching by signature. A surveyed circuit keeps identifying itself from its bundle.

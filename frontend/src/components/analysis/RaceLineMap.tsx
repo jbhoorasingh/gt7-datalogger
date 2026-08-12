@@ -8,7 +8,12 @@ import type * as echarts from "echarts";
 import type { EChartsOption, SeriesOption } from "echarts";
 import { useEffect, useMemo, useRef } from "react";
 import { CHART_COLORS, EChart } from "@/components/EChart";
-import { type CompareLapEntry, kerbWheelCount, looseWheelCount } from "@/lib/types";
+import {
+  type CompareLapEntry,
+  kerbWheelCount,
+  looseWheelCount,
+  type TrackOutline,
+} from "@/lib/types";
 
 const ZONE_COLORS = [CHART_COLORS.brake, CHART_COLORS.coast, CHART_COLORS.throttle];
 
@@ -16,6 +21,13 @@ const ZONE_COLORS = [CHART_COLORS.brake, CHART_COLORS.coast, CHART_COLORS.thrott
 // kerb strikes in yellow, wheels on grass/gravel/dirt in orange.
 const KERB_COLOR = "#eab308";
 const LOOSE_COLOR = "#f97316";
+
+// The surveyed road beneath everything (#51). Deliberately quiet: it is the
+// backdrop the lap is read against, not a thing to read on its own — a fill
+// bright enough to compete with the input-zone dots would bury them.
+const ROAD_FILL = "#252b34";
+const BORDER_COLOR = "#4b5563";
+const WALL_COLOR = "#7f1d1d";
 
 // Numbered circles are readable up to about this many corners in view;
 // beyond that (or fully zoomed out on a long track) they collapse to dots.
@@ -40,17 +52,88 @@ export function RaceLineMap({
   cursorDist,
   step,
   zoomRange,
+  outline,
 }: {
   laps: MapLap[];
   cursorDist: number | null;
   step: number;
   zoomRange?: [number, number] | null;
+  // The circuit's surveyed road, when it has been surveyed. Null/empty draws
+  // exactly what this map drew before it existed.
+  outline?: TrackOutline | null;
 }) {
   const chartRef = useRef<echarts.ECharts | null>(null);
   const ref = laps.find((lap) => lap.isRef);
+  const hasOutline = (outline?.road.length ?? 0) > 0 || (outline?.edges.length ?? 0) > 0;
 
   const option = useMemo<EChartsOption>(() => {
     const series: SeriesOption[] = [];
+
+    // Surveyed road first, under every lap line: fill, then borders, then the
+    // start/finish line. Segment endpoints are pre-computed server-side, so
+    // renderItem only has to project them.
+    if (outline) {
+      if (outline.road.length > 0) {
+        series.push({
+          id: "outline-road",
+          type: "custom",
+          data: outline.road,
+          renderItem: (_params, apiCustom) => ({
+            type: "polygon",
+            shape: {
+              points: [0, 1, 2, 3].map((i) =>
+                apiCustom.coord([
+                  Number(apiCustom.value(i * 2)),
+                  Number(apiCustom.value(i * 2 + 1)),
+                ]),
+              ),
+            },
+            style: { fill: ROAD_FILL },
+          }),
+          progressive: 0,
+          silent: true,
+          z: 0.5,
+        });
+      }
+      for (const [id, data, color, width] of [
+        ["outline-edges", outline.edges, BORDER_COLOR, 1.4],
+        ["outline-walls", outline.walls, WALL_COLOR, 2],
+      ] as const) {
+        if (data.length === 0) continue;
+        series.push({
+          id,
+          type: "custom",
+          data: data as unknown as number[][],
+          renderItem: (_params, apiCustom) => {
+            const p1 = apiCustom.coord([Number(apiCustom.value(0)), Number(apiCustom.value(1))]);
+            const p2 = apiCustom.coord([Number(apiCustom.value(2)), Number(apiCustom.value(3))]);
+            return {
+              type: "line",
+              shape: { x1: p1[0], y1: p1[1], x2: p2[0], y2: p2[1] },
+              style: { stroke: color, lineWidth: width, opacity: 0.85 },
+            };
+          },
+          progressive: 0,
+          silent: true,
+          z: 0.8,
+        });
+      }
+      if (outline.finish) {
+        const [fx1, fz1, fx2, fz2] = outline.finish;
+        series.push({
+          id: "outline-finish",
+          type: "line",
+          data: [
+            [fx1, fz1],
+            [fx2, fz2],
+          ],
+          showSymbol: false,
+          lineStyle: { color: "#e5e7eb", width: 2.5, opacity: 0.8 },
+          silent: true,
+          z: 0.9,
+        });
+      }
+    }
 
     let xMin: number | undefined;
     let xMax: number | undefined;
@@ -279,8 +362,9 @@ export function RaceLineMap({
       tooltip: { show: false },
       series,
     };
-    // Deliberately depends only on laps/zoomRange: cursor updates merge separately below.
-  }, [laps, zoomRange]);
+    // Deliberately depends only on laps/zoomRange/outline: cursor updates
+    // merge separately below.
+  }, [laps, zoomRange, outline]);
 
   // Cursor updates merge into the existing chart by series id — no rebuild.
   useEffect(() => {
@@ -302,25 +386,30 @@ export function RaceLineMap({
   const hasSurface = !!ref?.entry.series.surface?.some((v) => v > 0);
 
   return (
-    <div className="relative">
-      <EChart
-        option={option}
-        className="aspect-square w-full"
-        onInit={(chart) => {
-          chartRef.current = chart;
-        }}
-      />
-      {others.length > 0 && (
-        <div className="absolute right-2 top-2 space-y-0.5 text-[10px]">
-          {others.map((lap) => (
-            <div key={lap.id} className="flex items-center justify-end gap-1.5 text-ink-dim">
-              {lap.label}
-              <i className="inline-block h-0.5 w-4" style={{ backgroundColor: lap.color }} />
-            </div>
-          ))}
-        </div>
-      )}
-      <div className="absolute bottom-2 left-2 flex gap-3 text-[10px] text-ink-dim">
+    <div>
+      <div className="relative">
+        <EChart
+          option={option}
+          className="aspect-square w-full"
+          onInit={(chart) => {
+            chartRef.current = chart;
+          }}
+        />
+        {others.length > 0 && (
+          <div className="absolute right-2 top-2 space-y-0.5 text-[10px]">
+            {others.map((lap) => (
+              <div key={lap.id} className="flex items-center justify-end gap-1.5 text-ink-dim">
+                {lap.label}
+                <i className="inline-block h-0.5 w-4" style={{ backgroundColor: lap.color }} />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      {/* Below the map, not floating over it: the key grew past what fits on
+          one overlaid row once the surveyed road joined it, and legend text
+          wrapping across the track is worse than a couple of rows of space. */}
+      <div className="flex flex-wrap gap-x-3 gap-y-1 px-3 pb-2 text-[10px] text-ink-dim [&>span]:whitespace-nowrap">
         <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-throttle" />throttle</span>
         <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-brake" />brake</span>
         <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-coast" />coast</span>
@@ -350,6 +439,24 @@ export function RaceLineMap({
               1
             </i>
             corner
+          </span>
+        )}
+        {hasOutline && (
+          <span title={`Surveyed over ${outline!.runs} run${outline!.runs === 1 ? "" : "s"}`}>
+            <i
+              className="mr-1 inline-block h-2 w-2 rounded-sm"
+              style={{ backgroundColor: ROAD_FILL, outline: `1px solid ${BORDER_COLOR}` }}
+            />
+            surveyed road
+          </span>
+        )}
+        {(outline?.walls.length ?? 0) > 0 && (
+          <span>
+            <i
+              className="mr-1 inline-block h-2 w-2 rounded-sm"
+              style={{ backgroundColor: WALL_COLOR }}
+            />
+            wall
           </span>
         )}
       </div>

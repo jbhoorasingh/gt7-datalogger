@@ -8,7 +8,12 @@ from app.main import create_app
 from app.models import AidsBits, SimulatorFlags
 from app.processing.cars import CarDatabase
 from app.processing.events import detect_events
-from app.processing.laps import SAMPLE_COLUMNS, CompletedLap, new_sample_store
+from app.processing.laps import (
+    OPTIONAL_COLUMNS,
+    SAMPLE_COLUMNS,
+    CompletedLap,
+    new_sample_store,
+)
 from app.service import TelemetryService
 from app.storage.db import init_db, make_engine, make_session_factory
 from app.storage.repository import Repository
@@ -189,8 +194,14 @@ async def test_lap_has_new_columns_and_metrics(client) -> None:
     detail = (await c.get(f"/api/laps/{lap['id']}")).json()
     assert detail["gearing"]["ratios"] == [3.2, 2.3, 1.8]
     assert any(e["type"] == "lockup" and "fl" in e["wheels"] for e in detail["events"])
+    # Every column the base packet format can fill. The optional ones (#15,
+    # #16, #18) need packet B/~ and are absent here on purpose — see
+    # test_channels.py.
     for col in SAMPLE_COLUMNS:
-        assert col in detail["samples"], col
+        if col in OPTIONAL_COLUMNS:
+            assert col not in detail["samples"], col
+        else:
+            assert col in detail["samples"], col
 
 
 async def test_compare_channels_param(client) -> None:

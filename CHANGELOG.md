@@ -7,6 +7,83 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Added
 
+- **A surveyed circuit now recognises itself.** Auto-identification only ever
+  matched against signatures written by naming a track by hand, which left a
+  hole big enough to make surveying feel broken: survey three circuits, never
+  use *name track…*, and the app has a metre-accurate map of each while still
+  failing to recognise the next session driven there — so the track badge, the
+  outline under the race line, category bests and corner labels all stay empty
+  on a circuit it has mapped in detail. Having surveyed a track and having
+  named it were two separate facts and nothing joined them.
+
+    A lap with no matching signature is now compared against the survey
+  bundles, which are a strictly better fingerprint than a bounding box — they
+  are the road, not a rectangle around it. Matching asks the only question that
+  matters, *did this lap drive on this surveyed tarmac?*, and needs both a
+  coverage floor and a clear margin over the runner-up: two configurations of
+  one venue share tarmac, and a thin margin means the evidence does not
+  actually distinguish them, so the session stays unnamed rather than being
+  given a wrong name silently. Thresholds calibrated against 321 real sessions,
+  where the scores turn out sharply bimodal with an empty band to put the cut
+  in. A signature someone typed still wins outright. (#41)
+- **Sessions recorded before a circuit was surveyed can be named in bulk.**
+  New sessions identify themselves, but history already on disk never got the
+  chance — which, for anyone who surveyed a circuit before this shipped, is all
+  of it. **Tracks → Identify sessions** re-runs the match over every unlabelled
+  session, reading each one's *shortest* usable lap rather than a whole
+  session's telemetry. (#41)
+- **The surveyed road now sits under the race line in Analysis.** A racing line
+  only means something against the road it was driven on — whether the apex was
+  clipped, how much kerb was used, whether there was tarmac left on the exit —
+  and until now the map drew the lap floating in empty space. When the
+  session's circuit is named and surveyed, the map draws the track beneath
+  every lap: road surface, both borders, hand-marked walls in their own colour,
+  and the start/finish line. The geometry is compiled server-side
+  (`/api/track-outline`) and cached per bundle revision, because a bundle is up
+  to 50,000 border records and the browser has no business downloading a
+  circuit's whole survey history to draw a map. Circuits with no bundle answer
+  with an empty outline — never having been surveyed is the common case, not an
+  error — and the map falls back to exactly what it drew before. (#51, carved
+  out of #41)
+- **Traction circle (g-g diagram)** in the Analysis side rail, from the
+  accelerometer GT7 has been broadcasting and this app has been throwing away.
+  Every moment of the lap plotted as lateral against longitudinal g, coloured by
+  input zone: how much of the ring gets used is the reading, and an empty
+  middle-left/middle-right is a car that never brakes and turns at the same
+  time. Compared laps overlay as faint dots, the cursor is synced with the
+  charts and the map, and the peak g in each direction is called out.
+
+    **The scale is checked, not assumed.** GT7 documents neither a unit nor a
+    sign convention for `sway`/`heave`/`surge`, and a simulator cannot prove
+    what a real console sends — which is why #16 said to validate before
+    building any UI. So the app validates, per lap, against physics the same
+    lap already recorded: lateral against `v × ω` (with the signed yaw rate
+    taken from the driven path, since the stored yaw column is absolute),
+    longitudinal against `dv/dt`. A least-squares slope through the origin
+    recovers the unit *and* the sign at once, so the diagram comes out upright
+    whichever way the console counts. When a lap gave too little steady
+    cornering or braking to check, the panel says **scale unverified** rather
+    than drawing a confident-looking circle on an unproven scale. (#16)
+- **Steering-angle channel.** `wheel_rotation` has been decoded since packet B
+  support landed and dropped on the floor ever since. It is now a stored column
+  and a chart panel: next to the yaw-rate trace it is what makes understeer
+  legible — more lock, no more rotation — along with corrections and
+  catch-and-release oversteer. (#15)
+- **ABS and TCS intervention, measured instead of inferred.** The `~` packet
+  format carries the pedal positions *after* the aids acted on them; plotted
+  against the raw pedal the two lines separate exactly where an aid stepped in.
+  New channels: **Throttle applied**, **Brake applied**, and the two gaps on
+  their own — **TCS cut** and **ABS release**. The aids bitmask only ever said
+  *whether* an aid was active; this says how much it took. (#18)
+- **Car category as a real dimension** (#19). The class was already stored and
+  already filtered the Sessions list; it is now a server-side filter
+  (`/api/sessions?category=Gr.3`), it survives a session whose first packet
+  arrived in a narrower format (the session inherits its laps' class rather than
+  sitting outside its own filter), and Analysis shows the **class benchmark** —
+  the fastest full lap ever recorded at this circuit in the same category, the
+  gap to the reference lap, and a link to open it (`/api/laps/best`). Scoped by
+  class deliberately: a Gr.3 time and an N100 time around the same corners are
+  not the same achievement.
 - **Tracks view** (new tab): the three sources of track knowledge, joined —
   the DB's named tracks (which is what makes auto-identification work), the
   survey bundles, and the bundled official GT7 catalog. Having one is not
@@ -162,6 +239,12 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Fixed
 
+- **Dropping a channel no longer leaves its panel title behind.** The
+  Analysis charts merge their new layout into the old one, replacing only
+  the series — so picking fewer channels left the removed panels' titles
+  painted on top of the ones that remained (and orphaned grids and axes
+  behind them). Everything whose count follows the panel list is now
+  replaced wholesale.
 - **Survey coverage no longer invents gaps on ground that is already
   mapped.** Border evidence recorded travelling the opposite direction was
   ignored at any distance, on the theory that it had to belong to the other
@@ -188,6 +271,33 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Changed
 
+- **Schema changes are Alembic revisions now, not a growing list of
+  `ALTER TABLE ADD COLUMN`.** The old mechanism could only ever *add* a
+  column, was SQLite-only, and grew by one entry per feature; nearly
+  everything on the roadmap adds columns. Alembic was adopted while the
+  schema is still small, with the existing list folded into a baseline
+  revision. **Existing databases upgrade in place and lose nothing**: a
+  database that predates migrations is brought to the baseline shape by the
+  old list — now frozen, and kept for exactly this — and then stamped, so an
+  install from the first release and a fresh one converge on the same schema
+  and everything after this is an ordinary revision. `init_db` runs
+  migrations to head on every startup; the test suite asserts the upgrade
+  path against a first-release database, lap rows and all. (#14)
+- **The simulator's car is now internally consistent.** Its broadcast yaw
+  rate is the actual turn rate of the line it draws, its accelerometer is
+  `v × ω` and the real speed delta rather than arbitrary multiples, and its
+  filtered pedals differ from the raw ones only while an aid is
+  intervening. Features that check one channel against another — the g-g
+  calibration, the intervention traces — could otherwise never be exercised
+  without a console, because the synthetic data would fail the same check
+  real data has to pass. (#16, #18)
+- **Optional sample columns are absent rather than zero-filled.** The
+  channels that need an extended packet format (steering, accelerometer,
+  filtered pedals) are only recorded on the ticks that carried them, and a
+  lap that did not carry one from start to finish drops it entirely. A
+  zero-filled steering trace reads as "the driver never turned"; a missing
+  panel says nothing false. This also covers a recording whose packet format
+  changed mid-lap. (#15, #16, #18)
 - **Track bundles are now format v3: one voted record per meter of border.**
   Kinds observed at a meter are votes on what it is, resolved with
   hand-marked kinds beating inferred ones (the surface chars cannot see a

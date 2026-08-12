@@ -14,14 +14,15 @@ script can too. All REST routes live under `/api`; responses are JSON.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/api/sessions` | all sessions, newest first, with lap count and best lap |
+| GET | `/api/sessions` | all sessions, newest first, with lap count and best lap. `?category=Gr.3` filters by car class; blank returns everything, which is also the only way to reach recordings made before packet C. A session whose own category is empty (its first packet was a narrower format) inherits its laps' category |
 | DELETE | `/api/sessions/{id}` | delete a session and its laps |
 | GET | `/api/sessions/{id}/laps` | lap summaries for one session |
 | GET | `/api/laps` | all lap summaries, newest first |
+| GET | `/api/laps/best` | `track`, `category` → the fastest **full** lap ever recorded at that circuit in that class, or `null`. Partial pit out-laps are excluded, for the same reason they never own a session best |
 | GET | `/api/laps/{id}?samples=true` | full lap detail: metrics, events, gearing, and (optionally) the 60 Hz samples |
 | DELETE | `/api/laps/{id}` | delete a lap |
 | GET | `/api/laps/{id}/export` | JSON export envelope (see [Lap file format](lap-file-format.md)) |
-| GET | `/api/laps/{id}/export.csv` | MoTeC-compatible CSV (one row per tick, 27 channels with units) |
+| GET | `/api/laps/{id}/export.csv` | MoTeC-compatible CSV (one row per tick, up to 34 channels with units — the optional channels appear only when the recording carried them) |
 | POST | `/api/laps/import` | import an exported lap file |
 
 ## Tracks
@@ -31,6 +32,7 @@ script can too. All REST routes live under `/api`; responses are JSON.
 | GET | `/api/tracks` | stored track signatures |
 | POST | `/api/tracks` | `{name, lap_id}` — name a circuit from a lap's geometry |
 | DELETE | `/api/tracks/{id}` | remove a signature (session data untouched) |
+| POST | `/api/tracks/identify` | name every unlabelled session that was driven on a [surveyed circuit](../internals/track-identification.md#matching-against-a-survey-bundle) → `{checked, identified, tracks}`. New sessions do this for themselves; this is for history recorded before the bundles existed. Sessions with no confident match are left alone. 409 when nothing has been surveyed |
 
 ## Overlay / dashboard layouts
 
@@ -49,7 +51,7 @@ builder; the server only checks the version and a 64 KB size cap.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/api/analysis/compare` | `laps` (CSV ids), `ref` (id), `step` (m, default 5, 0.5–50), `channels` (optional CSV) → per-lap distance-resampled series, speed peaks/valleys, events, and delta-vs-reference. The reference lap also carries `corners`: the circuit's [authored corners](../guide/tracks-view.md#labelling-corners) when it has them (`authored: true`, and a `name` when given), otherwise detected from that lap's curvature |
+| GET | `/api/analysis/compare` | `laps` (CSV ids), `ref` (id), `step` (m, default 5, 0.5–50), `channels` (optional CSV) → per-lap distance-resampled series, speed peaks/valleys, events, and delta-vs-reference. The reference lap also carries `corners`: the circuit's [authored corners](../guide/tracks-view.md#labelling-corners) when it has them (`authored: true`, and a `name` when given), otherwise detected from that lap's curvature. Top-level `accel` is the broadcast accelerometer's [unit + sign calibration](../internals/derived-channels.md#accelerometer-units-are-calibrated-not-assumed), fitted on the reference lap and applied to all of them; each lap with the channels also gets `gg`, its peak g in each direction taken from the raw ticks |
 | GET | `/api/analysis/deviation` | `session_id`, `count` (2–20, default 5) → median speed + standard deviation by distance across the best N laps |
 | GET | `/api/analysis/fuel` | `lap_id` → relative fuel-map table for settings −5…+5 |
 
@@ -94,6 +96,7 @@ import path for [track bundles](track-bundle-format.md). See the
 | --- | --- | --- |
 | GET | `/api/track-catalog` | official GT7 track/layout metadata (bundled `data/tracks.json`: 41 tracks, 85 layouts, lengths, corner counts, reverse configs) |
 | GET | `/api/track-overview` | one row per circuit, merged across the DB's named tracks, the survey bundles and the official catalog: `named` (auto-identification will work), bundle stats (points, runs, sources, elevation %, finish crossings, corners), session count, the confirmed `official` match and — only when there is none — a `suggestion` with its confidence and reasoning. Also lists the survey logs and this installation's source id |
+| GET | `/api/track-outline` | `lap_id` (resolves the circuit from the lap's session) or `track` → the surveyed road compiled for drawing: `road` (quads `[x1,z1,…,x4,z4]`), `edges` and `walls` (segments `[x1,z1,x2,z2]`), and `finish`. Answers with an **empty** outline rather than 404 when the circuit has no bundle — never having been surveyed is the common case, not an error. Compiled off the event loop and cached per bundle revision: a bundle is up to 50,000 records and the browser must not download it |
 | GET | `/api/track-bundles` | every circuit's bundle, with the same stats |
 | GET | `/api/track-bundles/{slug}` | one bundle document — the export unit, and what import consumes |
 | POST | `/api/track-bundles/import` | merge a bundle document from elsewhere. `?track=` overrides the document's own label, which is how a near-miss name lands on the right circuit. Every field is validated and rebuilt before anything is merged; versions 1–4 are accepted and upgraded. Your own authored corners and confirmed layout match are never overwritten (`corners_kept` says when incoming ones were dropped). 400 on any malformed document; 413 over 64 MB, enforced while reading rather than after buffering |

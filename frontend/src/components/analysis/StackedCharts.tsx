@@ -69,9 +69,14 @@ function eventBandsFor(panelKey: string, events: LapEvent[]): MarkAreaData {
 
 const TOP_PAD = 20;
 const PANEL_GAP = 26;
-// Stable identity — an inline literal would re-trigger the chart's setOption
-// effect on every render (hover re-renders at cursor rate).
-const REPLACE_SERIES = ["series"];
+// Every component whose COUNT follows the panel list. A plain merge keeps
+// whatever the previous option had beyond the end of the new arrays, so
+// picking fewer channels left the dropped panels' titles painted over the ones
+// that remained — a ghost "Yaw rate (rad/s)" sitting on top of a real label,
+// with orphaned grids and axes behind it. Stable identity: an inline literal
+// would re-trigger the chart's setOption effect on every render (hover
+// re-renders at cursor rate).
+const REPLACE_PANEL_PARTS = ["series", "title", "grid", "xAxis", "yAxis"];
 
 export function StackedCharts({
   data,
@@ -511,7 +516,7 @@ export function StackedCharts({
           option={option}
           className="w-full"
           notMerge={false}
-          replaceMerge={REPLACE_SERIES}
+          replaceMerge={REPLACE_PANEL_PARTS}
           onInit={(chart) => {
             chartRef.current = chart;
             chart.getDom().style.height = `${panels.length * 110 + TOP_PAD + PANEL_GAP}px`;

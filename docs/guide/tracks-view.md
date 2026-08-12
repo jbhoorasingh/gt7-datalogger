@@ -7,14 +7,29 @@ nothing on any screen showed them together:
 
 | you have | which means | where it lives |
 |---|---|---|
-| a **named track** | sessions here identify themselves automatically | the `tracks` table |
-| a **survey bundle** | its borders, elevation and finish line are mapped | `data/track-bundles/` |
+| a **named track** | a five-number signature sessions can match against | the `tracks` table |
+| a **survey bundle** | its borders, elevation and finish line are mapped — *and* sessions driven on it identify themselves | `data/track-bundles/` |
 | an **official layout match** | its real length and turn count are known | `backend/data/tracks.json` |
 
-Having one is not having the others. A bundle full of border evidence does
-nothing for auto-identification; a named track you have never surveyed has no
-map. The Tracks tab lists every circuit this installation knows anything
+Having one is not having the others: a named track you have never surveyed has
+no map. The Tracks tab lists every circuit this installation knows anything
 about, merged across all three, with the gaps called out.
+
+## Identifying sessions
+
+A surveyed circuit recognises itself. When a new session's first lap has no
+matching signature, the lap is compared against the survey bundles — *did this
+lap drive on this tarmac?* — and a confident match names the session. That is
+what makes the track badge, the surveyed road under the
+[race line](analysis-view.md#race-line-map), category bests and corner labels
+appear without anyone naming anything. See
+[Track identification](../internals/track-identification.md#matching-against-a-survey-bundle).
+
+Sessions recorded **before** a circuit was surveyed never got that chance.
+**Identify sessions** re-runs the match over every unlabelled session in your
+history and names the ones that were driven on a circuit you have since
+mapped. Sessions with no confident match are left alone — an unlabelled
+session is honest, a mislabelled one is not.
 
 ## Reading a row
 

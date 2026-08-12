@@ -15,7 +15,7 @@ from fastapi import WebSocket
 from app.config import Settings
 from app.models import TelemetryPacket
 from app.notify import Notifier
-from app.processing import track_bundle
+from app.processing import track_bundle, tracks
 from app.processing.analysis import Samples, time_delta_at
 from app.processing.cars import CarDatabase
 from app.processing.laps import CompletedLap, LapProcessor, SessionInfo
@@ -357,7 +357,18 @@ class TelemetryService:
         sig = signature_from_samples(lap.samples)
         if sig is None or self.session_id is None:
             return
+        # A signature a human created outranks anything inferred; the survey
+        # bundles answer when there is no signature, which is the normal state
+        # for someone who has surveyed circuits but never named one (#41).
         name = await self.repo.find_track(sig)
+        source = "signature"
+        if not name:
+            hit = await asyncio.to_thread(
+                tracks.identify_from_bundles, self.settings.db_path.parent, lap.samples
+            )
+            if hit is not None:
+                name, cover = hit
+                source = f"survey bundle, {cover:.0%} of the lap on mapped road"
         if name:
             self.track_name = name
             await self.repo.set_session_track(self.session_id, name)
@@ -365,7 +376,7 @@ class TelemetryService:
             # up now; an explicit user-picked label is never overwritten.
             if self.survey.active and not self.survey.track_locked:
                 self.survey.set_track(name)
-            log.info("track identified: %s", name)
+            log.info("track identified: %s (%s)", name, source)
             self._publish({"type": "session", "data": await self.status()})
 
     # --- live stream --------------------------------------------------------

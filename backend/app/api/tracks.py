@@ -22,18 +22,22 @@ that is a join, not a list.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from app.api.auth import require_admin
-from app.processing import survey_log, track_bundle, track_catalog
+from app.processing import survey_log, track_bundle, track_catalog, track_outline, tracks
 
 if TYPE_CHECKING:
     from app.service import TelemetryService
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api")
 
@@ -146,6 +150,89 @@ async def overview(request: Request) -> dict[str, Any]:
         "tracks": sorted(rows.values(), key=lambda r: r["name"].lower()),
         "logs": survey_log.list_logs(directory),
         "catalog_configs": len(configs),
+    }
+
+
+# --- the surveyed road, compiled for drawing (#51) -----------------------------
+
+
+@router.get("/track-outline")
+async def outline(
+    request: Request,
+    lap_id: int | None = Query(None, description="resolve the circuit from this lap"),
+    track: str = Query("", max_length=track_bundle.MAX_TRACK_NAME),
+) -> dict[str, Any]:
+    """The road a lap was driven on, ready to draw under a race line.
+
+    Answers with an EMPTY outline rather than a 404 when the circuit has no
+    bundle — "this track has never been surveyed" is the common case, not an
+    error, and the map simply falls back to drawing the lap on its own.
+
+    Compiling parses the bundle (multiple megabytes) and pairs thousands of
+    border cells, so it runs off the event loop; repeat calls hit the cache in
+    `track_outline` and cost nothing.
+    """
+    name = track.strip()
+    if not name and lap_id is not None:
+        name = await svc(request).repo.track_for_lap(lap_id)
+    if not name:
+        return track_outline.EMPTY
+    return await asyncio.to_thread(track_outline.for_track, data_dir(request), name)
+
+
+# --- naming sessions from the survey bundles (#41) -----------------------------
+
+
+def _match_blob(
+    raw: str | None, prints: list[tracks.Fingerprint]
+) -> tuple[str, float] | None:
+    """Decode one lap's samples and score it. Runs on a worker thread: the
+    JSON decode is the entire cost of identifying a session."""
+    if not raw:
+        return None
+    try:
+        samples = json.loads(raw)
+    except ValueError:
+        return None
+    return tracks.match_bundles(samples, prints)
+
+
+@router.post("/tracks/identify", dependencies=[Depends(require_admin)])
+async def identify_sessions(request: Request) -> dict[str, Any]:
+    """Name every unlabelled session that was driven on a surveyed circuit.
+
+    New sessions identify themselves as they are recorded; this is for the
+    history that was already on disk before the bundles existed — which, for
+    anyone who surveyed a circuit before this shipped, is all of it.
+
+    Sessions with no confident match are left alone rather than given a
+    best guess: an unlabelled session is honest, a mislabelled one is not.
+    """
+    service = svc(request)
+    directory = data_dir(request)
+    prints = await asyncio.to_thread(tracks.load_fingerprints, directory)
+    if not prints:
+        raise HTTPException(409, "no circuits have been surveyed yet")
+
+    candidates = await service.repo.unnamed_sessions_with_lap()
+    named: dict[str, int] = {}
+    for session_id, lap_id in candidates:
+        raw = await service.repo.lap_samples_json(lap_id)
+        hit = await asyncio.to_thread(_match_blob, raw, prints)
+        if hit is None:
+            continue
+        track, _coverage = hit
+        await service.repo.set_session_track(session_id, track)
+        named[track] = named.get(track, 0) + 1
+        if session_id == service.session_id:
+            # The session being driven right now is in this list too.
+            service.track_name = track
+    if named:
+        log.info("identified %d sessions from survey bundles: %s", sum(named.values()), named)
+    return {
+        "checked": len(candidates),
+        "identified": sum(named.values()),
+        "tracks": dict(sorted(named.items())),
     }
 
 

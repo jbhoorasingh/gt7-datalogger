@@ -61,6 +61,7 @@ export interface LapSummary {
   finished_at?: string;
   car_id?: number;
   car_name?: string;
+  car_category?: string; // packet C: "Gr.3", "Gr.4", "N300"…; "" when unknown
   fuel_consumed: number;
   full_throttle_pct: number;
   full_brake_pct: number;
@@ -356,6 +357,22 @@ export interface Track {
   created_at: string;
 }
 
+// Fastest full lap at one circuit in one car category — the reference a lap
+// is worth being compared against, since a Gr.3 time and an N100 time around
+// the same corners are not the same achievement (#19).
+export interface CategoryBest {
+  lap_id: number;
+  session_id: number;
+  number: number;
+  time_ms: number;
+  car_id: number;
+  car_name: string;
+  car_category: string;
+  track_name: string;
+  clean_lap: boolean | null;
+  finished_at: string;
+}
+
 // Official GT7 track/layout metadata (bundled data/tracks.json — only the
 // fields the UI reads; the endpoint returns more).
 export interface TrackCatalog {
@@ -397,18 +414,66 @@ export interface Corner {
   authored?: boolean;
 }
 
+// One accelerometer axis, checked against physics the recording already
+// carries (lateral vs v·ω from the driven path, longitudinal vs dv/dt).
+// `slope` is broadcast units per m/s²; `g_per_unit` is what the UI multiplies
+// the raw channel by to get g — signed, so a channel that counts the other way
+// comes out upright. Mirrors backend analysis.accel_calibration (#16).
+export interface AccelAxis {
+  slope: number;
+  r2: number; // share of the channel the scaled reference explains (about zero)
+  samples: number;
+  fitted: boolean; // false = too weak to trust; g_per_unit assumes m/s²
+  g_per_unit: number;
+}
+
+export interface AccelCalibration {
+  available: boolean; // false on recordings without packet-B accelerometer
+  lateral?: AccelAxis;
+  longitudinal?: AccelAxis;
+  unit?: string; // "m/s^2" | "g" | "unverified" | "1 unit = … m/s^2"
+}
+
+// Corners of the traction circle a lap actually reached, in g.
+export interface GGExtremes {
+  lat_right: number;
+  lat_left: number;
+  accel: number;
+  braking: number;
+}
+
 export interface CompareLapEntry {
   series: Samples & { dist: number[] };
   peaks_valleys: { peaks: PeakValley[]; valleys: PeakValley[] };
   events?: LapEvent[];
   delta?: { dist: number[]; delta_ms: number[] };
   corners?: Corner[]; // reference lap only
+  gg?: GGExtremes; // peaks from the raw ticks, not the resampled series
 }
 
 export interface CompareResult {
   ref: number;
   step: number;
+  accel: AccelCalibration;
   laps: Record<string, CompareLapEntry>;
+}
+
+// The surveyed road under a lap, compiled server-side from the circuit's
+// track bundle (#51). Empty when the circuit has never been surveyed.
+export interface TrackOutline {
+  track: string;
+  slug: string | null;
+  // Road surface as quads [x1,z1,x2,z2,x3,z3,x4,z4], one per paired metre of
+  // left/right border — order-free, so no centerline has to be reconstructed.
+  road: number[][];
+  // Border evidence as short segments [x, z, hx, hz] along travel direction,
+  // split by what the votes settled on.
+  edges: number[][];
+  walls: number[][];
+  // Start/finish line as [x1, z1, x2, z2]; null until a survey located it.
+  finish: number[] | null;
+  runs: number;
+  updated_at: string;
 }
 
 export interface DeviationResult {
