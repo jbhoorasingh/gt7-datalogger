@@ -6,11 +6,13 @@
 //
 // Three things make it usable rather than merely present:
 //
-// * **True geometry.** Both axes are given the same span, so a corner's shape
-//   on screen is its shape on the track. Letting each axis scale to its own
-//   data stretches the map by whatever the circuit's aspect ratio happens to
-//   be — 8 % at Lago Maggiore Centre, nearly 3x at Deep Forest — which is a
-//   strange thing for a map to do to a racing line.
+// * **True geometry.** The axis spans follow the plotting area's pixel aspect,
+//   so a metre across is a metre down and a corner's shape on screen is its
+//   shape on the track. Letting each axis scale to its own data stretches the
+//   map by whatever the circuit's aspect ratio happens to be — 8 % at Lago
+//   Maggiore Centre, nearly 3x at Deep Forest — which is a strange thing for a
+//   map to do to a racing line. (Equal spans are not enough on their own: they
+//   are only true on a square plot, and the maximized view is widescreen.)
 // * **Corner navigation.** The corners are already known (detected, or
 //   authored in the track bundle), so they are the natural unit to look at
 //   one at a time. Picking one drives the SHARED zoom, so the charts follow
@@ -55,6 +57,9 @@ const MAX_NUMBERED_CORNERS_LARGE = 90;
 // the braking zone into it and the exit out of it — rather than cropped to
 // the arc itself.
 const CORNER_PAD_M = 40;
+
+// Chart margin, subtracted when measuring the plotting area's pixel aspect.
+const GRID_PAD = 8;
 
 function zoneOf(throttle: number, brake: number): number {
   if (brake >= 1) return 0;
@@ -140,6 +145,29 @@ function MapBody({
   maximized = false,
 }: MapProps & { onMaximize?: () => void; maximized?: boolean }) {
   const chartRef = useRef<echarts.ECharts | null>(null);
+  // Equal axis spans only keep the geometry honest if the PLOTTING AREA is
+  // square, which the rail's aspect-square box is and the maximized dialog —
+  // a widescreen rectangle — very much is not. So the spans follow the box:
+  // the axis with more pixels gets proportionally more metres, and a metre
+  // stays a metre either way. Measured rather than assumed, because the same
+  // component renders in both.
+  const boxRef = useRef<HTMLDivElement>(null);
+  const [aspect, setAspect] = useState(1);
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(() => {
+      const { width, height } = el.getBoundingClientRect();
+      const plotW = width - 2 * GRID_PAD;
+      const plotH = height - 2 * GRID_PAD;
+      if (plotW <= 0 || plotH <= 0) return;
+      // Quantized: a resize drag fires this continuously, and every distinct
+      // value rebuilds the whole option.
+      setAspect((was) => (Math.abs(plotW / plotH - was) > 0.005 ? plotW / plotH : was));
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
   const ref = laps.find((lap) => lap.isRef);
   const hasOutline = (outline?.road.length ?? 0) > 0 || (outline?.edges.length ?? 0) > 0;
   const corners = useMemo(() => ref?.entry.corners ?? [], [ref]);
@@ -255,24 +283,43 @@ function MapBody({
           if (s.pos_x[i] != null && s.pos_z[i] != null) see(s.pos_x[i], s.pos_z[i]);
         }
       }
-      for (const quad of outline?.road ?? []) see(quad[0], quad[1]);
-      for (const seg of outline?.edges ?? []) see(seg[0], seg[1]);
+      // EVERY vertex of every layer. Sampling one corner of each quad and one
+      // end of each segment leaves whatever lies past it outside the explicit
+      // axis limits, and the things most likely to be out there are the ones
+      // worth seeing: a wall beyond the ordinary border, or a finish line
+      // reaching 12 m either side of the road.
+      for (const quad of outline?.road ?? []) {
+        for (let i = 0; i + 1 < quad.length; i += 2) see(quad[i], quad[i + 1]);
+      }
+      for (const segments of [outline?.edges ?? [], outline?.walls ?? []]) {
+        for (const seg of segments) {
+          see(seg[0], seg[1]);
+          see(seg[2], seg[3]);
+        }
+      }
+      if (outline?.finish) {
+        see(outline.finish[0], outline.finish[1]);
+        see(outline.finish[2], outline.finish[3]);
+      }
     }
 
-    // One span for both axes: a metre across must be a metre down, or the map
-    // lies about every corner's shape. The container is square, so the window
-    // is too — the shorter axis grows around its own centre.
+    // A metre across must be a metre down, or the map lies about every
+    // corner's shape. Equal spans would do that only on a square plot; the
+    // spans instead follow the plotting area's pixel aspect, so the wider
+    // dimension simply shows more track.
     let axis: { xMin: number; xMax: number; zMin: number; zMax: number } | null = null;
     if (isFinite(minX) && isFinite(maxX) && isFinite(minZ) && isFinite(maxZ)) {
       const pad = Math.max(Math.max(maxX - minX, maxZ - minZ) * 0.06, 8);
       const span = Math.max(maxX - minX, maxZ - minZ) + pad * 2;
+      const spanX = span * Math.max(1, aspect);
+      const spanZ = span * Math.max(1, 1 / aspect);
       const cx = (minX + maxX) / 2;
       const cz = (minZ + maxZ) / 2;
       axis = {
-        xMin: cx - span / 2,
-        xMax: cx + span / 2,
-        zMin: cz - span / 2,
-        zMax: cz + span / 2,
+        xMin: cx - spanX / 2,
+        xMax: cx + spanX / 2,
+        zMin: cz - spanZ / 2,
+        zMax: cz + spanZ / 2,
       };
     }
 
@@ -518,7 +565,7 @@ function MapBody({
       tooltip: { show: false },
       series,
     };
-  }, [laps, zoomRange, outline, corners, current, maximized, ref]);
+  }, [laps, zoomRange, outline, corners, current, maximized, ref, aspect]);
 
   // Cursor updates merge into the existing chart by series id — no rebuild.
   useEffect(() => {
@@ -541,7 +588,7 @@ function MapBody({
 
   return (
     <div className={maximized ? "flex h-full flex-col" : undefined}>
-      <div className={maximized ? "relative min-h-0 flex-1" : "relative"}>
+      <div ref={boxRef} className={maximized ? "relative min-h-0 flex-1" : "relative"}>
         <EChart
           option={option}
           className={maximized ? "h-full w-full" : "aspect-square w-full"}

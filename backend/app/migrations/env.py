@@ -33,10 +33,24 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
+def _url() -> str:
+    """The database to work against: `-x db=<path-or-url>` wins over the ini.
+
+    Autogenerating a revision means diffing the models against a REAL database,
+    and the one worth diffing against is rarely the one the ini happens to name
+    — so the flag has to actually do something. A bare path is taken as SQLite,
+    because that is what every database this project makes is.
+    """
+    given = context.get_x_argument(as_dictionary=True).get("db")
+    if not given:
+        return config.get_main_option("sqlalchemy.url") or ""
+    return given if "://" in given else f"sqlite:///{given}"
+
+
 def run_migrations_offline() -> None:
     """Emit SQL to stdout without a database (`alembic upgrade --sql`)."""
     context.configure(
-        url=config.get_main_option("sqlalchemy.url"),
+        url=_url(),
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -59,7 +73,7 @@ def run_migrations_online() -> None:
         return
 
     engine = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
+        {**config.get_section(config.config_ini_section, {}), "sqlalchemy.url": _url()},
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )

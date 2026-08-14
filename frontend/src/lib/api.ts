@@ -162,9 +162,10 @@ export const api = {
       ),
   },
 
-  // The surveyed road under a lap, compiled server-side (#51). Always
+  // The surveyed road for a circuit, compiled server-side (#51). Always
   // resolves — a circuit with no bundle answers with an empty outline.
-  trackOutline: (lapId: number) => get<TrackOutline>(`/api/track-outline?lap_id=${lapId}`),
+  trackOutline: (track: string) =>
+    get<TrackOutline>(`/api/track-outline?track=${encodeURIComponent(track)}`),
 
   tracks: () => get<Track[]>("/api/tracks"),
   trackCatalog: () => get<TrackCatalog>("/api/track-catalog"),

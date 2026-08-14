@@ -333,10 +333,17 @@ class Repository:
     async def unnamed_sessions_with_lap(self) -> list[tuple[int, int]]:
         """(session_id, lap_id) for every session with no circuit label.
 
-        The lap chosen is the SHORTEST usable one: identification only needs
-        the driven positions, and every lap is a sample blob of a few hundred
-        kilobytes, so this is the difference between reading a gigabyte and
-        reading a fraction of it.
+        The lap chosen is the shortest FULL one. Full matters: a bundle match
+        is a share of whatever samples it is given, so a pit out-lap covering
+        only tarmac two layouts share can score 100 % while saying nothing
+        about which was driven. Shortest matters too, for a duller reason —
+        every lap is a sample blob of a few hundred kilobytes, and this is the
+        difference between reading a gigabyte and reading a fraction of it.
+        Being full costs nothing on top: a lap that covers the route is the
+        route however quickly it was driven.
+
+        Sessions with no full lap fall back to their longest, which is the best
+        evidence they have; the matcher then decides whether it is enough.
         """
         async with self._sf() as db:
             shortest = (
@@ -345,7 +352,13 @@ class Repository:
                     LapRow.session_id == SessionRow.id,
                     LapRow.total_ticks >= IDENTIFY_MIN_TICKS,
                 )
-                .order_by(LapRow.total_ticks)
+                .order_by(
+                    LapRow.counts_for_best.desc(),
+                    case(
+                        (LapRow.counts_for_best, LapRow.total_ticks),
+                        else_=-LapRow.total_ticks,
+                    ),
+                )
                 .limit(1)
                 .correlate(SessionRow)
                 .scalar_subquery()

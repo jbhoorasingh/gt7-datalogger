@@ -193,23 +193,25 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
     api.deviation(sessionId).then(setDeviation).catch(() => setDeviation(null));
   }, [sessionId, lapEpoch]);
 
-  // The surveyed road under the race line (#51). Keyed on the reference lap
-  // because that is what resolves the circuit; a track that was never
-  // surveyed answers with an empty outline and the map draws as it always did.
+  // The surveyed road under the race line (#51). Keyed on the SESSION'S
+  // circuit rather than the reference lap: the lap only ever resolved to its
+  // session's circuit anyway, so this is the same answer without refetching
+  // every time the reference lap changes — and it means the outline is cleared
+  // exactly when the circuit changes, never leaving one track's road drawn
+  // under another track's lap while the replacement is in flight.
   const [outline, setOutline] = useState<TrackOutline | null>(null);
+  const outlineTrack = sessions?.find((s) => s.id === sessionId)?.track_name ?? "";
   useEffect(() => {
-    if (refLap == null) {
-      setOutline(null);
-      return;
-    }
+    setOutline(null);
+    if (!outlineTrack) return;
     let live = true;
-    api.trackOutline(refLap)
+    api.trackOutline(outlineTrack)
       .then((o) => live && setOutline(o))
       .catch(() => live && setOutline(null));
     return () => {
       live = false;
     };
-  }, [refLap]);
+  }, [outlineTrack]);
 
   // Synchronized zoom state across all charts (minDist, maxDist in meters)
   const [zoomRange, setZoomRange] = useState<[number, number] | null>(null);
@@ -256,10 +258,12 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
   const bestTrack = session?.track_name ?? "";
   const bestCategory = session?.car_category ?? "";
   useEffect(() => {
-    if (!bestTrack || !bestCategory) {
-      setCategoryBest(null);
-      return;
-    }
+    // Cleared before the request, not after it: otherwise switching sessions
+    // shows the previous circuit's benchmark against the new reference lap's
+    // time until the replacement lands, and the "open" link goes to a lap from
+    // somewhere else entirely.
+    setCategoryBest(null);
+    if (!bestTrack || !bestCategory) return;
     let live = true;
     api.categoryBest(bestTrack, bestCategory)
       .then((b) => live && setCategoryBest(b))
@@ -535,6 +539,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
               <CategoryBestRow
                 best={categoryBest}
                 refTimeMs={refSummary.time_ms}
+                refIsFullLap={refSummary.counts_for_best !== false}
                 onOpen={() =>
                   openInAnalysis({
                     session: categoryBest.session_id,
@@ -557,13 +562,19 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
 function CategoryBestRow({
   best,
   refTimeMs,
+  refIsFullLap,
   onOpen,
 }: {
   best: CategoryBest;
   refTimeMs: number;
+  /** Partial laps (pit out-laps) are excluded from the benchmark itself, so
+   *  their GT7-reported time — short precisely because it is not a lap — must
+   *  not be measured against it, let alone allowed to beat it. */
+  refIsFullLap: boolean;
   onOpen: () => void;
 }) {
   const gap = refTimeMs - best.time_ms;
+  const isBest = refIsFullLap && gap <= 0;
   return (
     <div className="border-t border-edge px-3 py-2 text-xs">
       <div className="mb-1 flex items-baseline gap-2">
@@ -575,13 +586,17 @@ function CategoryBestRow({
       <div className="flex items-baseline gap-2 text-ink-dim">
         <span className="truncate">{best.car_name}</span>
         <span className="ml-auto shrink-0 font-tabular">
-          {gap <= 0 ? (
+          {!refIsFullLap ? (
+            <span title="This reference lap is a partial lap, so its time is not a lap time">
+              partial lap — no comparison
+            </span>
+          ) : isBest ? (
             <span className="text-throttle">this lap is the best</span>
           ) : (
             <span className="text-brake">+{(gap / 1000).toFixed(3)}</span>
           )}
         </span>
-        {gap > 0 && (
+        {!isBest && (
           <button className="shrink-0 text-ink-dim hover:text-accent" onClick={onOpen}>
             open
           </button>

@@ -71,10 +71,11 @@ Other selected laps overlay as colored lines. It follows the chart cursor, placi
 dot per lap at the hovered distance so you can see the spatial gap between lines, and it
 auto-crops when you zoom a section.
 
-Both axes share one scale, so a metre across is a metre down and a corner's shape on
-screen is its shape on the track. (Letting each axis fill the box independently stretches
-the map by whatever the circuit's aspect ratio happens to be — 8 % at Lago Maggiore
-Centre, nearly 3× at Deep Forest.)
+A metre across is a metre down, so a corner's shape on screen is its shape on the track.
+The axis ranges follow the plotting area's pixel aspect to keep it that way in any
+window; letting each axis fill the box independently stretches the map by whatever the
+circuit's aspect ratio happens to be — 8 % at Lago Maggiore Centre, nearly 3× at Deep
+Forest.
 
 ### Corners
 

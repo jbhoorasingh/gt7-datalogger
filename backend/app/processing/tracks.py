@@ -58,6 +58,20 @@ BUNDLE_SAMPLES = 600
 # all. The cut goes in the middle of that empty band: twice the noise floor,
 # and still low enough that a half-finished survey identifies its own circuit.
 BUNDLE_MIN_COVERAGE = 0.60
+# How close a lap must come back to where it started to count as having gone
+# all the way round (see is_whole_lap), as an absolute distance OR a share of
+# the lap's own length — whichever is more forgiving. Both terms earn their
+# place. Measured over 1,635 of the author's recorded laps: 1,583 of the 1,618
+# full ones close within 10 m (median 1 m) and not one of the 17 partial laps
+# closes within 50 m, so a flat threshold separates them cleanly. But the tail
+# of full laps that end 100-200 m out are real laps missing their last second
+# to dropped packets, and 120 m means nothing on a 4 km lap while meaning
+# everything on a 500 m one. Together these keep 99.6 % of full laps and turn
+# away 15 of the 17 partials.
+ROUTE_CLOSE_M = 60.0
+ROUTE_CLOSE_FRACTION = 0.05
+ROUTE_MIN_M = 400.0  # ...and a car parked on the line closes perfectly
+
 # Shortest lap worth identifying a session from. Deliberately not the
 # lap-detection minimum: that one exists to reject phantom laps, while this one
 # only asks whether there is enough driven geometry to score — a couple of
@@ -167,16 +181,43 @@ def coverage(samples: dict[str, list[float]], print_: Fingerprint) -> float:
     return hit / tested if tested else 0.0
 
 
+def is_whole_lap(samples: dict[str, list[float]]) -> bool:
+    """Did this lap go all the way round, ending where it started?
+
+    Coverage is a share of whatever samples it is handed, so a FRAGMENT can
+    score 100 % on a stretch of tarmac two layouts share while saying nothing
+    about which of them was driven — and the piece that would have settled it
+    is the piece that is missing. The layouts of one venue diverge somewhere;
+    a lap that closes has been through wherever that is.
+
+    Cheap and self-contained, which matters because the first lap of a session
+    is the one that gets to name it, and at that point there are no other laps
+    to compare a span against.
+    """
+    xs = samples.get("pos_x") or []
+    zs = samples.get("pos_z") or []
+    dist = samples.get("dist") or []
+    if len(xs) < 2 or len(zs) < 2 or not dist:
+        return False
+    if dist[-1] < ROUTE_MIN_M:
+        return False  # too little driving to be a lap of anything
+    closes_within = max(ROUTE_CLOSE_M, dist[-1] * ROUTE_CLOSE_FRACTION)
+    return math.hypot(xs[-1] - xs[0], zs[-1] - zs[0]) <= closes_within
+
+
 def match_bundles(
     samples: dict[str, list[float]], prints: list[Fingerprint]
 ) -> tuple[str, float] | None:
     """Which surveyed circuit this lap was driven on, if the evidence is clear.
 
-    Returns (track, coverage) or None. None covers both "no bundle describes
-    this lap" and "two of them describe it about equally well" — the second is
-    a real case (a venue's configurations overlap) and guessing between them
+    Returns (track, coverage) or None. None covers three things: the lap is
+    not a whole lap and so cannot be trusted to distinguish layouts, no bundle
+    describes it, or two of them describe it about equally well. The last is a
+    real case (a venue's configurations overlap) and guessing between them
     would put the wrong name on a session silently.
     """
+    if not is_whole_lap(samples):
+        return None
     scored = sorted(
         ((coverage(samples, p), p.track) for p in prints), reverse=True
     )

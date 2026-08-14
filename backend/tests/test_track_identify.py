@@ -128,6 +128,30 @@ def test_no_bundles_means_no_answer() -> None:
     assert tracks.match_bundles(_lap_samples(200.0), []) is None
 
 
+def test_a_fragment_of_a_lap_names_nothing() -> None:
+    """Coverage is a share of whatever samples it is handed, so a piece of a
+    lap can sit entirely on tarmac two layouts share and score 100 % on the
+    wrong one — the part that would have told them apart being the part that
+    is missing."""
+    prints = [tracks.fingerprint(_bundle("Ring", 200.0))]
+    whole = _lap_samples(200.0)
+    assert tracks.match_bundles(whole, prints) is not None
+
+    half = {k: v[: len(v) // 2] for k, v in whole.items()}
+    assert tracks.coverage(half, prints[0]) > 0.95  # it IS on the road...
+    assert tracks.match_bundles(half, prints) is None  # ...and still not enough
+
+
+def test_a_car_sitting_on_the_line_is_not_a_lap() -> None:
+    """Start and end in the same place, having gone nowhere: closure alone is
+    not evidence of anything."""
+    parked = _lap_samples(200.0, n=200)
+    parked["pos_x"] = [100.0] * 200
+    parked["pos_z"] = [0.0] * 200
+    parked["dist"] = [0.05 * i for i in range(200)]
+    assert not tracks.is_whole_lap(parked)
+
+
 def test_fingerprints_are_rebuilt_when_a_bundle_changes(tmp_path) -> None:
     _write(tmp_path, _bundle("Ring", 200.0))
     first = tracks.load_fingerprints(tmp_path)
@@ -160,18 +184,35 @@ async def client(tmp_path):
     await engine.dispose()
 
 
-async def drive(service: TelemetryService, radius: float, laps: int = 2) -> None:
-    points = _circle(radius, n=300)
-    for lap in range(1, laps + 1):
+DRIVE_SPEED_MPS = 60.0
+
+
+async def drive(
+    service: TelemetryService, radius: float, arcs: tuple[float, ...] = (1.0,)
+) -> None:
+    """Drive one lap per entry in `arcs` around a circle, a metre per tick.
+
+    The sample spacing is deliberately the distance the reported speed covers
+    in a tick: identification asks whether a lap closes, which compares the
+    integrated `dist` column against the driven positions, and a fixture where
+    those two disagree is testing nothing.
+
+    An arc below 1 leaves the lap short of where it started — a fragment, as
+    produced by capture starting mid-lap or an out-lap from the pits.
+    """
+    full = _circle(radius, n=round(2 * math.pi * radius / (DRIVE_SPEED_MPS / 60)))
+    laps = len(arcs)
+    for lap, arc in enumerate(arcs, start=1):
+        points = full[: max(2, round(len(full) * arc))]
         for tick, (x, z) in enumerate(points):
             await service._on_packet(
                 parse_packet(
                     build_packet(
-                        packet_id=lap * 1000 + tick,
+                        packet_id=lap * 100_000 + tick,
                         current_lap=lap,
                         last_lap_time_ms=60_000 if lap > 1 else -1,
                         position=(x, 0.0, z),
-                        speed_mps=40.0,
+                        speed_mps=DRIVE_SPEED_MPS,
                         throttle=200,
                         flags=ON_TRACK,
                     )
@@ -180,8 +221,8 @@ async def drive(service: TelemetryService, radius: float, laps: int = 2) -> None
     await service._on_packet(
         parse_packet(
             build_packet(
-                packet_id=99_999, current_lap=laps + 1, last_lap_time_ms=60_000,
-                speed_mps=40.0, flags=ON_TRACK,
+                packet_id=999_999, current_lap=laps + 1, last_lap_time_ms=60_000,
+                speed_mps=DRIVE_SPEED_MPS, flags=ON_TRACK,
             )
         )
     )
@@ -195,6 +236,20 @@ async def test_a_new_session_names_itself_from_the_bundle(client) -> None:
 
     assert service.track_name == "Ring"
     assert (await c.get("/api/sessions")).json()[0]["track_name"] == "Ring"
+
+
+async def test_a_fragment_does_not_name_a_session_but_the_next_lap_does(client) -> None:
+    """The first lap of a session is the one that gets to name it, and capture
+    often starts mid-lap. That lap must not be trusted — but nothing should be
+    lost either: identification retries on every lap until one sticks."""
+    c, service, data_dir = client
+    _write(data_dir, _bundle("Ring", 200.0))
+
+    await drive(service, radius=200.0, arcs=(0.55, 1.0))
+
+    assert service.track_name == "Ring"
+    laps = (await c.get("/api/laps")).json()
+    assert len(laps) == 2  # the fragment was recorded, just not trusted to name
 
 
 async def test_a_session_somewhere_unsurveyed_stays_unnamed(client) -> None:

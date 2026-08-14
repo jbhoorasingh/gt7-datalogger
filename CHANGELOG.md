@@ -20,10 +20,11 @@ Notable changes to GT7 Datalogger. The format follows
   across a whole circuit but as scattered dots exactly where you have zoomed in
   to look closely.
 
-    The map is also **no longer stretched**. Both axes now share one scale, so a
-  corner's shape on screen is its shape on the track; letting each axis fill
-  the box independently distorted it by the circuit's aspect ratio — 8 % at
-  Lago Maggiore Centre and nearly 3x at Deep Forest.
+    The map is also **no longer stretched**. A metre across is now a metre
+  down — the axis ranges follow the plotting area's pixel aspect, so the shape
+  holds in the rail and at full screen alike. Letting each axis fill the box
+  independently distorted it by the circuit's aspect ratio: 8 % at Lago
+  Maggiore Centre and nearly 3x at Deep Forest.
 - **A surveyed circuit now recognises itself.** Auto-identification only ever
   matched against signatures written by naming a track by hand, which left a
   hole big enough to make surveying feel broken: survey three circuits, never

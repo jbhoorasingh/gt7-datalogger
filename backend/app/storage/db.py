@@ -207,9 +207,17 @@ def _catch_up_legacy(conn: Connection) -> bool:
     if "alembic_version" in tables or "sessions" not in tables:
         return False
     log.info("pre-Alembic database found — bringing it to %s", BASELINE_REVISION)
+    # Whole tables first, then columns. Baseline gained TABLES as well as
+    # columns — `layouts` arrived with the overlay builder — and the hand-rolled
+    # list below only ever knew how to ALTER, because the startup path used to
+    # run create_all before it. Dropping that left a first-release database
+    # stamped at baseline with no `layouts` table and no revision that would
+    # ever create one, so every layout request 500s. create_all only touches
+    # what is missing, which is exactly the old behaviour.
+    Base.metadata.create_all(conn, checkfirst=True)
     for table, column, ddl in _LEGACY_SQLITE_COLUMNS:
         if table not in tables:
-            continue
+            continue  # just created from the models, so already at baseline
         if column not in {c["name"] for c in inspector.get_columns(table)}:
             conn.exec_driver_sql(ddl)
     return True

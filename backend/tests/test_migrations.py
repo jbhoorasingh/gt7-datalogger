@@ -56,6 +56,14 @@ def _columns(path, table) -> set[str]:
         con.close()
 
 
+def _tables(path) -> set[str]:
+    con = sqlite3.connect(path)
+    try:
+        return {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    finally:
+        con.close()
+
+
 def _revision(path) -> str | None:
     con = sqlite3.connect(path)
     try:
@@ -108,10 +116,18 @@ async def test_pre_alembic_database_is_caught_up_and_stamped(tmp_path) -> None:
     await init_db(engine)
 
     assert _revision(path) == BASELINE_REVISION
-    # Every column a fresh install would have, on a file that had none of them.
+    # Every TABLE a fresh install would have. `layouts` arrived after the first
+    # release and V1_SCHEMA has none, so a catch-up that could only ALTER left
+    # it missing for good — stamped at baseline, with no revision left to
+    # create it.
+    assert _tables(path) >= {t.name for t in Base.metadata.sorted_tables}
+    # ...and every column, on a file that had none of them.
     assert _columns(path, "laps") == {c.name for c in Base.metadata.tables["laps"].columns}
     assert _columns(path, "sessions") == {
         c.name for c in Base.metadata.tables["sessions"].columns
+    }
+    assert _columns(path, "layouts") == {
+        c.name for c in Base.metadata.tables["layouts"].columns
     }
 
     # And the recorded lap is still there, readable through the ORM.
