@@ -30,6 +30,45 @@ function Dialog({
   );
 }
 
+/** A dialog sized for looking at something rather than answering a question:
+ *  as much of the viewport as it can take, with the content free to fill it. */
+export function LargeDialog({
+  open,
+  title,
+  onClose,
+  children,
+}: {
+  open: boolean;
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <DialogPrimitive.Root open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-black/75" />
+        <DialogPrimitive.Content
+          aria-describedby={undefined}
+          className="fixed left-1/2 top-1/2 z-40 flex h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-edge bg-panel shadow-xl shadow-black/50"
+        >
+          <div className="flex shrink-0 items-center gap-2 border-b border-edge px-3 py-2">
+            <DialogPrimitive.Title className="text-[10px] font-semibold uppercase tracking-widest text-ink-dim">
+              {title}
+            </DialogPrimitive.Title>
+            <DialogPrimitive.Close
+              className="ml-auto rounded border border-edge px-2 py-0.5 text-xs text-ink-dim transition-colors hover:border-edge-bright hover:text-ink"
+              aria-label="Close"
+            >
+              Close ⎋
+            </DialogPrimitive.Close>
+          </div>
+          <div className="min-h-0 flex-1">{children}</div>
+        </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
+  );
+}
+
 export function ConfirmDialog({
   open,
   title,

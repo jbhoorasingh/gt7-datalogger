@@ -3,13 +3,30 @@
 // every other selected lap is overlaid as a solid line in its chart color —
 // like GT7's own Data Logger, but with a synced cursor dot per lap showing
 // the spatial gap at the hovered distance.
+//
+// Three things make it usable rather than merely present:
+//
+// * **True geometry.** Both axes are given the same span, so a corner's shape
+//   on screen is its shape on the track. Letting each axis scale to its own
+//   data stretches the map by whatever the circuit's aspect ratio happens to
+//   be — 8 % at Lago Maggiore Centre, nearly 3x at Deep Forest — which is a
+//   strange thing for a map to do to a racing line.
+// * **Corner navigation.** The corners are already known (detected, or
+//   authored in the track bundle), so they are the natural unit to look at
+//   one at a time. Picking one drives the SHARED zoom, so the charts follow
+//   the map into the corner rather than the two disagreeing.
+// * **A maximized view.** A 4.5 km circuit in a 360 px rail is a squiggle;
+//   the same map at full screen is a track.
 
 import type * as echarts from "echarts";
 import type { EChartsOption, SeriesOption } from "echarts";
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CHART_COLORS, EChart } from "@/components/EChart";
+import { LargeDialog } from "@/components/ui/Dialog";
+import { Tip } from "@/components/ui/Tooltip";
 import {
   type CompareLapEntry,
+  type Corner,
   kerbWheelCount,
   looseWheelCount,
   type TrackOutline,
@@ -29,14 +46,42 @@ const ROAD_FILL = "#252b34";
 const BORDER_COLOR = "#4b5563";
 const WALL_COLOR = "#7f1d1d";
 
-// Numbered circles are readable up to about this many corners in view;
-// beyond that (or fully zoomed out on a long track) they collapse to dots.
+// Numbered circles are readable up to about this many corners in view; beyond
+// that they collapse to dots. The maximized view has the room for far more.
 const MAX_NUMBERED_CORNERS = 30;
+const MAX_NUMBERED_CORNERS_LARGE = 90;
+
+// Track either side of a corner's own extent, so it arrives in context —
+// the braking zone into it and the exit out of it — rather than cropped to
+// the arc itself.
+const CORNER_PAD_M = 40;
 
 function zoneOf(throttle: number, brake: number): number {
   if (brake >= 1) return 0;
   if (throttle >= 1) return 2;
   return 1;
+}
+
+/** The distance window a corner is shown in. Also the identity used to tell
+ *  whether the current zoom IS this corner, so it must be deterministic. */
+export function cornerRange(c: Corner): [number, number] {
+  return [
+    Math.max(0, c.entry_dist - CORNER_PAD_M),
+    Math.max(c.exit_dist, c.entry_dist) + CORNER_PAD_M,
+  ];
+}
+
+/** Which corner the current zoom is showing, if it is showing one. Derived
+ *  rather than remembered: the charts can change the zoom too (drag, sector
+ *  buttons, reset), and a remembered selection would go stale behind them. */
+function selectedCorner(corners: Corner[], zoom: [number, number] | null): Corner | null {
+  if (!zoom) return null;
+  return (
+    corners.find((c) => {
+      const [lo, hi] = cornerRange(c);
+      return Math.abs(lo - zoom[0]) < 1 && Math.abs(hi - zoom[1]) < 1;
+    }) ?? null
+  );
 }
 
 export interface MapLap {
@@ -47,13 +92,7 @@ export interface MapLap {
   isRef: boolean;
 }
 
-export function RaceLineMap({
-  laps,
-  cursorDist,
-  step,
-  zoomRange,
-  outline,
-}: {
+interface MapProps {
   laps: MapLap[];
   cursorDist: number | null;
   step: number;
@@ -61,10 +100,62 @@ export function RaceLineMap({
   // The circuit's surveyed road, when it has been surveyed. Null/empty draws
   // exactly what this map drew before it existed.
   outline?: TrackOutline | null;
-}) {
+  // Lets the map drive the zoom every panel shares, so picking a corner here
+  // takes the charts there too.
+  onZoomChange?: (range: [number, number] | null) => void;
+}
+
+export function RaceLineMap(props: MapProps) {
+  const [maximized, setMaximized] = useState(false);
+  return (
+    <>
+      {/* While the dialog is up the inline chart is behind an opaque overlay,
+          so it is swapped for a placeholder of the same size: two live
+          instances would both re-render the outline's thousands of segments,
+          and only one of them would be visible. */}
+      {maximized ? (
+        <div className="aspect-square w-full" />
+      ) : (
+        <MapBody {...props} onMaximize={() => setMaximized(true)} />
+      )}
+      <LargeDialog
+        open={maximized}
+        title="Race line"
+        onClose={() => setMaximized(false)}
+      >
+        <MapBody {...props} maximized />
+      </LargeDialog>
+    </>
+  );
+}
+
+function MapBody({
+  laps,
+  cursorDist,
+  step,
+  zoomRange,
+  outline,
+  onZoomChange,
+  onMaximize,
+  maximized = false,
+}: MapProps & { onMaximize?: () => void; maximized?: boolean }) {
   const chartRef = useRef<echarts.ECharts | null>(null);
   const ref = laps.find((lap) => lap.isRef);
   const hasOutline = (outline?.road.length ?? 0) > 0 || (outline?.edges.length ?? 0) > 0;
+  const corners = useMemo(() => ref?.entry.corners ?? [], [ref]);
+  const current = selectedCorner(corners, zoomRange ?? null);
+
+  const zoomToCorner = useCallback(
+    (c: Corner | null) => onZoomChange?.(c ? cornerRange(c) : null),
+    [onZoomChange],
+  );
+
+  // Bound once on the chart, so it reads the corner list through a ref rather
+  // than capturing whichever one existed at mount.
+  const cornersRef = useRef(corners);
+  cornersRef.current = corners;
+  const zoomRef = useRef(zoomToCorner);
+  zoomRef.current = zoomToCorner;
 
   const option = useMemo<EChartsOption>(() => {
     const series: SeriesOption[] = [];
@@ -135,42 +226,54 @@ export function RaceLineMap({
       }
     }
 
-    let xMin: number | undefined;
-    let xMax: number | undefined;
-    let zMin: number | undefined;
-    let zMax: number | undefined;
+    // The window to show: the zoomed section of the reference lap, or
+    // everything there is. Collected from every drawn layer so the surveyed
+    // road cannot fall outside the frame.
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    const see = (x: number, z: number) => {
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (z < minZ) minZ = z;
+      if (z > maxZ) maxZ = z;
+    };
 
     if (zoomRange && ref) {
       const s = ref.entry.series;
-      let minX = Infinity;
-      let maxX = -Infinity;
-      let minZ = Infinity;
-      let maxZ = -Infinity;
-      let count = 0;
-
       for (let i = 0; i < s.dist.length; i++) {
         const d = s.dist[i];
-        if (d >= zoomRange[0] && d <= zoomRange[1]) {
-          const x = s.pos_x[i];
-          const z = s.pos_z[i];
-          if (x != null && z != null) {
-            if (x < minX) minX = x;
-            if (x > maxX) maxX = x;
-            if (z < minZ) minZ = z;
-            if (z > maxZ) maxZ = z;
-            count++;
-          }
+        if (d >= zoomRange[0] && d <= zoomRange[1] && s.pos_x[i] != null && s.pos_z[i] != null) {
+          see(s.pos_x[i], s.pos_z[i]);
         }
       }
-
-      if (count > 0 && isFinite(minX) && isFinite(maxX) && isFinite(minZ) && isFinite(maxZ)) {
-        const padX = Math.max((maxX - minX) * 0.15, 8);
-        const padZ = Math.max((maxZ - minZ) * 0.15, 8);
-        xMin = minX - padX;
-        xMax = maxX + padX;
-        zMin = minZ - padZ;
-        zMax = maxZ + padZ;
+    } else {
+      for (const lap of laps) {
+        const s = lap.entry.series;
+        for (let i = 0; i < s.dist.length; i++) {
+          if (s.pos_x[i] != null && s.pos_z[i] != null) see(s.pos_x[i], s.pos_z[i]);
+        }
       }
+      for (const quad of outline?.road ?? []) see(quad[0], quad[1]);
+      for (const seg of outline?.edges ?? []) see(seg[0], seg[1]);
+    }
+
+    // One span for both axes: a metre across must be a metre down, or the map
+    // lies about every corner's shape. The container is square, so the window
+    // is too — the shorter axis grows around its own centre.
+    let axis: { xMin: number; xMax: number; zMin: number; zMax: number } | null = null;
+    if (isFinite(minX) && isFinite(maxX) && isFinite(minZ) && isFinite(maxZ)) {
+      const pad = Math.max(Math.max(maxX - minX, maxZ - minZ) * 0.06, 8);
+      const span = Math.max(maxX - minX, maxZ - minZ) + pad * 2;
+      const cx = (minX + maxX) / 2;
+      const cz = (minZ + maxZ) / 2;
+      axis = {
+        xMin: cx - span / 2,
+        xMax: cx + span / 2,
+        zMin: cz - span / 2,
+        zMax: cz + span / 2,
+      };
     }
 
     // Comparison laps first (under the reference), as solid colored lines.
@@ -210,11 +313,52 @@ export function RaceLineMap({
 
     if (ref) {
       const s = ref.entry.series;
+      // Zoomed in there is room for the line to be a line rather than a dotted
+      // trail, and the input zones read better for it.
+      const dot = zoomRange ? (maximized ? 7 : 5) : maximized ? 4.5 : 3.5;
+
+      // The reference lap as a CONTINUOUS line, one series per input zone
+      // with the other zones nulled out. Samples arrive on a 5 m grid, which
+      // reads as a solid line across a whole circuit and as scattered dots
+      // the moment you zoom into a corner — which is exactly where the line
+      // matters most. Each run is extended one sample backwards so
+      // consecutive zones meet instead of leaving a gap at every transition.
+      const inZoomAt = (i: number) =>
+        !zoomRange || (s.dist[i] >= zoomRange[0] && s.dist[i] <= zoomRange[1]);
+      const zoneAt = (i: number) => zoneOf(s.throttle[i], s.brake[i]);
+      if (zoomRange) {
+        series.push({
+          id: "ref-line-dim",
+          type: "line",
+          data: s.dist.map((_, i) => [s.pos_x[i], s.pos_z[i]]),
+          showSymbol: false,
+          lineStyle: { color: CHART_COLORS.label, width: 1.2, opacity: 0.18 },
+          silent: true,
+          z: 1.8,
+        });
+      }
+      for (let zone = 0; zone < 3; zone++) {
+        series.push({
+          id: `ref-zone-${zone}`,
+          type: "line",
+          data: s.dist.map((_, i) =>
+            inZoomAt(i) && (zoneAt(i) === zone || (i > 0 && zoneAt(i - 1) === zone))
+              ? [s.pos_x[i], s.pos_z[i]]
+              : [null, null],
+          ),
+          showSymbol: false,
+          connectNulls: false,
+          lineStyle: { color: ZONE_COLORS[zone], width: zoomRange ? 3 : 2, opacity: 0.95 },
+          silent: true,
+          z: 2.8,
+        });
+      }
+
       const points = s.dist.map((d, i) => {
         const inZoom = zoomRange ? d >= zoomRange[0] && d <= zoomRange[1] : true;
         return {
           value: [s.pos_x[i], s.pos_z[i]],
-          symbolSize: inZoom ? 4 : 2,
+          symbolSize: inZoom ? dot : dot * 0.55,
           itemStyle: {
             color: ZONE_COLORS[zoneOf(s.throttle[i], s.brake[i])],
             opacity: inZoom ? 1 : 0.15,
@@ -246,7 +390,7 @@ export function RaceLineMap({
             id: "surface-kerb",
             type: "scatter",
             data: kerbPts,
-            symbolSize: 8,
+            symbolSize: dot * 2.3,
             itemStyle: { color: KERB_COLOR },
             silent: true,
             z: 2.5,
@@ -255,7 +399,7 @@ export function RaceLineMap({
             id: "surface-loose",
             type: "scatter",
             data: loosePts,
-            symbolSize: 9,
+            symbolSize: dot * 2.6,
             itemStyle: { color: LOOSE_COLOR },
             silent: true,
             z: 2.6,
@@ -264,45 +408,42 @@ export function RaceLineMap({
       }
 
       const pv = ref.entry.peaks_valleys;
-      const peaks = pv.peaks.filter(
-        (p) => !zoomRange || (p.dist >= zoomRange[0] && p.dist <= zoomRange[1]),
-      );
-      const valleys = pv.valleys.filter(
-        (p) => !zoomRange || (p.dist >= zoomRange[0] && p.dist <= zoomRange[1]),
-      );
+      const pvInZoom = (d: number) => !zoomRange || (d >= zoomRange[0] && d <= zoomRange[1]);
 
       series.push(
-        { type: "scatter", data: points, symbolSize: 3.5, silent: true, z: 3 },
+        { type: "scatter", data: points, symbolSize: dot, silent: true, z: 3 },
         {
           type: "scatter",
-          data: peaks.map((p) => [p.x, p.z]),
+          data: pv.peaks.filter((p) => pvInZoom(p.dist)).map((p) => [p.x, p.z]),
           symbol: "triangle",
-          symbolSize: 9,
+          symbolSize: maximized ? 12 : 9,
           itemStyle: { color: "#facc15" },
           silent: true,
           z: 5,
         },
         {
           type: "scatter",
-          data: valleys.map((p) => [p.x, p.z]),
+          data: pv.valleys.filter((p) => pvInZoom(p.dist)).map((p) => [p.x, p.z]),
           symbol: "triangle",
           symbolRotate: 180,
-          symbolSize: 9,
+          symbolSize: maximized ? 12 : 9,
           itemStyle: { color: "#c084fc" },
           silent: true,
           z: 5,
         },
       );
 
-      // Auto-numbered corners (detected on the reference lap). Numbered
-      // circles while the view shows a readable amount; plain dots otherwise.
-      const corners = ref.entry.corners ?? [];
+      // Corners (detected on the reference lap, or authored for the circuit).
+      // Numbered circles while the view shows a readable amount; plain dots
+      // otherwise. Clickable: they are the fastest way into a corner.
       const cornersInView = corners.filter(
         (c) => !zoomRange || (c.apex_dist >= zoomRange[0] && c.apex_dist <= zoomRange[1]),
       );
       const numbered =
-        cornersInView.length > 0 && cornersInView.length <= MAX_NUMBERED_CORNERS;
+        cornersInView.length > 0 &&
+        cornersInView.length <= (maximized ? MAX_NUMBERED_CORNERS_LARGE : MAX_NUMBERED_CORNERS);
       if (cornersInView.length > 0) {
+        const size = maximized ? 20 : 15;
         series.push({
           id: "corners",
           type: "scatter",
@@ -310,19 +451,23 @@ export function RaceLineMap({
             value: [c.apex_x, c.apex_z],
             name: String(c.n),
           })),
-          symbolSize: numbered ? 15 : 5,
+          symbolSize: numbered ? size : 5,
           itemStyle: numbered
-            ? { color: "#14171c", borderColor: CHART_COLORS.label, borderWidth: 1 }
+            ? {
+                color: "#14171c",
+                borderColor: current ? CHART_COLORS.series[0] : CHART_COLORS.label,
+                borderWidth: current ? 2 : 1,
+              }
             : { color: CHART_COLORS.label, opacity: 0.85 },
           label: {
             show: numbered,
             position: "inside",
             formatter: "{b}",
             color: "#e5e7eb",
-            fontSize: 9,
+            fontSize: maximized ? 11 : 9,
             fontWeight: "bold",
           },
-          silent: true,
+          cursor: "pointer",
           z: 4, // above the race line dots, below peak/valley markers & cursors
         });
       }
@@ -334,7 +479,7 @@ export function RaceLineMap({
         id: `cursor-${lap.id}`,
         type: "scatter",
         data: [] as number[][],
-        symbolSize: lap.isRef ? 12 : 9,
+        symbolSize: (lap.isRef ? 12 : 9) * (maximized ? 1.3 : 1),
         itemStyle: lap.isRef
           ? { color: "#fff", borderColor: CHART_COLORS.series[0], borderWidth: 3 }
           : { color: lap.color, borderColor: "#fff", borderWidth: 1.5 },
@@ -349,22 +494,31 @@ export function RaceLineMap({
       xAxis: {
         type: "value",
         show: false,
-        scale: true,
-        ...(xMin != null ? { min: xMin, max: xMax } : {}),
+        ...(axis ? { min: axis.xMin, max: axis.xMax } : { scale: true }),
       },
       yAxis: {
         type: "value",
         show: false,
-        scale: true,
         inverse: true,
-        ...(zMin != null ? { min: zMin, max: zMax } : {}),
+        ...(axis ? { min: axis.zMin, max: axis.zMax } : { scale: true }),
       },
+      // Free pan and wheel-zoom, but only where it cannot fight the page:
+      // in the rail the map sits inside a scrolling column, and a wheel that
+      // sometimes scrolls and sometimes zooms is worse than one that always
+      // scrolls. The window resets whenever the option is rebuilt (a new
+      // selection, a new corner), which is the moment it should.
+      ...(maximized
+        ? {
+            dataZoom: [
+              { type: "inside", xAxisIndex: 0, filterMode: "none" },
+              { type: "inside", yAxisIndex: 0, filterMode: "none" },
+            ],
+          }
+        : {}),
       tooltip: { show: false },
       series,
     };
-    // Deliberately depends only on laps/zoomRange/outline: cursor updates
-    // merge separately below.
-  }, [laps, zoomRange, outline]);
+  }, [laps, zoomRange, outline, corners, current, maximized, ref]);
 
   // Cursor updates merge into the existing chart by series id — no rebuild.
   useEffect(() => {
@@ -386,30 +540,52 @@ export function RaceLineMap({
   const hasSurface = !!ref?.entry.series.surface?.some((v) => v > 0);
 
   return (
-    <div>
-      <div className="relative">
+    <div className={maximized ? "flex h-full flex-col" : undefined}>
+      <div className={maximized ? "relative min-h-0 flex-1" : "relative"}>
         <EChart
           option={option}
-          className="aspect-square w-full"
+          className={maximized ? "h-full w-full" : "aspect-square w-full"}
           onInit={(chart) => {
             chartRef.current = chart;
+            chart.on("click", (e) => {
+              if (e.seriesId !== "corners") return;
+              const corner = cornersRef.current.find((c) => String(c.n) === e.name);
+              if (corner) zoomRef.current(corner);
+            });
           }}
         />
-        {others.length > 0 && (
-          <div className="absolute right-2 top-2 space-y-0.5 text-[10px]">
-            {others.map((lap) => (
-              <div key={lap.id} className="flex items-center justify-end gap-1.5 text-ink-dim">
-                {lap.label}
-                <i className="inline-block h-0.5 w-4" style={{ backgroundColor: lap.color }} />
-              </div>
-            ))}
-          </div>
+        {onMaximize && (
+          <Tip content="Open the map full screen">
+            <button
+              onClick={onMaximize}
+              aria-label="Maximize the race line map"
+              className="absolute right-2 top-2 rounded border border-edge bg-panel/80 px-1.5 py-0.5 text-xs text-ink-dim backdrop-blur transition-colors hover:border-edge-bright hover:text-ink"
+            >
+              ⤢
+            </button>
+          </Tip>
         )}
       </div>
+
+      {onZoomChange && corners.length > 0 && (
+        <CornerBar
+          corners={corners}
+          current={current}
+          onPick={zoomToCorner}
+          maximized={maximized}
+        />
+      )}
+
       {/* Below the map, not floating over it: the key grew past what fits on
           one overlaid row once the surveyed road joined it, and legend text
           wrapping across the track is worse than a couple of rows of space. */}
       <div className="flex flex-wrap gap-x-3 gap-y-1 px-3 pb-2 text-[10px] text-ink-dim [&>span]:whitespace-nowrap">
+        {others.map((lap) => (
+          <span key={lap.id} className="flex items-center gap-1.5">
+            <i className="inline-block h-0.5 w-4" style={{ backgroundColor: lap.color }} />
+            {lap.label}
+          </span>
+        ))}
         <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-throttle" />throttle</span>
         <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-brake" />brake</span>
         <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-coast" />coast</span>
@@ -433,12 +609,12 @@ export function RaceLineMap({
             </span>
           </>
         )}
-        {(ref?.entry.corners?.length ?? 0) > 0 && (
+        {corners.length > 0 && (
           <span>
             <i className="mr-1 inline-block h-2.5 w-2.5 rounded-full border border-ink-dim text-center align-middle text-[7px] leading-[9px]">
               1
             </i>
-            corner
+            corner — click to zoom
           </span>
         )}
         {hasOutline && (
@@ -459,7 +635,81 @@ export function RaceLineMap({
             wall
           </span>
         )}
+        {maximized && <span className="ml-auto">scroll to zoom · drag to pan</span>}
       </div>
+    </div>
+  );
+}
+
+/** Corner picker. Every corner as a chip, the selected one called out with
+ *  what it is — because "corner 7" alone is not something anyone remembers,
+ *  and the direction plus minimum speed is how you recognise it. */
+function CornerBar({
+  corners,
+  current,
+  onPick,
+  maximized,
+}: {
+  corners: Corner[];
+  current: Corner | null;
+  onPick: (c: Corner | null) => void;
+  maximized: boolean;
+}) {
+  const index = current ? corners.indexOf(current) : -1;
+  const step = (by: number) => {
+    if (corners.length === 0) return;
+    // Wraps, because the last corner's exit is the first one's approach.
+    const next = index < 0 ? (by > 0 ? 0 : corners.length - 1) : (index + by + corners.length) % corners.length;
+    onPick(corners[next]);
+  };
+
+  return (
+    <div className="flex items-center gap-1.5 border-t border-edge px-3 py-1.5 text-[11px]">
+      <button
+        onClick={() => step(-1)}
+        aria-label="Previous corner"
+        className="shrink-0 rounded border border-edge px-1.5 text-ink-dim transition-colors hover:border-edge-bright hover:text-ink"
+      >
+        ‹
+      </button>
+      <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto">
+        <button
+          onClick={() => onPick(null)}
+          className={`shrink-0 rounded px-1.5 font-tabular transition-colors ${
+            current ? "text-ink-dim hover:text-ink" : "bg-accent/15 text-accent"
+          }`}
+        >
+          lap
+        </button>
+        {corners.map((c) => (
+          <button
+            key={c.n}
+            onClick={() => onPick(c)}
+            title={c.name || `Corner ${c.n}`}
+            className={`shrink-0 rounded px-1.5 font-tabular transition-colors ${
+              current?.n === c.n
+                ? "bg-accent/15 text-accent"
+                : "text-ink-dim hover:bg-panel-2 hover:text-ink"
+            }`}
+          >
+            {c.n}
+          </button>
+        ))}
+      </div>
+      <button
+        onClick={() => step(1)}
+        aria-label="Next corner"
+        className="shrink-0 rounded border border-edge px-1.5 text-ink-dim transition-colors hover:border-edge-bright hover:text-ink"
+      >
+        ›
+      </button>
+      {current && (
+        <span className="shrink-0 truncate pl-1 text-ink-dim">
+          {current.name || `T${current.n}`}
+          {current.direction && ` · ${current.direction === "L" ? "left" : "right"}`}
+          {maximized && ` · ${current.min_speed.toFixed(0)} km/h · ${current.angle_deg.toFixed(0)}°`}
+        </span>
+      )}
     </div>
   );
 }

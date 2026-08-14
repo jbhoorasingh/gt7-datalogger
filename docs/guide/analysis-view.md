@@ -67,9 +67,35 @@ default nine-panel stack. Laps recorded before a channel existed simply skip tha
 
 A top-down plot of the reference lap's driven line, colored by input zone — green =
 throttle, red = braking, blue = coasting — with ▲ speed peaks and ▼ valleys marked.
-Other selected laps overlay as colored lines. The map has no direct mouse interaction:
-it follows the chart cursor, placing one dot per lap at the hovered distance so you can
-see the spatial gap between lines, and it auto-crops when you zoom a section.
+Other selected laps overlay as colored lines. It follows the chart cursor, placing one
+dot per lap at the hovered distance so you can see the spatial gap between lines, and it
+auto-crops when you zoom a section.
+
+Both axes share one scale, so a metre across is a metre down and a corner's shape on
+screen is its shape on the track. (Letting each axis fill the box independently stretches
+the map by whatever the circuit's aspect ratio happens to be — 8 % at Lago Maggiore
+Centre, nearly 3× at Deep Forest.)
+
+### Corners
+
+The corner strip under the map is the fast way around a lap: **click a number** — or the
+numbered circle on the map itself — and everything zooms to that corner, charts included,
+with the braking zone into it and the exit out of it for context. `‹` `›` step through
+them and wrap; **lap** goes back to the whole circuit. The selected corner is named
+beside the strip (`T5 · left`).
+
+The corners come from the reference lap's curvature, or from the circuit's
+[authored corners](tracks-view.md#labelling-corners) when it has them — in which case the
+numbering is the same in every session, not just within this one.
+
+### Full screen
+
+**⤢** (top right of the map) opens the same map as large as the window will allow, which
+is the difference between a squiggle and a track on anything longer than a kart circuit.
+The maximized view adds **scroll to zoom** and **drag to pan** — off in the rail, where a
+wheel that sometimes scrolls the page and sometimes zooms a chart is worse than one that
+always scrolls — plus the selected corner's minimum speed and total angle. Escape or
+**Close** returns.
 
 **Under the line: the surveyed road.** If the session's circuit has been named *and*
 [surveyed](tracks-view.md), the map draws the track itself beneath every lap — road surface,

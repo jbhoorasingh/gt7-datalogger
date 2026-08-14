@@ -456,6 +456,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
               step={compare!.step}
               zoomRange={zoomRange}
               outline={outline}
+              onZoomChange={setZoomRange}
             />
           </SidePanel>
         )}

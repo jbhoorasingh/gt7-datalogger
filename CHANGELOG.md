@@ -7,6 +7,23 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Added
 
+- **The race-line map is something you can actually look at.** It was a
+  360-pixel thumbnail that only the charts could drive, which is not enough
+  map for a 5 km circuit. Now: **⤢ opens it full screen**, with scroll-to-zoom
+  and drag-to-pan (kept out of the rail, where a wheel that sometimes scrolls
+  the page and sometimes zooms is worse than one that always scrolls); a
+  **corner strip** under the map takes you to any corner in one click — as does
+  clicking the numbered circle on the map — and drives the *shared* zoom, so
+  the charts follow the map into the corner instead of the two disagreeing;
+  and the reference lap is drawn as a **continuous zone-coloured line** rather
+  than a dotted trail, because samples land every 5 m and that reads as a line
+  across a whole circuit but as scattered dots exactly where you have zoomed in
+  to look closely.
+
+    The map is also **no longer stretched**. Both axes now share one scale, so a
+  corner's shape on screen is its shape on the track; letting each axis fill
+  the box independently distorted it by the circuit's aspect ratio — 8 % at
+  Lago Maggiore Centre and nearly 3x at Deep Forest.
 - **A surveyed circuit now recognises itself.** Auto-identification only ever
   matched against signatures written by naming a track by hand, which left a
   hole big enough to make surveying feel broken: survey three circuits, never
