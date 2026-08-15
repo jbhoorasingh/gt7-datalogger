@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jbhoorasingh.github.io/gt7-datalogger/reference/schemas/track-compiled.v1.schema.json",
+  "title": "GT7 datalogger compiled track geometry (format v1)",
+  "description": "Derived vector geometry compiled from a track bundle's border evidence: ordered border polylines, centerline with width and elevation, the road surface as quads, flagged survey gaps, and boundary-length coverage. Recomputed locally whenever the bundle changes; never imported. Stored at data/track-bundles/compiled/<slug>.json.",
+  "type": "object",
+  "required": ["format", "version", "track", "slug", "borders", "centerline", "road", "coverage"],
+  "properties": {
+    "format": { "const": "gt7-datalogger-track-compiled" },
+    "version": { "const": 1 },
+    "track": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "slug": { "type": "string", "maxLength": 80 },
+    "compiled_at": { "type": "string", "maxLength": 64 },
+    "source": {
+      "type": "object",
+      "description": "Provenance: the evidence this geometry was compiled from.",
+      "properties": {
+        "points": { "type": "integer", "minimum": 0 },
+        "runs": { "type": "integer", "minimum": 0 },
+        "sources": { "type": "integer", "minimum": 0 },
+        "bundle_updated_at": { "type": "string", "maxLength": 64 },
+        "app_version": { "type": "string", "maxLength": 32 }
+      }
+    },
+    "borders": {
+      "type": "object",
+      "description": "Ordered border polylines per side, split at survey gaps, Douglas-Peucker simplified. Vertices are [x, z, y]; y is null where the metre predates elevation capture.",
+      "required": ["L", "R"],
+      "properties": {
+        "L": { "$ref": "#/$defs/polylines3" },
+        "R": { "$ref": "#/$defs/polylines3" }
+      }
+    },
+    "gaps": {
+      "type": "object",
+      "description": "Unsurveyed spans the ordering bridged, as [x1, z1, x2, z2] segments. Excluded from the drawn borders and counted against coverage.",
+      "properties": {
+        "L": { "$ref": "#/$defs/segments" },
+        "R": { "$ref": "#/$defs/segments" }
+      }
+    },
+    "walls": {
+      "$ref": "#/$defs/segments",
+      "description": "Border cells whose votes settled on 'wall', as short ticks: a line that ran wide into a barrier reads differently from one that ran wide over paint."
+    },
+    "centerline": {
+      "type": "array",
+      "description": "Polyline runs of [x, z, y, w]: the road's middle, its elevation (null when neither border knows it) and its measured width. Runs break where either border is unsurveyed.",
+      "items": {
+        "type": "array",
+        "minItems": 2,
+        "items": {
+          "type": "array",
+          "prefixItems": [
+            { "type": "number" },
+            { "type": "number" },
+            { "oneOf": [{ "type": "null" }, { "type": "number" }] },
+            { "type": "number", "minimum": 0 }
+          ],
+          "minItems": 4,
+          "maxItems": 4
+        }
+      }
+    },
+    "road": {
+      "type": "array",
+      "description": "The road surface between the border curves as convex quads [x1,z1,x2,z2,x3,z3,x4,z4], adjacent quads sharing edges.",
+      "items": {
+        "type": "array",
+        "items": { "type": "number" },
+        "minItems": 8,
+        "maxItems": 8
+      }
+    },
+    "finish": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4 }
+      ],
+      "description": "The start/finish line as [x1, z1, x2, z2], averaged from recorded lap rollovers."
+    },
+    "coverage": {
+      "type": "object",
+      "description": "Coverage measured against the boundary itself, not the driven trail. closed says whether the side's main chain forms a loop - only then is the denominator the whole lap.",
+      "required": ["L", "R", "road_pct"],
+      "properties": {
+        "L": { "$ref": "#/$defs/sideCoverage" },
+        "R": { "$ref": "#/$defs/sideCoverage" },
+        "road_pct": {
+          "type": "number", "minimum": 0, "maximum": 100,
+          "description": "Share of surveyed left-border metres with the right border found across from them - how much of the road surface is resolved."
+        }
+      }
+    },
+    "_bundle_identity": {
+      "type": "array",
+      "description": "Internal staleness key: [mtime_ns, size] of the bundle file this was compiled from.",
+      "items": { "type": "integer" },
+      "minItems": 2,
+      "maxItems": 2
+    }
+  },
+  "$defs": {
+    "polylines3": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "minItems": 2,
+        "items": {
+          "type": "array",
+          "prefixItems": [
+            { "type": "number" },
+            { "type": "number" },
+            { "oneOf": [{ "type": "null" }, { "type": "number" }] }
+          ],
+          "minItems": 3,
+          "maxItems": 3
+        }
+      }
+    },
+    "segments": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "items": { "type": "number" },
+        "minItems": 4,
+        "maxItems": 4
+      }
+    },
+    "sideCoverage": {
+      "type": "object",
+      "required": ["surveyed_m", "gap_m", "pct", "closed"],
+      "properties": {
+        "surveyed_m": { "type": "number", "minimum": 0 },
+        "gap_m": { "type": "number", "minimum": 0 },
+        "pct": { "type": "number", "minimum": 0, "maximum": 100 },
+        "closed": { "type": "boolean" }
+      }
+    }
+  }
+}

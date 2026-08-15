@@ -119,6 +119,10 @@ class LapRow(Base):
     # Track-limits verdict from per-tick surface data (packet C). Distinct
     # from counts_for_best: -1 / NULL = unknown (no surface data recorded).
     off_track_count: Mapped[int] = mapped_column(default=-1)
+    # The same verdict judged against the SURVEYED road edges (#41): kept
+    # apart from off_track_count because each can fire without the other.
+    # -1 / NULL = unknown (circuit unsurveyed, or too little road under lap).
+    off_survey_count: Mapped[int] = mapped_column(default=-1)
     clean_lap: Mapped[bool | None] = mapped_column(default=None)
     events_json: Mapped[str] = mapped_column(Text, default="[]")
     gearing_json: Mapped[str] = mapped_column(Text, default="")

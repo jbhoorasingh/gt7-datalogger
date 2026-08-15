@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jbhoorasingh.github.io/gt7-datalogger/reference/schemas/track-bundle.v4.schema.json",
+  "title": "GT7 datalogger track bundle (format v4)",
+  "description": "One circuit's accumulated survey evidence: voted border records, finish-line crossings, and hand-authored corners/sections. This schema describes a CURRENT (v4) document; the app also reads and upgrades v1-v3 documents, which this schema does not cover. Prose reference: https://jbhoorasingh.github.io/gt7-datalogger/reference/track-bundle-format/",
+  "type": "object",
+  "required": ["format", "version", "meta", "edges", "finish_crossings"],
+  "properties": {
+    "format": { "const": "gt7-datalogger-track-bundle" },
+    "version": { "const": 4 },
+    "meta": {
+      "type": "object",
+      "required": ["track", "runs", "source_runs", "updated_at"],
+      "properties": {
+        "track": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "runs": {
+          "type": "integer", "minimum": 0, "maximum": 1000000,
+          "description": "Sum of source_runs; kept for display."
+        },
+        "source_runs": {
+          "type": "object",
+          "description": "Authoritative per-installation run counters.",
+          "propertyNames": { "$ref": "#/$defs/sourceId" },
+          "additionalProperties": { "type": "integer", "minimum": 0, "maximum": 1000000 }
+        },
+        "updated_at": { "type": "string", "maxLength": 64 },
+        "official": {
+          "description": "Which official GT7 configuration this is; null until a human confirms it. Never inferred: GT7 broadcasts no track id.",
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "properties": {
+                "track": { "type": "string", "maxLength": 80 },
+                "layout": { "type": "string", "maxLength": 80 },
+                "official_id": { "type": "string", "maxLength": 32 },
+                "official_name": { "type": "string", "maxLength": 160 },
+                "turns": { "type": "integer", "minimum": 0, "maximum": 1000 },
+                "length_m": { "type": "number", "minimum": 0, "maximum": 1000000 },
+                "reverse": { "type": "boolean" }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "edges": {
+      "type": "array",
+      "maxItems": 50000,
+      "description": "One record per metre per side of border, on a 1 m grid.",
+      "items": { "$ref": "#/$defs/edge" }
+    },
+    "finish_crossings": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "required": ["x", "z"],
+        "properties": {
+          "x": { "$ref": "#/$defs/coord" },
+          "z": { "$ref": "#/$defs/coord" },
+          "hx": { "$ref": "#/$defs/unit" },
+          "hz": { "$ref": "#/$defs/unit" },
+          "lap": { "type": "number", "minimum": 0, "maximum": 1000000 }
+        }
+      }
+    },
+    "corners": {
+      "type": "array",
+      "maxItems": 100,
+      "description": "Hand-authored; outranks per-lap corner detection wherever consumed.",
+      "items": {
+        "type": "object",
+        "required": ["apex"],
+        "properties": {
+          "n": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "name": { "type": "string", "maxLength": 60 },
+          "direction": { "enum": ["L", "R", null] },
+          "apex": { "$ref": "#/$defs/point" },
+          "entry": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/point" }] },
+          "exit": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/point" }] },
+          "note": { "type": "string", "maxLength": 240 }
+        }
+      }
+    },
+    "sections": {
+      "type": "array",
+      "maxItems": 40,
+      "items": {
+        "type": "object",
+        "required": ["start", "end"],
+        "properties": {
+          "n": { "type": "integer", "minimum": 1, "maximum": 40 },
+          "name": { "type": "string", "maxLength": 60 },
+          "start": { "$ref": "#/$defs/point" },
+          "end": { "$ref": "#/$defs/point" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sourceId": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{6,32}$",
+      "description": "One installation's anonymous identity (data/source-id.json)."
+    },
+    "coord": { "type": "number", "minimum": -10000000, "maximum": 10000000 },
+    "unit": { "type": "number", "minimum": -1.0001, "maximum": 1.0001 },
+    "point": {
+      "type": "object",
+      "required": ["x", "z"],
+      "properties": {
+        "x": { "$ref": "#/$defs/coord" },
+        "z": { "$ref": "#/$defs/coord" }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "required": ["x", "z", "side", "votes"],
+      "properties": {
+        "x": { "$ref": "#/$defs/coord" },
+        "z": { "$ref": "#/$defs/coord" },
+        "y": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/coord" }],
+          "description": "Elevation; null for a metre first mapped before v3."
+        },
+        "hx": { "$ref": "#/$defs/unit" },
+        "hz": { "$ref": "#/$defs/unit" },
+        "side": { "enum": ["L", "R"] },
+        "kind": {
+          "enum": ["wall", "runoff", "edge", "auto", "straddle"],
+          "description": "What the votes settle on. Derived - readers recompute rather than trust it."
+        },
+        "votes": {
+          "type": "object",
+          "minProperties": 1,
+          "description": "kind -> source id -> [count, last_run]. A vote is one run of one source, never one sample; count can never exceed max(last_run, 1).",
+          "propertyNames": { "enum": ["wall", "runoff", "edge", "auto", "straddle"] },
+          "additionalProperties": {
+            "type": "object",
+            "minProperties": 1,
+            "propertyNames": { "$ref": "#/$defs/sourceId" },
+            "additionalProperties": {
+              "type": "array",
+              "prefixItems": [
+                { "type": "integer", "minimum": 1, "maximum": 1000000 },
+                { "type": "integer", "minimum": 0, "maximum": 1000000 }
+              ],
+              "minItems": 2,
+              "maxItems": 2
+            }
+          }
+        },
+        "run": { "type": "integer", "minimum": 0, "maximum": 1000000 },
+        "tw": {
+          "oneOf": [{ "type": "null" }, { "type": "number", "minimum": -10, "maximum": 10 }],
+          "description": "Axle track width in use when the record was laid."
+        }
+      }
+    }
+  }
+}

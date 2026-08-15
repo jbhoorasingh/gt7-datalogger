@@ -160,6 +160,20 @@ export const api = {
         "POST",
         { track },
       ),
+    // Raw JSONL transport (#40): a log downloaded here can be uploaded — or
+    // assigned — on any other installation, moving the run itself.
+    logDownloadUrl: (name: string) =>
+      `/api/survey/logs/${encodeURIComponent(name)}/download`,
+    uploadLog: async (file: File): Promise<SurveyLog> => {
+      const url = `/api/survey/logs/upload?name=${encodeURIComponent(file.name)}`;
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { ...authHeaders(), "Content-Type": "application/jsonl" },
+        body: file,
+      });
+      if (!resp.ok) await fail(url, resp);
+      return resp.json() as Promise<SurveyLog>;
+    },
   },
 
   // The surveyed road for a circuit, compiled server-side (#51). Always

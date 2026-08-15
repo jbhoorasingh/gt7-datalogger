@@ -15,6 +15,13 @@ other tools can read them without asking this app anything.
 Current version: **4**. Older documents are upgraded on read, and import
 accepts every version from 1 up.
 
+A machine-readable [JSON Schema for a v4 document](schemas/track-bundle.v4.schema.json)
+is published alongside this page (and one for the
+[compiled geometry](schemas/track-compiled.v1.schema.json) described at the
+bottom). The schema describes a *current* document; the app's own import
+validation additionally accepts and upgrades v1–v3, which the schema does not
+model. If schema and code ever disagree, the code is what the app does.
+
 Bundles contributed by other people live in
 [gt7-datalogger-track-data](https://github.com/jbhoorasingh/gt7-datalogger-track-data),
 which stores them one record per line and sorted by position — the same
@@ -230,3 +237,32 @@ anything over the limits above.
 Authored corners and a confirmed `official` match are **never overwritten** by
 an import: if the local bundle already has them, the incoming ones are dropped
 and the response says so.
+
+## Compiled geometry (derived, not part of the bundle)
+
+The bundle stores *evidence* — an unordered cloud of voted border metres.
+Everything that needs the borders in **order** (drawing the road, measuring
+coverage against the boundary, judging a lap against the edges) reads a
+second, derived document instead: the border cells walked into ordered
+polylines, a centerline with width and elevation, the road surface as quads,
+and per-side coverage measured against the boundary itself.
+
+It lives at `data/track-bundles/compiled/<slug>.json`
+([schema](schemas/track-compiled.v1.schema.json), format
+`gt7-datalogger-track-compiled`, version 1) and is **recompiled automatically
+whenever the bundle file changes** — a survey save, an import, a merge. It is
+never exported and never imported: an imported bundle brings evidence, and
+the receiving installation rebuilds the geometry from it. Delete the
+`compiled/` directory at any time; it is repopulated on next use.
+
+Two properties worth knowing when reading one:
+
+- **Gaps are honest.** A stretch the ordering had to bridge without evidence
+  is flagged in `gaps`, excluded from the drawn `borders`, excluded from the
+  `centerline`, and counted against `coverage`. A partially surveyed circuit
+  compiles into exactly the fragments that were driven.
+- **`coverage` is boundary-relative.** `pct` is surveyed metres over total
+  boundary metres known to the ordering — gaps in the denominator, and on a
+  closed loop the closure too. `closed` says whether that denominator is the
+  whole lap. `road_pct` is the share of surveyed border with the opposite
+  border found across from it: how much of the road *surface* is resolved.

@@ -8,7 +8,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.config import Settings
 from app.main import create_app
-from app.processing import track_bundle, track_outline
+from app.processing import track_bundle, track_compile, track_outline
 from app.processing.cars import CarDatabase
 from app.processing.laps import CompletedLap, SessionInfo, new_sample_store
 from app.service import TelemetryService
@@ -37,6 +37,21 @@ def _straight(length=40, width=12.0, kind="auto"):
     for i in range(length):
         edges.append(_edge(float(i), width / 2, 1.0, 0.0, "L", kind))
         edges.append(_edge(float(i), -width / 2, 1.0, 0.0, "R", kind))
+    return edges
+
+
+def _ring(radius=40.0, width=10.0, skip=()):
+    """A circular circuit at the compile's native pitch: one border cell per
+    metre per side, headings tangent to travel — what the ordered compile
+    (#44) needs to chain. `skip` = (side, step) pairs left unsurveyed."""
+    edges = []
+    steps = int(2 * math.pi * radius)
+    for i in range(steps):
+        a = 2 * math.pi * i / steps
+        hx, hz = -math.sin(a), math.cos(a)
+        for side, r in (("L", radius - width / 2), ("R", radius + width / 2)):
+            if (side, i) not in skip:
+                edges.append(_edge(r * math.cos(a), r * math.sin(a), hx, hz, side))
     return edges
 
 
@@ -164,8 +179,8 @@ async def test_endpoint_resolves_the_circuit_from_a_lap(client) -> None:
     path.write_text(
         json.dumps(
             _document(
-                _straight(length=5),
-                finish=[{"x": 0.0, "z": 0.0, "hx": 1.0, "hz": 0.0, "lap": 1}],
+                _ring(),
+                finish=[{"x": 35.0, "z": 0.0, "hx": 0.0, "hz": 1.0, "lap": 1}],
             )
         ),
         encoding="utf-8",
@@ -188,7 +203,9 @@ async def test_endpoint_resolves_the_circuit_from_a_lap(client) -> None:
 
     body = (await c.get(f"/api/track-outline?lap_id={lap_id}")).json()
     assert body["track"] == "Test Circuit"
-    assert len(body["road"]) == 5
+    # The compiled pathway (#44): the whole ring's road, not the handful of
+    # directly-opposite pairs the local pairing found.
+    assert len(body["road"]) > 40
     assert body["finish"] is not None
     assert body["runs"] == 2
 
@@ -200,4 +217,47 @@ async def test_endpoint_answers_empty_rather_than_404(client) -> None:
     r = await c.get("/api/track-outline?track=Somewhere%20Else")
     assert r.status_code == 200
     assert r.json()["road"] == []
+    assert r.json()["gaps"] == [] and r.json()["coverage"] is None
     assert (await c.get("/api/track-outline")).json()["slug"] is None
+
+
+async def test_endpoint_serves_compiled_gaps_and_coverage(client) -> None:
+    """A partially surveyed circuit answers with its holes stated: gap spans
+    for the map to draw dashed, and the coverage score they count against."""
+    c, _service, data_dir = client
+    hole = {("L", i) for i in range(100, 130)}  # 30 unsurveyed metres
+    path = track_bundle.bundle_path(data_dir, "Test Circuit")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(_document(_ring(radius=60.0, skip=hole))),
+                    encoding="utf-8")
+
+    body = (await c.get("/api/track-outline?track=Test%20Circuit")).json()
+    assert len(body["road"]) > 50
+    assert body["edges"]  # border polylines flattened into drawable segments
+    assert len(body["gaps"]) == 1
+    x1, z1, x2, z2 = body["gaps"][0]
+    assert math.hypot(x2 - x1, z2 - z1) > 20.0
+    cov = body["coverage"]
+    assert cov["L"]["pct"] < 100.0 and cov["L"]["gap_m"] > 20.0
+    assert cov["R"]["pct"] == 100.0 and cov["R"]["closed"] is True
+    assert cov["road_pct"] > 0.0
+    assert body["updated_at"] == "2026-08-01T00:00:00+00:00"
+
+
+async def test_endpoint_falls_back_when_the_compile_fails(client, monkeypatch) -> None:
+    """A bundle the compiler chokes on must still draw — the legacy local
+    pairing, with the gap/coverage keys present but empty. Never a 500."""
+    c, _service, data_dir = client
+    path = track_bundle.bundle_path(data_dir, "Test Circuit")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(_document(_straight(length=40))), encoding="utf-8")
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("compile exploded")
+
+    monkeypatch.setattr(track_compile, "for_track", boom)
+    r = await c.get("/api/track-outline?track=Test%20Circuit")
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body["road"]) == 40  # the local pairing's quads
+    assert body["gaps"] == [] and body["coverage"] is None

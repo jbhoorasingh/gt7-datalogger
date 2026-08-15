@@ -15,7 +15,7 @@ from fastapi import WebSocket
 from app.config import Settings
 from app.models import TelemetryPacket
 from app.notify import Notifier
-from app.processing import track_bundle, tracks
+from app.processing import track_bundle, track_limits, tracks
 from app.processing.analysis import Samples, time_delta_at
 from app.processing.cars import CarDatabase
 from app.processing.laps import CompletedLap, LapProcessor, SessionInfo
@@ -62,6 +62,14 @@ async def _close_ws(ws: WebSocket) -> None:
         await ws.close(code=1013)  # 1013 = try again later (server overloaded)
     except Exception:  # noqa: BLE001
         pass
+
+
+def _judge_samples_json(judge: track_limits.RoadJudge, raw: str) -> int:
+    """Decode + judge a stored lap's blob in one worker-thread hop: the
+    samples_json of a real lap is hundreds of kilobytes, and parsing it on
+    the event loop is the cost the repository API exists to avoid."""
+    samples = json.loads(raw)
+    return judge.excursions(samples.get("pos_x") or [], samples.get("pos_z") or [])
 
 
 def _count_events(events: list[dict[str, Any]]) -> dict[str, int]:
@@ -127,6 +135,12 @@ class TelemetryService:
         # at every lap boundary to re-read seventeen apexes would be absurd.
         # Invalidated when the refine view saves.
         self._authored: dict[str, list[dict[str, Any]]] = {}
+        # Surveyed-road judge for the current circuit (#41), built off the
+        # event loop and keyed by track name — a different name rebuilds it.
+        # A miss (no bundle, road coverage too thin) is cached too: asking
+        # the same absent survey once per lap would recompile it once per lap.
+        self._road_judge: track_limits.RoadJudge | None = None
+        self._road_judge_track: str | None = None
 
     def authored_corners(self, track: str) -> list[dict[str, Any]]:
         """A circuit's hand-labelled corners, if it has any. Blocking: the
@@ -279,6 +293,11 @@ class TelemetryService:
     async def _on_lap(self, lap: CompletedLap) -> None:
         if self.session_id is None:
             return
+        # Judge against the surveyed road edges BEFORE the save, so the row
+        # carries the verdict (#41). Needs the circuit's name — the session's
+        # first lap is judged retroactively by _identify_track instead.
+        if self.track_name:
+            await self._judge_against_survey(lap)
         lap_id = await self.repo.save_lap(self.session_id, lap)
         log.info("lap %d saved (%d ms, id=%d)", lap.number, lap.time_ms, lap_id)
 
@@ -338,6 +357,7 @@ class TelemetryService:
             "car_category": lap.car_category,
             "counts_for_best": lap.counts_for_best,
             "off_track_count": lap.off_track_count,
+            "off_survey_count": lap.off_survey_count,
             "clean_lap": lap.clean_lap,
             "car_name": self.cars.name(lap.car_id),
             "fuel_consumed": round(lap.fuel_consumed, 3),
@@ -377,7 +397,55 @@ class TelemetryService:
             if self.survey.active and not self.survey.track_locked:
                 self.survey.set_track(name)
             log.info("track identified: %s (%s)", name, source)
+            # Identification lands one lap late by construction, so whatever
+            # this session already saved went to the DB unjudged against the
+            # surveyed edges — re-judge those rows now (#41).
+            await self._backfill_survey_verdicts()
             self._publish({"type": "session", "data": await self.status()})
+
+    # --- surveyed-edge track limits (#41) -----------------------------------
+
+    async def _survey_judge(self) -> track_limits.RoadJudge | None:
+        if self.track_name != self._road_judge_track:
+            self._road_judge = await asyncio.to_thread(
+                track_limits.judge_for_track,
+                self.settings.db_path.parent, self.track_name,
+            )
+            self._road_judge_track = self.track_name
+        return self._road_judge
+
+    async def _judge_against_survey(self, lap: CompletedLap) -> None:
+        judge = await self._survey_judge()
+        if judge is None:
+            return
+        s = lap.samples
+        count = await asyncio.to_thread(
+            judge.excursions, s.get("pos_x") or [], s.get("pos_z") or []
+        )
+        lap.apply_survey_verdict(count)
+
+    async def _backfill_survey_verdicts(self) -> None:
+        if self.session_id is None:
+            return
+        judge = await self._survey_judge()
+        if judge is None:
+            return
+        for row in await self.repo.list_laps(self.session_id):
+            raw = await self.repo.lap_samples_json(row["id"])
+            if not raw:
+                continue
+            count = await asyncio.to_thread(_judge_samples_json, judge, raw)
+            if count == row["off_survey_count"]:
+                continue
+            # Same broadening as CompletedLap.apply_survey_verdict: an
+            # excursion past the surveyed edge spoils cleanliness, unknown
+            # leaves the surface-flag verdict alone.
+            clean = False if count > 0 else row["clean_lap"]
+            await self.repo.set_lap_survey_verdict(row["id"], count, clean)
+            log.info(
+                "lap %d re-judged against surveyed edges: %d excursion(s)",
+                row["number"], count,
+            )
 
     # --- live stream --------------------------------------------------------
 
@@ -442,6 +510,11 @@ class TelemetryService:
             # 60 Hz frames the console numbered but we never received
             # (distinct from packets_dropped: queue overflow on our side).
             "frames_dropped": self.processor.dropped_frames,
+            # Cross-check of our integrated time axis against GT7's own lap
+            # clock (packet C); all zero below packet C (#20).
+            "lap_clock_drift_ms": self.processor.lap_clock_drift_ms,
+            "lap_clock_drift_worst_ms": self.processor.lap_clock_drift_worst_ms,
+            "lap_clock_samples": self.processor.lap_clock_samples,
             **self.source.stats,
         }
 
@@ -676,5 +749,7 @@ class TelemetryService:
             fuel_end=samples["fuel"][-1],
         )
         lap.compute_metrics()
+        if self.track_name:
+            await self._judge_against_survey(lap)
         lap_id = await self.repo.save_lap(self.session_id, lap)
         return {"id": lap_id, "number": lap.number, "time_ms": lap.time_ms}

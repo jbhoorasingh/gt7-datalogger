@@ -301,11 +301,31 @@ only what the bundles already hold, plus the point ordering that drawing a
 real outline (#41) needs anyway. Both approaches share one hard limit: run-off
 that was never driven on cannot be classified either way.
 
-## 3. Verdict → survey grid design (fill in)
+## 3. Verdict → no filled grid; the border curve instead
 
-- Error bound on a wheel-contact sample: **± __ m** (lateral), **± __ m**
-  (longitudinal).
-- Recommended survey grid cell size for #38: **__ m** (expected 0.25–0.5 m —
-  it should comfortably exceed the error bound above).
-- Surface chars worth separate grid classes: ______
-- Encoding changes needed in `app/processing/surface.py`: ______
+Resolved (2026-08, #38/#40): the filled classification grid was **not built**,
+and the blanks this section used to carry are moot. The border store stays the
+only evidence store, and the ordering argued for above is what shipped —
+`app/processing/track_compile.py` walks each side's border cells into ordered
+polylines (96–99% of cells chain on the surveyed circuits, usually into one
+closed loop per side), pairs the left border *across to the right border
+curve* to produce a centerline with width and elevation, and tiles the road
+surface between them as quads.
+
+That one ordering pass is what the grid was going to be for:
+
+- **Road region**: the quad strip answers point-inside-road directly (used by
+  edge-based lap validity, #41) — no flood fill needed.
+- **Coverage** is measured against the boundary itself — surveyed metres over
+  total boundary metres, gaps and loop closure in the denominator — rather
+  than against the driven trail (#38's metric).
+- **Paved run-off** derivation stays possible exactly as described above: a
+  point outside the road region reading all-`T`. Not yet implemented; the
+  `runoff` tag keeps answering it by hand.
+
+Costs that made the grid the wrong call, for the record: ~92× the records of
+the border store at the 0.25 m cell size this section contemplated, a second
+Alembic-managed store, and no answer the ordering doesn't already give. The
+compiled geometry is derived data (`data/track-bundles/compiled/`, format in
+[the bundle reference](../reference/track-bundle-format.md)) and is
+recompiled whenever the bundle changes.

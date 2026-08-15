@@ -45,6 +45,7 @@ def lap_summary(row: LapRow) -> dict[str, Any]:
         "min_oil_pressure": row.min_oil_pressure,
         "counts_for_best": row.counts_for_best,
         "off_track_count": row.off_track_count,
+        "off_survey_count": row.off_survey_count,
         "clean_lap": row.clean_lap,
         "event_counts": _event_counts(row.events_json),
     }
@@ -98,6 +99,7 @@ class Repository:
                 asm_active_pct=lap.asm_active_pct,
                 counts_for_best=lap.counts_for_best,
                 off_track_count=lap.off_track_count,
+                off_survey_count=lap.off_survey_count,
                 clean_lap=lap.clean_lap,
                 max_water_temp=lap.max_water_temp,
                 max_oil_temp=lap.max_oil_temp,
@@ -191,6 +193,7 @@ class Repository:
                 "car_category": lap.car_category,
                 "track_name": track,
                 "clean_lap": lap.clean_lap,
+                "off_survey_count": lap.off_survey_count,
                 "finished_at": lap.finished_at or started_at,
             }
 
@@ -232,6 +235,22 @@ class Repository:
                 update(LapRow)
                 .where(LapRow.session_id == session_id)
                 .values(counts_for_best=LapRow.number.notin_(numbers) if numbers else True)
+            )
+            await db.commit()
+
+    async def set_lap_survey_verdict(
+        self, lap_id: int, off_survey_count: int, clean_lap: bool | None
+    ) -> None:
+        """Re-judge a stored lap against the surveyed road (#41).
+
+        Backfill path: laps saved before the session's circuit was identified
+        went to the DB unjudged, and identification lands one lap late.
+        """
+        async with self._sf() as db:
+            await db.execute(
+                update(LapRow)
+                .where(LapRow.id == lap_id)
+                .values(off_survey_count=off_survey_count, clean_lap=clean_lap)
             )
             await db.commit()
 

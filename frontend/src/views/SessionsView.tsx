@@ -384,14 +384,22 @@ function LapTable({
                   {formatEventCounts(lap.event_counts)}
                 </td>
                 <td
-                  className={`px-2 py-1.5 ${lap.clean_lap === false ? "text-brake" : "text-ink-dim"}`}
-                  title="Off-track excursions (3+ wheels on grass/gravel/dirt) — dash when the lap was recorded without surface data"
+                  className={`px-2 py-1.5 whitespace-nowrap ${lap.clean_lap === false ? "text-brake" : "text-ink-dim"}`}
                 >
-                  {lap.off_track_count == null || lap.off_track_count < 0
-                    ? "–"
-                    : lap.clean_lap === false
-                      ? `${lap.off_track_count} ⚠`
-                      : "clean"}
+                  <span title="Off-track excursions from surface flags (3+ wheels on grass/gravel/dirt) — dash when the lap was recorded without surface data">
+                    {lap.off_track_count == null || lap.off_track_count < 0
+                      ? "–"
+                      : lap.off_track_count > 0
+                        ? `${lap.off_track_count} ⚠`
+                        : (lap.off_survey_count ?? -1) > 0
+                          ? "0"
+                          : "clean"}
+                  </span>
+                  {(lap.off_survey_count ?? -1) > 0 && (
+                    <span title="Excursions beyond the surveyed road edge — the car left the mapped road surface (paved runoff counts)">
+                      {` · ${lap.off_survey_count} ⚠`}
+                    </span>
+                  )}
                 </td>
                 <td className="px-2 py-1.5">{formatSpeed(lap.max_speed, units)}</td>
                 <td className="px-2 py-1.5 text-right whitespace-nowrap">

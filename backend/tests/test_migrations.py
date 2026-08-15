@@ -13,7 +13,6 @@ from alembic.script import ScriptDirectory
 from sqlalchemy import inspect
 
 from app.storage.db import (
-    BASELINE_REVISION,
     Base,
     alembic_config,
     init_db,
@@ -62,6 +61,10 @@ def _tables(path) -> set[str]:
         return {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     finally:
         con.close()
+
+
+def _head() -> str:
+    return ScriptDirectory.from_config(alembic_config()).get_heads()[0]
 
 
 def _revision(path) -> str | None:
@@ -115,7 +118,8 @@ async def test_pre_alembic_database_is_caught_up_and_stamped(tmp_path) -> None:
     engine = make_engine(path)
     await init_db(engine)
 
-    assert _revision(path) == BASELINE_REVISION
+    # Stamped at baseline, then carried through every later revision to head.
+    assert _revision(path) == _head()
     # Every TABLE a fresh install would have. `layouts` arrived after the first
     # release and V1_SCHEMA has none, so a catch-up that could only ALTER left
     # it missing for good — stamped at baseline, with no revision left to
@@ -141,6 +145,8 @@ async def test_pre_alembic_database_is_caught_up_and_stamped(tmp_path) -> None:
     assert laps[0]["counts_for_best"] is True
     assert laps[0]["car_category"] == ""
     assert laps[0]["off_track_count"] == -1
+    # ...including columns added by post-baseline revisions (0002).
+    assert laps[0]["off_survey_count"] == -1
 
 
 async def test_legacy_catch_up_leaves_a_partly_upgraded_file_alone(tmp_path) -> None:
@@ -164,7 +170,7 @@ async def test_legacy_catch_up_leaves_a_partly_upgraded_file_alone(tmp_path) -> 
     sessions = await repo.list_sessions()
     await engine.dispose()
 
-    assert _revision(path) == BASELINE_REVISION
+    assert _revision(path) == _head()
     assert sessions[0]["track_name"] == "Suzuka"
     assert _columns(path, "laps") == {c.name for c in Base.metadata.tables["laps"].columns}
 

@@ -63,6 +63,7 @@ export function TracksView() {
   const [deleting, setDeleting] = useState<TrackOverviewRow | null>(null);
   const [assigning, setAssigning] = useState<SurveyLog | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const logInput = useRef<HTMLInputElement>(null);
   const importTarget = useRef<string | undefined>(undefined);
 
   const refresh = useCallback(() => {
@@ -135,6 +136,19 @@ export function TracksView() {
     });
   };
 
+  // Uploading only lands the file; the run still gets merged the normal way —
+  // by assigning it to a circuit, exactly as an orphaned local run would be.
+  const onUploadLog = async (file: File) => {
+    await run("Log uploaded", async () => {
+      const r = await api.survey.uploadLog(file);
+      toastSuccess(
+        `${r.name}: ${r.marks.toLocaleString()} marks · ` +
+          `${r.transitions.toLocaleString()} transitions` +
+          (r.track ? ` · ${r.track}` : " · unassigned"),
+      );
+    });
+  };
+
   if (editing) {
     return (
       <div className="mx-auto max-w-6xl p-3">
@@ -194,6 +208,26 @@ export function TracksView() {
               if (file) void onImportFile(file);
             }}
           />
+          <Tip content="Land a survey run's raw JSONL from another installation. It appears in the log list — assign it to a circuit to merge its evidence.">
+            <button
+              className="btn"
+              disabled={busy}
+              onClick={() => logInput.current?.click()}
+            >
+              Upload survey log…
+            </button>
+          </Tip>
+          <input
+            ref={logInput}
+            type="file"
+            accept=".jsonl,application/jsonl"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) void onUploadLog(file);
+            }}
+          />
         </div>
       </div>
 
@@ -220,11 +254,14 @@ export function TracksView() {
                   {log.marks.toLocaleString()} marks · {log.transitions.toLocaleString()}{" "}
                   transitions · {bytes(log.bytes)}
                 </span>
-                <button
+                <a
                   className="btn ml-auto"
-                  disabled={busy}
-                  onClick={() => setAssigning(log)}
+                  href={api.survey.logDownloadUrl(log.name)}
+                  download={log.name}
                 >
+                  Download
+                </a>
+                <button className="btn" disabled={busy} onClick={() => setAssigning(log)}>
                   Assign to a track…
                 </button>
               </li>
@@ -310,6 +347,21 @@ export function TracksView() {
                       {b.finish_crossings > 0 ? "finish line located" : "no finish line"}
                     </span>
                   </Tip>
+                  {b.coverage && (
+                    <Tip content="How much of each border the evidence establishes, measured against the compiled boundary — gaps count against it, and ✓closed means both borders form complete loops">
+                      <span
+                        className={
+                          b.coverage.L.closed && b.coverage.R.closed
+                            ? undefined
+                            : "text-warn"
+                        }
+                      >
+                        borders L {b.coverage.L.pct}% · R {b.coverage.R.pct}% · road{" "}
+                        {b.coverage.road_pct}%
+                        {b.coverage.L.closed && b.coverage.R.closed && " ✓closed"}
+                      </span>
+                    </Tip>
+                  )}
                   <span>
                     {b.corners} corner{b.corners === 1 ? "" : "s"} labelled
                     {row.official?.turns ? ` of ${row.official.turns}` : ""}
@@ -405,6 +457,40 @@ export function TracksView() {
           );
         })}
       </div>
+
+      {(data?.logs.length ?? 0) > 0 && (
+        <details className="rounded-xl bg-panel p-3">
+          <summary className="cursor-pointer text-sm font-semibold">
+            Survey logs ({data!.logs.length})
+          </summary>
+          <p className="mt-1 text-xs text-ink-dim">
+            Every run's raw JSONL — the complete, transportable record. Download one to
+            move the run to another installation; it merges there by being assigned to a
+            circuit, exactly like a local run.
+          </p>
+          <ul className="mt-2 space-y-1.5">
+            {data!.logs.map((log) => (
+              <li
+                key={log.name}
+                className="flex flex-wrap items-center gap-2 rounded-lg border border-edge px-2 py-1.5 text-xs"
+              >
+                <span className="font-tabular">{log.name}</span>
+                <span className="text-ink-dim">
+                  {log.track || "unassigned"} · {log.marks.toLocaleString()} marks ·{" "}
+                  {log.transitions.toLocaleString()} transitions · {bytes(log.bytes)}
+                </span>
+                <a
+                  className="btn ml-auto"
+                  href={api.survey.logDownloadUrl(log.name)}
+                  download={log.name}
+                >
+                  Download
+                </a>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
 
       {data && (
         <p className="px-1 text-xs text-ink-dim">

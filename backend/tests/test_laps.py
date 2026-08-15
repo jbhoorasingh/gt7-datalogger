@@ -221,6 +221,82 @@ async def test_pause_does_not_inflate_time(setup) -> None:
     assert t[-1] - t[-2] == pytest.approx(1 / 60, abs=1e-3)  # pause added no time
 
 
+# --- lap-clock cross-check (#20) ---------------------------------------------
+
+
+def gt_ms(pid: int) -> int:
+    """GT7's lap clock if it tracked real time perfectly: pid frames at 60 Hz."""
+    return round(pid * 1000 / 60)
+
+
+async def test_lap_clock_agrees_when_no_frames_dropped(setup) -> None:
+    proc, _ = setup
+    for i in range(10):
+        await proc.feed(
+            make_packet(current_lap=1, packet_id=i, speed_mps=60.0, fmt="C", lap_time_ms=gt_ms(i))
+        )
+    # First comparable packet is the baseline; the other 9 compare.
+    assert proc.lap_clock_samples == 9
+    assert abs(proc.lap_clock_drift_ms) <= 1  # rounding of gt_ms only
+    assert proc.lap_clock_drift_worst_ms <= 1
+
+
+async def test_lap_clock_counters_zero_below_packet_c(setup) -> None:
+    proc, _ = setup
+    await feed_lap(proc, 1, 10, speed_mps=60.0)  # fmt A: no lap_time_ms
+    assert proc.lap_clock_samples == 0
+    assert proc.lap_clock_drift_ms == 0
+    assert proc.lap_clock_drift_worst_ms == 0
+
+
+async def test_lap_clock_catches_uncredited_gap(setup, caplog) -> None:
+    """A pid gap beyond MAX_FRAME_GAP is credited as one frame, but GT7's
+    clock kept counting — the cross-check must surface the difference."""
+    proc, _ = setup
+    for i in range(10):
+        await proc.feed(
+            make_packet(current_lap=1, packet_id=i, speed_mps=60.0, fmt="C", lap_time_ms=gt_ms(i))
+        )
+    # 101-frame gap: integration falls back to 1 frame, GT7 says ~1.68 s more
+    await proc.feed(
+        make_packet(current_lap=1, packet_id=110, speed_mps=60.0, fmt="C", lap_time_ms=gt_ms(110))
+    )
+    # our t credited 10 frames; GT7 counted 110 -> ~100 frames of drift
+    assert proc.lap_clock_drift_ms == pytest.approx(-100 * 1000 / 60, abs=2)
+    assert proc.lap_clock_drift_worst_ms == pytest.approx(100 * 1000 / 60, abs=2)
+    # Completing the lap logs one warning with the peak, then resets per-lap
+    # state while the session worst survives.
+    await proc.feed(
+        make_packet(
+            current_lap=2, packet_id=111, last_lap_time_ms=60_000, fmt="C", lap_time_ms=0
+        )
+    )
+    assert any("drifted" in m and m.startswith("lap 1:") for m in caplog.messages)
+    assert proc.lap_clock_drift_ms == 0
+    assert proc.lap_clock_drift_worst_ms == pytest.approx(100 * 1000 / 60, abs=2)
+
+
+async def test_lap_clock_rebaselines_after_pause(setup) -> None:
+    """Ticks the sampler gates off (pause) freeze our t axis; the comparison
+    must re-anchor afterwards instead of reporting the gap as drift."""
+    proc, _ = setup
+    for i in range(10):
+        await proc.feed(
+            make_packet(current_lap=1, packet_id=i, speed_mps=60.0, fmt="C", lap_time_ms=gt_ms(i))
+        )
+    paused = ON_TRACK | int(SimulatorFlags.PAUSED)
+    for i in range(10, 30):
+        await proc.feed(
+            make_packet(current_lap=1, packet_id=i, flags=paused, fmt="C", lap_time_ms=gt_ms(i))
+        )
+    for i in range(30, 33):
+        await proc.feed(
+            make_packet(current_lap=1, packet_id=i, speed_mps=60.0, fmt="C", lap_time_ms=gt_ms(i))
+        )
+    assert abs(proc.lap_clock_drift_ms) <= 1
+    assert proc.lap_clock_drift_worst_ms <= 1
+
+
 async def test_metrics_time_weighted_under_drops(setup) -> None:
     proc, c = setup
     # 10 full-throttle frames (pids 0..9), then 10 coast samples every 3rd

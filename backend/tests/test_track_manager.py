@@ -262,6 +262,109 @@ async def test_log_names_cannot_escape_the_data_directory(client, tmp_path) -> N
     assert resp.status_code != 200
 
 
+# --- raw survey JSONL transport (#40) -----------------------------------------
+
+# A minimal but real log: a meta header and one mark, which is exactly what
+# the listing's summarize() counts.
+LOG_BODY = (
+    b'{"meta":{"started_at":"2026-08-01T00:00:00+00:00","track_width_m":1.6,'
+    b'"track":"","session_id":null}}\n'
+    b'{"mark":{"x":1.0,"z":0.0,"hx":1.0,"hz":0.0,"side":"L","kind":"edge"}}\n'
+)
+
+
+async def test_a_log_downloads_verbatim(client) -> None:
+    """The log IS the run — moving the file moves the run, so the download
+    must be byte-identical to what is on disk."""
+    c, service, tmp = client
+    survey = service.survey
+    survey.start(tmp, track_width_m=1.6)
+    survey._append_edge(x=1.0, z=0.0, hx=1.0, hz=0.0, side="L", kind="edge", pid=1)
+    survey.stop()
+
+    name = (await c.get("/api/survey/logs")).json()[0]["name"]
+    resp = await c.get(f"/api/survey/logs/{name}/download")
+    assert resp.status_code == 200
+    assert resp.content == (tmp / name).read_bytes()
+    assert name in resp.headers["content-disposition"]
+
+
+async def test_download_refuses_missing_and_traversal_names(client) -> None:
+    c, _service, _tmp = client
+    assert (await c.get("/api/survey/logs/nope.jsonl/download")).status_code == 404
+    for name in ("..%2Fsecrets.jsonl", "..%5Csecrets.jsonl", "notes.txt"):
+        resp = await c.get(f"/api/survey/logs/{name}/download")
+        assert resp.status_code == 404, name
+
+
+async def test_upload_lands_lists_and_roundtrips(client) -> None:
+    """An uploaded log is indistinguishable from a local run's: it lists (as
+    orphaned, until assigned) and downloads back byte-identical."""
+    c, _service, tmp = client
+    name = "surface_survey_20260801_120000.jsonl"
+    resp = await c.post(f"/api/survey/logs/upload?name={name}", content=LOG_BODY)
+    assert resp.status_code == 200
+    assert resp.json()["name"] == name
+    assert resp.json()["marks"] == 1 and resp.json()["orphaned"] is True
+
+    logs = (await c.get("/api/survey/logs")).json()
+    assert [log["name"] for log in logs] == [name]
+    assert (await c.get(f"/api/survey/logs/{name}/download")).content == LOG_BODY
+
+    # The same name again lands BESIDE the first, never over it: overwriting
+    # would silently replace one run's evidence with another's.
+    again = await c.post(f"/api/survey/logs/upload?name={name}", content=LOG_BODY)
+    assert again.status_code == 200
+    assert again.json()["name"] != name
+    assert again.json()["name"].startswith("surface_survey_")
+    assert len((await c.get("/api/survey/logs")).json()) == 2
+
+
+async def test_upload_sanitizes_hostile_or_foreign_names(client) -> None:
+    """The filename is caller-supplied; whatever it says, the file lands in
+    the data dir under the survey log naming scheme or not at all."""
+    c, _service, tmp = client
+    for name in ("..%2F..%2Fevil.jsonl", "evil.txt", ""):
+        resp = await c.post(f"/api/survey/logs/upload?name={name}", content=LOG_BODY)
+        assert resp.status_code == 200, name
+        landed = resp.json()["name"]
+        assert landed.startswith("surface_survey_") and landed.endswith(".jsonl")
+        assert (tmp / landed).is_file()
+    assert not (tmp.parent / "evil.jsonl").exists()
+
+
+async def test_upload_rejects_junk_and_oversize(client, monkeypatch) -> None:
+    c, _service, tmp = client
+    assert (await c.post("/api/survey/logs/upload", content=b"")).status_code == 400
+    assert (await c.post("/api/survey/logs/upload",
+                         content=b"<html>error</html>")).status_code == 400
+
+    from app.api import tracks as tracks_api
+
+    monkeypatch.setattr(tracks_api, "MAX_IMPORT_BYTES", 16)
+    assert (await c.post("/api/survey/logs/upload",
+                         content=LOG_BODY)).status_code == 413
+    # nothing rejected ever appears in the listing — not even as a .part
+    assert (await c.get("/api/survey/logs")).json() == []
+
+
+async def test_upload_is_admin_gated_download_is_not(tmp_path) -> None:
+    """Upload mutates the data dir, so it is gated like the bundle import;
+    the download is a read and stays open like the rest."""
+    from tests.test_auth import AUTH, TOKEN, make_client
+
+    c, service, engine = await make_client(tmp_path, TOKEN)
+    async with c:
+        resp = await c.post("/api/survey/logs/upload", content=LOG_BODY)
+        assert resp.status_code == 401
+        resp = await c.post("/api/survey/logs/upload", headers=AUTH, content=LOG_BODY)
+        assert resp.status_code == 200
+        name = resp.json()["name"]
+        assert (await c.get(f"/api/survey/logs/{name}/download")).status_code == 200
+    await service.stop()
+    await engine.dispose()
+
+
 # --- the joined overview (#46) ------------------------------------------------
 
 

@@ -47,6 +47,10 @@ const LOOSE_COLOR = "#f97316";
 const ROAD_FILL = "#252b34";
 const BORDER_COLOR = "#4b5563";
 const WALL_COLOR = "#7f1d1d";
+// Survey gaps (#44): boundary the compile knows about but nobody has driven.
+// Dashed like the Survey view draws them, in the app's warn color, and dimmer
+// than the borders — a hole in the backdrop, not a feature of the lap.
+const GAP_COLOR = "#f59e0b";
 
 // Numbered circles are readable up to about this many corners in view; beyond
 // that they collapse to dots. The maximized view has the room for far more.
@@ -214,9 +218,12 @@ function MapBody({
           z: 0.5,
         });
       }
-      for (const [id, data, color, width] of [
-        ["outline-edges", outline.edges, BORDER_COLOR, 1.4],
-        ["outline-walls", outline.walls, WALL_COLOR, 2],
+      // Gaps sit between the road fill and the borders: part of the backdrop,
+      // never over a border that was actually surveyed.
+      for (const [id, data, color, width, dash, opacity, z] of [
+        ["outline-gaps", outline.gaps ?? [], GAP_COLOR, 1.4, [8, 6], 0.55, 0.7],
+        ["outline-edges", outline.edges, BORDER_COLOR, 1.4, null, 0.85, 0.8],
+        ["outline-walls", outline.walls, WALL_COLOR, 2, null, 0.85, 0.8],
       ] as const) {
         if (data.length === 0) continue;
         series.push({
@@ -229,12 +236,17 @@ function MapBody({
             return {
               type: "line",
               shape: { x1: p1[0], y1: p1[1], x2: p2[0], y2: p2[1] },
-              style: { stroke: color, lineWidth: width, opacity: 0.85 },
+              style: {
+                stroke: color,
+                lineWidth: width,
+                opacity,
+                ...(dash ? { lineDash: dash as unknown as number[] } : {}),
+              },
             };
           },
           progressive: 0,
           silent: true,
-          z: 0.8,
+          z,
         });
       }
       if (outline.finish) {
@@ -291,7 +303,7 @@ function MapBody({
       for (const quad of outline?.road ?? []) {
         for (let i = 0; i + 1 < quad.length; i += 2) see(quad[i], quad[i + 1]);
       }
-      for (const segments of [outline?.edges ?? [], outline?.walls ?? []]) {
+      for (const segments of [outline?.edges ?? [], outline?.walls ?? [], outline?.gaps ?? []]) {
         for (const seg of segments) {
           see(seg[0], seg[1]);
           see(seg[2], seg[3]);
@@ -680,6 +692,15 @@ function MapBody({
               style={{ backgroundColor: WALL_COLOR }}
             />
             wall
+          </span>
+        )}
+        {(outline?.gaps?.length ?? 0) > 0 && (
+          <span title="Boundary the survey has not driven yet">
+            <i
+              className="mr-1 inline-block w-4 border-t-2 border-dashed align-middle"
+              style={{ borderColor: GAP_COLOR }}
+            />
+            unsurveyed gap
           </span>
         )}
         {maximized && <span className="ml-auto">scroll to zoom · drag to pan</span>}

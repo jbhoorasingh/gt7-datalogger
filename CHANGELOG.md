@@ -7,6 +7,40 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Added
 
+- **The survey compiles into an actual track.** (#38, #40) The bundle store
+  keeps border evidence as an unordered cloud of voted metre-cells; everything
+  downstream wanted them in *order*. A new compile pass walks each side's
+  cells into ordered polylines — 96–99 % of cells chain on the surveyed
+  circuits, generally into one closed loop per side — and derives the
+  centerline with measured road width and elevation, the road surface as a
+  contiguous quad strip, and the finish line. The Analysis map now draws that
+  road: on Deep Forest the fill went from 9 paired spans to ~940 quads,
+  because the compile pairs a border against the *opposite border's curve*
+  rather than hunting for a cell directly across (which almost never exists —
+  the two sides are surveyed on different laps). Unsurveyed stretches are
+  never invented: they are flagged as gaps, drawn dashed, and **coverage is
+  now measured against the boundary itself** — surveyed metres over total
+  boundary metres, gaps and loop-closure in the denominator — shown per
+  bundle in the Tracks view. The compiled document is derived data
+  (`data/track-bundles/compiled/`, rebuilt automatically whenever the bundle
+  changes), with JSON Schemas published for it and for bundle v4 in the docs.
+  Raw survey JSONL logs can now also be downloaded and uploaded, so a run
+  recorded on one machine can be replayed into another's bundles.
+- **Laps are judged against the surveyed edges, not just the surface
+  flags.** (#41) The surface characters are blind to paved run-off — running
+  wide over asphalt reads as tarmac and stays "clean". When a circuit's
+  survey resolves at least half its road, each lap's positions are now also
+  classified against the compiled road surface: sustained excursions beyond
+  the surveyed border count separately (`off_survey_count`), appear as a
+  second figure in the Sessions table, and spoil `clean_lap`. Unsurveyed
+  ground never counts against a lap, and laps recorded before the session
+  was identified are re-judged the moment identification names it.
+- **The integrated clock now checks itself against GT7's.** (#20) Elapsed
+  time is integrated from packet ids; packet C also broadcasts the game's own
+  live lap clock, decoded and until now unused. The processor tracks how far
+  the two drift apart within each lap — surfaced in `GET /status` next to
+  `frames_dropped`, with a log warning when a lap drifts past 100 ms.
+  Diagnostic only: it validates the time axis every chart is drawn from.
 - **The race-line map is something you can actually look at.** It was a
   360-pixel thumbnail that only the charts could drive, which is not enough
   map for a 5 km circuit. Now: **⤢ opens it full screen**, with scroll-to-zoom

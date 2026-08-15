@@ -171,6 +171,10 @@ EMPTY: dict[str, Any] = {
     "finish": None,
     "runs": 0,
     "updated_at": "",
+    # Filled by the compiled pathway (#44); the same shape either way, so the
+    # map never has to ask which compiler answered.
+    "gaps": [],
+    "coverage": None,
 }
 
 

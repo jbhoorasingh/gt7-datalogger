@@ -78,6 +78,7 @@ export interface LapSummary {
   min_oil_pressure?: number; // -1 = unknown
   counts_for_best?: boolean; // false = partial lap (pit out-lap)
   off_track_count?: number; // excursions past track limits; -1 = unknown
+  off_survey_count?: number; // excursions beyond the SURVEYED road edge; -1 = unknown
   clean_lap?: boolean | null; // null = unknown (no surface data recorded)
   event_counts?: Record<string, number>;
 }
@@ -220,6 +221,10 @@ export interface TrackBundleInfo {
   sources: number; // installations whose evidence is in this bundle
   official: OfficialMatch | null;
   source_runs: Record<string, number>;
+  // Compiled fidelity score (#40): how much of the boundary the evidence
+  // actually establishes. Absent when the bundle has not compiled.
+  coverage?: TrackCoverage;
+  compiled_at?: string;
 }
 
 // One hand-labelled corner. Anchored to a POSITION, not a lap distance —
@@ -370,6 +375,7 @@ export interface CategoryBest {
   car_category: string;
   track_name: string;
   clean_lap: boolean | null;
+  off_survey_count?: number; // excursions beyond the SURVEYED road edge; -1 = unknown
   finished_at: string;
 }
 
@@ -458,6 +464,21 @@ export interface CompareResult {
   laps: Record<string, CompareLapEntry>;
 }
 
+// One border's coverage, measured against the compiled boundary itself (#38):
+// surveyed metres over total boundary metres, gaps in the denominator.
+export interface SideCoverage {
+  surveyed_m: number;
+  gap_m: number;
+  pct: number;
+  closed: boolean; // the border forms a complete loop
+}
+
+export interface TrackCoverage {
+  L: SideCoverage;
+  R: SideCoverage;
+  road_pct: number; // share of surveyed border with the road resolved across
+}
+
 // The surveyed road under a lap, compiled server-side from the circuit's
 // track bundle (#51). Empty when the circuit has never been surveyed.
 export interface TrackOutline {
@@ -474,6 +495,11 @@ export interface TrackOutline {
   finish: number[] | null;
   runs: number;
   updated_at: string;
+  // Survey holes in the compiled borders as [x1,z1,x2,z2] spans (#44) —
+  // stretches of boundary the ordering knows about but nobody has driven.
+  // Absent/empty on the legacy fallback pathway.
+  gaps?: number[][];
+  coverage?: TrackCoverage | null;
 }
 
 export interface DeviationResult {

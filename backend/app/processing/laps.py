@@ -25,6 +25,10 @@ MIN_LAP_TICKS = 600
 # reset, long outage) — extrapolating a minute of distance at current speed
 # would corrupt the lap worse than under-counting one frame does.
 MAX_FRAME_GAP = 60
+# Lap-clock cross-check (#20): warn when our integrated time drifts more than
+# this from GT7's own lap timer within one lap. 100 ms is ~6 frames of
+# mis-credited time — well past rounding noise, small enough to catch early.
+LAP_CLOCK_WARN_MS = 100
 # Partial-lap guard: a lap the logger only saw part of — an out-lap from the
 # pits, or capture starting mid-lap — covers less of the track than a real
 # lap, so it must never become the session best, the live-delta reference or
@@ -150,6 +154,11 @@ class CompletedLap:
     # counts_for_best (which flags partial pit out-laps): a lap can be full
     # AND dirty. -1/None = unknown (recorded without packet-C surface data).
     off_track_count: int = -1
+    # The same question asked of the SURVEYED road edges instead (#41):
+    # excursions beyond the compiled borders, judged by the service once the
+    # circuit is known. -1 = unknown (no survey, or too little surveyed road
+    # under this lap). Reported beside off_track_count, never folded into it.
+    off_survey_count: int = -1
     clean_lap: bool | None = None
     # Static per lap: {"ratios": [...], "top_speed": float, "rpm_alert": float}
     gearing: dict[str, object] | None = None
@@ -213,6 +222,17 @@ class CompletedLap:
             self.clean_lap = self.off_track_count == 0 if self.off_track_count >= 0 else None
         self.events = detect_events(s)
 
+    def apply_survey_verdict(self, count: int) -> None:
+        """Record the surveyed-edge verdict (#41) and let it spoil cleanliness.
+
+        Clean now means: surface flags clean AND no excursion past the
+        surveyed border. Unknown (-1) spoils nothing — a lap on an unsurveyed
+        circuit keeps whatever the surface flags said.
+        """
+        self.off_survey_count = count
+        if count > 0:
+            self.clean_lap = False
+
 
 @dataclass(slots=True)
 class SessionInfo:
@@ -255,6 +275,15 @@ class LapProcessor:
     _partial: set[int] = field(default_factory=set)
     _fuel_start: float = 0.0
     _last_packet: TelemetryPacket | None = None
+    # Lap-clock cross-check (#20): how far our packet-id-integrated t axis
+    # drifts from GT7's own lap timer (packet C). Baseline-relative, because
+    # GT7's clock anchors on its own lap boundary — see _check_lap_clock.
+    _clock_offset_ms: float | None = None
+    _clock_last_gt_ms: int = -1
+    _lap_clock_drift_ms: int = 0  # latest drift, current lap (signed)
+    _lap_clock_peak_ms: int = 0  # peak |drift| of the lap in progress
+    _lap_clock_worst_ms: int = 0  # peak |drift| of the session
+    _lap_clock_samples: int = 0  # comparisons made this session
     # Engine-health aggregates for the lap in progress (not per-tick columns)
     _max_water: float = 0.0
     _max_oil: float = 0.0
@@ -271,6 +300,21 @@ class LapProcessor:
     @property
     def dropped_frames(self) -> int:
         return self._dropped_frames
+
+    @property
+    def lap_clock_drift_ms(self) -> int:
+        """Current-lap drift of our t axis vs GT7's lap clock (#20). Signed."""
+        return self._lap_clock_drift_ms
+
+    @property
+    def lap_clock_drift_worst_ms(self) -> int:
+        """Worst |drift| seen this session; 0 below packet C."""
+        return self._lap_clock_worst_ms
+
+    @property
+    def lap_clock_samples(self) -> int:
+        """Packets this session where both clocks were comparable."""
+        return self._lap_clock_samples
 
     async def feed(self, p: TelemetryPacket) -> None:
         if p.is_loading:
@@ -303,6 +347,8 @@ class LapProcessor:
             self._current_lap = -1
             self._laps.clear()
             self._partial.clear()
+            self._lap_clock_worst_ms = 0
+            self._lap_clock_samples = 0
             await self.on_session(self._session)
 
         if p.current_lap != self._current_lap:
@@ -313,6 +359,13 @@ class LapProcessor:
         past_finish = 0 < p.total_laps < p.current_lap
         if p.is_on_track and not p.is_paused and p.current_lap > 0 and not past_finish:
             self._append_sample(p)
+            self._check_lap_clock(p)
+        else:
+            # Sampler gated off (pause, menus, cool-down): our t axis froze
+            # while GT7's lap clock may have kept counting, so a comparison
+            # spanning the gap would report false drift. Re-anchor on the
+            # next sampled packet instead.
+            self._clock_offset_ms = None
         self._last_packet = p
 
     async def _handle_lap_boundary(self, p: TelemetryPacket) -> None:
@@ -330,10 +383,23 @@ class LapProcessor:
         # Commit all state BEFORE any await: packets keep arriving while the
         # lap is persisted, and a stale _current_lap would re-trigger this
         # boundary once per packet (duplicate laps at ~60 Hz).
+        # One line per lap, not per packet: the peak says how far the two
+        # clocks disagreed over the whole lap (#20).
+        if prev > 0 and self._lap_clock_peak_ms > LAP_CLOCK_WARN_MS:
+            log.warning(
+                "lap %d: integrated time drifted up to %d ms from GT7's own "
+                "lap clock (unaccounted frame gaps?)",
+                prev, self._lap_clock_peak_ms,
+            )
+
         self._current_lap = p.current_lap
         self._samples = new_sample_store()
         self._distance = 0.0
         self._elapsed_s = 0.0
+        self._clock_offset_ms = None
+        self._clock_last_gt_ms = -1
+        self._lap_clock_drift_ms = 0
+        self._lap_clock_peak_ms = 0
         self._fuel_start = p.fuel_level
         self._max_water = 0.0
         self._max_oil = 0.0
@@ -440,6 +506,35 @@ class LapProcessor:
             if value >= reference * FULL_LAP_SPAN_RATIO
         )
         return agreeing >= SPANS_FOR_MEDIAN - 1
+
+    def _check_lap_clock(self, p: TelemetryPacket) -> None:
+        """Cross-check our integrated t axis against GT7's lap timer (#20).
+
+        Packet C carries the console's live current-lap clock. Its zero
+        anchors on GT7's lap boundary, not on our first sample, so the
+        absolute offset between the clocks is expected and meaningless —
+        the first comparable packet of the lap fixes the baseline, and what
+        is tracked is how far the two drift APART from there. Growing drift
+        means the packet-id integration mis-credited time (frame gaps, pid
+        discontinuities), which is exactly what this diagnostic is for.
+        Called only on ticks that appended a sample; a no-op below packet C.
+        """
+        if p.lap_time_ms is None:
+            return
+        if p.lap_time_ms < self._clock_last_gt_ms:
+            # GT7 re-anchored its clock (its lap boundary, slightly offset
+            # from ours) — the old baseline no longer applies.
+            self._clock_offset_ms = None
+        self._clock_last_gt_ms = p.lap_time_ms
+        offset = self._elapsed_s * 1000.0 - p.lap_time_ms
+        if self._clock_offset_ms is None:
+            self._clock_offset_ms = offset
+            return
+        drift = round(offset - self._clock_offset_ms)
+        self._lap_clock_samples += 1
+        self._lap_clock_drift_ms = drift
+        self._lap_clock_peak_ms = max(self._lap_clock_peak_ms, abs(drift))
+        self._lap_clock_worst_ms = max(self._lap_clock_worst_ms, abs(drift))
 
     def _append_sample(self, p: TelemetryPacket) -> None:
         s = self._samples
