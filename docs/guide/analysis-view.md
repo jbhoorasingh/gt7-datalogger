@@ -166,6 +166,17 @@ laps, focus chips let you switch the focus lap.
 
 ## Side panels
 
+- **Race engineer — post-lap notes** — the [race engineer's](race-engineer.md)
+  coaching findings as text, in the exact wording voice would have used:
+  "repeated front-left lockups into turn four", "you are braking early into turn
+  six, about fifteen meters", "you lost three tenths in turn five — braked
+  eighteen meters earlier and carried five kilometers per hour less at the
+  apex". Grouped per lap, newest first, with the currently compared laps
+  highlighted; a note that names a corner zooms the charts and map to it on
+  click. The notes are **replayed** from the stored session through the same
+  detector the voice engineer uses — same thresholds, same reference (the
+  session best as it stood at the time), same repetition windows — so they
+  exist for every recorded session, whether or not voice was ever enabled.
 - **Gearing (reference lap)** — per-gear ratios with estimated speed at redline, tune
   top speed, and redline RPM.
 - **Consistency — best 5 laps** — median speed plus a deviation band across the

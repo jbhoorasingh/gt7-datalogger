@@ -130,6 +130,11 @@ Full detail, callout by callout, with when each one fires:
 | Repeated lockups / wheelspin | `coaching` | the same wheel, the same place, three times in recent laps |
 | Corner time loss | `coaching` | after a slower lap: where the time went, and how |
 
+The coaching findings also exist in writing: the Analysis view's
+[post-lap notes panel](analysis-view.md#side-panels) replays any stored session
+through the same detector, so you get the engineer's observations even with
+voice off entirely.
+
 ## Which laps it trusts
 
 A lap the logger only saw part of — capture started mid-lap, or you came out of the

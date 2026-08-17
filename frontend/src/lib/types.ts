@@ -476,6 +476,25 @@ export interface CompareResult {
   laps: Record<string, CompareLapEntry>;
 }
 
+// One post-lap coaching note (#23) — the race engineer's finding, in the
+// exact wording voice would have used. `corner` is set when it names one.
+export interface CoachingFinding {
+  type: string;
+  text: string;
+  corner: number | null;
+}
+
+export interface CoachingLapNotes {
+  lap_id: number;
+  number: number;
+  findings: CoachingFinding[];
+}
+
+export interface CoachingNotes {
+  session_id: number;
+  laps: CoachingLapNotes[];
+}
+
 // One border's coverage, measured against the compiled boundary itself (#38):
 // surveyed metres over total boundary metres, gaps in the denominator.
 export interface SideCoverage {

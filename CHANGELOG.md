@@ -17,6 +17,17 @@ Notable changes to GT7 Datalogger. The format follows
   comparable, and a corner a lap never fully drove is omitted rather than
   reported against part of its extent. Clicking a row zooms every chart and
   the map to that corner.
+- **The race engineer's coaching now exists in writing.** (#23) The findings
+  CoachingDetector could only ever speak — repeated lockups on a named wheel
+  into a named corner, a braking-point habit, where a slower lap actually
+  lost its time and how — appear as a per-lap notes panel in Analysis, in the
+  exact wording voice would have used. The notes are replayed from the stored
+  session through the same detector (same thresholds, same
+  reference-as-it-stood, same repetition windows) rather than recorded from
+  speech, so every recorded session has them: sessions driven before voice
+  existed, machines where voice is off, sessions someone else recorded. Each
+  distinct observation is noted once, notes that name a corner zoom the
+  charts and map to it, and the compared laps are highlighted.
 - **Shared bundles can be pulled from inside the app.** (#47) The Tracks view
   now lists what the shared track-data repo offers (its published
   `index.json`, `GT7_SHARED_BUNDLES_URL`, defaulting to the project's own

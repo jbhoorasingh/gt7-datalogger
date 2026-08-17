@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChannelPicker } from "@/components/analysis/ChannelPicker";
+import { CoachingPanel } from "@/components/analysis/CoachingPanel";
 import { CornerDetail, type CornerLap } from "@/components/analysis/CornerDetail";
 import { CornerReport, type ReportLap } from "@/components/analysis/CornerReport";
 import { DeviationChart } from "@/components/analysis/DeviationChart";
@@ -32,6 +33,7 @@ import {
 } from "@/lib/router";
 import type {
   CategoryBest,
+  CoachingNotes,
   CompareResult,
   DeviationResult,
   LapSummary,
@@ -192,6 +194,22 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
   useEffect(() => {
     if (sessionId == null) return;
     api.deviation(sessionId).then(setDeviation).catch(() => setDeviation(null));
+  }, [sessionId, lapEpoch]);
+
+  // The engineer's post-lap notes for the whole session (#23). Cleared before
+  // the fetch so a slow reply never shows one session's coaching against
+  // another session's laps.
+  const [coaching, setCoaching] = useState<CoachingNotes | null>(null);
+  useEffect(() => {
+    setCoaching(null);
+    if (sessionId == null) return;
+    let live = true;
+    api.coachingNotes(sessionId)
+      .then((n) => live && setCoaching(n))
+      .catch(() => live && setCoaching(null));
+    return () => {
+      live = false;
+    };
   }, [sessionId, lapEpoch]);
 
   // The surveyed road under the race line (#51). Keyed on the SESSION'S
@@ -509,6 +527,17 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
               cursorDist={cursorDist}
               step={compare!.step}
               trackCorners={refEntry?.corners}
+            />
+          </SidePanel>
+        )}
+        {coaching && coaching.laps.length > 0 && (
+          <SidePanel title="Race engineer — post-lap notes">
+            <CoachingPanel
+              notes={coaching.laps}
+              selected={selected}
+              lapColors={lapColors}
+              corners={refEntry?.corners ?? []}
+              onZoom={setZoomRange}
             />
           </SidePanel>
         )}

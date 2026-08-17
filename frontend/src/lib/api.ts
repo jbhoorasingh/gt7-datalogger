@@ -5,6 +5,7 @@ import type {
   AuthoredCorner,
   AuthoredSection,
   CategoryBest,
+  CoachingNotes,
   CompareResult,
   ConnectionStatus,
   DeviationResult,
@@ -141,6 +142,10 @@ export const api = {
     ),
   deviation: (sessionId: number, count = 5) =>
     get<DeviationResult>(`/api/analysis/deviation?session_id=${sessionId}&count=${count}`),
+  // The race engineer's post-lap notes, replayed from the stored session —
+  // present whether or not voice was ever enabled (#23).
+  coachingNotes: (sessionId: number) =>
+    get<CoachingNotes>(`/api/analysis/coaching?session_id=${sessionId}`),
   fuelMap: (lapId: number) => get<FuelMapResult>(`/api/analysis/fuel?lap_id=${lapId}`),
   setRecording: (recording: boolean) =>
     send<ConnectionStatus>("/api/control/recording", "POST", { recording }),
