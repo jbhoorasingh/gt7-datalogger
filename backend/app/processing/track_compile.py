@@ -45,6 +45,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -116,7 +117,7 @@ class _Grid:
     def _key(self, x: float, z: float) -> tuple[int, int]:
         return (math.floor(x / self.cell), math.floor(z / self.cell))
 
-    def near(self, x: float, z: float, radius: float):
+    def near(self, x: float, z: float, radius: float) -> Iterator[tuple[int, float]]:
         cx, cz = self._key(x, z)
         r = int(radius // self.cell) + 1
         for gx in range(cx - r, cx + r + 1):
@@ -186,7 +187,9 @@ def chain_side(pts: list[dict[str, Any]]) -> list[list[int]]:
     return [c for c in chains if len(c) >= MIN_CHAIN_PTS]
 
 
-def _endpoint_dir(chain: list[int], pts: list[dict[str, Any]], at_start: bool):
+def _endpoint_dir(
+    chain: list[int], pts: list[dict[str, Any]], at_start: bool
+) -> tuple[float, float] | None:
     """Travel direction AT an endpoint, pointing out of the chain's end (or
     backward out of its start), averaged over the last few cells."""
     k = min(6, len(chain) - 1)
@@ -240,17 +243,24 @@ def _seg_len(a: dict[str, Any], b: dict[str, Any]) -> float:
     return math.hypot(b["x"] - a["x"], b["z"] - a["z"])
 
 
+def _xz(vertex: list[float | None]) -> tuple[float, float]:
+    """A vertex's plan position. Only index 2 (elevation) may be null."""
+    x, z = vertex[0], vertex[1]
+    assert x is not None and z is not None
+    return x, z
+
+
 def _simplify(vertices: list[list[float | None]], tol: float) -> list[list[float | None]]:
     """Douglas-Peucker on [x, z, y] vertices (y ignored for the metric)."""
     if len(vertices) < 3:
         return vertices
-    ax, az = vertices[0][0], vertices[0][1]
-    bx, bz = vertices[-1][0], vertices[-1][1]
+    ax, az = _xz(vertices[0])
+    bx, bz = _xz(vertices[-1])
     dx, dz = bx - ax, bz - az
     seg = math.hypot(dx, dz)
     worst, worst_d = 0, -1.0
     for i in range(1, len(vertices) - 1):
-        px, pz = vertices[i][0], vertices[i][1]
+        px, pz = _xz(vertices[i])
         if seg < 1e-9:
             d = math.hypot(px - ax, pz - az)
         else:
