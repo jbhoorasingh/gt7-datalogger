@@ -38,6 +38,12 @@ layout** — filled in when you have that thing, dashed when you do not. Then
 the bundle's numbers:
 
 - **metres mapped** — border records, one per metre per side.
+- **coverage** — the compiled score: each border's surveyed share of the
+  boundary itself (with **✓ closed** once a side forms a loop), and **road %**,
+  the share of surveyed border with the opposite border found across from it.
+  Measured against the boundary, not the path you drove — a circuit you lapped
+  fifty times with one unmapped chicane still says so. See the
+  [compiled geometry](../reference/track-bundle-format.md#compiled-geometry-derived-not-part-of-the-bundle).
 - **runs / sources** — how many survey runs are behind it, and how many
   different installations contributed (see [importing](#importing-and-sharing)).
 - **% elevation** — the share of mapped metres that know their height.
@@ -134,6 +140,14 @@ release.
 you contribute. **Import bundle…** merges one in; **Merge into…** on a row
 does the same but forces the incoming document onto that circuit, which is how
 a friend's slightly-differently-named bundle lands in the right place.
+
+Raw survey runs travel too: every JSONL log has a **download** link (the
+orphan banner and the collapsed *Survey logs* section list them all), and
+**Upload survey log…** accepts one recorded elsewhere — assign it to a
+circuit and it replays through the normal voting path, credited to the
+installation that drove it. That is the finer-grained sibling of bundle
+import: a bundle is a circuit's whole accumulated record, a log is one
+evening's driving.
 
 Merging accumulates fidelity across people rather than picking a winner. Each
 installation stamps a **source id** on every vote it casts, so two people who

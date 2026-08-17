@@ -36,6 +36,17 @@ full-brake %, coasting %, tire-spin %, events, and max speed.
 The **Events** column is a compact code — `2L·1S·3B·1K` means 2 lockups, 1 wheelspin,
 3 suspension bottomings, 1 kerb strike; `–` means a clean lap.
 
+The **Off-track** column can carry two figures, because two different judges
+watch the lap. The first counts excursions by GT7's own per-wheel surface
+flags (three or more wheels on the loose) — which are blind to paved run-off:
+running wide over asphalt reads as tarmac and stays "clean". The second
+appears once the circuit has been [surveyed](tracks-view.md) well enough
+(≥ 50 % of the road resolved): the lap's positions are judged against the
+**surveyed edges**, and sustained excursions beyond them count even on
+pavement. Unsurveyed stretches never count against a lap, and laps recorded
+before the session was identified are re-judged the moment it is. A lap is
+*clean* only when both judges agree.
+
 Row actions:
 
 | Action | What it does |

@@ -1,6 +1,6 @@
 [project]
 name = "gt7-datalogger"
-version = "0.4.1"
+version = "0.5.0"
 description = "GT7 telemetry datalogger and analysis dashboard"
 license = "MIT"
 requires-python = ">=3.12"

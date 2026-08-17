@@ -107,6 +107,11 @@ bundle simply draw as before. The geometry is compiled server-side
 (`/api/track-outline`) — a bundle holds up to 50,000 border records and the browser
 never sees them.
 
+The road is drawn only where it was actually surveyed. Stretches the survey
+never covered appear as **dashed amber "unsurveyed gap" markers** rather than
+invented road — the map's own *go touch this* prompt: drive that stretch on a
+[survey run](tracks-view.md) and the hole fills in.
+
 ## Traction circle (g-g)
 
 Every moment of the lap plotted as lateral g against longitudinal g, coloured by input

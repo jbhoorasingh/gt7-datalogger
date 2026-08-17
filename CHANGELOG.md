@@ -5,6 +5,8 @@ Notable changes to GT7 Datalogger. The format follows
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-17
+
 ### Added
 
 - **The survey compiles into an actual track.** (#38, #40) The bundle store
