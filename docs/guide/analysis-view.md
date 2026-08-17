@@ -42,6 +42,22 @@ one panel per selected channel.
   bottoming/kerbs on suspension panels; TCS activity shades Throttle, ASM shades Speed.
   Bands are tinted in the lap's color.
 
+## Corner report card
+
+Below the charts, one row per corner: entry / minimum / exit speed and the time spent
+between the corner's entry and exit, for the focused lap with the reference's figures in
+small type beside it. The **Δ s** column is the time lost (red) or gained (green) through
+that corner vs the reference — and the table is **sorted by it**, so the first row is
+where the lap is actually being lost. The footer sums it: your total gap that happened
+inside corners rather than on the straights.
+
+Every lap is measured through the *reference lap's* corner windows (the same
+distance-from-start convention as the time-diff chart), so the times are comparable;
+with more than one comparison lap, chips pick which one the card focuses on. Clicking a
+row zooms every chart and the map to that corner. Corners come from the circuit's
+[authored set](tracks-view.md#labelling-corners) when it has one — stable numbers and
+names across sessions — otherwise from detection on the reference lap.
+
 ## Channel picker
 
 The **Channels (n)** button opens a grouped picker with ~20 channels:

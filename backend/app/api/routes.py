@@ -387,6 +387,11 @@ async def compare(
     # document — off the event loop.
     track = await svc(request).repo.track_for_lap(ref)
     authored = await asyncio.to_thread(svc(request).authored_corners, track)
+    # Corner numbering comes from the reference lap only, so every overlaid
+    # lap shares one consistent set of map markers — and from the circuit's
+    # authored corners when it has them, so the numbering is the same in
+    # every session too, not just within this one.
+    ref_corners = analysis.corners_for_lap(samples_by_id[ref], authored)
 
     out: dict[str, Any] = {
         "ref": ref,
@@ -411,13 +416,14 @@ async def compare(
             # traction-circle readout is about.
             entry["gg"] = analysis.gg_extremes(samples, out["accel"])
         if lap_id == ref:
-            # Corner numbering comes from the reference lap only, so every
-            # overlaid lap shares one consistent set of map markers — and from
-            # the circuit's authored corners when it has them, so the numbering
-            # is the same in every session too, not just within this one.
-            entry["corners"] = analysis.corners_for_lap(samples, authored)
+            entry["corners"] = ref_corners
         else:
             entry["delta"] = analysis.time_delta_series(samples, samples_by_id[ref], step)
+        if ref_corners:
+            # Every lap measured through the SAME corner windows (the
+            # reference's), which is what makes the per-corner report card's
+            # time-lost column mean something (#21).
+            entry["corner_report"] = analysis.corner_report(ref_corners, samples)
         out["laps"][str(lap_id)] = entry
     return out
 

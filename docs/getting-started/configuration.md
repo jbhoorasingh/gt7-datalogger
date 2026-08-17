@@ -24,6 +24,7 @@ working directory.
 | `GT7_RACE_ENGINEER_CATEGORIES` | *(all)* | Comma-separated callout categories: `system`, `lap`, `pace`, `race`, `position`, `fuel`, `strategy`, `engine`, `tires`, `chassis`, `coaching` |
 | `GT7_RACE_ENGINEER_UNITS` | `metric` | Units spoken inside callouts (`metric` = meters and km/h, `imperial` = feet and mph) |
 | `GT7_SIM_SCENARIO` | `practice` | With `GT7_SOURCE=sim`: `practice`, `race`, `fuel_shortage`, `overheating`, `oil_pressure` — staged situations for testing callouts |
+| `GT7_SHARED_BUNDLES_URL` | *(the project's [track-data repo](https://jbhoorasingh.github.io/gt7-datalogger-track-data/))* | Shared repository of contributed track bundles: the URL of its `index.json`, or of the directory holding one. The Tracks view lists what it offers and can pull a bundle straight in (same validation and voting merge as a file import). Empty hides the feature; nothing is fetched until the Tracks view is opened |
 | `GT7_LOG_LEVEL` | `INFO` | Root log level (also settable in Admin) |
 | `GT7_ADMIN_TOKEN` | *(empty)* | When set, the Admin pages and all destructive/mutating API calls require this token via the `X-API-Key` header; overlay/dash/read endpoints stay open. Empty = fully open (LAN-trusted) |
 | `GT7_CORS_ORIGINS` | *(empty)* | Comma-separated origins allowed for cross-origin API use. Empty (default) sends no CORS headers — the bundled UI is same-origin and needs none |

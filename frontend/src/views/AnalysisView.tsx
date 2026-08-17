@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChannelPicker } from "@/components/analysis/ChannelPicker";
 import { CornerDetail, type CornerLap } from "@/components/analysis/CornerDetail";
+import { CornerReport, type ReportLap } from "@/components/analysis/CornerReport";
 import { DeviationChart } from "@/components/analysis/DeviationChart";
 import { FuelMapPanel } from "@/components/analysis/FuelMapPanel";
 import { GearingPanel } from "@/components/analysis/GearingPanel";
@@ -308,6 +309,20 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
     return mapLaps.map((lap) => ggLap(lap, accel)).filter((l): l is GGLap => l != null);
   }, [mapLaps, compare]);
 
+  // Laps that have a per-corner report (#21), for the report card table.
+  const reportLaps = useMemo<ReportLap[]>(() => {
+    if (!compare) return [];
+    return Object.keys(compare.laps)
+      .map((id) => ({
+        id,
+        label: lapLabels[id] ?? `Lap ${id}`,
+        color: lapColors[id] ?? lapColor(Number(id)),
+        isRef: id === String(refLap),
+        report: compare.laps[id].corner_report ?? [],
+      }))
+      .filter((l) => l.report.length > 0);
+  }, [compare, lapLabels, refLap, lapColors]);
+
   // Same laps, shaped for the Corner Detail widget (cursor-synced with the
   // charts and the map dot).
   const cornerLaps = useMemo<CornerLap[]>(() => {
@@ -443,6 +458,19 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
               onCursorDist={onCursorDist}
               zoomRange={zoomRange}
               onZoomChange={setZoomRange}
+            />
+          </div>
+        )}
+        {reportLaps.length > 0 && refEntry?.corners && refEntry.corners.length > 0 && (
+          <div className="mt-3 rounded-xl bg-panel">
+            <div className="border-b border-edge px-3 py-2 text-[10px] font-semibold uppercase tracking-widest text-ink-dim">
+              Corner report card
+            </div>
+            <CornerReport
+              corners={refEntry.corners}
+              laps={reportLaps}
+              units={units}
+              onZoom={setZoomRange}
             />
           </div>
         )}

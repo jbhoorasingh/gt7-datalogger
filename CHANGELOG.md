@@ -5,6 +5,30 @@ Notable changes to GT7 Datalogger. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Per-corner report card, sorted by time lost.** (#21) The Analysis view
+  answers "where am I actually losing the lap" as a table under the charts:
+  per corner, entry/minimum/exit speed and the time spent through it for the
+  focused lap against the reference, sorted so the most expensive corner is
+  the first row, with the total time lost in corners in the footer. Every lap
+  is measured through the *reference lap's* corner windows — the same
+  distance-from-start convention the time-diff chart uses — so the times are
+  comparable, and a corner a lap never fully drove is omitted rather than
+  reported against part of its extent. Clicking a row zooms every chart and
+  the map to that corner.
+- **Shared bundles can be pulled from inside the app.** (#47) The Tracks view
+  now lists what the shared track-data repo offers (its published
+  `index.json`, `GT7_SHARED_BUNDLES_URL`, defaulting to the project's own
+  gt7-datalogger-track-data site) alongside what you hold locally, and
+  **Pull** fetches a circuit's bundle and merges it through exactly the
+  import path: full field-by-field validation, the voting merge that keeps
+  every source's evidence a census, and your own corner labels never
+  overwritten. The server only ever fetches the index and the file the index
+  maps the requested slug to — clients never supply URLs — with size caps
+  enforced while reading. Setting the URL empty hides the feature; nothing is
+  fetched until the Tracks view is opened.
+
 ## [0.5.0] - 2026-08-17
 
 ### Added

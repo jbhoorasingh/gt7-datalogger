@@ -496,6 +496,72 @@ def corners_for_lap(
     return detect_corners(samples)
 
 
+# --- per-corner report card (#21) ---------------------------------------------
+
+# Slack allowed when judging whether a lap covers a corner window: reference
+# corner distances land on the detection grid (2 m) and lap lengths differ by
+# line taken, so an exit a metre past this lap's last sample is still "driven".
+GRID_TOLERANCE_M = 2.0
+
+
+def corner_report(
+    corners: list[dict[str, Any]], samples: Samples
+) -> list[dict[str, float | int]]:
+    """One lap's entry/min/exit speed and time-through for each corner.
+
+    `corners` is the REFERENCE lap's set (authored or detected), so every lap
+    in a comparison is measured through the same entry/exit windows — the same
+    distance-from-start approximation the delta chart already rests on. A
+    corner whose window runs past this lap's recording is omitted rather than
+    clamped: the time through part of a corner reported as the whole corner
+    would sort itself to the top of the report as a phantom gain.
+    """
+    dist = samples.get("dist") or []
+    t = samples.get("t") or []
+    speed = samples.get("speed") or []
+    n = min(len(dist), len(t), len(speed))
+    if n < 2:
+        return []
+    # Strictly increasing distance only — duplicates (pause edges, imports)
+    # break interpolation, same as everywhere else distance is an axis.
+    keep = [0]
+    for i in range(1, n):
+        if dist[i] > dist[keep[-1]]:
+            keep.append(i)
+    if len(keep) < 2:
+        return []
+    d = [dist[i] for i in keep]
+    ts = [t[i] for i in keep]
+    sp = [speed[i] for i in keep]
+
+    out: list[dict[str, float | int]] = []
+    for c in corners:
+        entry, exit_ = float(c["entry_dist"]), float(c["exit_dist"])
+        if entry <= exit_:
+            if entry < d[0] - GRID_TOLERANCE_M or exit_ > d[-1] + GRID_TOLERANCE_M:
+                continue  # this lap never drove the full window
+            time_s = _interp(d, ts, exit_) - _interp(d, ts, entry)
+            lo, hi = bisect_left(d, entry), bisect_left(d, exit_)
+            window = sp[lo:hi] or [_interp(d, sp, (entry + exit_) / 2)]
+        else:
+            # A start/finish-stitched corner wraps the lap boundary: its time
+            # is the tail of this lap plus the head of it.
+            if exit_ > d[-1] + GRID_TOLERANCE_M:
+                continue
+            time_s = (ts[-1] - _interp(d, ts, entry)) + (_interp(d, ts, exit_) - ts[0])
+            lo = bisect_left(d, entry)
+            hi = bisect_left(d, exit_)
+            window = (sp[lo:] + sp[:hi]) or [sp[0]]
+        out.append({
+            "n": int(c["n"]),
+            "entry_speed": round(_interp(d, sp, entry), 1),
+            "min_speed": round(min(window), 1),
+            "exit_speed": round(_interp(d, sp, exit_), 1),
+            "time_ms": round(time_s * 1000, 1),
+        })
+    return out
+
+
 def _thresholds(curv: list[float]) -> tuple[float, float]:
     """Hysteresis thresholds anchored to this lap's curvature noise floor.
 

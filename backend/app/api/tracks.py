@@ -32,12 +32,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from app.api.auth import require_admin
 from app.processing import (
+    shared_repo,
     survey_log,
     track_bundle,
     track_catalog,
@@ -456,6 +458,78 @@ def _slug(slug: str) -> str:
     if not track_bundle.slugify(slug) == slug:
         raise HTTPException(400, "invalid bundle name")
     return slug
+
+
+# --- shared bundle repo (#47) -------------------------------------------------
+# Declared BEFORE /track-bundles/{slug}: FastAPI matches in declaration order,
+# and "shared" is itself a well-formed slug.
+
+
+def _shared_index_url(request: Request) -> str | None:
+    configured = svc(request).settings.shared_bundles_url.strip()
+    return shared_repo.index_url(configured) if configured else None
+
+
+@router.get("/track-bundles/shared")
+async def shared_bundles(request: Request) -> dict[str, Any]:
+    """What the configured shared repo has on offer. `configured: false` when
+    no repo is set — the UI hides the feature rather than showing an error."""
+    url = _shared_index_url(request)
+    if url is None:
+        return {"configured": False, "bundles": []}
+    try:
+        raw = await shared_repo.fetch_json(url, shared_repo.MAX_INDEX_BYTES)
+        entries = shared_repo.validate_index(raw)
+    except track_bundle.BundleError as exc:
+        raise HTTPException(502, f"shared bundle repo: {exc}") from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, f"shared bundle repo unreachable: {exc}") from exc
+    for entry in entries:
+        entry["slug"] = track_bundle.slugify(entry["track"])
+    return {"configured": True, "url": url, "bundles": entries}
+
+
+@router.post(
+    "/track-bundles/shared/{slug}/pull", dependencies=[Depends(require_admin)]
+)
+async def pull_shared_bundle(
+    request: Request, slug: str, track: str | None = Query(None)
+) -> dict[str, Any]:
+    """Pull one shared bundle and merge it, exactly as an imported file would be.
+
+    The index is re-fetched and the bundle looked up by slug rather than the
+    client posting a URL: an admin token should not be a proxy for "make this
+    server GET anywhere I say". `?track=` overrides the document's label, same
+    as import.
+    """
+    url = _shared_index_url(request)
+    if url is None:
+        raise HTTPException(404, "no shared bundle repo configured")
+    if track is not None:
+        track = track.strip()[: track_bundle.MAX_TRACK_NAME]
+        if not track:
+            raise HTTPException(400, "track override cannot be blank")
+    try:
+        raw = await shared_repo.fetch_json(url, shared_repo.MAX_INDEX_BYTES)
+        entries = shared_repo.validate_index(raw)
+        entry = next(
+            (e for e in entries if track_bundle.slugify(e["track"]) == slug), None
+        )
+        if entry is None:
+            raise HTTPException(404, "the shared repo lists no such bundle")
+        bundle_url = shared_repo.resolve_url(url, entry["url"])
+        payload = await shared_repo.fetch_json(bundle_url, MAX_IMPORT_BYTES)
+        doc = track_bundle.validate_document(payload)
+        result = await asyncio.to_thread(
+            track_bundle.merge_document, data_dir(request), doc, track
+        )
+    except track_bundle.BundleError as exc:
+        raise HTTPException(400, f"invalid shared bundle: {exc}") from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, f"shared bundle repo unreachable: {exc}") from exc
+    # A pull can give a circuit its first authored corners, same as import.
+    svc(request).invalidate_authored_corners(result["track"])
+    return result
 
 
 @router.get("/track-bundles/{slug}")

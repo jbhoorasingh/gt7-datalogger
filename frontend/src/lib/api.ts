@@ -65,6 +65,23 @@ export interface BundleMergeResult {
   corners_kept?: boolean;
 }
 
+// One bundle a shared repo offers (#47). points/runs/updated_at are the
+// index's advisory numbers — the truth is whatever the pull validates.
+export interface SharedBundleEntry {
+  track: string;
+  slug: string;
+  url: string;
+  points?: number;
+  runs?: number;
+  updated_at?: string;
+}
+
+export interface SharedBundles {
+  configured: boolean;
+  url?: string;
+  bundles: SharedBundleEntry[];
+}
+
 async function fail(url: string, resp: Response): Promise<never> {
   if (resp.status === 401 || resp.status === 403) {
     throw new Error(
@@ -199,6 +216,14 @@ export const api = {
   lapCsvUrl: (lapId: number) => `/api/laps/${lapId}/export.csv`,
 
   bundles: {
+    // The configured shared repo's offerings; `configured: false` hides the
+    // feature. Pulling merges through exactly the same path as import (#47).
+    shared: () => get<SharedBundles>("/api/track-bundles/shared"),
+    pullShared: (slug: string, track?: string) =>
+      send<BundleMergeResult>(
+        `/api/track-bundles/shared/${slug}/pull${track ? `?track=${encodeURIComponent(track)}` : ""}`,
+        "POST",
+      ),
     get: (slug: string) => get<TrackBundleDoc>(`/api/track-bundles/${slug}`),
     downloadUrl: (slug: string) => `/api/track-bundles/${slug}`,
     // `track` collapses a near-miss name onto an existing circuit rather than

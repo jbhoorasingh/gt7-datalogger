@@ -434,3 +434,68 @@ def test_authored_entry_and_exit_anchors_are_used_when_marked() -> None:
     c = analysis.project_corners(lap, authored)[0]
     assert c["entry_dist"] == pytest.approx(lap["dist"][i_entry], abs=2.0)
     assert c["direction"] == "L"  # the label wins over what the lap looks like
+
+
+# --- per-corner report card (#21) ---------------------------------------------
+
+
+def _window(n: int, entry: float, exit_: float) -> dict:
+    return {"n": n, "entry_dist": entry, "exit_dist": exit_}
+
+
+def test_corner_report_constant_speed() -> None:
+    lap = make_lap(1000.0, 50.0)  # 50 m/s = 180 km/h
+    report = analysis.corner_report([_window(1, 100.0, 300.0)], lap)
+    assert len(report) == 1
+    c = report[0]
+    assert c["n"] == 1
+    assert c["entry_speed"] == pytest.approx(180.0)
+    assert c["min_speed"] == pytest.approx(180.0)
+    assert c["exit_speed"] == pytest.approx(180.0)
+    assert c["time_ms"] == pytest.approx(4000.0, abs=10)  # 200 m at 50 m/s
+
+
+def test_corner_report_slower_lap_loses_time() -> None:
+    fast = make_lap(1000.0, 50.0)
+    slow = make_lap(1000.0, 40.0)
+    corners = [_window(1, 100.0, 300.0)]
+    lost = (
+        analysis.corner_report(corners, slow)[0]["time_ms"]
+        - analysis.corner_report(corners, fast)[0]["time_ms"]
+    )
+    # 200 m: 5 s at 40 m/s vs 4 s at 50 m/s
+    assert lost == pytest.approx(1000.0, abs=10)
+
+
+def test_corner_report_min_speed_is_the_dip() -> None:
+    lap = make_lap(1000.0, 50.0)
+    for i, d in enumerate(lap["dist"]):
+        if 180 <= d <= 220:
+            lap["speed"][i] = 120.0
+    report = analysis.corner_report([_window(1, 100.0, 300.0)], lap)
+    assert report[0]["min_speed"] == pytest.approx(120.0)
+    assert report[0]["entry_speed"] == pytest.approx(180.0)
+
+
+def test_corner_report_omits_windows_the_lap_never_drove() -> None:
+    lap = make_lap(1000.0, 50.0)
+    report = analysis.corner_report(
+        [_window(1, 100.0, 300.0), _window(2, 900.0, 1200.0)], lap
+    )
+    assert [c["n"] for c in report] == [1]
+
+
+def test_corner_report_wraparound_window() -> None:
+    lap = make_lap(1000.0, 50.0)
+    report = analysis.corner_report([_window(5, 900.0, 100.0)], lap)
+    assert len(report) == 1
+    # tail (100 m) + head (100 m) at 50 m/s
+    assert report[0]["time_ms"] == pytest.approx(4000.0, abs=10)
+
+
+def test_corner_report_degenerate_inputs() -> None:
+    assert analysis.corner_report([_window(1, 0.0, 100.0)], {}) == []
+    assert analysis.corner_report([], make_lap(1000.0, 50.0)) == []
+    lap = make_lap(1000.0, 50.0)
+    lap["dist"] = [0.0] * len(lap["dist"])  # no usable distance axis
+    assert analysis.corner_report([_window(1, 0.0, 100.0)], lap) == []

@@ -126,10 +126,15 @@ Once labelled, they take over from detection everywhere:
 Contributed bundles live in their own repository —
 [**gt7-datalogger-track-data**](https://github.com/jbhoorasingh/gt7-datalogger-track-data)
 — with a [browsable map of every circuit in
-it](https://jbhoorasingh.github.io/gt7-datalogger-track-data/). Grab the pack
-from its latest release, unzip, and run its `import_into_app.py` against your
-datalogger; or download a single track from the site and use **Import
-bundle…** below.
+it](https://jbhoorasingh.github.io/gt7-datalogger-track-data/). The easiest
+way in is the **Shared bundles** panel at the bottom of this view: it lists
+every circuit the repo offers, says whether you already hold a bundle of it,
+and **Pull** fetches and merges one without leaving the app. (The repo is
+configurable via `GT7_SHARED_BUNDLES_URL`; setting it empty hides the panel.
+Nothing is fetched until this view is opened.) Alternatively, grab the pack
+from the repo's latest release, unzip, and run its `import_into_app.py`
+against your datalogger; or download a single track from the site and use
+**Import bundle…** below.
 
 The data is separate from the app on purpose: it changes every time somebody
 drives, and a corrected corner label should not have to wait for a software

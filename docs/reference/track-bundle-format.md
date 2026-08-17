@@ -30,6 +30,17 @@ its own copy of the format in `tools/bundle_format.py`; if the two ever
 disagree, this page and `app/processing/track_bundle.py` are what the app
 actually does.
 
+The app can also **pull** straight from that repo (or any host laid out like
+it — `GT7_SHARED_BUNDLES_URL`): it reads the site's `index.json` (format
+`gt7-datalogger-track-index`, v1 — the shape the repo's builder publishes,
+with a `configurations` array whose surveyed rows carry a `bundle: {file,
+track, points, runs, updated_at, …}` object, plus `unmatched_bundles` for
+surveyed circuits tied to no official layout), resolves each `file` against
+the index's own URL, and merges the fetched document through exactly the
+import path described under [Validation](#validation). The index's counts are
+advisory display numbers; nothing in it is trusted past "what is on offer and
+where".
+
 ```json
 {
   "format": "gt7-datalogger-track-bundle",

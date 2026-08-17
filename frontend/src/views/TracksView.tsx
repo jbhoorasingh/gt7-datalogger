@@ -20,7 +20,7 @@ import { CornerEditor } from "@/components/tracks/CornerEditor";
 import { ConfirmDialog, PromptDialog } from "@/components/ui/Dialog";
 import { Tip } from "@/components/ui/Tooltip";
 import { api } from "@/lib/api";
-import { getAdminToken } from "@/lib/api";
+import { getAdminToken, type SharedBundles } from "@/lib/api";
 import type { SurveyLog, TrackOverview, TrackOverviewRow } from "@/lib/types";
 import { toast } from "@/store/toasts";
 
@@ -62,6 +62,10 @@ export function TracksView() {
   const [renaming, setRenaming] = useState<TrackOverviewRow | null>(null);
   const [deleting, setDeleting] = useState<TrackOverviewRow | null>(null);
   const [assigning, setAssigning] = useState<SurveyLog | null>(null);
+  // The shared repo's offerings (#47). Null until answered; an unreachable
+  // repo shows AS unreachable rather than as "not configured".
+  const [shared, setShared] = useState<SharedBundles | null>(null);
+  const [sharedError, setSharedError] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
   const logInput = useRef<HTMLInputElement>(null);
   const importTarget = useRef<string | undefined>(undefined);
@@ -77,6 +81,16 @@ export function TracksView() {
   }, []);
 
   useEffect(refresh, [refresh]);
+
+  useEffect(() => {
+    api.bundles
+      .shared()
+      .then((s) => {
+        setShared(s);
+        setSharedError("");
+      })
+      .catch((e: Error) => setSharedError(e.message));
+  }, []);
 
   const run = async (what: string, fn: () => Promise<unknown>) => {
     setBusy(true);
@@ -132,6 +146,19 @@ export function TracksView() {
       );
       if (result.corners_kept) {
         toastSuccess("Kept your own corner labels — the imported ones were dropped");
+      }
+    });
+  };
+
+  const onPullShared = async (slug: string) => {
+    await run("Bundle pulled", async () => {
+      const result = await api.bundles.pullShared(slug);
+      toastSuccess(
+        `${result.track}: +${result.added_points} m of border ` +
+          `(${result.points} total, ${result.sources} source${result.sources === 1 ? "" : "s"})`,
+      );
+      if (result.corners_kept) {
+        toastSuccess("Kept your own corner labels — the pulled ones were dropped");
       }
     });
   };
@@ -457,6 +484,60 @@ export function TracksView() {
           );
         })}
       </div>
+
+      {(shared?.configured || sharedError) && (
+        <div className="rounded-xl bg-panel p-3">
+          <h3 className="text-sm font-semibold">Shared bundles</h3>
+          <p className="mt-1 text-xs text-ink-dim">
+            Contributed track bundles offered by the configured shared repo. Pulling one
+            merges it through the same validation and voting path as an imported file, so
+            evidence accumulates and your own corner labels are never overwritten.
+          </p>
+          {sharedError && (
+            <div className="mt-2 text-xs text-brake">
+              The shared repo could not be read: {sharedError}
+            </div>
+          )}
+          {shared?.configured && shared.bundles.length === 0 && (
+            <div className="mt-2 text-xs text-ink-dim">The repo lists no bundles yet.</div>
+          )}
+          <ul className="mt-2 space-y-1.5">
+            {shared?.bundles.map((entry) => {
+              const local = rows.find((r) => r.slug === entry.slug)?.bundle ?? null;
+              return (
+                <li
+                  key={entry.slug}
+                  className="flex flex-wrap items-center gap-2 rounded-lg border border-edge px-2 py-1.5 text-xs"
+                >
+                  <span className="font-semibold">{entry.track}</span>
+                  <span className="font-tabular text-ink-dim">
+                    {entry.points != null && `${entry.points.toLocaleString()} m of border`}
+                    {entry.runs != null && ` · ${entry.runs} run${entry.runs === 1 ? "" : "s"}`}
+                    {entry.updated_at && ` · updated ${when(entry.updated_at)}`}
+                  </span>
+                  <span className="text-ink-dim">
+                    {local
+                      ? `· you have ${local.points.toLocaleString()} m locally`
+                      : "· not surveyed here"}
+                  </span>
+                  <button
+                    className="btn ml-auto"
+                    disabled={busy}
+                    title={
+                      local
+                        ? "Merge the shared evidence into your bundle — both sides' observations survive"
+                        : "Fetch this circuit's bundle and start from everyone else's survey work"
+                    }
+                    onClick={() => void onPullShared(entry.slug)}
+                  >
+                    {local ? "Pull & merge" : "Pull"}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
 
       {(data?.logs.length ?? 0) > 0 && (
         <details className="rounded-xl bg-panel p-3">
