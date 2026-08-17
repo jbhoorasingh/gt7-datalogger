@@ -163,6 +163,30 @@ run count is what advances.
 Your own corner labels and your confirmed layout match are never overwritten
 by an import.
 
+### Contributing back
+
+The reverse direction — your survey work into the shared repo — is two
+commands in a clone of
+[gt7-datalogger-track-data](https://github.com/jbhoorasingh/gt7-datalogger-track-data)
+(standard-library Python, nothing to install):
+
+```bash
+python tools/add_bundle.py --from-app http://gt7.local:8000
+python tools/build_index.py
+```
+
+then open a pull request. `add_bundle.py` pulls every bundle out of your
+running app (or takes an exported file), validates it, and **merges** it into
+whatever the repo already holds — the same per-source voting merge as
+everywhere else, so re-contributing never double-counts and the PR diff is
+only the metres and votes you added. Two things matter before you run it:
+**confirm the official layout** (the repo files bundles by `official_id` and
+its CI rejects one without it), and ideally label the corners — the
+highest-value part of a bundle after the borders. The intended loop is pull →
+drive → contribute: start from the shared bundle, extend it, send back the
+difference. Details in the repo's
+[CONTRIBUTING](https://github.com/jbhoorasingh/gt7-datalogger-track-data/blob/main/CONTRIBUTING.md).
+
 Imported documents are validated field by field before anything is merged: an
 import writes into the same store the app surveys into, so a malformed or
 hostile document is rejected outright, not partially applied.
