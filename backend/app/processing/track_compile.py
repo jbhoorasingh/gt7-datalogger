@@ -289,6 +289,17 @@ class SideAssembly:
             _seg_len(self.pts[a], self.pts[b]) for a, b in zip(chain, chain[1:], strict=False)
         )
 
+    def closure_len(self) -> float:
+        """End-to-start distance of the main chain (0.0 when not closed)."""
+        if not self.closed or not self.chains:
+            return 0.0
+        main = self.chains[0]
+        return _seg_len(self.pts[main[-1]], self.pts[main[0]])
+
+    def closure_surveyed(self) -> bool:
+        """Whether the loop's seam is real border, not a bridged gap."""
+        return self.closed and self.closure_len() <= SURVEYED_MAX_SPACING_M
+
     def coverage(self) -> dict[str, Any]:
         """Surveyed metres against total boundary metres (#38).
 
@@ -306,10 +317,13 @@ class SideAssembly:
                 else:
                     surveyed += d
         if self.closed and self.chains:
-            main = self.chains[0]
-            closure = _seg_len(self.pts[main[0]], self.pts[main[-1]])
+            # The closure is a span like any other: surveyed when short,
+            # a gap when the stitch had to bridge it.
+            closure = self.closure_len()
             if closure > SURVEYED_MAX_SPACING_M:
                 gap += closure
+            else:
+                surveyed += closure
         total = surveyed + gap
         return {
             "surveyed_m": round(surveyed, 1),
@@ -325,7 +339,7 @@ class SideAssembly:
         capture.
         """
         out: list[list[list[float | None]]] = []
-        for chain in self.chains:
+        for ci, chain in enumerate(self.chains):
             run: list[list[float | None]] = []
             for k, i in enumerate(chain):
                 p = self.pts[i]
@@ -336,6 +350,15 @@ class SideAssembly:
                 y = p.get("y")
                 run.append([round(p["x"], 2), round(p["z"], 2),
                             round(y, 2) if y is not None else None])
+            # A surveyed seam draws: the loop visibly closes instead of
+            # stopping a stride short of where it started. The seam joins the
+            # chain's END to its START — which, when gaps split the chain,
+            # is the first fragment's head, not this last fragment's.
+            if ci == 0 and self.closure_surveyed() and run:
+                first = self.pts[chain[0]]
+                fy = first.get("y")
+                run.append([round(first["x"], 2), round(first["z"], 2),
+                            round(fy, 2) if fy is not None else None])
             if len(run) >= 2:
                 out.append(_simplify(run, SIMPLIFY_TOL_M))
         return out
@@ -360,18 +383,30 @@ class SideAssembly:
 
 def _resample(
     assembly: SideAssembly, step: float
-) -> list[dict[str, Any]]:
+) -> list[dict[str, Any] | None]:
     """Samples every `step` metres along surveyed (non-gap) spans of every
-    chain, each with position, tangent and interpolated elevation."""
-    out: list[dict[str, Any]] = []
+    chain, each with position, tangent and interpolated elevation.
+
+    A `None` marks a break — a flagged gap or a jump to another chain — so
+    consumers never treat samples on opposite sides of unsurveyed ground as
+    neighbours (two samples can sit under 2×step apart across a 6-8 m gap).
+    On a closed loop whose seam is real border, sampling continues across
+    the seam instead, so the loop has no artificial break at the chain seed.
+    """
+    out: list[dict[str, Any] | None] = []
     pts = assembly.pts
-    for chain in assembly.chains:
+    for ci, chain in enumerate(assembly.chains):
         carry = 0.0
-        for a, b in zip(chain, chain[1:], strict=False):
+        pairs = list(zip(chain, chain[1:], strict=False))
+        if ci == 0 and assembly.closure_surveyed() and len(chain) >= 2:
+            pairs.append((chain[-1], chain[0]))
+        for a, b in pairs:
             pa, pb = pts[a], pts[b]
             d = _seg_len(pa, pb)
             if d > SURVEYED_MAX_SPACING_M:
                 carry = 0.0  # gap: restart sampling on the far side
+                if out and out[-1] is not None:
+                    out.append(None)
                 continue
             if d < 1e-9:
                 continue
@@ -391,6 +426,8 @@ def _resample(
                 })
                 pos += step
             carry = pos - d
+        if out and out[-1] is not None:
+            out.append(None)  # chain boundary: the next chain is elsewhere
     return out
 
 
@@ -402,8 +439,13 @@ class _SegmentIndex:
         pts = assembly.pts
         self.segs: list[tuple[dict[str, Any], dict[str, Any]]] = []
         self.map: dict[tuple[int, int], list[int]] = {}
-        for chain in assembly.chains:
-            for a, b in zip(chain, chain[1:], strict=False):
+        for ci, chain in enumerate(assembly.chains):
+            pairs = list(zip(chain, chain[1:], strict=False))
+            # A surveyed loop seam is a segment like any other; without it the
+            # opposite side cannot pair across this chain's seed point.
+            if ci == 0 and assembly.closure_surveyed() and len(chain) >= 2:
+                pairs.append((chain[-1], chain[0]))
+            for a, b in pairs:
                 pa, pb = pts[a], pts[b]
                 if _seg_len(pa, pb) > SURVEYED_MAX_SPACING_M:
                     continue
@@ -440,7 +482,7 @@ class _SegmentIndex:
 
 def centerline_and_road(
     left: SideAssembly, right: SideAssembly
-) -> tuple[list[list[list[float | None]]], list[list[float]]]:
+) -> tuple[list[list[list[float | None]]], list[list[float]], float]:
     """The centerline and the road surface between the two border curves.
 
     Left border samples are paired ACROSS to the nearest point on the right
@@ -462,8 +504,19 @@ def centerline_and_road(
     run: list[list[float | None]] = []
     prev: dict[str, Any] | None = None
     paired = 0
+    judged = 0
 
     for s in samples:
+        if s is None:
+            # A resample break: unsurveyed ground between this sample and the
+            # last. Two samples can sit under 2×step apart across a small
+            # flagged gap, so proximity alone must not bridge it with a quad.
+            if len(run) >= 2:
+                runs.append(run)
+            run = []
+            prev = None
+            continue
+        judged += 1
         # The road lies to the LEFT border's right-normal.
         rnx, rnz = s["tz"], -s["tx"]
         hit = index.nearest(s["x"], s["z"])
@@ -500,7 +553,7 @@ def centerline_and_road(
         prev = {"sx": s["x"], "sz": s["z"], "px": p["x"], "pz": p["z"]}
     if len(run) >= 2:
         runs.append(run)
-    return runs, quads, (paired / len(samples) if samples else 0.0)
+    return runs, quads, (paired / judged if judged else 0.0)
 
 
 def compile_bundle(doc: dict[str, Any]) -> dict[str, Any]:

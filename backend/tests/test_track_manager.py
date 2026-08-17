@@ -333,6 +333,57 @@ async def test_upload_sanitizes_hostile_or_foreign_names(client) -> None:
     assert not (tmp.parent / "evil.jsonl").exists()
 
 
+async def test_upload_accepts_every_record_shape_a_real_run_writes(client) -> None:
+    """A genuine log is more than the header-and-mark minimum: transition
+    records, a finish crossing and a mid-run track label all pass the
+    validator, because they are exactly what the reader consumes."""
+    c, _service, _tmp = client
+    body = LOG_BODY + (
+        b'{"track":"Ring"}\n'
+        b'{"t":12.5,"pos":[1.0,4.0,2.0],"vel":[10.0,0.0,1.0],"border":"L",'
+        b'"changed":["FL"],"contacts":{"FL":[1.5,2.5]},"tw_m":1.6}\n'
+        b'{"finish":{"x":0.0,"z":0.0,"hx":1.0,"hz":0.0,"lap":2}}\n'
+    )
+    resp = await c.post("/api/survey/logs/upload", content=body)
+    assert resp.status_code == 200
+    summary = resp.json()
+    assert summary["track"] == "Ring"
+    assert summary["marks"] == 1 and summary["transitions"] == 1
+    assert summary["finish_crossings"] == 1
+    name = summary["name"]
+    assert (await c.get(f"/api/survey/logs/{name}/download")).content == body
+
+
+async def test_upload_rejects_object_shaped_json_that_is_no_survey_log(client) -> None:
+    """A single-byte sniff let any {...} document in — a track bundle, {} —
+    which then listed as a run with nothing in it and fell over at assign
+    time. Wrong file, refused at the door."""
+    c, _service, tmp = client
+    for body in (
+        json.dumps(_foreign_bundle()).encode(),  # the likeliest mixup
+        b"{}\n",
+        b'{"meta":{"track":"Ring","runs":4}}\n',  # a bundle-shaped meta
+    ):
+        resp = await c.post("/api/survey/logs/upload", content=body)
+        assert resp.status_code == 400, body[:40]
+    assert (await c.get("/api/survey/logs")).json() == []
+    assert not list(tmp.glob("surface_survey_*"))
+
+
+async def test_upload_rejects_a_log_with_a_malformed_line(client) -> None:
+    """One bad line mid-file means records the reader would silently drop, or
+    a mark it would crash on — a damaged file is refused whole, not trimmed."""
+    c, _service, _tmp = client
+    for body in (
+        LOG_BODY + b"not json at all\n",
+        LOG_BODY + b'{"mark":{"x":1.0}}\n',  # a mark the reader KeyErrors on
+        LOG_BODY + b'[1,2,3]\n',  # valid JSON, not an object record
+    ):
+        resp = await c.post("/api/survey/logs/upload", content=body)
+        assert resp.status_code == 400, body[-30:]
+    assert (await c.get("/api/survey/logs")).json() == []
+
+
 async def test_upload_rejects_junk_and_oversize(client, monkeypatch) -> None:
     c, _service, tmp = client
     assert (await c.post("/api/survey/logs/upload", content=b"")).status_code == 400
@@ -346,6 +397,11 @@ async def test_upload_rejects_junk_and_oversize(client, monkeypatch) -> None:
                          content=LOG_BODY)).status_code == 413
     # nothing rejected ever appears in the listing — not even as a .part
     assert (await c.get("/api/survey/logs")).json() == []
+    # ...and nothing rejected leaves a spool file behind either: every
+    # failure path unlinks the temp file.
+    residue = [p.name for p in tmp.iterdir()
+               if p.name.endswith(".part") or p.name.startswith("upload_")]
+    assert residue == []
 
 
 async def test_upload_is_admin_gated_download_is_not(tmp_path) -> None:

@@ -5,8 +5,15 @@ import math
 
 import pytest
 
+from app.config import Settings
 from app.processing import track_bundle, track_compile, track_limits
+from app.processing.cars import CarDatabase
+from app.processing.laps import CompletedLap, SessionInfo, new_sample_store
 from app.processing.surface import OFF_TRACK_MIN_TICKS
+from app.processing.tracks import signature_from_samples
+from app.service import TelemetryService
+from app.storage.db import init_db, make_engine, make_session_factory
+from app.storage.repository import Repository
 
 SOURCE = "abc123abc123"
 
@@ -87,6 +94,38 @@ def test_edge_margin_keeps_a_car_straddling_the_border_on(judge) -> None:
     assert judge.classify(107.5 * math.cos(a), 107.5 * math.sin(a)) == "off"
 
 
+# --- the honesty mask: unsurveyed ground never reads "off" --------------------
+
+
+def test_a_flagged_gap_corridor_is_unknown_not_off() -> None:
+    # 30 unsurveyed metres in both borders: the quads at either end are well
+    # within NEAR_ROAD_M of a mid-gap point, but the ground under it was
+    # never surveyed — driving through must not count as an excursion.
+    steps = int(2 * math.pi * 100)
+    hole = {(s, i) for s in ("L", "R") for i in range(100, 130)}
+    compiled = track_compile.compile_bundle(_document(_ring(skip=hole)))
+    judge = track_limits.RoadJudge(compiled)
+    a = 2 * math.pi * 115 / steps
+    assert judge.classify(100.0 * math.cos(a), 100.0 * math.sin(a)) == "unknown"
+    # Beside the surveyed road, far from the gap, "off" still holds.
+    assert judge.classify(-120.0, 0.0) == "off"
+
+
+def test_past_the_open_end_of_a_fragmented_survey_is_unknown() -> None:
+    # A third of the ring surveyed, both ends open: the road continues past
+    # where the quads stop, and points there are ambiguous, not "off".
+    steps = int(2 * math.pi * 100)
+    hole = {(s, i) for s in ("L", "R") for i in range(steps // 3, steps)}
+    compiled = track_compile.compile_bundle(_document(_ring(skip=hole)))
+    judge = track_limits.RoadJudge(compiled)
+    mid = 2 * math.pi * (steps // 6) / steps
+    assert judge.classify(100.0 * math.cos(mid), 100.0 * math.sin(mid)) == "on"
+    assert judge.classify(120.0 * math.cos(mid), 120.0 * math.sin(mid)) == "off"
+    # ~10 m past the surveyed end, on the road's continuation.
+    past = -10.0 / 100.0
+    assert judge.classify(100.0 * math.cos(past), 100.0 * math.sin(past)) == "unknown"
+
+
 # --- excursions ---------------------------------------------------------------
 
 
@@ -147,3 +186,82 @@ def test_judge_for_track_gates_on_road_coverage(tmp_path) -> None:
 def test_a_circuit_without_a_bundle_has_no_judge(tmp_path) -> None:
     assert track_limits.judge_for_track(tmp_path, "Nowhere") is None
     assert track_limits.judge_for_track(tmp_path, "") is None
+
+
+def test_judge_follows_the_recompiled_document(tmp_path) -> None:
+    track = "Test Circuit"
+    path = track_bundle.bundle_path(tmp_path, track)
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(_document(_ring())), encoding="utf-8")
+    track_compile._CACHE.clear()
+    track_limits._CACHE.clear()
+    first = track_limits.judge_for_track(tmp_path, track)
+    assert first is not None
+    assert track_limits.judge_for_track(tmp_path, track) is first  # repeat is cheap
+
+    # More evidence saved: the bundle file changes, for_track recompiles
+    # (new compiled_at), and a stale judge must not survive it.
+    path.write_text(json.dumps(_document(_ring(skip={("L", 0)}))), encoding="utf-8")
+    second = track_limits.judge_for_track(tmp_path, track)
+    assert second is not None
+    assert second is not first
+
+
+# --- late identification must not leak a stale WS verdict (#41) ---------------
+
+
+@pytest.fixture
+async def service(tmp_path):
+    settings = Settings(source="udp", db_path=tmp_path / "data" / "test.db", ws_rate=1000)
+    engine = make_engine(settings.db_path)
+    await init_db(engine)
+    repo = Repository(make_session_factory(engine))
+    svc = TelemetryService(settings, repo, CarDatabase())
+    yield svc, settings.db_path.parent
+    await engine.dispose()
+
+
+async def test_lap_event_after_late_identification_matches_the_row(service) -> None:
+    """The session's first lap: the circuit is identified only after the lap
+    was saved unjudged, so the verdict lands by backfill — and the WS lap
+    event emitted afterwards must carry it, not the pre-judgement -1."""
+    svc, data_dir = service
+    track = "Test Circuit"
+    path = track_bundle.bundle_path(data_dir, track)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(_document(_ring())), encoding="utf-8")
+    track_compile._CACHE.clear()
+    track_limits._CACHE.clear()
+
+    # One lap around the ring with a single sustained excursion to r=120.
+    samples = new_sample_store()
+    steps = int(2 * math.pi * 100)
+    for i in range(steps):
+        a = 2 * math.pi * i / steps
+        r = 120.0 if 300 <= i < 300 + OFF_TRACK_MIN_TICKS else 100.0
+        samples["pos_x"].append(r * math.cos(a))
+        samples["pos_z"].append(r * math.sin(a))
+        for column in ("t", "dist", "speed", "throttle", "brake", "coast",
+                       "tire_slip", "body_height", "fuel"):
+            samples[column].append(float(i))
+    lap = CompletedLap(
+        number=1, time_ms=90_000, finished_at="", car_id=1,
+        samples=samples, fuel_start=1.0, fuel_end=1.0,
+    )
+
+    # A stored signature makes identification land, exactly one lap late.
+    await svc.repo.create_track(track, signature_from_samples(samples))
+    svc.session_id = await svc.repo.create_session(
+        SessionInfo(car_id=1, started_at="now"), "Car"
+    )
+    events: list[dict] = []
+    svc._publish = events.append  # type: ignore[method-assign]
+    await svc._on_lap(lap)
+
+    assert svc.track_name == track
+    (lap_event,) = [e for e in events if e["type"] == "lap"]
+    (row,) = await svc.repo.list_laps(svc.session_id)
+    assert row["off_survey_count"] == 1
+    assert lap_event["data"]["off_survey_count"] == row["off_survey_count"]
+    assert lap_event["data"]["clean_lap"] == row["clean_lap"]
+    assert lap.clean_lap is False

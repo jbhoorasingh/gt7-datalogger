@@ -25,10 +25,12 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
@@ -349,22 +351,31 @@ async def download_log(request: Request, name: str) -> FileResponse:
 _LOG_NAME = re.compile(r"surface_survey_[A-Za-z0-9._-]{1,80}\.jsonl")
 
 
-def _upload_path(directory: Path, requested: str | None) -> Path:
-    """Where an uploaded log lands: the caller's name when it already fits the
-    naming scheme, a fresh timestamped one otherwise — and never an existing
-    file. Overwriting would silently replace one run's evidence with
-    another's; a suffixed copy loses nothing."""
+def _claim_upload_path(directory: Path, requested: str | None, part: Path) -> Path:
+    """Land a validated temp file under its final name: the caller's when it
+    already fits the naming scheme, a fresh timestamped one otherwise — and
+    never an existing file. Overwriting would silently replace one run's
+    evidence with another's; a suffixed copy loses nothing.
+
+    Claimed with os.link, which fails with FileExistsError instead of
+    replacing — an exists()-then-rename gap would let two concurrent uploads
+    of the same name both "win". Same directory, so same filesystem, which is
+    what makes the link legal and atomic; the temp file is the caller's to
+    unlink."""
     name = (requested or "").strip().replace("\\", "/").rsplit("/", 1)[-1]
     if not _LOG_NAME.fullmatch(name):
         ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
         name = f"surface_survey_uploaded_{ts}.jsonl"
     stem = name.removesuffix(".jsonl")
-    path = directory / name
-    n = 2
-    while path.exists():
-        path = directory / f"{stem}_{n}.jsonl"
-        n += 1
-    return path
+    n = 1
+    while True:
+        path = directory / (name if n == 1 else f"{stem}_{n}.jsonl")
+        try:
+            os.link(part, path)
+        except FileExistsError:
+            n += 1
+            continue
+        return path
 
 
 @router.post("/survey/logs/upload", dependencies=[Depends(require_admin)])
@@ -380,29 +391,30 @@ async def upload_log(request: Request) -> dict[str, Any]:
     length = request.headers.get("content-length")
     if length is not None and length.isdigit() and int(length) > MAX_IMPORT_BYTES:
         raise HTTPException(413, "log too large")
-    path = _upload_path(directory, request.query_params.get("name"))
-    # `.part` sits outside the listing glob, so a failed upload never lists.
-    part = path.with_name(path.name + ".part")
+    # A temp name unique to this request — concurrent uploads must not share
+    # a spool file — and outside the listing glob, so nothing rejected or
+    # abandoned here ever lists. The finally covers every exit: validation
+    # failure, cap abort, client disconnect.
+    part = directory / f"upload_{uuid4().hex}.part"
     size = 0
-    head = b""
     try:
         with part.open("wb") as out:
             async for chunk in request.stream():
                 size += len(chunk)
                 if size > MAX_IMPORT_BYTES:
                     raise HTTPException(413, "log too large")
-                if not head:
-                    head = chunk.lstrip()[:1]
                 out.write(chunk)
-        # The listing summarizes whatever it finds, so the gate is minimal:
-        # a JSONL log's first record is a JSON object, and anything else is a
-        # wrong file (a bundle export, an HTML error page) better refused than
-        # listed as a run with nothing in it.
         if size == 0:
             raise HTTPException(400, "empty upload")
-        if head != b"{":
-            raise HTTPException(400, "not a survey JSONL log")
-        part.replace(path)
+        # Full pass, not a sniff: any object-shaped JSON ({}, a bundle
+        # export) used to upload "successfully", list as a run with nothing
+        # in it, and only fail at assign time. Off the event loop — it is a
+        # line-by-line parse of up to MAX_IMPORT_BYTES.
+        try:
+            await asyncio.to_thread(survey_log.validate_log, part)
+        except survey_log.LogFormatError as exc:
+            raise HTTPException(400, f"not a survey JSONL log: {exc}") from exc
+        path = _claim_upload_path(directory, request.query_params.get("name"), part)
     finally:
         part.unlink(missing_ok=True)
     return survey_log.summarize(path)

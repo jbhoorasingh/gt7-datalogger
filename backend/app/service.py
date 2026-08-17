@@ -135,12 +135,6 @@ class TelemetryService:
         # at every lap boundary to re-read seventeen apexes would be absurd.
         # Invalidated when the refine view saves.
         self._authored: dict[str, list[dict[str, Any]]] = {}
-        # Surveyed-road judge for the current circuit (#41), built off the
-        # event loop and keyed by track name — a different name rebuilds it.
-        # A miss (no bundle, road coverage too thin) is cached too: asking
-        # the same absent survey once per lap would recompile it once per lap.
-        self._road_judge: track_limits.RoadJudge | None = None
-        self._road_judge_track: str | None = None
 
     def authored_corners(self, track: str) -> list[dict[str, Any]]:
         """A circuit's hand-labelled corners, if it has any. Blocking: the
@@ -399,20 +393,23 @@ class TelemetryService:
             log.info("track identified: %s (%s)", name, source)
             # Identification lands one lap late by construction, so whatever
             # this session already saved went to the DB unjudged against the
-            # surveyed edges — re-judge those rows now (#41).
-            await self._backfill_survey_verdicts()
+            # surveyed edges — re-judge those rows now (#41). `lap` rides
+            # along because its own WS event is emitted AFTER this returns
+            # and must not carry the pre-judgement verdict.
+            await self._backfill_survey_verdicts(lap)
             self._publish({"type": "session", "data": await self.status()})
 
     # --- surveyed-edge track limits (#41) -----------------------------------
 
     async def _survey_judge(self) -> track_limits.RoadJudge | None:
-        if self.track_name != self._road_judge_track:
-            self._road_judge = await asyncio.to_thread(
-                track_limits.judge_for_track,
-                self.settings.db_path.parent, self.track_name,
-            )
-            self._road_judge_track = self.track_name
-        return self._road_judge
+        """The judge for the current circuit (#41), asked fresh every time:
+        a bundle write (survey save, import) must reach the very next lap,
+        so no judge state lives here. track_limits caches by the compiled
+        document's identity, which makes the repeat call cheap."""
+        return await asyncio.to_thread(
+            track_limits.judge_for_track,
+            self.settings.db_path.parent, self.track_name,
+        )
 
     async def _judge_against_survey(self, lap: CompletedLap) -> None:
         judge = await self._survey_judge()
@@ -424,7 +421,7 @@ class TelemetryService:
         )
         lap.apply_survey_verdict(count)
 
-    async def _backfill_survey_verdicts(self) -> None:
+    async def _backfill_survey_verdicts(self, current: CompletedLap | None = None) -> None:
         if self.session_id is None:
             return
         judge = await self._survey_judge()
@@ -435,6 +432,11 @@ class TelemetryService:
             if not raw:
                 continue
             count = await asyncio.to_thread(_judge_samples_json, judge, raw)
+            # The lap still in memory — the one whose WS event has not been
+            # emitted yet — must carry the same verdict as its row: a client
+            # hears one event per lap, ever, and it has to match the DB.
+            if current is not None and row["number"] == current.number:
+                current.apply_survey_verdict(count)
             if count == row["off_survey_count"]:
                 continue
             # Same broadening as CompletedLap.apply_survey_verdict: an

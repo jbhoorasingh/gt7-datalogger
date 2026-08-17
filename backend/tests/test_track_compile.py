@@ -127,6 +127,33 @@ def test_centerline_runs_midway_and_carries_width_and_elevation() -> None:
     assert paired > 0.95
 
 
+def test_a_closed_loop_is_sampled_across_its_seam() -> None:
+    # The chain has an arbitrary seed; a surveyed closure must not leave an
+    # artificial hole there (the edge judge would read it as off-road).
+    left, _ = _sides(_ring())
+    samples = track_compile._resample(left, track_compile.CL_STEP_M)
+    real = [s for s in samples if s is not None]
+    breaks = sum(1 for s in samples if s is None)
+    assert breaks == 1  # only the trailing chain-boundary marker
+    circumference = 2 * math.pi * 95.0
+    assert len(real) >= circumference / track_compile.CL_STEP_M - 1
+
+
+def test_a_flagged_gap_breaks_the_sample_stream() -> None:
+    # Samples on opposite sides of a small gap can sit closer than 2×step;
+    # the break marker is what stops a quad from bridging unsurveyed ground.
+    # Two holes: whichever ends up as the chain's seam, the other is internal
+    # and must produce a mid-stream break.
+    holes = {("L", i) for i in range(100, 108)} | {("L", i) for i in range(400, 408)}
+    left, right = _sides(_ring(skip=holes))
+    samples = track_compile._resample(left, track_compile.CL_STEP_M)
+    assert sum(1 for s in samples if s is None) >= 2  # gap break + trailing
+    _, quads, _ = track_compile.centerline_and_road(left, right)
+    # no quad spans a hole: every quad's left edge stays under 2×step
+    for q in quads:
+        assert math.hypot(q[2] - q[0], q[3] - q[1]) <= 2 * track_compile.CL_STEP_M
+
+
 def test_unpaired_stretches_produce_no_centerline() -> None:
     # the right border is missing entirely: nothing to pair against
     steps = int(2 * math.pi * 100)

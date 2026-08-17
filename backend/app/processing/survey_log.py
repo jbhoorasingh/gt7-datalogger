@@ -111,6 +111,104 @@ def log_path(data_dir: Path, name: str) -> Path | None:
     return path
 
 
+class LogFormatError(ValueError):
+    """The file is not a survey JSONL log."""
+
+
+# Present in the header since the first writer (survey.start). `source` and
+# `wheels` came later, so requiring them would refuse genuine old logs; a
+# track bundle's meta has NEITHER of these, so two keys already tell the
+# documents apart.
+_HEADER_KEYS = ("started_at", "track_width_m")
+
+# The keys `edges_from_log` bracket-accesses on a mark. A mark missing one
+# uploads fine under any looser gate and then raises KeyError at assign time.
+_MARK_KEYS = ("x", "z", "hx", "hz", "side", "kind")
+
+
+def _header_ok(record: Any) -> bool:
+    return (
+        isinstance(record, dict)
+        and isinstance(record.get("meta"), dict)
+        and all(k in record["meta"] for k in _HEADER_KEYS)
+    )
+
+
+def _record_ok(record: Any) -> bool:
+    """Would `edges_from_log` cross this record without raising?
+
+    Mirrors that function's accesses exactly — its bracket-lookups define the
+    required shape, its .get() defaults define the tolerance — so the two
+    cannot drift apart without this file changing in both places. Unknown
+    record types pass, because the reader skips them.
+    """
+    if not isinstance(record, dict):
+        return False
+    if "meta" in record:
+        return isinstance(record["meta"], dict)
+    if "track" in record and len(record) == 1:
+        return True
+    if "finish" in record:
+        return True
+    mark = record.get("mark")
+    if isinstance(mark, dict):
+        return all(k in mark for k in _MARK_KEYS)
+    # Transition shape. The reader only touches vel/contacts/changed when
+    # border and contacts are both truthy, so anything else is a skip.
+    contacts = record.get("contacts")
+    if not record.get("border") or not contacts:
+        return True
+    if not isinstance(contacts, dict):
+        return False
+    vel = record.get("vel")
+    if vel and not (
+        isinstance(vel, list)
+        and len(vel) >= 3
+        and all(isinstance(v, int | float) for v in vel)
+    ):
+        return False
+    if not isinstance(record.get("changed", []), list):
+        return False
+    # Truthy contact points get indexed [0]/[1] by the reader.
+    return all(
+        not point
+        or (isinstance(point, list) and len(point) >= 2
+            and all(isinstance(v, int | float) for v in point[:2]))
+        for point in contacts.values()
+    )
+
+
+def validate_log(path: Path) -> None:
+    """Refuse a file that is not a survey JSONL log, before it can list.
+
+    Every line must parse — the reader tolerates a truncated line because a
+    crash mid-write leaves one, but an UPLOAD with a malformed line is a
+    wrong or damaged file, and accepting it means silently dropping records
+    at assign time. Raises LogFormatError with the offending line number.
+    """
+    lines = 0
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            for lines, line in enumerate(handle, start=1):
+                try:
+                    record = json.loads(line)
+                except ValueError as exc:
+                    raise LogFormatError(f"line {lines} is not valid JSON") from exc
+                if lines == 1:
+                    if not _header_ok(record):
+                        raise LogFormatError(
+                            "first line is not a survey log header"
+                        )
+                elif not _record_ok(record):
+                    raise LogFormatError(
+                        f"line {lines} is not a survey log record"
+                    )
+    except UnicodeDecodeError as exc:
+        raise LogFormatError("not UTF-8 text") from exc
+    if lines == 0:
+        raise LogFormatError("empty file")
+
+
 def edges_from_log(
     path: Path, run: int, source: str
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], str]:

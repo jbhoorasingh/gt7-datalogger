@@ -42,6 +42,14 @@ CELL_M = 40.0
 # and the verdict worthless either way.
 MIN_ROAD_PCT = 50.0
 
+# One judge per compiled document: (slug, compiled_at) changes exactly when
+# for_track recompiles, so a bundle write (survey save, import) reaches laps
+# at the very next judgement. Building is ~ms for <1000 quads — the cache
+# only avoids a rebuild per lap. Same bound/overflow policy as
+# track_compile._CACHE.
+_CACHE: dict[tuple[str, str], RoadJudge] = {}
+_CACHE_MAX = 8
+
 
 def _inside_convex(x: float, z: float, q: Sequence[float]) -> bool:
     """Point-in-convex-quad ([x1,z1,...,x4,z4]), tolerant of either winding:
@@ -84,6 +92,24 @@ class RoadJudge:
             for gx in range(math.floor(bb[0] / CELL_M), math.floor(bb[2] / CELL_M) + 1):
                 for gz in range(math.floor(bb[1] / CELL_M), math.floor(bb[3] / CELL_M) + 1):
                     self._cells.setdefault((gx, gz), []).append(i)
+        # Ground the survey EXPLICITLY never saw: flagged gap spans on either
+        # border, and the open ends of every centerline run (past them the
+        # road continues but the quads stop). A would-be "off" point at least
+        # as close to one of these as to the road gets "unknown" instead.
+        # Endpoints go in unconditionally, closed loop or not: a closed
+        # loop's seam endpoints sit ON the road, where "on" wins before the
+        # mask is ever consulted, so detecting the closed case buys nothing.
+        gaps = compiled.get("gaps") or {}
+        self._gap_segs: list[tuple[float, float, float, float]] = [
+            (g[0], g[1], g[2], g[3])
+            for g in (gaps.get("L") or []) + (gaps.get("R") or [])
+        ]
+        self._end_pts: list[tuple[float, float]] = [
+            (float(run[k][0]), float(run[k][1]))
+            for run in compiled.get("centerline") or []
+            if run
+            for k in (0, -1)
+        ]
 
     def classify(self, x: float, z: float) -> str:
         """"on" | "off" | "unknown" for one point (see module docstring)."""
@@ -93,12 +119,13 @@ class RoadJudge:
         """Verdict plus the quad that carried it, offered back as `hint`: at
         60 Hz consecutive samples almost always resolve to the same quad."""
         near = -1
+        near_d = math.inf
         if 0 <= hint < len(self._quads):
             d = self._quad_distance(x, z, hint)
             if d <= EDGE_MARGIN_M:
                 return "on", hint
             if d <= NEAR_ROAD_M:
-                near = hint
+                near, near_d = hint, d
         gx0 = math.floor((x - NEAR_ROAD_M) / CELL_M)
         gx1 = math.floor((x + NEAR_ROAD_M) / CELL_M)
         gz0 = math.floor((z - NEAR_ROAD_M) / CELL_M)
@@ -119,9 +146,28 @@ class RoadJudge:
                     d = self._quad_distance(x, z, i)
                     if d <= EDGE_MARGIN_M:
                         return "on", i
-                    if d <= NEAR_ROAD_M and near < 0:
-                        near = i
-        return ("off", near) if near >= 0 else ("unknown", -1)
+                    if d <= NEAR_ROAD_M and d < near_d:
+                        near, near_d = i, d
+        if near < 0:
+            return "unknown", -1
+        # "Off" needs the road to be the nearest explanation. The slack is
+        # EDGE_MARGIN_M because the tie is not exact: quads are stored
+        # rounded and a run endpoint is one point standing in for the whole
+        # road-end edge. Ambiguity resolves for the lap, never against it.
+        if self._masked(x, z, near_d + EDGE_MARGIN_M):
+            return "unknown", near
+        return "off", near
+
+    def _masked(self, x: float, z: float, within: float) -> bool:
+        """Whether explicitly-unsurveyed ground (a flagged gap span, an open
+        run end) lies within `within` metres of the point."""
+        for x1, z1, x2, z2 in self._gap_segs:
+            if _segment_distance(x, z, x1, z1, x2, z2) <= within:
+                return True
+        for px, pz in self._end_pts:
+            if math.hypot(px - x, pz - z) <= within:
+                return True
+        return False
 
     def _quad_distance(self, x: float, z: float, i: int) -> float:
         q = self._quads[i]
@@ -170,13 +216,23 @@ class RoadJudge:
 def judge_for_track(data_dir: Path, track: str) -> RoadJudge | None:
     """The judge for a circuit, or None when its survey cannot support one.
 
-    Gated on coverage["road_pct"] >= MIN_ROAD_PCT. Blocking (recompiles a
-    stale bundle, then hashes the quads): callers run it off the event loop,
-    as they do for track_compile itself.
+    Gated on coverage["road_pct"] >= MIN_ROAD_PCT. Cheap on repeat calls
+    (for_track caches the document, _CACHE the judge built from it), so
+    callers ask fresh every time instead of holding their own copy — a
+    bundle write reaches the next judgement. Still blocking when the bundle
+    is stale (recompile): callers run it off the event loop, as they do for
+    track_compile itself.
     """
     compiled = track_compile.for_track(data_dir, track)
     if compiled is None or compiled["coverage"]["road_pct"] < MIN_ROAD_PCT:
         return None
     if not compiled["road"]:
         return None
-    return RoadJudge(compiled)
+    key = (compiled["slug"], compiled["compiled_at"])
+    judge = _CACHE.get(key)
+    if judge is None:
+        if len(_CACHE) >= _CACHE_MAX:
+            _CACHE.clear()
+        judge = RoadJudge(compiled)
+        _CACHE[key] = judge
+    return judge
