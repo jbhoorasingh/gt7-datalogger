@@ -83,13 +83,18 @@ export function TracksView() {
   useEffect(refresh, [refresh]);
 
   useEffect(() => {
+    let live = true;
     api.bundles
       .shared()
       .then((s) => {
+        if (!live) return;
         setShared(s);
         setSharedError("");
       })
-      .catch((e: Error) => setSharedError(e.message));
+      .catch((e: Error) => live && setSharedError(e.message));
+    return () => {
+      live = false;
+    };
   }, []);
 
   const run = async (what: string, fn: () => Promise<unknown>) => {

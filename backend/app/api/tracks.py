@@ -509,6 +509,11 @@ async def pull_shared_bundle(
         track = track.strip()[: track_bundle.MAX_TRACK_NAME]
         if not track:
             raise HTTPException(400, "track override cannot be blank")
+    # Everything the REPO can get wrong is a 502: the client sent nothing but
+    # a slug, so a malformed index, a bundle URL off http(s), or a bundle that
+    # fails validation are all upstream-content failures, not client errors —
+    # the same reading the listing endpoint above gives them. 4xx is reserved
+    # for the caller's own inputs (unknown slug, blank track override).
     try:
         raw = await shared_repo.fetch_json(url, shared_repo.MAX_INDEX_BYTES)
         entries = shared_repo.validate_index(raw)
@@ -524,7 +529,7 @@ async def pull_shared_bundle(
             track_bundle.merge_document, data_dir(request), doc, track
         )
     except track_bundle.BundleError as exc:
-        raise HTTPException(400, f"invalid shared bundle: {exc}") from exc
+        raise HTTPException(502, f"shared bundle repo: {exc}") from exc
     except httpx.HTTPError as exc:
         raise HTTPException(502, f"shared bundle repo unreachable: {exc}") from exc
     # A pull can give a circuit its first authored corners, same as import.

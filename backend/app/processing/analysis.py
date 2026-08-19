@@ -545,8 +545,11 @@ def corner_report(
             window = sp[lo:hi] or [_interp(d, sp, (entry + exit_) / 2)]
         else:
             # A start/finish-stitched corner wraps the lap boundary: its time
-            # is the tail of this lap plus the head of it.
-            if exit_ > d[-1] + GRID_TOLERANCE_M:
+            # is the tail of this lap plus the head of it — so the lap must
+            # cover BOTH: a short lap that never reached the entry would
+            # otherwise clamp to its last sample and report the head alone,
+            # a phantom gain sorted straight to the top of the card.
+            if exit_ > d[-1] + GRID_TOLERANCE_M or entry > d[-1] + GRID_TOLERANCE_M:
                 continue
             time_s = (ts[-1] - _interp(d, ts, entry)) + (_interp(d, ts, exit_) - ts[0])
             lo = bisect_left(d, entry)

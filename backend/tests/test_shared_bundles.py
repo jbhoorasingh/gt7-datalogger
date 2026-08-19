@@ -213,14 +213,16 @@ async def test_pull_unknown_slug_404(client, monkeypatch) -> None:
     assert resp.status_code == 404
 
 
-async def test_pull_invalid_bundle_400(client, monkeypatch) -> None:
+async def test_pull_invalid_bundle_is_a_repo_failure_502(client, monkeypatch) -> None:
+    """The client sent only a slug: a bundle the repo serves malformed is the
+    repo's failure (502), never the caller's (400) — and nothing is stored."""
     c, _service, tmp = client
     _serve(monkeypatch, {
         INDEX_URL: _index(_entry()),
         "https://bundles.example/ring.json": {"format": "not-a-bundle"},
     })
     resp = await c.post("/api/track-bundles/shared/ring/pull")
-    assert resp.status_code == 400
+    assert resp.status_code == 502
     assert track_bundle.load(tmp, "Ring") is None
 
 

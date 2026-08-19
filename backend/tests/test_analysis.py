@@ -493,6 +493,14 @@ def test_corner_report_wraparound_window() -> None:
     assert report[0]["time_ms"] == pytest.approx(4000.0, abs=10)
 
 
+def test_corner_report_wraparound_needs_both_halves() -> None:
+    """A short lap that never reached the wrapped corner's entry must omit it:
+    clamping would report the head alone as the whole corner — a phantom gain
+    sorted straight to the top of the card."""
+    short = make_lap(600.0, 50.0)  # ends 300 m before the entry
+    assert analysis.corner_report([_window(5, 900.0, 100.0)], short) == []
+
+
 def test_corner_report_degenerate_inputs() -> None:
     assert analysis.corner_report([_window(1, 0.0, 100.0)], {}) == []
     assert analysis.corner_report([], make_lap(1000.0, 50.0)) == []
