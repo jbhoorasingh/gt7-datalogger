@@ -69,6 +69,15 @@ class TrackRow(Base):
     min_z: Mapped[float]
     max_z: Mapped[float]
     created_at: Mapped[str]
+    # "user" (a human named this circuit) or "seed" (computed offline and
+    # shipped with the build, #58). The distinction is load-bearing twice: a
+    # re-sync replaces every seed row and no user row, and identification
+    # prefers a name a person chose over one we inferred.
+    provenance: Mapped[str] = mapped_column(default="user")
+    # The GT7 configuration a seeded row came from. Empty for user rows —
+    # nothing joins a typed name to the catalog, which is the whole reason
+    # track_catalog.py suggests rather than decides.
+    official_id: Mapped[str] = mapped_column(default="")
 
 
 class SettingRow(Base):

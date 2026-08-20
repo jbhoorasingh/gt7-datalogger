@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import logging
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
@@ -10,8 +12,11 @@ from sqlalchemy import Row, case, delete, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.processing.laps import CompletedLap, SessionInfo
+from app.processing.track_seed import SeedRow
 from app.processing.tracks import IDENTIFY_MIN_TICKS, TrackSignature, matches
 from app.storage.db import LapRow, LayoutRow, SessionRow, SettingRow, TrackRow
+
+log = logging.getLogger(__name__)
 
 # v2 (Tier 1): per-corner sample columns, events, aid/engine metrics, gearing.
 # v1 files import fine — missing columns stay absent and charts skip them.
@@ -489,18 +494,74 @@ class Repository:
                     "name": t.name,
                     "length_m": t.length_m,
                     "created_at": t.created_at,
+                    # A seeded row is one the build supplied, not one this
+                    # installation learned; the Tracks view says so rather
+                    # than presenting 80 circuits as the user's own work.
+                    "provenance": t.provenance,
+                    "official_id": t.official_id,
                 }
                 for t in rows
             ]
 
     async def find_track(self, sig: TrackSignature) -> str | None:
-        """Name of the stored track matching this signature, if any."""
+        """Name of the stored track matching this signature, if any.
+
+        User rows are consulted first and win outright: a name a person typed
+        outranks one computed offline, whatever the geometry says.
+
+        Seed rows then answer only if they agree. Before #58 this method could
+        return the first match and be right, because the table never held two
+        rows that could both match one lap — a user names the circuit they are
+        driving, once. Seeding 80-odd configurations makes that false: a
+        bounding box cannot tell Lago Maggiore Full Course from Suzuka, nor
+        Road Atlanta from Watkins Glen, and on the author's own recordings 24
+        of 146 laps matched two seeds. Picking whichever the database returned
+        first would put a wrong circuit name on a session silently, so an
+        ambiguous seed declines instead. `match_bundles` already refuses on the
+        same reasoning; this is the signature path catching up.
+        """
         async with self._sf() as db:
-            rows = (await db.execute(select(TrackRow))).scalars()
-            for track in rows:
-                if matches(sig, track):
-                    return track.name
+            rows = list((await db.execute(select(TrackRow))).scalars())
+        for track in rows:
+            if track.provenance != "seed" and matches(sig, track):
+                return track.name
+        hits = {t.name for t in rows if t.provenance == "seed" and matches(sig, t)}
+        if len(hits) == 1:
+            return hits.pop()
+        if hits:
+            log.info("seeded signature ambiguous between %s; declining", sorted(hits))
         return None
+
+    async def sync_seeded_tracks(self, rows: Sequence[SeedRow]) -> int:
+        """Replace every seeded row with `rows`. User rows are never touched.
+
+        Wholesale replace rather than a row-by-row reconcile because the seed
+        file is the whole truth about its own rows: a configuration dropped
+        upstream (a capture that turned out to be half a lap) has to disappear
+        here too, and a diff that only ever adds and updates would leave it
+        behind forever. `provenance` is what makes the blunt version safe.
+        """
+        async with self._sf() as db:
+            await db.execute(delete(TrackRow).where(TrackRow.provenance == "seed"))
+            created = datetime.now(UTC).isoformat()
+            db.add_all(
+                [
+                    TrackRow(
+                        name=row.name,
+                        length_m=row.length_m,
+                        min_x=row.min_x,
+                        max_x=row.max_x,
+                        min_z=row.min_z,
+                        max_z=row.max_z,
+                        created_at=created,
+                        provenance="seed",
+                        official_id=row.official_id,
+                    )
+                    for row in rows
+                ]
+            )
+            await db.commit()
+        return len(rows)
 
     async def create_track(self, name: str, sig: TrackSignature) -> int:
         async with self._sf() as db:

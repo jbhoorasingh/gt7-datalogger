@@ -14,7 +14,8 @@ from fastapi.staticfiles import StaticFiles
 
 from app import logbuffer
 from app.api import admin, layouts, routes, tracks, ws
-from app.config import get_settings
+from app.config import Settings, get_settings
+from app.processing import track_seed
 from app.processing.cars import CarDatabase
 from app.race_engineer import VERBOSITY_MODES
 from app.service import TelemetryService
@@ -30,6 +31,56 @@ def configure_logging(level: str) -> None:
         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
     )
     logbuffer.install()
+
+
+# Settings key holding the digest of the seed file the tracks table was last
+# built from. Same persisted key-value pattern the rest of lifespan uses.
+SEED_DIGEST_KEY = "track_seed_digest"
+
+
+async def sync_track_seed(
+    settings: Settings,
+    repo: Repository,
+    stored: dict[str, str],
+    log: logging.Logger,
+) -> None:
+    """Bring the seeded rows in the tracks table up to date with the file.
+
+    Runs on every start but does nothing on almost all of them: the file's
+    content hash is compared against what the database was last built from, so
+    the write happens on a first run and on the release that changes the seed,
+    and never otherwise.
+
+    Nothing here may stop the app. A missing, unreadable or invalid seed leaves
+    identification exactly as it was before #58 — answering only from what the
+    user has named and surveyed — which is a worse experience, not a broken one.
+    """
+    path = settings.track_signatures_json
+    # Blank setting: seeding off on purpose. Pydantic renders "" as Path("."),
+    # so the empty string never survives to be compared against.
+    if str(path) in ("", "."):
+        return
+    try:
+        digest = track_seed.digest(path)
+    except OSError:
+        log.info("no track signature seed at %s; identification starts empty", path)
+        return
+    if stored.get(SEED_DIGEST_KEY) == digest:
+        return
+    rows = track_seed.load(path)
+    if not rows:
+        return  # load() has already said why
+    try:
+        count = await repo.sync_seeded_tracks(rows)
+        await repo.set_setting(SEED_DIGEST_KEY, digest)
+    except Exception:  # pragma: no cover - a seed must never fail a start
+        log.exception("track signature seed could not be applied; continuing without it")
+        return
+    surveyed = sum(1 for r in rows if r.provenance == "survey")
+    log.info(
+        "track signatures seeded: %d configurations (%d from survey, %d from capture)",
+        count, surveyed, count - surveyed,
+    )
 
 
 @asynccontextmanager
@@ -64,6 +115,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         settings.race_engineer_categories = stored["race_engineer_categories"]
     if stored.get("race_engineer_units") in ("metric", "imperial"):
         settings.race_engineer_units = stored["race_engineer_units"]
+
+    await sync_track_seed(settings, repo, stored, log)
 
     cars = CarDatabase()
     cars.load(settings.cars_csv)

@@ -27,6 +27,13 @@ class Settings(BaseSettings):
     cars_csv: Path = Path("data/cars.csv")
     # Official GT7 track/layout metadata (see scripts/build_track_metadata.py)
     tracks_json: Path = Path("data/tracks.json")
+    # Pre-computed track signatures, generated in gt7-datalogger-track-data and
+    # vendored here so a fresh install identifies circuits on its first packet
+    # with no network (#58). Synced into the tracks table at startup whenever
+    # the file's contents differ from what was last loaded; blank disables
+    # seeding entirely and restores the pre-#58 behaviour of naming nothing
+    # until the user does.
+    track_signatures_json: Path = Path("data/track-signatures.json")
     sample_lap: Path = Path("data/sample_lap.json")
 
     http_host: str = "0.0.0.0"
