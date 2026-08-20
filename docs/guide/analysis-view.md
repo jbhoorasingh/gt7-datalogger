@@ -13,16 +13,31 @@ speeds line up corner-for-corner (see [Lap comparison math](../internals/analysi
 2. **Click lap chips** to toggle them into the comparison.
 3. **Double-click a chip** (or use the `ref:` dropdown) to make it the **reference
    lap** — the lap everything else is measured against.
+4. **+ Add lap…** brings in laps from *other* sessions at the same circuit: the
+   picker lists every lap ever recorded there, **fastest first** — the lap you are
+   hunting for is almost always the quick one — and a picked lap joins the comparison
+   as a **guest chip** labelled `S12·L3` (session 12, lap 3). Guests behave exactly
+   like local laps: time diff, corner report, map, reference — all of it.
 
 Until you pick manually, the view auto-selects *latest vs best* and keeps following as
 new laps arrive live — useful on a second screen while driving. Any manual change pins
 your selection.
 
+!!! note "Same circuit only"
+    Every chart's x-axis is distance from the start line, and that convention holds
+    across sessions **on the same circuit** — which is why cross-session comparison
+    works at all, and why the picker only ever offers laps from this session's own
+    circuit (it needs the session's track to be [named](sessions-view.md)).
+    Overlaying laps from different circuits would align nothing with nothing, so the
+    UI doesn't offer it.
+
 !!! tip "Deep links"
     The full selection is encoded in the URL —
     `#/analysis?session=3&laps=12,15&ref=15&ch=speed,brake` — so a bookmark or shared
     link reproduces the exact view. The Sessions and Live views use these links for
-    their *compare* / *analyze* shortcuts.
+    their *compare* / *analyze* shortcuts. Lap ids are global, so a link may name
+    laps from *other* sessions (`#/analysis?session=3&laps=12,208`) — they load as
+    guest chips rather than being pruned.
 
 ## Stacked charts
 
@@ -188,6 +203,10 @@ laps, focus chips let you switch the focus lap.
   spin, fuel used, car category, aid usage (TCS/ASM %), engine health (max water/oil
   temp, min oil pressure), and the detected-event summary. When the circuit is named and
   the car's class is known, it also shows the **class benchmark** — the fastest full lap
-  ever recorded at this circuit in the same category, the gap to the reference lap, and a
-  link to open it. Scoped by class on purpose: a Gr.3 time and an N100 time around the
-  same corners are not the same achievement.
+  ever recorded at this circuit in the same category, the gap to the reference lap, a
+  link to open it, and **compare**, which pulls the benchmark lap straight into the
+  current comparison as a guest chip — the question the benchmark raises ("where does
+  it gain?") answered in the same view that raised it. Scoped by class on purpose: a
+  Gr.3 time and an N100 time around the same corners are not the same achievement.
+  Sessions [excluded from bests](sessions-view.md#excluding-a-session-from-bests) never
+  provide the benchmark — a replay of the leaderboard leader is not *your* class best.

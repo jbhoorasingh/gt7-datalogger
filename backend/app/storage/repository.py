@@ -47,6 +47,7 @@ def lap_summary(row: LapRow) -> dict[str, Any]:
         "off_track_count": row.off_track_count,
         "off_survey_count": row.off_survey_count,
         "clean_lap": row.clean_lap,
+        "salvaged": bool(row.salvaged),
         "event_counts": _event_counts(row.events_json),
     }
 
@@ -101,6 +102,7 @@ class Repository:
                 off_track_count=lap.off_track_count,
                 off_survey_count=lap.off_survey_count,
                 clean_lap=lap.clean_lap,
+                salvaged=lap.salvaged,
                 max_water_temp=lap.max_water_temp,
                 max_oil_temp=lap.max_oil_temp,
                 min_oil_pressure=lap.min_oil_pressure,
@@ -147,6 +149,7 @@ class Repository:
                     "car_category": s.car_category or lap_category or "",
                     "note": s.note,
                     "track_name": s.track_name,
+                    "bests_excluded": bool(s.bests_excluded),
                     "lap_count": count,
                     "best_lap_time_ms": best,
                 }
@@ -155,6 +158,29 @@ class Repository:
             if category:
                 sessions = [s for s in sessions if s["car_category"] == category]
             return sessions
+
+    async def update_session(
+        self,
+        session_id: int,
+        note: str | None = None,
+        bests_excluded: bool | None = None,
+    ) -> bool:
+        """Patch a session's user-editable fields; False when no such row.
+
+        None means "leave alone", not "clear" — the PATCH endpoint sends only
+        the fields the user touched, and a note must survive the neighbouring
+        bests_excluded checkbox being flipped (#26).
+        """
+        async with self._sf() as db:
+            row = await db.get(SessionRow, session_id)
+            if row is None:
+                return False
+            if note is not None:
+                row.note = note
+            if bests_excluded is not None:
+                row.bests_excluded = bests_excluded
+            await db.commit()
+            return True
 
     async def best_lap_in(self, track: str, category: str) -> dict[str, Any] | None:
         """Fastest full lap ever recorded at a circuit in a car category.
@@ -175,6 +201,10 @@ class Repository:
                         SessionRow.track_name == track,
                         LapRow.car_category == category,
                         LapRow.counts_for_best,
+                        # A session excluded from bests must not define the
+                        # class benchmark either — a recorded replay is not a
+                        # target anyone set (#26).
+                        ~SessionRow.bests_excluded,
                     )
                     .order_by(LapRow.time_ms)
                     .limit(1)
@@ -196,6 +226,80 @@ class Repository:
                 "off_survey_count": lap.off_survey_count,
                 "finished_at": lap.finished_at or started_at,
             }
+
+    async def personal_bests(self, category: str | None = None) -> list[dict[str, Any]]:
+        """The all-time board: fastest counting lap per (circuit, car) (#26).
+
+        One window-function query rather than a Python group-by, because the
+        naive route loads every lap row — samples_json included — to keep a
+        handful of winners. row_number() picks the fastest per partition (id
+        breaks the tie so re-runs return the same lap); count() over the same
+        partition is the sample size, which is what tells a one-off banker
+        lap apart from a best backed by fifty attempts.
+
+        Excluded: partial laps (their GT7 "times" aren't full-lap times),
+        unlabeled sessions (no circuit, no board to be on), and sessions the
+        user flagged bests_excluded — recorded replays are indistinguishable
+        from driving in the telemetry, so that verdict is theirs to make.
+        """
+        async with self._sf() as db:
+            partition = (SessionRow.track_name, LapRow.car_id)
+            ranked = (
+                select(
+                    SessionRow.track_name,
+                    LapRow.car_id,
+                    LapRow.car_category,
+                    LapRow.id.label("lap_id"),
+                    LapRow.session_id,
+                    LapRow.number,
+                    LapRow.time_ms,
+                    LapRow.finished_at,
+                    LapRow.clean_lap,
+                    LapRow.off_survey_count,
+                    LapRow.salvaged,
+                    func.row_number()
+                    .over(partition_by=partition, order_by=(LapRow.time_ms, LapRow.id))
+                    .label("rn"),
+                    func.count().over(partition_by=partition).label("lap_count"),
+                )
+                .join(SessionRow, SessionRow.id == LapRow.session_id)
+                .where(
+                    SessionRow.track_name != "",
+                    LapRow.counts_for_best,
+                    ~SessionRow.bests_excluded,
+                )
+                .subquery()
+            )
+            q = (
+                select(ranked)
+                .where(ranked.c.rn == 1)
+                .order_by(ranked.c.track_name, ranked.c.time_ms)
+            )
+            if category:
+                # Applied OUTSIDE the window, so the filter narrows finished
+                # board rows rather than re-ranking within the class: a car
+                # whose fastest lap predates packet C (category '') must not
+                # sprout a slower "Gr.3 best" that the unfiltered board never
+                # shows.
+                q = q.where(ranked.c.car_category == category)
+            rows = (await db.execute(q)).all()
+            return [
+                {
+                    "track_name": r.track_name,
+                    "car_id": r.car_id,
+                    "car_category": r.car_category or "",
+                    "lap_id": r.lap_id,
+                    "session_id": r.session_id,
+                    "number": r.number,
+                    "time_ms": r.time_ms,
+                    "finished_at": r.finished_at,
+                    "clean_lap": r.clean_lap,
+                    "off_survey_count": r.off_survey_count,
+                    "salvaged": bool(r.salvaged),
+                    "lap_count": r.lap_count,
+                }
+                for r in rows
+            ]
 
     async def session_lap_stats(self, session_id: int) -> dict[str, Any]:
         """Aggregates for a session without materializing lap rows.
@@ -254,13 +358,75 @@ class Repository:
             )
             await db.commit()
 
-    async def list_laps(self, session_id: int | None = None) -> list[dict[str, Any]]:
+    async def list_laps(
+        self,
+        session_id: int | None = None,
+        track: str | None = None,
+        category: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Lap summaries, newest first, optionally scoped to a session, a
+        circuit, or a car category.
+
+        Projects exactly the columns lap_summary reads instead of loading
+        LapRow objects: each row would otherwise drag samples_json along —
+        hundreds of kilobytes per lap — to build a summary that uses none of
+        it, which is what made the unscoped listing unusable as a discovery
+        surface (#26). The join is inner because every lap has a session; it
+        also supplies track_name, so summaries say where they were driven
+        without a per-row lookup.
+        """
         async with self._sf() as db:
-            q = select(LapRow).order_by(LapRow.id.desc())
+            q = (
+                select(
+                    LapRow.id,
+                    LapRow.session_id,
+                    LapRow.number,
+                    LapRow.time_ms,
+                    LapRow.finished_at,
+                    LapRow.car_id,
+                    LapRow.car_category,
+                    LapRow.fuel_start,
+                    LapRow.fuel_end,
+                    LapRow.fuel_consumed,
+                    LapRow.full_throttle_pct,
+                    LapRow.full_brake_pct,
+                    LapRow.coasting_pct,
+                    LapRow.tire_spin_pct,
+                    LapRow.max_speed,
+                    LapRow.min_body_height,
+                    LapRow.total_ticks,
+                    LapRow.tod_ms,
+                    LapRow.tcs_active_pct,
+                    LapRow.asm_active_pct,
+                    LapRow.max_water_temp,
+                    LapRow.max_oil_temp,
+                    LapRow.min_oil_pressure,
+                    LapRow.counts_for_best,
+                    LapRow.off_track_count,
+                    LapRow.off_survey_count,
+                    LapRow.clean_lap,
+                    LapRow.salvaged,
+                    LapRow.events_json,
+                    SessionRow.track_name,
+                )
+                .join(SessionRow, SessionRow.id == LapRow.session_id)
+                .order_by(LapRow.id.desc())
+            )
             if session_id is not None:
                 q = q.where(LapRow.session_id == session_id)
-            rows = (await db.execute(q)).scalars()
-            return [lap_summary(r) for r in rows]
+            if track is not None:
+                q = q.where(SessionRow.track_name == track)
+            if category is not None:
+                q = q.where(LapRow.car_category == category)
+            rows = (await db.execute(q)).all()
+            laps = []
+            for r in rows:
+                # lap_summary reads attributes, which the projected Row serves
+                # just as an ORM object would.
+                lap = lap_summary(r)
+                lap["track_name"] = r.track_name
+                laps.append(lap)
+            return laps
 
     async def get_lap(self, lap_id: int, with_samples: bool = True) -> dict[str, Any] | None:
         async with self._sf() as db:
@@ -550,5 +716,8 @@ class Repository:
         completed.min_oil_pressure = float(lap.get("min_oil_pressure", -1.0))
         gearing = lap.get("gearing")
         completed.gearing = gearing if isinstance(gearing, dict) else None
+        # Provenance survives the round-trip: a salvaged lap exported and
+        # imported elsewhere is still a salvaged lap (#26).
+        completed.salvaged = bool(lap.get("salvaged", False))
         completed.compute_metrics()
         return await self.save_lap(session_id, completed)

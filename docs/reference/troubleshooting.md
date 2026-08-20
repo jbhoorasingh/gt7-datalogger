@@ -25,8 +25,17 @@ The backend is running but no packets are arriving from the console.
 
 ## No laps recorded
 
-- Laps are only recorded while the car is **on track and not paused**; menu and replay
-  time is ignored.
+- Laps are only recorded while the car is **on track and not paused** — menu time is
+  ignored.
+- **Replays do record.** GT7 streams a replay exactly like driving (there is no
+  replay flag), so a race replay records its laps normally, and a single-lap
+  leaderboard replay — which ends *at* the line, before a lap would normally commit —
+  is [salvaged](../internals/lap-detection.md#replay-salvage) when GT7's own reported
+  lap time matches the recording. Two consequences: a race replay that cuts off
+  *before* the flag still discards its final partial lap (no matching time, no lap),
+  and replays capture *other drivers'* laps into your history — see
+  [excluding a session from bests](../guide/sessions-view.md#excluding-a-session-from-bests).
+  The `~` packet format doesn't stream during replays; the default format C does.
 - The first (out) lap completes when you cross the start line — until then nothing is
   saved.
 - Check that recording hasn't been toggled off in the **Sessions** view.

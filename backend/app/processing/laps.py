@@ -29,6 +29,29 @@ MAX_FRAME_GAP = 60
 # this from GT7's own lap timer within one lap. 100 ms is ~6 frames of
 # mis-credited time — well past rounding noise, small enough to catch early.
 LAP_CLOCK_WARN_MS = 100
+# Salvage acceptance window (#26): a lap only commits when the counter steps
+# forward, and a stream that ends AT the finish line — the time-trial-leader
+# replay is the canonical case — never shows that step. The buffered lap is
+# kept anyway, but only when a lap time GT7 itself reported agrees with our
+# integrated duration. The #20 cross-check puts genuine integration drift
+# well under half a second over a lap, while an aborted lap that happens to
+# resemble a reported time almost never lands inside a window this tight.
+# The ratio term keeps the window proportionate on endurance-length laps,
+# where half a second of honest drift is plausible.
+SALVAGE_TOLERANCE_MS = 500
+SALVAGE_TOLERANCE_RATIO = 0.005
+# A backward jump in GT7's per-tick lap clock (packet C) marks a line
+# crossing inside the buffer: replays pre-roll from before the flying lap,
+# and the clock re-anchors when the lap starts. 250 ms is far beyond the
+# tick-to-tick jitter of a counting clock and far below any real lap time,
+# so a jump this size can only be a re-anchor.
+SALVAGE_CLOCK_JUMP_MS = 250
+# Lap 0 is buffered too (a replay may stream its flying lap with the counter
+# parked at 0), but menus can stream stale "on track, lap 0" packets
+# indefinitely and no boundary ever empties that buffer. Cap it at 15
+# minutes — no real flying lap is longer — so a console left in a menu
+# cannot grow it without bound.
+LAP0_MAX_TICKS = 60 * 60 * 15
 # Partial-lap guard: a lap the logger only saw part of — an out-lap from the
 # pits, or capture starting mid-lap — covers less of the track than a real
 # lap, so it must never become the session best, the live-delta reference or
@@ -124,6 +147,64 @@ def _time_weights(t: list[float]) -> list[float]:
     return [w[0], *w]  # first sample inherits the first interval
 
 
+def _clock_segments(clock: list[int]) -> list[tuple[int, int]]:
+    """Candidate lap extents inside a buffered clock trace (#26).
+
+    A salvage buffer can hold more than the lap. A replay pre-rolls from
+    before the line, and a stream that runs PAST the crossing before cutting
+    to LOADING leaves a post-line stub where GT7's clock has re-anchored for
+    a lap nobody will see — trimming to a single "start of lap" index would
+    hand salvage that stub and lose the flying lap sitting right before it.
+    Every backward jump in the clock is such a re-anchor, so the trace is
+    split into segments at them; within each, a frozen head (clock parked at
+    0 until the line) and a frozen tail (the stream holding its final frame)
+    are walked off, because the clock only counts while the lap it is
+    anchored to is actually running. A monotone trace comes back as the one
+    segment covering everything.
+    """
+    anchors = [0] + [
+        i
+        for i in range(1, len(clock))
+        if clock[i] + SALVAGE_CLOCK_JUMP_MS < clock[i - 1]
+    ]
+    segments: list[tuple[int, int]] = []
+    for k, anchor in enumerate(anchors):
+        end = anchors[k + 1] if k + 1 < len(anchors) else len(clock)
+        start = anchor
+        while start + 1 < end and clock[start + 1] <= clock[start]:
+            start += 1
+        while end - 1 > start and clock[end - 1] <= clock[end - 2]:
+            end -= 1
+        segments.append((start, end))
+    return segments
+
+
+def _slice_lap_samples(
+    samples: dict[str, list[float]], start: int, end: int
+) -> dict[str, list[float]]:
+    """Copy of the sample store over [start, end), t and dist rebased to 0.
+
+    Only columns spanning the full buffer can be lined up with the extent; a
+    shorter column (an optional channel that appeared mid-buffer) is carried
+    unchanged — compute_metrics/prune_optional already drop optional columns
+    whose length disagrees with `t`.
+    """
+    n = len(samples["t"])
+    t0 = samples["t"][start]
+    d0 = samples["dist"][start]
+    out: dict[str, list[float]] = {}
+    for column, values in samples.items():
+        if len(values) != n:
+            out[column] = values
+        elif column == "t":
+            out[column] = [round(v - t0, 4) for v in values[start:end]]
+        elif column == "dist":
+            out[column] = [round(v - d0, 2) for v in values[start:end]]
+        else:
+            out[column] = values[start:end]
+    return out
+
+
 @dataclass(slots=True)
 class CompletedLap:
     number: int
@@ -180,6 +261,10 @@ class CompletedLap:
     # excludes the lap being reported — a best that already contains it can
     # never show an improvement.
     session_best_before_ms: int = -1
+    # Lap recovered from a stream that ended without the counter increment —
+    # replay endings (#26). The time is GT7's own, verified against the
+    # integrated clock rather than reported at a boundary.
+    salvaged: bool = False
 
     def compute_metrics(self) -> None:
         # Imported laps from older export versions may lack the newer columns;
@@ -251,8 +336,16 @@ SessionCallback = Callable[[SessionInfo], Awaitable[None]]
 class LapProcessor:
     """Consumes packets, emits completed laps and session boundaries.
 
-    A new session starts when the car changes, or when the lap counter resets
-    (race restart / return to track). Time-trial "lap 0" out-laps are ignored.
+    A new session starts when the car changes, when the lap counter resets
+    (race restart / return to track), or after a lap is salvaged (see below —
+    the stream that produced it broke off, so what follows is a new stint).
+    A lap normally commits when the counter steps to prev+1 — but a stream
+    can end AT the finish line (watching the time-trial leader's replay does
+    exactly that), so a buffered lap the counter abandoned is salvaged
+    instead when GT7's own reported time matches the integrated duration
+    (#26). Time-trial "lap 0" out-laps are buffered for that path too, and
+    only ever commit through it: the 0 -> 1 boundary itself still commits
+    nothing.
     """
 
     on_lap: LapCallback
@@ -262,6 +355,11 @@ class LapProcessor:
     _session: SessionInfo | None = None
     _current_lap: int = -1
     _samples: dict[str, list[float]] = field(default_factory=new_sample_store)
+    # GT7's per-tick lap clock (packet C), kept parallel to _samples: the
+    # salvage trimmer reads it to find where inside the buffer the lap began
+    # (#26). Transient — never persisted with the lap's samples — and reset
+    # everywhere _samples is, or a stale trace would mis-trim the next lap.
+    _gt_clock: list[int] = field(default_factory=list)
     _distance: float = 0.0
     _elapsed_s: float = 0.0
     _last_pid: int = -1
@@ -318,6 +416,18 @@ class LapProcessor:
 
     async def feed(self, p: TelemetryPacket) -> None:
         if p.is_loading:
+            # A replay that just ended streams LOADING while the menu builds,
+            # and the finished flying lap is still in the buffer — the counter
+            # step that would commit it never arrives (#26). Same discipline
+            # as the boundary handler: reset the buffer BEFORE the await. A
+            # failed attempt leaves the buffer alone, because a loading blip
+            # mid-driving must not destroy the lap in progress.
+            if self._session is not None and len(self._samples["t"]) >= self.min_lap_ticks:
+                finished = self._samples
+                lap = self._build_salvaged_lap(self._current_lap, finished, self._gt_clock, p)
+                if lap is not None:
+                    self._reset_lap_buffer(p)
+                    await self._emit_salvaged(lap, len(finished["t"]))
             return
 
         # Frames covered since the previous packet, from the console's own
@@ -330,6 +440,26 @@ class LapProcessor:
             self._dropped_frames += gap - 1
         else:
             self._pending_dt = 1  # first packet, pid reset, or discontinuity
+
+        # A car change or lap reset is about to tear the session down with a
+        # full lap still buffered: the ending-at-the-line case again, seen
+        # through a menu transition instead of a LOADING gap (#26). Attempted
+        # BEFORE the teardown so the salvaged lap lands in the session it was
+        # driven in; on failure the buffer is left for the existing paths to
+        # discard, logged here because the teardown parks the lap counter at
+        # -1 before the boundary handler could report it.
+        if self._session is not None and len(self._samples["t"]) >= self.min_lap_ticks:
+            tearing_down = p.car_id != self._session.car_id or (
+                self._current_lap > 0 and 0 <= p.current_lap < self._current_lap
+            )
+            if tearing_down:
+                finished = self._samples
+                lap = self._build_salvaged_lap(self._current_lap, finished, self._gt_clock, p)
+                if lap is not None:
+                    self._reset_lap_buffer(p)
+                    await self._emit_salvaged(lap, len(finished["t"]))
+                else:
+                    self._log_discard(self._current_lap, finished, p)
 
         if self._session is not None and p.car_id != self._session.car_id:
             log.info("car changed (%d -> %d): starting new session", self._session.car_id, p.car_id)
@@ -357,9 +487,26 @@ class LapProcessor:
         # After the checkered flag GT7 reports current_lap = total_laps + 1;
         # the cool-down lap is not real driving, so don't record it.
         past_finish = 0 < p.total_laps < p.current_lap
-        if p.is_on_track and not p.is_paused and p.current_lap > 0 and not past_finish:
+        # Lap 0 is sampled too: a replay may stream its flying lap with the
+        # counter parked at 0 (time-trial out-lap semantics), and salvage is
+        # the only path that can commit it (#26). The completion rule still
+        # requires prev > 0, so a real out-lap's 0 -> 1 boundary behaves
+        # exactly as before.
+        if p.is_on_track and not p.is_paused and p.current_lap >= 0 and not past_finish:
+            if self._current_lap == 0 and len(self._samples["t"]) >= LAP0_MAX_TICKS:
+                # No boundary ever empties the lap-0 buffer; without the cap a
+                # menu streaming stale on-track packets grows it forever.
+                log.info(
+                    "lap-0 buffer reached %d ticks without a boundary: dropping it",
+                    LAP0_MAX_TICKS,
+                )
+                self._reset_lap_buffer(p)
             self._append_sample(p)
-            self._check_lap_clock(p)
+            # An out-lap's GT7 lap clock is frozen, or anchored to a lap we
+            # never saw start — comparing our lap-0 t axis against it would
+            # report false drift, so the #20 cross-check waits for a real lap.
+            if p.current_lap > 0:
+                self._check_lap_clock(p)
         else:
             # Sampler gated off (pause, menus, cool-down): our t axis froze
             # while GT7's lap clock may have kept counting, so a comparison
@@ -377,8 +524,21 @@ class LapProcessor:
             and len(self._samples["t"]) >= self.min_lap_ticks
         )
         finished_samples = self._samples
+        finished_clock = self._gt_clock
         fuel_start = self._fuel_start
         engine = (self._max_water, self._max_oil, self._min_oil_pressure)
+
+        # A transition that abandons the buffer instead of completing it — a
+        # jump to -1, a forward jump past prev+1, an out-lap's 0 -> 1 — can
+        # still hold a finished lap the counter never acknowledged (#26).
+        # Built here, before the reset clears the engine aggregates it reads;
+        # emission still waits until after the reset (the await rule below).
+        # The 0 -> 1 out-lap boundary naturally fails the time match
+        # (last_lap_time is -1 or stale), which is what keeps real time-trial
+        # out-laps uncommitted.
+        salvage: CompletedLap | None = None
+        if not completing and prev >= 0 and len(finished_samples["t"]) >= self.min_lap_ticks:
+            salvage = self._build_salvaged_lap(prev, finished_samples, finished_clock, p)
 
         # Commit all state BEFORE any await: packets keep arriving while the
         # lap is persisted, and a stale _current_lap would re-trigger this
@@ -393,17 +553,7 @@ class LapProcessor:
             )
 
         self._current_lap = p.current_lap
-        self._samples = new_sample_store()
-        self._distance = 0.0
-        self._elapsed_s = 0.0
-        self._clock_offset_ms = None
-        self._clock_last_gt_ms = -1
-        self._lap_clock_drift_ms = 0
-        self._lap_clock_peak_ms = 0
-        self._fuel_start = p.fuel_level
-        self._max_water = 0.0
-        self._max_oil = 0.0
-        self._min_oil_pressure = -1.0
+        self._reset_lap_buffer(p)
 
         if completing:
             lap = CompletedLap(
@@ -431,6 +581,163 @@ class LapProcessor:
 
             self._apply_span_guard(lap, finished_samples)
             await self.on_lap(lap)
+        elif salvage is not None:
+            await self._emit_salvaged(salvage, len(finished_samples["t"]))
+        elif prev >= 0 and len(finished_samples["t"]) >= self.min_lap_ticks:
+            self._log_discard(prev, finished_samples, p)
+
+    def _reset_lap_buffer(self, p: TelemetryPacket) -> None:
+        """Fresh buffer for the next lap; the caller decides what lap it is.
+
+        Shared by the boundary handler, the salvage call sites and the lap-0
+        cap so no path can forget one of the trackers — a stale _gt_clock, in
+        particular, would mis-trim the NEXT salvage attempt.
+        """
+        self._samples = new_sample_store()
+        self._gt_clock = []
+        self._distance = 0.0
+        self._elapsed_s = 0.0
+        self._clock_offset_ms = None
+        self._clock_last_gt_ms = -1
+        self._lap_clock_drift_ms = 0
+        self._lap_clock_peak_ms = 0
+        self._fuel_start = p.fuel_level
+        self._max_water = 0.0
+        self._max_oil = 0.0
+        self._min_oil_pressure = -1.0
+
+    def _salvage_candidates(self, p: TelemetryPacket) -> list[int]:
+        """Lap times GT7 itself has vouched for, deduped (#26).
+
+        Both the current packet and the previous one are consulted: on a car
+        change or menu transition `p` can already belong to the NEW context
+        (its times -1 or someone else's), while the last packet of the old
+        context still carries the finished lap's. best_lap_time is included
+        because a replay's single flying lap IS the best — some menus blank
+        last_lap_time first.
+        """
+        out: list[int] = []
+        for src in (p, self._last_packet):
+            if src is None:
+                continue
+            for value in (src.last_lap_time_ms, src.best_lap_time_ms):
+                if value > 0 and value not in out:
+                    out.append(value)
+        return out
+
+    def _build_salvaged_lap(
+        self,
+        prev_lap: int,
+        samples: dict[str, list[float]],
+        gt_clock: list[int],
+        p: TelemetryPacket,
+    ) -> CompletedLap | None:
+        """The buffered lap as a CompletedLap, if GT7 vouches for it (#26).
+
+        Pure — no processor state is touched — so a failed attempt costs the
+        caller nothing. The loading call site depends on that: it retries on
+        every LOADING packet and must be free to leave a mid-driving buffer
+        intact.
+        """
+        n = len(samples["t"])
+        if n < self.min_lap_ticks:
+            return None
+        candidates = self._salvage_candidates(p)
+        if not candidates:
+            return None
+        # The buffer may hold more than the lap: replay pre-roll before the
+        # line, and a post-line stub when the stream ran past the crossing.
+        # GT7's own per-tick clock splits it into candidate extents — but
+        # only when it covered every sample; a partial trace can't be lined
+        # up with them. Latest extent first: with a looping replay more than
+        # one can match a reported time, and the lap that just ended is the
+        # one the stream broke off from.
+        segments = _clock_segments(gt_clock) if len(gt_clock) == n else [(0, n)]
+        chosen: tuple[int, int, int] | None = None
+        for start, end in reversed(segments):
+            if end - start < self.min_lap_ticks:
+                continue
+            duration_ms = round((samples["t"][end - 1] - samples["t"][start]) * 1000)
+            tolerance = max(SALVAGE_TOLERANCE_MS, duration_ms * SALVAGE_TOLERANCE_RATIO)
+            matched = next(
+                (c for c in candidates if abs(c - duration_ms) <= tolerance), None
+            )
+            if matched is not None:
+                chosen = (start, end, matched)
+                break
+        if chosen is None:
+            return None
+        start, end, matched = chosen
+        if start > 0 or end < n:
+            samples = _slice_lap_samples(samples, start, end)
+        # On a car change or menu transition `p` can already belong to the new
+        # context; the last packet of the OLD context is the one describing
+        # the salvaged lap's car, fuel and time of day.
+        src = self._last_packet or p
+        lap = CompletedLap(
+            # Lap 0 stays 0: a later real lap 1 in this session must not
+            # collide with the salvaged number.
+            number=prev_lap,
+            time_ms=matched,
+            finished_at=datetime.now(UTC).isoformat(),
+            car_id=src.car_id,
+            car_category=src.car_category or "",
+            samples=samples,
+            fuel_start=samples["fuel"][0],
+            fuel_end=src.fuel_level,
+            tod_ms=src.day_progression_ms,
+            salvaged=True,
+        )
+        lap.max_water_temp = round(self._max_water, 1)
+        lap.max_oil_temp = round(self._max_oil, 1)
+        lap.min_oil_pressure = round(self._min_oil_pressure, 3)
+        lap.gearing = {
+            "ratios": [round(r, 4) for r in src.gear_ratios if r > 0],
+            "top_speed": round(src.transmission_top_speed, 1),
+            "rpm_alert": src.rpm_alert_max,
+        }
+        lap.compute_metrics()
+        return lap
+
+    async def _emit_salvaged(self, lap: CompletedLap, buffered_ticks: int) -> None:
+        """Emission mirrors the completing path; only the provenance differs."""
+        assert self._session is not None
+        self._session.lap_count += 1
+        self._apply_span_guard(lap, lap.samples)
+        log.info(
+            "salvaged lap %d: %d ticks, %d ms (%d pre-roll ticks trimmed)",
+            lap.number, lap.total_ticks, lap.time_ms, buffered_ticks - lap.total_ticks,
+        )
+        await self.on_lap(lap)
+        # A salvaged lap means its stream broke off, so whatever streams next
+        # — another replay, the user's own driving in the same car — is a
+        # different stint and gets its own session. Nothing else would ever
+        # separate them: a lap-0 replay parks the counter at 0, so the
+        # lap_reset that normally splits sessions (it requires a counter
+        # coming down from >0) can never fire. Without the split, the user's
+        # laps after watching a replay would land in the replay's session,
+        # and excluding that session from bests (#26) would take their own
+        # driving with it — while a second replay would inherit the first
+        # one's circuit label and lap number.
+        self._session = None
+
+    def _log_discard(
+        self, prev_lap: int, samples: dict[str, list[float]], p: TelemetryPacket
+    ) -> None:
+        """One line per lap-sized buffer dropped without salvage (#26).
+
+        Deliberately info, not debug: this is the trace that will tell us,
+        from user logs, what a real console's replay stream reported at the
+        moment a buffer had to be given up.
+        """
+        log.info(
+            "lap %d buffer dropped without salvage: %d ticks, integrated %d ms, "
+            "GT7 candidate times %s",
+            prev_lap,
+            len(samples["t"]),
+            round(samples["t"][-1] * 1000) if samples["t"] else 0,
+            self._salvage_candidates(p) or "none",
+        )
 
     def _apply_span_guard(self, lap: CompletedLap, samples: dict[str, list[float]]) -> None:
         """Judge which laps of this session covered the whole track.
@@ -587,6 +894,10 @@ class LapProcessor:
             s["throttle_f"].append(round(p.throttle_filtered / 2.55, 1))
         if p.brake_filtered is not None:
             s["brake_f"].append(round(p.brake_filtered / 2.55, 1))
+        # GT7's own lap clock beside the samples (packet C only): the salvage
+        # trimmer needs to know where inside this buffer the lap began (#26).
+        if p.lap_time_ms is not None:
+            self._gt_clock.append(p.lap_time_ms)
         # Engine-health aggregates (per-lap, not per-tick)
         self._max_water = max(self._max_water, p.water_temp)
         self._max_oil = max(self._max_oil, p.oil_temp)

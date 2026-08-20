@@ -182,7 +182,8 @@ are the drive states the telemetry actually exposes.)
 | --- | --- |
 | **On track, driving** | everything live; the lap recorder samples at 60 Hz |
 | **Paused** | recording and the lap timer freeze; the live delta shows its fallback; alerts are suppressed |
-| **In menus / replay (off track)** | same as paused — no samples, no alerts, delta falls back |
+| **In menus (off track)** | same as paused — no samples, no alerts, delta falls back |
+| **Replay** | streams like driving, and the widgets treat it that way — GT7 sends no replay flag, so nothing can tell a replay from your own lap. Laps record too: race replays through the normal path, a single-lap leaderboard replay via [replay salvage](../internals/lap-detection.md#replay-salvage) |
 | **First lap of a session** | no reference lap yet: delta shows `–` (or *Δ best (last lap)* once a lap has completed but not yet been beaten into a reference), fuel projections show *need a lap* |
 | **Session best set** | that lap's trace becomes the live-delta reference; a new best replaces it from the next lap on |
 | **Past the reference's end** | near the finish line your lap can out-distance the best lap's recording; the delta blanks instead of showing an inflated value |

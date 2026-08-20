@@ -28,6 +28,21 @@ recorded before packet C, and **All** is the only way back to sessions that have
 class at all. A session whose own class is blank — its very first packet was a narrower
 format — takes the class its laps recorded.
 
+## Excluding a session from bests
+
+Each session offers an **exclude from bests** toggle. It exists because of replays:
+GT7 streams a replay exactly like driving — no flag distinguishes them — so watching
+the time-trial leader's lap [records it](../internals/lap-detection.md#replay-salvage)
+into *your* history, and nothing in the telemetry can tell that lap from one you
+drove. Left alone it would own a row on the [Bests board](bests-view.md) and stand as
+the class benchmark under your name.
+
+An excluded session keeps every lap, and its laps stay selectable in Analysis —
+overlaying your line against the leader's is the whole point of capturing the
+replay — but it never owns a Bests row and never provides the
+[class benchmark](analysis-view.md#side-panels). The toggle is admin-gated when
+`GT7_ADMIN_TOKEN` is set, like every other mutation.
+
 ## Lap table
 
 Per lap: time (best in accent), Δ to session best, fuel used, full-throttle %,
@@ -67,7 +82,10 @@ laps.
 - **Import lap…** — load a `.json` lap file exported from any GT7 Datalogger instance.
   Older v1 files import cleanly; the newer per-corner channels are simply absent and
   the charts skip them. Events and aid metrics are recomputed from the samples on
-  import.
+  import. The lap lands in the **currently live session** when one is open (otherwise
+  a fresh "imported" session), and counts toward [bests](bests-view.md) like any lap —
+  someone else's lap belongs in a session you
+  [exclude from bests](#excluding-a-session-from-bests).
 
 ## Recording control
 

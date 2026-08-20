@@ -226,4 +226,6 @@ GT7_SOURCE=sim GT7_SIM_SCENARIO=fuel_shortage ./dev.sh
 ```
 
 Scenarios: `practice` (default), `race`, `fuel_shortage`, `overheating`,
-`oil_pressure`.
+`oil_pressure`. (`leader_replay` also exists — pre-roll, one flying lap streamed as
+lap 0, then `LOADING` — but it exercises
+[replay salvage](../internals/lap-detection.md#replay-salvage), not callouts.)

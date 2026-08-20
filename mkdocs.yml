@@ -64,6 +64,7 @@ nav:
       - Live view: guide/live-view.md
       - Analysis view: guide/analysis-view.md
       - Sessions view: guide/sessions-view.md
+      - Bests view: guide/bests-view.md
       - Tracks view: guide/tracks-view.md
       - Overlay & streaming: guide/overlay.md
       - Driver dashboard: guide/dash.md

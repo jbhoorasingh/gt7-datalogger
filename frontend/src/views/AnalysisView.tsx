@@ -2,6 +2,9 @@
 // consistency (deviation), fuel strategy, and tuning info. The lap selection
 // can arrive via deep link (#/analysis?session=…&laps=…&ref=…) from the
 // Sessions or Live views, and is mirrored back into the URL for sharing.
+// Selected laps need not belong to the chosen session (#26): laps from other
+// sessions ride along as "guests", so today's stint can be compared against
+// last week's — or against the class benchmark — on one set of charts.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChannelPicker } from "@/components/analysis/ChannelPicker";
@@ -14,6 +17,7 @@ import { GearingPanel } from "@/components/analysis/GearingPanel";
 import { GGDiagram, ggLap, type GGLap } from "@/components/analysis/GGDiagram";
 import { RaceLineMap, type MapLap } from "@/components/analysis/RaceLineMap";
 import { StackedCharts } from "@/components/analysis/StackedCharts";
+import { LargeDialog } from "@/components/ui/Dialog";
 import { Select } from "@/components/ui/Select";
 import { Tip } from "@/components/ui/Tooltip";
 import { api } from "@/lib/api";
@@ -25,7 +29,7 @@ import {
   saveChannelKeys,
 } from "@/lib/channels";
 import { lapColor, lapColorMap } from "@/lib/colors";
-import { formatLapTime, formatSpeed } from "@/lib/format";
+import { formatLapTime, formatSpeed, formatTime } from "@/lib/format";
 import {
   openInAnalysis,
   reflectAnalysisSelection,
@@ -66,12 +70,42 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
   const lapEpoch = useTelemetry((s) => s.lapEpoch);
 
   // Seed from the shared selection so switching tabs doesn't reset the view.
+  // Exception: a session-only navigation ("Analyze" on a DIFFERENT session)
+  // must not carry the stored selection along — those ids belong to another
+  // session and would ride into the new one as guests.
   const stored = useRef(useAnalysisSelection.getState()).current;
+  const staleStore =
+    request.session != null &&
+    request.laps == null &&
+    request.ref == null &&
+    stored.sessionId != null &&
+    stored.sessionId !== request.session;
   const [sessions, setSessions] = useState<SessionSummary[] | null>(null);
   const [sessionId, setSessionId] = useState<number | null>(request.session ?? stored.sessionId);
   const [laps, setLaps] = useState<LapSummary[]>([]);
-  const [selected, setSelected] = useState<number[]>(request.laps ?? stored.selectedLapIds);
-  const [refLap, setRefLap] = useState<number | null>(request.ref ?? stored.refLapId);
+  // The session whose laps the `laps` state currently describes. The guest
+  // resolver waits for it to match sessionId, so a mount-time deep link never
+  // fetches the session's OWN laps as guests while `laps` is still empty.
+  const [lapsFor, setLapsFor] = useState<number | null>(null);
+  // Guest laps (#26): laps from OTHER sessions co-selected alongside this
+  // session's own — the cross-session comparison. The ref mirrors the state
+  // (assigned every render, so it is never behind) so effects can consult the
+  // current guests without listing them as a dependency and re-running.
+  const [guests, setGuests] = useState<LapSummary[]>([]);
+  const guestsRef = useRef(guests);
+  guestsRef.current = guests;
+  // Guest bookkeeping, kept apart on purpose: an id whose fetch is merely
+  // IN FLIGHT must not read as failed, or the session-laps response racing
+  // ahead of lapDetail would prune every cross-session deep link on arrival.
+  // Only ids in `failed` are dropped; `pending` just prevents double fetches.
+  const failedGuestIds = useRef(new Set<number>());
+  const pendingGuestIds = useRef(new Set<number>());
+  const [selected, setSelected] = useState<number[]>(
+    staleStore ? [] : (request.laps ?? stored.selectedLapIds),
+  );
+  const [refLap, setRefLap] = useState<number | null>(
+    staleStore ? null : (request.ref ?? stored.refLapId),
+  );
   const [compare, setCompare] = useState<CompareResult | null>(null);
   const [deviation, setDeviation] = useState<DeviationResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -88,7 +122,9 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
   // Until the user (or a deep link) picks laps, selection follows
   // "latest vs best" as new laps arrive live.
   const manualSelection = useRef(
-    (request.laps ?? stored.selectedLapIds).length > 0 || (request.ref ?? stored.refLapId) != null,
+    !staleStore &&
+      ((request.laps ?? stored.selectedLapIds).length > 0 ||
+        (request.ref ?? stored.refLapId) != null),
   );
 
   // Apply a new deep link while the view is mounted (pasted URL).
@@ -108,6 +144,16 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
         request.ref != null && !lapIds.includes(request.ref) ? [...lapIds, request.ref] : lapIds;
       if (withRef.length > 0) setSelected(withRef);
       if (request.ref != null) setRefLap(request.ref);
+    } else if (request.session != null) {
+      // Session-only navigation ("Analyze" from Sessions): the current
+      // selection belongs to whatever was open before and must not ride
+      // along into the new session as guests — nor may an in-flight guest
+      // fetch it started land after the switch.
+      manualSelection.current = false;
+      pendingGuestIds.current.clear();
+      setSelected([]);
+      setRefLap(null);
+      setGuests([]);
     }
     if (request.channels != null) {
       setChannelKeys(request.channels.filter((k) => k in CHANNEL_BY_KEY));
@@ -134,20 +180,86 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
       // Unknown tick counts are treated as empty, not as chartable.
       const ls = all.filter((lap) => (lap.total_ticks ?? 0) > 0);
       setLaps(ls);
+      setLapsFor(sessionId);
       if (ls.length === 0) return;
       const best = [...ls].sort((a, b) => a.time_ms - b.time_ms)[0];
       const latest = ls[0]; // list is newest-first
+      // A selected id missing from this session's laps is not necessarily
+      // stale: it may be a guest from another session, or a cross-session
+      // deep link (#/analysis?session=A&laps=idFromB) the resolver below has
+      // not fetched yet — including one whose fetch is in flight RIGHT NOW.
+      // Only ids whose fetch actually failed are dropped.
+      const keep = (id: number) =>
+        ls.some((l) => l.id === id) ||
+        guestsRef.current.some((g) => g.id === id) ||
+        !failedGuestIds.current.has(id);
       setSelected((cur) => {
-        const stillValid = cur.filter((id) => ls.some((l) => l.id === id));
+        const stillValid = cur.filter(keep);
         return manualSelection.current && stillValid.length > 0
           ? stillValid
           : [...new Set([latest.id, best.id])];
       });
       setRefLap((cur) =>
-        manualSelection.current && cur && ls.some((l) => l.id === cur) ? cur : best.id,
+        manualSelection.current && cur != null && keep(cur) ? cur : best.id,
       );
     }).catch(() => setError("Could not load laps"));
   }, [sessionId, lapEpoch]);
+
+  // Resolve any selected id (or reference) that belongs to no loaded list
+  // into a guest. This is what makes cross-session deep links
+  // (#/analysis?session=A&laps=idFromB) work: the id survives pruning as
+  // "not yet resolved", its summary is fetched here (samples excluded — the
+  // compare endpoint pulls those), and it either joins the guests or, on
+  // 404/failure, leaves the selection for good. Waits until the CURRENT
+  // session's laps have loaded: before that, `laps` is empty (or another
+  // session's), and every selected id — the session's own included — would
+  // be fetched as a guest and rendered twice.
+  useEffect(() => {
+    if (lapsFor !== sessionId) return;
+    const wanted =
+      refLap != null && !selected.includes(refLap) ? [...selected, refLap] : selected;
+    for (const id of wanted) {
+      if (laps.some((l) => l.id === id)) continue;
+      if (guestsRef.current.some((g) => g.id === id)) continue;
+      if (pendingGuestIds.current.has(id) || failedGuestIds.current.has(id)) continue;
+      pendingGuestIds.current.add(id);
+      api.lapDetail(id, false)
+        .then((lap) => {
+          // delete() doubles as a staleness check: a session switch clears
+          // the pending set, and a fetch it abandoned must not add its
+          // foreign lap as a guest of whatever is open now.
+          if (!pendingGuestIds.current.delete(id)) return;
+          setGuests((cur) => (cur.some((g) => g.id === lap.id) ? cur : [...cur, lap]));
+        })
+        .catch(() => {
+          if (!pendingGuestIds.current.delete(id)) return;
+          failedGuestIds.current.add(id);
+          setSelected((cur) => cur.filter((x) => x !== id));
+          // A dead reference falls back to the session's best rather than
+          // leaving the whole comparison blank.
+          setRefLap((cur) =>
+            cur === id
+              ? [...laps].sort((a, b) => a.time_ms - b.time_ms)[0]?.id ?? null
+              : cur,
+          );
+        });
+    }
+  }, [selected, refLap, laps, lapsFor, sessionId]);
+
+  // A guest lives exactly as long as it is looked at: toggled off (and not
+  // the reference) it leaves entirely — re-adding it later just resolves
+  // fresh. A guest that turns out to be one of the session's OWN laps (a
+  // race the resolver's gating should prevent) is dropped too, so no lap is
+  // ever rendered twice.
+  useEffect(() => {
+    setGuests((cur) => {
+      const next = cur.filter(
+        (g) =>
+          (selected.includes(g.id) || g.id === refLap) && !laps.some((l) => l.id === g.id),
+      );
+      return next.length === cur.length ? cur : next;
+    });
+  }, [selected, refLap, laps]);
 
   // Publish the resolved selection: shared store (tab switches) + URL (sharing).
   const setSharedSelection = useAnalysisSelection((s) => s.setSelection);
@@ -261,11 +373,22 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
         lap.id === refLap ? " (ref)" : ""
       }`;
     }
+    // Guests carry their session in the label: two "L2"s from different
+    // stints must stay tellable apart everywhere the label shows up (charts,
+    // map, corner panels).
+    for (const lap of guests) {
+      labels[String(lap.id)] = `S${lap.session_id}·L${lap.number} · ${formatLapTime(lap.time_ms)}${
+        lap.id === refLap ? " (ref)" : ""
+      }`;
+    }
     return labels;
-  }, [laps, refLap]);
+  }, [laps, guests, refLap]);
 
   const refEntry = compare?.laps[String(refLap)];
-  const refSummary = laps.find((l) => l.id === refLap);
+  // The reference may be a guest — the tuning panel and the class-benchmark
+  // row must keep working when a lap from another session is the yardstick.
+  const refSummary =
+    laps.find((l) => l.id === refLap) ?? guests.find((l) => l.id === refLap);
   const session = sessions?.find((s) => s.id === sessionId) ?? null;
 
   // Category best at this circuit (#19): a lap is worth judging against the
@@ -291,6 +414,42 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
       live = false;
     };
   }, [bestTrack, bestCategory, lapEpoch]);
+
+  // The cross-session lap picker (#26): every lap recorded at this circuit
+  // in OTHER sessions, fastest first. Needs a named circuit — with no
+  // track_name there is no "same circuit" to list laps from. Fetched per
+  // open so the list sees laps recorded while the view was already mounted.
+  const [addOpen, setAddOpen] = useState(false);
+  const [addChoices, setAddChoices] = useState<LapSummary[] | null>(null);
+  useEffect(() => {
+    if (!addOpen || !bestTrack) return;
+    setAddChoices(null);
+    let live = true;
+    api.laps(bestTrack)
+      .then(
+        (all) =>
+          live &&
+          setAddChoices(
+            all
+              // Same phantom filter as the session picker: a lap without
+              // samples has nothing to chart.
+              .filter((l) => l.session_id !== sessionId && (l.total_ticks ?? 0) > 0)
+              .sort((a, b) => a.time_ms - b.time_ms),
+          ),
+      )
+      .catch(() => live && setAddChoices([]));
+    return () => {
+      live = false;
+    };
+  }, [addOpen, bestTrack, sessionId]);
+
+  // Any guest add is a deliberate selection — the live "latest vs best"
+  // follower must not overwrite it on the next lap.
+  const addGuest = (lap: LapSummary) => {
+    manualSelection.current = true;
+    setGuests((cur) => (cur.some((g) => g.id === lap.id) ? cur : [...cur, lap]));
+    setSelected((cur) => (cur.includes(lap.id) ? cur : [...cur, lap.id]));
+  };
 
   // One color assignment for everything that shows the compared laps together
   // (chips, chart series, map, corner detail): id-keyed, but two selected laps
@@ -397,6 +556,9 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
             value={String(sessionId ?? "")}
             onValueChange={(v) => {
               manualSelection.current = false;
+              // A guest fetch started under the old session must not land
+              // its lap as a guest of the new one.
+              pendingGuestIds.current.clear();
               setSessionId(Number(v));
             }}
             options={sessions.map((s) => ({
@@ -442,7 +604,51 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
                 </Tip>
               );
             })}
+            {/* Guest laps from other sessions (#26), after the session's own —
+                same toggle/reference behavior, session-qualified label. */}
+            {guests.map((lap) => {
+              const active = selected.includes(lap.id);
+              const isRef = lap.id === refLap;
+              return (
+                <Tip key={lap.id} content="Click to toggle, double-click to set as reference">
+                  <button
+                    onClick={() => {
+                      manualSelection.current = true;
+                      setSelected((cur) =>
+                        active ? cur.filter((id) => id !== lap.id) : [...cur, lap.id],
+                      );
+                    }}
+                    onDoubleClick={() => {
+                      manualSelection.current = true;
+                      setRefLap(lap.id);
+                    }}
+                    className={`flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 font-tabular text-xs transition-colors ${
+                      isRef
+                        ? "border-accent bg-accent/15 text-accent"
+                        : active
+                          ? "border-edge bg-panel-2 text-ink"
+                          : "border-edge text-ink-dim hover:text-ink"
+                    }`}
+                  >
+                    {active && (
+                      <span
+                        className="h-2 w-2 rounded-full"
+                        style={{ backgroundColor: colorOf(lap.id) }}
+                      />
+                    )}
+                    S{lap.session_id}·L{lap.number} {formatLapTime(lap.time_ms)}
+                  </button>
+                </Tip>
+              );
+            })}
           </div>
+          {bestTrack && (
+            <Tip content="Add a lap from another session at this circuit to the comparison">
+              <button className="btn shrink-0" onClick={() => setAddOpen(true)}>
+                + Add lap…
+              </button>
+            </Tip>
+          )}
           <ChannelPicker selected={channelKeys} onChange={setChannelKeys} />
           {refLap != null && (
             <div className="ml-auto">
@@ -453,10 +659,18 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
                   manualSelection.current = true;
                   setRefLap(Number(v));
                 }}
-                options={laps.map((lap) => ({
-                  value: String(lap.id),
-                  label: `ref: L${lap.number} ${formatLapTime(lap.time_ms)}`,
-                }))}
+                options={[
+                  ...laps.map((lap) => ({
+                    value: String(lap.id),
+                    label: `ref: L${lap.number} ${formatLapTime(lap.time_ms)}`,
+                  })),
+                  // Guests are eligible references too — comparing today's
+                  // laps against another day's benchmark is the point (#26).
+                  ...guests.map((lap) => ({
+                    value: String(lap.id),
+                    label: `ref: S${lap.session_id}·L${lap.number} ${formatLapTime(lap.time_ms)}`,
+                  })),
+                ]}
                 className="px-2 py-1.5 text-xs"
               />
             </div>
@@ -604,11 +818,93 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
                     ref: categoryBest.lap_id,
                   })
                 }
+                // Pull the benchmark INTO the current comparison as a guest —
+                // selecting it is enough, the resolver fetches the summary.
+                // Pointless (hence hidden) when it is already on screen.
+                onCompare={
+                  selected.includes(categoryBest.lap_id) || categoryBest.lap_id === refLap
+                    ? null
+                    : () => {
+                        manualSelection.current = true;
+                        setSelected((cur) =>
+                          cur.includes(categoryBest.lap_id)
+                            ? cur
+                            : [...cur, categoryBest.lap_id],
+                        );
+                      }
+                }
               />
             )}
           </SidePanel>
         )}
       </div>
+
+      <LargeDialog
+        open={addOpen}
+        title={`Add a lap from another session — ${bestTrack}`}
+        onClose={() => setAddOpen(false)}
+      >
+        <div className="h-full overflow-y-auto p-3">
+          {addChoices == null && (
+            <div className="space-y-2">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="skeleton h-9" />
+              ))}
+            </div>
+          )}
+          {addChoices != null && addChoices.length === 0 && (
+            <div className="p-8 text-center text-sm text-ink-dim">
+              No laps from other sessions at this circuit yet.
+            </div>
+          )}
+          {addChoices != null && addChoices.length > 0 && (
+            <div className="space-y-1">
+              {addChoices.map((lap) => {
+                const added = selected.includes(lap.id) || lap.id === refLap;
+                return (
+                  <button
+                    key={lap.id}
+                    disabled={added}
+                    onClick={() => {
+                      addGuest(lap);
+                      setAddOpen(false);
+                    }}
+                    className={`flex w-full items-baseline gap-2 rounded-md border border-edge px-3 py-2 text-left text-xs transition-colors ${
+                      added
+                        ? "text-ink-dim/60"
+                        : "text-ink hover:border-accent/50 hover:bg-panel-2"
+                    }`}
+                  >
+                    <span className="shrink-0 font-tabular">
+                      S#{lap.session_id} · L{lap.number} · {formatLapTime(lap.time_ms)}
+                    </span>
+                    <span className="min-w-0 truncate text-ink-dim">
+                      · {lap.car_name ?? "–"} · {formatTime(lap.finished_at ?? "")}
+                    </span>
+                    {lap.salvaged && (
+                      <span
+                        className="ml-auto shrink-0 text-ink-dim"
+                        title="Salvaged from a stream that ended at the line (replay ending) — the time is GT7's own"
+                      >
+                        ⟲ salvaged
+                      </span>
+                    )}
+                    {lap.counts_for_best === false && (
+                      <span
+                        className={`shrink-0 text-warn ${lap.salvaged ? "" : "ml-auto"}`}
+                        title="Partial lap (pit out-lap) — its time is not a lap time"
+                      >
+                        partial
+                      </span>
+                    )}
+                    {added && <span className="ml-auto shrink-0">already selected</span>}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </LargeDialog>
     </div>
   );
 }
@@ -621,6 +917,7 @@ function CategoryBestRow({
   refTimeMs,
   refIsFullLap,
   onOpen,
+  onCompare,
 }: {
   best: CategoryBest;
   refTimeMs: number;
@@ -629,6 +926,10 @@ function CategoryBestRow({
    *  not be measured against it, let alone allowed to beat it. */
   refIsFullLap: boolean;
   onOpen: () => void;
+  /** Adds the benchmark to the CURRENT selection as a guest (#26) — the
+   *  alternative to `open`, which switches to the benchmark's own session.
+   *  null when the lap is already in the comparison. */
+  onCompare: (() => void) | null;
 }) {
   const gap = refTimeMs - best.time_ms;
   const isBest = refIsFullLap && gap <= 0;
@@ -653,6 +954,11 @@ function CategoryBestRow({
             <span className="text-brake">+{(gap / 1000).toFixed(3)}</span>
           )}
         </span>
+        {onCompare && (
+          <button className="shrink-0 text-ink-dim hover:text-accent" onClick={onCompare}>
+            compare
+          </button>
+        )}
         {!isBest && (
           <button className="shrink-0 text-ink-dim hover:text-accent" onClick={onOpen}>
             open

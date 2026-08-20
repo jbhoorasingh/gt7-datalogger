@@ -44,6 +44,12 @@ class SessionRow(Base):
     car_category: Mapped[str] = mapped_column(default="")
     note: Mapped[str] = mapped_column(default="")
     track_name: Mapped[str] = mapped_column(default="")
+    # User-set: GT7 records replays exactly like driving — no packet field
+    # distinguishes a TT leader's replay from your own laps — so keeping a
+    # recorded replay (or another driver's laps) off the personal-best surfaces
+    # is a human call, made per session. Excluded sessions stay fully browsable;
+    # they just never own a best (#26).
+    bests_excluded: Mapped[bool] = mapped_column(default=False)
 
     laps: Mapped[list[LapRow]] = relationship(
         back_populates="session", cascade="all, delete-orphan"
@@ -124,6 +130,11 @@ class LapRow(Base):
     # -1 / NULL = unknown (circuit unsurveyed, or too little road under lap).
     off_survey_count: Mapped[int] = mapped_column(default=-1)
     clean_lap: Mapped[bool | None] = mapped_column(default=None)
+    # Lap recovered from a stream that ended without the counter increment —
+    # replay endings (#26). Stored so a time on the Bests board or in a lap
+    # list can always be traced to its provenance; a server log line rotates
+    # away, a row does not.
+    salvaged: Mapped[bool] = mapped_column(default=False)
     events_json: Mapped[str] = mapped_column(Text, default="[]")
     gearing_json: Mapped[str] = mapped_column(Text, default="")
     samples_json: Mapped[str] = mapped_column(Text)

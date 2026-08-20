@@ -13,6 +13,7 @@ import { useTelemetry } from "@/store/telemetry";
 // only the Analysis/Survey/Tracks maps use.
 const AdminView = lazy(() => import("@/views/AdminView").then((m) => ({ default: m.AdminView })));
 const AnalysisView = lazy(() => import("@/views/AnalysisView").then((m) => ({ default: m.AnalysisView })));
+const BestsView = lazy(() => import("@/views/BestsView").then((m) => ({ default: m.BestsView })));
 const DashView = lazy(() => import("@/views/DashView").then((m) => ({ default: m.DashView })));
 const EngineerView = lazy(() => import("@/views/EngineerView").then((m) => ({ default: m.EngineerView })));
 const LiveView = lazy(() => import("@/views/LiveView").then((m) => ({ default: m.LiveView })));
@@ -80,6 +81,7 @@ export default function App() {
             {route.view === "live" && <LiveView />}
             {route.view === "analysis" && <AnalysisView request={analysisRequest} />}
             {route.view === "sessions" && <SessionsView />}
+            {route.view === "bests" && <BestsView />}
             {route.view === "survey" && <SurveyView />}
             {route.view === "tracks" && <TracksView />}
             {route.view === "admin" && <AdminView />}

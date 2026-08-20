@@ -59,8 +59,13 @@ per-feature guides, how every calculation works, and the API reference.
 - Speed-deviation consistency chart across your best laps, relative fuel-map strategy
   table, and a tuning panel with aid usage, engine health (max water/oil temp, min oil
   pressure), and event counts.
+- **Cross-session comparison** — **+ Add lap…** pulls any lap ever recorded at the same
+  circuit into the comparison (listed fastest first, guest chips labelled `S12·L3`),
+  and the class-best benchmark row has a one-click *compare*. Alignment is
+  distance-from-start, so laps line up corner-for-corner across sessions.
 - **Deep links everywhere** — `#/analysis?session=…&laps=…&ref=…&ch=…` bookmarks an exact
-  comparison; Sessions and Live hand laps straight into Analysis.
+  comparison; Sessions and Live hand laps straight into Analysis. Lap ids are global,
+  so a link can name laps from other sessions and they load as guests.
 
 ### Sessions
 
@@ -71,6 +76,10 @@ per-feature guides, how every calculation works, and the API reference.
   delete laps or whole sessions, manual "log lap now", and a record on/off toggle.
 - **Track auto-identification** — name a circuit once and every future session on it is
   tagged automatically from the lap geometry.
+- **Personal-bests board** — a **Bests** tab with each circuit's fastest counting lap
+  per car across every session: time, gap to the circuit's outright best, class chip
+  and filter, and one click into Analysis. Sessions can be excluded from bests —
+  replays record other drivers' laps, and telemetry can't tell them from yours.
 
 ### Overlay & streaming
 
@@ -98,9 +107,14 @@ per-feature guides, how every calculation works, and the API reference.
   slip, per-corner tire temps, suspension travel, and a driver-aids bitmask, plus per-lap
   aggregates (aid usage %, engine health, gearing metadata).
 - **Sessions auto-split** on car change or race restart, so data never mixes.
+- **Replay capture** — GT7 streams replays exactly like driving, so race replays record
+  their laps, and a single-lap leaderboard replay (which ends *at* the line, before a
+  lap would normally commit) is salvaged whenever GT7's own reported lap time matches
+  the recording — watch the TT leader's replay, then overlay their lap against yours.
 - **Simulated source** (`GT7_SOURCE=sim`) drives laps around a synthetic circuit at 60 Hz —
   including lockups, wheelspin, kerb strikes, and aid activity — so everything can be
-  developed and demoed without a PlayStation.
+  developed and demoed without a PlayStation. Scenarios (`GT7_SIM_SCENARIO`) stage
+  races, fuel shortages, engine trouble, and a `leader_replay` for the salvage path.
 - **Admin view** — set the PlayStation IP and telemetry source at runtime with no restart
   (persisted in the database), live log viewer with level filtering, connection
   diagnostics, database stats with compact/clear actions, and one-click car-database

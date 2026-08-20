@@ -104,6 +104,35 @@ export function SessionsView() {
     }
   }
 
+  // Rule a session's laps in or out of the personal-bests board (#26). A
+  // human decision by design: a replay recording or another driver's stint
+  // produces telemetry indistinguishable from own driving.
+  async function toggleBestsExcluded(s: SessionSummary) {
+    const excluded = !s.bests_excluded;
+    const flip = (value: boolean) =>
+      setSessions((cur) =>
+        cur?.map((x) => (x.id === s.id ? { ...x, bests_excluded: value } : x)) ?? cur,
+      );
+    // Optimistic, BEFORE the request: a quick second click must read the
+    // flipped row and toggle back — flipping only after the PATCH resolves
+    // leaves the whole round-trip as a window where it re-sends the SAME
+    // value instead. Reverted if the server refuses.
+    flip(excluded);
+    try {
+      await api.updateSession(s.id, { bests_excluded: excluded });
+      toast(
+        excluded
+          ? `Session #${s.id} excluded from bests`
+          : `Session #${s.id} counts for bests again`,
+        "success",
+      );
+      refresh();
+    } catch {
+      flip(s.bests_excluded);
+      toast("Could not update session", "error");
+    }
+  }
+
   // Open a session in the Analysis view (default latest-vs-best selection).
   function analyzeSession(s: SessionSummary) {
     openInAnalysis({ session: s.id });
@@ -184,6 +213,11 @@ export function SessionsView() {
                     {s.car_category}
                   </span>
                 )}
+                {s.bests_excluded && (
+                  <span className="shrink-0 rounded-full border border-dashed border-edge px-2 py-0.5 text-xs text-ink-dim">
+                    excluded from bests
+                  </span>
+                )}
                 {s.track_name ? (
                   <span className="rounded-full bg-accent/10 px-2 py-0.5 text-xs text-accent">
                     {s.track_name}
@@ -245,7 +279,12 @@ export function SessionsView() {
                     })
                   }
                 />
-                <div className="flex justify-end px-2 pt-2">
+                <div className="flex justify-end gap-2 px-2 pt-2">
+                  <Tip content="Replay recordings and other drivers' laps are indistinguishable from your own driving in telemetry — keeping them off the Bests board is a manual call.">
+                    <button className="btn" onClick={() => toggleBestsExcluded(s)}>
+                      {s.bests_excluded ? "Include in bests" : "Exclude from bests"}
+                    </button>
+                  </Tip>
                   <button className="btn-danger" onClick={() => setDeletingSession(s.id)}>
                     Delete session
                   </button>
@@ -363,6 +402,11 @@ function LapTable({
                       title="This lap's color in charts and maps"
                     />
                     {lap.number}
+                    {lap.salvaged && (
+                      <span title="Salvaged from a stream that ended at the line (replay ending) — the time is GT7's own">
+                        ⟲
+                      </span>
+                    )}
                   </span>
                 </td>
                 <td className={`px-2 py-1.5 ${isBest ? "text-accent" : ""}`}>

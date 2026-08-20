@@ -13,6 +13,7 @@ import type {
   LapSummary,
   LogRecord,
   OfficialMatch,
+  PersonalBest,
   RaceEngineerDiagnostics,
   SessionSummary,
   SurveyEdge,
@@ -137,8 +138,28 @@ export const api = {
     get<CategoryBest | null>(
       `/api/laps/best?track=${encodeURIComponent(track)}&category=${encodeURIComponent(category)}`,
     ),
+  // The personal-bests board (#26): fastest counting lap per (circuit, car),
+  // ordered by circuit then time. Excludes unnamed circuits and sessions the
+  // user has ruled out via bests_excluded (replay recordings look exactly
+  // like driving in telemetry — see updateSession).
+  personalBests: (category = "") =>
+    get<{ bests: PersonalBest[] }>(
+      `/api/laps/bests${category ? `?category=${encodeURIComponent(category)}` : ""}`,
+    ),
+  // note / bests_excluded are the only session fields a human is allowed to
+  // rewrite after the fact; everything else is what the telemetry said.
+  updateSession: (id: number, patch: { note?: string; bests_excluded?: boolean }) =>
+    send<{ status: string }>(`/api/sessions/${id}`, "PATCH", patch),
   sessionLaps: (id: number) => get<LapSummary[]>(`/api/sessions/${id}/laps`),
-  laps: () => get<LapSummary[]>("/api/laps"),
+  // `track` narrows to one circuit's laps across every session — what the
+  // Analysis "+ Add lap" picker feeds on (#26).
+  laps: (track = "", category = "") => {
+    const q = new URLSearchParams();
+    if (track) q.set("track", track);
+    if (category) q.set("category", category);
+    const qs = q.toString();
+    return get<LapSummary[]>(`/api/laps${qs ? `?${qs}` : ""}`);
+  },
   lapDetail: (id: number, withSamples = true) =>
     get<LapSummary & Record<string, unknown>>(`/api/laps/${id}${withSamples ? "" : "?samples=0"}`),
   deleteSession: (id: number) => send<{ status: string }>(`/api/sessions/${id}`, "DELETE"),

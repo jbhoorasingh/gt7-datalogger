@@ -48,6 +48,7 @@ class SimScenario:
     temp_offset: float = 0.0  # °C added to water and oil
     oil_pressure_scale: float = 1.0
     race_positions: int = 0  # 0 = no position reporting (GT7 sends -1)
+    replay: bool = False  # stream one TT-leader replay lap instead of driving
 
 
 # Scenarios for exercising Race Engineer callouts without a console.
@@ -59,6 +60,10 @@ SCENARIOS: dict[str, SimScenario] = {
     "fuel_shortage": SimScenario(race_laps=10, fuel_start=9.0, fuel_rate=2.5),
     "overheating": SimScenario(race_laps=6, temp_offset=35.0),
     "oil_pressure": SimScenario(race_laps=6, oil_pressure_scale=0.2),
+    # The TT-leader single-lap replay shape (#26): pre-roll, one flying lap
+    # streamed as lap 0, then LOADING forever — exercises lap salvage and its
+    # pre-roll trimming end to end. Restart the source to run it again.
+    "leader_replay": SimScenario(replay=True),
 }
 
 
@@ -215,6 +220,9 @@ class SimTelemetrySource:
             self._task = None
 
     async def _run(self) -> None:
+        if self._scenario.replay:
+            await self._run_replay()
+            return
         rng = random.Random(42)
         sim = self._scenario
         distance = 0.0
@@ -388,6 +396,193 @@ class SimTelemetrySource:
                 brake_filtered=int(brake * 0.7) if locking else brake,
                 surface_types="CTTT" if kerb else "TTTT",
                 lap_time_ms=int((tick - lap_start_tick) * TICK * 1000),
+                wheel_steering_rad=(lat * 0.3, lat * 0.3),
+                wheelbase_m=2.7,
+                car_category="GRX",
+            )
+            self._packet_count += 1
+            await self._on_packet(parse_packet(plain))
+            tick += 1
+            await asyncio.sleep(TICK)
+
+    async def _run_replay(self) -> None:
+        """One TT-leader replay lap, the way GT7 streams it (#26).
+
+        A replay looks like driving on the wire — on-track flags, moving
+        telemetry — but the lap counter never moves: it sits at 0 through the
+        pre-roll and the flying lap, the lap clock is frozen at 0 until the
+        start line and counts from the crossing, and the stream ends AT the
+        finish with an endless LOADING idle that carries the lap's time. That
+        ending is exactly what the salvage path exists for. The driving
+        reuses _run's self-consistent physics so the salvaged lap charts like
+        a real one — the g-g calibration has to accept it.
+        """
+        rng = random.Random(42)
+        # The pre-roll joins the lap already in flight, a stretch before the
+        # line: distance starts 88% of the way around with the car near the
+        # straight's target speed, so the buffer opens with samples the
+        # salvage trimmer has to cut.
+        distance = 0.88 * TRACK_LENGTH
+        speed = 55.0
+        tick = 0
+        lap_jitter = rng.uniform(-1.5, 1.5)
+        lap_start_tick = -1  # -1 until the start line is crossed
+        last_ms = -1  # set at the second crossing: the replay is over then
+
+        while True:
+            if last_ms >= 0:
+                # Replay finished: GT7 sits on a loading screen while the menu
+                # rebuilds, still reporting the lap it just showed. This is
+                # the packet the salvage attempt keys on; the app should
+                # salvage exactly one lap and then sit quiet (restart the
+                # source to run the replay again).
+                plain = build_packet(
+                    packet_id=tick,
+                    flags=int(SimulatorFlags.LOADING),
+                    current_lap=0,
+                    total_laps=0,
+                    best_lap_time_ms=last_ms,
+                    last_lap_time_ms=last_ms,
+                    day_progression_ms=int(tick * TICK * 1000),
+                    race_position=-1,
+                    total_positions=0,
+                    car_id=CAR_ID,
+                    fmt="C",
+                    car_category="GRX",
+                )
+                self._packet_count += 1
+                await self._on_packet(parse_packet(plain))
+                tick += 1
+                await asyncio.sleep(TICK)
+                continue
+
+            previous_speed = speed
+            s = (distance % TRACK_LENGTH) / TRACK_LENGTH
+            target = min(_speed_profile(s, lap_jitter), _grip_limit(distance))
+            ahead = min(
+                _speed_profile((s + 0.006) % 1.0, lap_jitter),
+                _grip_limit(distance + 0.006 * TRACK_LENGTH),
+            )
+            # Same driver model and rate limiting as _run — see the comments
+            # there for why each branch and the clamp exist.
+            if target < speed - 2.0:
+                throttle, brake = 0, int(min(255, (speed - target) * 22))
+                speed = max(target, speed - 22.0 * TICK)
+            elif ahead < speed - 5.0:
+                throttle, brake = 0, 0
+                speed = max(14.0, speed - 2.5 * TICK)
+            elif target > speed + 0.5:
+                throttle, brake = 255, 0
+                speed = min(target, speed + 9.0 * TICK)
+            else:
+                throttle = 255 if target > 55 else int(140 + rng.uniform(-30, 30))
+                brake = 0
+                speed = target
+            speed = min(
+                max(speed, previous_speed - 22.0 * TICK), previous_speed + 9.0 * TICK
+            )
+            crossing = (distance + speed * TICK) // TRACK_LENGTH > distance // TRACK_LENGTH
+            distance += speed * TICK
+            if crossing:
+                if lap_start_tick < 0:
+                    # Start line: the broadcast lap clock starts counting
+                    # while the lap counter stays parked at 0.
+                    lap_start_tick = tick
+                else:
+                    # Finish line: the flying lap is complete and the replay
+                    # ends ON it — no packet ever reports the counter
+                    # stepping forward.
+                    last_ms = int((tick - lap_start_tick) * TICK * 1000)
+                    continue
+
+            px, pz = _position_at(distance)
+            yaw_rate = speed * _curvature_at(distance)
+            gear = min(6, max(1, int(speed / 11) + 1))
+            rpm = 2000 + (speed * 3.6 % 60) / 60 * 5500 + gear * 100
+
+            locking = brake > 200
+            spinning = throttle == 255 and speed < 25
+            base_rps = speed / 0.33
+            factor = [1.0, 1.0, 1.0, 1.0]  # FL FR RL RR
+            if locking:
+                factor[0] = 0.72 + rng.uniform(0, 0.08)
+                factor[1] = 0.86 + rng.uniform(0, 0.08)
+            if spinning:
+                factor[2] = factor[3] = 1.18 + rng.uniform(0, 0.1)
+
+            lat = yaw_rate
+            front = 0.030 + (0.028 if brake > 100 else 0.0)
+            rear = 0.030 + (0.012 if throttle > 200 else 0.0)
+            roll = lat * 0.02
+            kerb = 0.05 if abs(s - 0.21) < 0.0008 else 0.0
+            suspension = (
+                front + max(0, -roll) + kerb + rng.uniform(0, 0.002),
+                front + max(0, roll) + rng.uniform(0, 0.002),
+                rear + max(0, -roll) + rng.uniform(0, 0.002),
+                rear + max(0, roll) + rng.uniform(0, 0.002),
+            )
+
+            flags = SimulatorFlags.CAR_ON_TRACK | SimulatorFlags.IN_GEAR
+            if spinning:
+                flags |= SimulatorFlags.TCS_ACTIVE
+            if locking:
+                flags |= SimulatorFlags.ASM_ACTIVE
+            if rpm > 8600:
+                flags |= SimulatorFlags.REV_LIMITER
+
+            plain = build_packet(
+                packet_id=tick,
+                position=(px, 10.0, pz),
+                velocity=(speed, 0.0, 0.0),
+                angular_velocity=(0.0, lat, 0.0),
+                body_height=0.08 + rng.uniform(0, 0.01),
+                engine_rpm=rpm,
+                # Replays do not burn the watcher's fuel.
+                fuel_level=100.0,
+                fuel_capacity=100.0,
+                speed_mps=speed,
+                boost=0.0,
+                tire_temps=(70 + speed / 4, 71 + speed / 4, 68 + speed / 5, 69 + speed / 5),
+                # The whole point of the scenario: the counter never leaves 0
+                # and the lap's time only ever appears in the LOADING idle.
+                current_lap=0,
+                total_laps=0,
+                best_lap_time_ms=-1,
+                last_lap_time_ms=-1,
+                day_progression_ms=int(tick * TICK * 1000),
+                race_position=-1,
+                total_positions=0,
+                flags=int(flags),
+                current_gear=gear,
+                suggested_gear=15,
+                throttle=throttle,
+                brake=brake,
+                wheel_rps=(
+                    base_rps * factor[0],
+                    base_rps * factor[1],
+                    base_rps * factor[2],
+                    base_rps * factor[3],
+                ),
+                suspension=suspension,
+                oil_pressure=6.5 - rpm / 9000 * 1.5,
+                water_temp=84.0 + (tick % 36000) / 36000 * 8,
+                oil_temp=88.0 + (tick % 36000) / 36000 * 12,
+                gear_ratios=(3.2, 2.3, 1.8, 1.4, 1.15, 0.95),
+                transmission_top_speed=290.0,
+                car_id=CAR_ID,
+                fmt="C",
+                wheel_rotation=lat * 1.2,
+                sway=speed * lat,
+                surge=(speed - previous_speed) / TICK,
+                throttle_filtered=int(throttle * 0.55) if spinning else throttle,
+                brake_filtered=int(brake * 0.7) if locking else brake,
+                surface_types="CTTT" if kerb else "TTTT",
+                # Frozen at 0 through the pre-roll, then ms since the start
+                # line — the backward-jump/frozen-run shape the trimmer keys
+                # on.
+                lap_time_ms=(
+                    0 if lap_start_tick < 0 else int((tick - lap_start_tick) * TICK * 1000)
+                ),
                 wheel_steering_rad=(lat * 0.3, lat * 0.3),
                 wheelbase_m=2.7,
                 car_category="GRX",

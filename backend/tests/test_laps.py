@@ -311,3 +311,198 @@ async def test_metrics_time_weighted_under_drops(setup) -> None:
     lap = c.laps[0]
     assert lap.full_throttle_pct == pytest.approx(100.0 * 10 / 40, abs=0.5)
     assert lap.coasting_pct == pytest.approx(100.0 * 30 / 40, abs=0.5)
+
+
+# --- lap salvage: streams that end at the line (#26) --------------------------
+
+
+LOADING = int(SimulatorFlags.LOADING)
+
+
+async def test_salvage_single_lap_replay_on_reset(setup) -> None:
+    """A replay ends AT the finish line: the counter never steps to prev+1,
+    but GT7's reported time vouches for the buffered lap."""
+    proc, c = setup
+    await feed_lap(proc, 1, 300, speed_mps=50.0)
+    gt = round(proc.live_lap_samples["t"][-1] * 1000)  # 299/60*1000 ~ 4983
+    await proc.feed(make_packet(current_lap=0, last_lap_time_ms=gt, speed_mps=50.0))
+    assert len(c.laps) == 1
+    lap = c.laps[0]
+    assert lap.number == 1
+    assert lap.time_ms == gt
+    assert lap.salvaged is True
+    # The reset still opens a new session; the salvaged lap stays in the old.
+    assert len(c.sessions) == 2
+    assert c.sessions[0].lap_count == 1
+
+
+async def test_salvage_requires_time_match(setup) -> None:
+    """Without GT7's time agreeing, an abandoned buffer is just an aborted
+    lap and must be discarded."""
+    proc, c = setup
+    await feed_lap(proc, 1, 300, speed_mps=50.0)
+    await proc.feed(make_packet(current_lap=0, last_lap_time_ms=20_000, speed_mps=50.0))
+    assert c.laps == []
+
+
+async def test_salvage_on_loading(setup) -> None:
+    """A replay's ending streams LOADING while the menu builds; the finished
+    lap is salvaged from the buffer once, not once per LOADING packet."""
+    proc, c = setup
+    await feed_lap(proc, 1, 300, speed_mps=50.0)
+    gt = round(proc.live_lap_samples["t"][-1] * 1000)
+    await proc.feed(make_packet(current_lap=0, flags=LOADING, last_lap_time_ms=gt))
+    assert len(c.laps) == 1
+    assert c.laps[0].number == 1
+    assert c.laps[0].salvaged is True
+    for _ in range(5):
+        await proc.feed(make_packet(current_lap=0, flags=LOADING, last_lap_time_ms=gt))
+    assert len(c.laps) == 1
+
+
+async def test_salvage_trims_preroll_with_lap_clock(setup) -> None:
+    """The replay pre-roll before the line (GT7's lap clock frozen at 0) is
+    trimmed off, so the salvaged lap starts at the crossing with t and dist
+    rebased to 0."""
+    proc, c = setup
+    for _ in range(200):
+        await proc.feed(make_packet(current_lap=0, speed_mps=50.0, fmt="C", lap_time_ms=0))
+    for i in range(400):
+        await proc.feed(
+            make_packet(current_lap=0, speed_mps=50.0, fmt="C", lap_time_ms=round(i * 1000 / 60))
+        )
+    gt = round(399 / 60 * 1000)  # duration of the flying lap alone
+    await proc.feed(make_packet(flags=LOADING, last_lap_time_ms=gt, fmt="C"))
+    assert len(c.laps) == 1
+    lap = c.laps[0]
+    assert lap.number == 0  # a later real lap 1 in this session must not collide
+    assert lap.salvaged is True
+    assert abs(lap.total_ticks - 400) <= 2
+    assert lap.samples["t"][0] == 0.0
+    assert lap.samples["dist"][0] == 0.0
+
+
+async def test_out_lap_boundary_still_commits_nothing(setup) -> None:
+    """Regression guard: sampling lap 0 must not let a real time-trial
+    out-lap's 0 -> 1 boundary commit anything, even with a stale
+    last_lap_time on the wire."""
+    proc, c = setup
+    for _ in range(300):
+        await proc.feed(make_packet(current_lap=0, speed_mps=50.0, fmt="C", lap_time_ms=0))
+    await feed_lap(proc, 1, 10, speed_mps=50.0, last_lap_time_ms=61_000)
+    assert c.laps == []
+
+
+async def test_salvage_on_car_change(setup) -> None:
+    """Result screen then a car swap: the finished lap's time arrives on
+    off-track packets, and the salvaged lap must land in the OLD session
+    with the OLD car."""
+    proc, c = setup
+    await feed_lap(proc, 1, 300, speed_mps=50.0, car_id=100)
+    gt = round(proc.live_lap_samples["t"][-1] * 1000)
+    for _ in range(3):
+        await proc.feed(make_packet(current_lap=1, car_id=100, flags=0, last_lap_time_ms=gt))
+    await proc.feed(make_packet(current_lap=0, car_id=200))
+    assert len(c.laps) == 1
+    lap = c.laps[0]
+    assert lap.salvaged is True
+    assert lap.car_id == 100
+    assert lap.time_ms == gt
+    assert len(c.sessions) == 2
+    assert c.sessions[0].lap_count == 1
+    assert c.sessions[1].lap_count == 0
+
+
+async def test_salvage_splits_session_before_own_driving(setup) -> None:
+    """Watch the leader's replay, then drive the same car: the user's laps
+    must NOT land in the replay's session. With a lap-0 replay the counter
+    never comes down from >0, so no lap_reset would ever separate them —
+    the salvage itself has to end the session, or excluding the replay from
+    bests would take the user's own laps with it (#26)."""
+    proc, c = setup
+    for i in range(300):
+        await proc.feed(
+            make_packet(current_lap=0, speed_mps=50.0, fmt="C", lap_time_ms=round(i * 1000 / 60))
+        )
+    gt = round(proc.live_lap_samples["t"][-1] * 1000)
+    await proc.feed(make_packet(flags=LOADING, last_lap_time_ms=gt, fmt="C"))
+    assert len(c.laps) == 1 and c.laps[0].salvaged is True
+    salvaged_sessions = len(c.sessions)
+    # Same car drives: out-lap 0, then a real lap 1 completed at the 1 -> 2
+    # boundary. It must open its own session.
+    await feed_lap(proc, 0, 10, speed_mps=50.0)
+    await feed_lap(proc, 1, 300, speed_mps=50.0)
+    await proc.feed(make_packet(current_lap=2, last_lap_time_ms=6_000, speed_mps=50.0))
+    assert len(c.sessions) == salvaged_sessions + 1
+    driven = c.laps[-1]
+    assert driven.number == 1
+    assert driven.salvaged is False
+    assert c.sessions[-1].lap_count == 1
+
+
+async def test_back_to_back_replay_salvages_get_own_sessions(setup) -> None:
+    """Two single-lap replays in one sitting (same car, counter parked at 0)
+    must produce two one-lap sessions — not one session with two laps both
+    numbered 0, whose circuit label would belong to the first replay only."""
+    proc, c = setup
+    for cycle_ticks in (300, 320):
+        for i in range(cycle_ticks):
+            await proc.feed(
+                make_packet(
+                    current_lap=0, speed_mps=50.0, fmt="C", lap_time_ms=round(i * 1000 / 60)
+                )
+            )
+        gt = round((cycle_ticks - 1) * 1000 / 60)
+        await proc.feed(make_packet(flags=LOADING, last_lap_time_ms=gt, fmt="C"))
+    assert len(c.laps) == 2
+    assert all(lap.salvaged for lap in c.laps)
+    assert len(c.sessions) == 2
+    assert [s.lap_count for s in c.sessions] == [1, 1]
+
+
+async def test_salvage_survives_post_line_stub(setup) -> None:
+    """A real console may stream a few ticks PAST the crossing before the
+    LOADING cut; GT7's clock re-anchors there for a lap nobody will see.
+    Salvage must still find the flying lap in front of the stub instead of
+    trimming everything down to the stub and giving up."""
+    proc, c = setup
+    for _ in range(200):  # pre-roll, clock frozen
+        await proc.feed(make_packet(current_lap=0, speed_mps=50.0, fmt="C", lap_time_ms=0))
+    for i in range(400):  # the flying lap, clock counting
+        await proc.feed(
+            make_packet(current_lap=0, speed_mps=50.0, fmt="C", lap_time_ms=round(i * 1000 / 60))
+        )
+    for i in range(30):  # past the line: clock re-anchored
+        await proc.feed(
+            make_packet(current_lap=0, speed_mps=50.0, fmt="C", lap_time_ms=round(i * 1000 / 60))
+        )
+    gt = round(399 / 60 * 1000)  # the flying lap's duration alone
+    await proc.feed(make_packet(flags=LOADING, last_lap_time_ms=gt, fmt="C"))
+    assert len(c.laps) == 1
+    lap = c.laps[0]
+    assert lap.salvaged is True
+    assert lap.time_ms == gt
+    assert abs(lap.total_ticks - 400) <= 2
+    assert lap.samples["t"][0] == 0.0
+    assert lap.samples["dist"][0] == 0.0
+
+
+async def test_salvage_trims_frozen_final_frame_hold(setup) -> None:
+    """The other post-line shape: the stream holds the last frame, GT7's
+    clock frozen, while our t axis keeps integrating. Untrimmed, the lap
+    would over-measure by the hold and miss the tolerance window."""
+    proc, c = setup
+    for i in range(400):
+        await proc.feed(
+            make_packet(current_lap=0, speed_mps=50.0, fmt="C", lap_time_ms=round(i * 1000 / 60))
+        )
+    frozen = round(399 * 1000 / 60)
+    for _ in range(120):  # ~2 s hold — well past max(500 ms, 0.5%) untrimmed
+        await proc.feed(make_packet(current_lap=0, speed_mps=50.0, fmt="C", lap_time_ms=frozen))
+    gt = round(399 / 60 * 1000)
+    await proc.feed(make_packet(flags=LOADING, last_lap_time_ms=gt, fmt="C"))
+    assert len(c.laps) == 1
+    lap = c.laps[0]
+    assert lap.salvaged is True
+    assert lap.time_ms == gt
+    assert abs(lap.total_ticks - 400) <= 2

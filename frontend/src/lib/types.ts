@@ -62,6 +62,7 @@ export interface LapSummary {
   car_id?: number;
   car_name?: string;
   car_category?: string; // packet C: "Gr.3", "Gr.4", "N300"…; "" when unknown
+  track_name?: string; // from the session row; "" when the circuit is unnamed
   fuel_consumed: number;
   full_throttle_pct: number;
   full_brake_pct: number;
@@ -80,6 +81,10 @@ export interface LapSummary {
   off_track_count?: number; // excursions past track limits; -1 = unknown
   off_survey_count?: number; // excursions beyond the SURVEYED road edge; -1 = unknown
   clean_lap?: boolean | null; // null = unknown (no surface data recorded)
+  // Recovered from a stream that ended without the lap-counter increment (a
+  // replay ending); the time is GT7's own, verified against the integrated
+  // clock (#26).
+  salvaged?: boolean;
   event_counts?: Record<string, number>;
 }
 
@@ -353,6 +358,10 @@ export interface SessionSummary {
   track_name: string;
   lap_count: number;
   best_lap_time_ms: number | null;
+  // Manually kept off the Bests board (#26): a replay recording or another
+  // driver's stint is indistinguishable from own driving in telemetry, so
+  // only a human can rule its laps out as personal bests.
+  bests_excluded: boolean;
 }
 
 export interface Track {
@@ -377,6 +386,26 @@ export interface CategoryBest {
   clean_lap: boolean | null;
   off_survey_count?: number; // excursions beyond the SURVEYED road edge; -1 = unknown
   finished_at: string;
+}
+
+// One row of the personal-bests board (#26): the fastest counting lap ever
+// recorded for one (circuit, car) pair. Partial laps, unnamed circuits and
+// bests_excluded sessions never appear — the board only states times that
+// were really driven start to finish on a known track.
+export interface PersonalBest {
+  track_name: string;
+  car_id: number;
+  car_name: string;
+  car_category: string; // "" when unknown (pre-packet-C recording)
+  lap_id: number;
+  session_id: number;
+  number: number;
+  time_ms: number;
+  finished_at: string;
+  clean_lap: boolean | null; // null = unknown (no surface data recorded)
+  off_survey_count: number; // excursions beyond the SURVEYED road edge; -1 = unknown
+  salvaged: boolean; // recovered from a replay-style stream ending (#26)
+  lap_count: number; // counting laps recorded for this (circuit, car) pair
 }
 
 // Official GT7 track/layout metadata (bundled data/tracks.json — only the

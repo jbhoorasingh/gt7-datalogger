@@ -59,6 +59,39 @@ async def delete_session(request: Request, session_id: int) -> dict[str, str]:
     return {"status": "deleted"}
 
 
+class SessionPatch(BaseModel):
+    """Fields the user may edit on a session; absent fields stay untouched.
+
+    Unknown fields are rejected rather than ignored: a script that typos
+    `bests_exclude` must get a 422, not a 200 that quietly leaves the
+    replay's laps owning the personal-best board (#26).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    note: str | None = Field(None, max_length=500)
+    # True marks the session as not the user's own driving — GT7 records
+    # replays like driven laps, so this is the only way a TT-leader replay
+    # stays off the personal-best board (#26).
+    bests_excluded: bool | None = None
+
+
+@router.patch("/sessions/{session_id}", dependencies=[Depends(require_admin)])
+async def update_session(
+    request: Request, session_id: int, payload: SessionPatch
+) -> dict[str, str]:
+    if payload.note is None and payload.bests_excluded is None:
+        # An empty patch answered "updated" would be the same silent no-op a
+        # typo'd field used to be.
+        raise HTTPException(400, "nothing to update")
+    updated = await svc(request).repo.update_session(
+        session_id, note=payload.note, bests_excluded=payload.bests_excluded
+    )
+    if not updated:
+        raise HTTPException(404, "session not found")
+    return {"status": "updated"}
+
+
 @router.get("/sessions/{session_id}/laps")
 async def session_laps(request: Request, session_id: int) -> list[dict[str, Any]]:
     laps = await svc(request).repo.list_laps(session_id)
@@ -69,8 +102,16 @@ async def session_laps(request: Request, session_id: int) -> list[dict[str, Any]
 
 
 @router.get("/laps")
-async def laps(request: Request) -> list[dict[str, Any]]:
-    laps = await svc(request).repo.list_laps()
+async def laps(
+    request: Request,
+    track: str = Query("", max_length=80, description="session's circuit — all when blank"),
+    category: str = Query(
+        "", max_length=16, description="car category, e.g. Gr.3 — all when blank"
+    ),
+) -> list[dict[str, Any]]:
+    laps = await svc(request).repo.list_laps(
+        track=track.strip() or None, category=category.strip() or None
+    )
     cars = svc(request).cars
     for lap in laps:
         lap["car_name"] = cars.name(lap["car_id"])
@@ -89,6 +130,30 @@ async def best_lap(
     "best" would otherwise be handed to the lap-id route as a path parameter.
     """
     return await svc(request).repo.best_lap_in(track.strip(), category.strip())
+
+
+@router.get("/laps/bests")
+async def personal_bests(
+    request: Request,
+    category: str = Query(
+        "", max_length=16, description="car category, e.g. Gr.3 — all when blank"
+    ),
+) -> dict[str, Any]:
+    """The personal-best board: fastest counting lap per circuit and car,
+    across every session ever recorded (#26).
+
+    Class/category scoping stays a display concern — the board keys on the
+    exact car, and the optional filter only narrows which rows are returned.
+    Sessions flagged bests_excluded (recorded replays, other drivers) never
+    own a row. Declared BEFORE /laps/{lap_id} for the same reason /laps/best
+    is: FastAPI matches in declaration order, and "bests" would otherwise be
+    handed to the lap-id route as a path parameter.
+    """
+    rows = await svc(request).repo.personal_bests(category.strip() or None)
+    cars = svc(request).cars
+    for row in rows:
+        row["car_name"] = cars.name(row["car_id"])
+    return {"bests": rows}
 
 
 @router.get("/laps/{lap_id}")

@@ -353,6 +353,7 @@ class TelemetryService:
             "off_track_count": lap.off_track_count,
             "off_survey_count": lap.off_survey_count,
             "clean_lap": lap.clean_lap,
+            "salvaged": lap.salvaged,
             "car_name": self.cars.name(lap.car_id),
             "fuel_consumed": round(lap.fuel_consumed, 3),
             "full_throttle_pct": round(lap.full_throttle_pct, 1),

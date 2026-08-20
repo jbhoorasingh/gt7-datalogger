@@ -3,12 +3,13 @@
 // source of truth for cross-view handoff (Sessions/Live → Analysis) and makes
 // every view bookmarkable. The /overlay path is handled separately (lib/overlay).
 
-export type View = "live" | "analysis" | "sessions" | "survey" | "tracks" | "admin";
+export type View = "live" | "analysis" | "sessions" | "bests" | "survey" | "tracks" | "admin";
 
 const VIEWS: readonly View[] = [
   "live",
   "analysis",
   "sessions",
+  "bests",
   "survey",
   "tracks",
   "admin",

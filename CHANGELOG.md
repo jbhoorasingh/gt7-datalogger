@@ -39,6 +39,81 @@ Notable changes to GT7 Datalogger. The format follows
   maps the requested slug to — clients never supply URLs — with size caps
   enforced while reading. Setting the URL empty hides the feature; nothing is
   fetched until the Tracks view is opened.
+- **Laps from other sessions can join a comparison.** (#26) Analysis could only
+  ever overlay laps from one session, which made the interesting comparisons
+  impossible: today's stint against last week's, this car against that one at
+  the same circuit, your line against the leaderboard leader's salvaged replay
+  (below). **+ Add lap…** now lists every lap recorded at the session's circuit
+  — fastest first, because that is the one you are looking for — and a picked
+  lap joins as a guest chip labelled `S12·L3`. The class-best benchmark row
+  gains a **compare** action that pulls the benchmark lap straight into the
+  current comparison. Nothing downstream needed convincing: the compare API
+  always spoke global lap ids, and alignment is distance-from-start, which
+  holds across sessions on the same circuit — which is also why the picker
+  offers only the session's own circuit, never another one. Cross-session deep
+  links (`#/analysis?session=3&laps=208`) now resolve instead of being pruned.
+- **A personal-bests board.** (#26) New **Bests** tab: for every circuit, the
+  fastest *counting* lap per car across every session ever recorded — time,
+  Δ to the circuit's outright best, category chip, how many counting laps
+  stand behind the row, when it was set, and one click into Analysis. Served
+  by `GET /api/laps/bests` (one row per circuit + car; optional `category=`
+  filter). Partial laps never own a row, for the same reason they never own a
+  session best: the logger only saw part of them, so their reported time is
+  shorter than any real lap's.
+- **Sessions can be excluded from bests.** (#26) Replay capture (below) has a
+  consequence: a replay records *another driver's* laps, and no telemetry
+  field tells them apart from your own driving. So a session can be flagged
+  **excluded from bests** in the Sessions view: it keeps every lap, and its
+  laps stay selectable for comparison — overlaying your line on the leader's
+  is the whole point of capturing the replay — but it never owns a Bests row
+  and never provides the class-best benchmark (`/api/laps/best`). Backed by
+  `PATCH /api/sessions/{id}` (admin-gated) and a new `bests_excluded` column
+  (Alembic revision 0003).
+- **New simulator scenario `leader_replay`** (`GT7_SIM_SCENARIO=leader_replay`):
+  pre-roll footage, one flying lap streamed as lap 0 with a running packet-C
+  lap clock, then `LOADING` — a single-lap TT-leader replay, staged, so the
+  salvage path below can be exercised end to end without a console.
+
+### Fixed
+
+- **Watching the time-trial leader's replay now leaves a lap you can
+  analyze.** GT7 streams a replay exactly like driving — no replay flag exists
+  — but a single-lap replay ends *at* the finish line, so the lap-counter step
+  to `prev+1` that commits a lap was never observed: the fully-driven lap sat
+  in the buffer, the stream cut to `LOADING`, the buffer was discarded, and
+  the now-empty session was deleted. The replay watched specifically to study
+  a lap left no trace at all. Now, when the stream breaks off (menu/`LOADING`
+  transition, lap-counter reset, car change) with a full lap in the buffer,
+  the lap is saved **if GT7's own reported lap time agrees with the integrated
+  duration within max(500 ms, 0.5 %)** — the one piece of evidence that the
+  buffer covers exactly one lap — so aborted half-laps are still discarded.
+  Replays streamed as "lap 0" are buffered too (real out-laps still never
+  commit, and the lap-0 buffer is capped at 15 minutes against menu noise),
+  and with packet C the footage around the lap — pre-roll before the line,
+  and any post-line stub when the stream runs past the crossing — is trimmed
+  off using GT7's own lap clock, so the saved lap's distance axis starts at
+  the start line and aligns with driven laps in comparison. Salvaged laps
+  keep GT7's time, pass the same span guard as every other lap, carry a
+  stored `salvaged` marker shown wherever the lap appears (lap tables, the
+  Bests board, the Add lap… picker), and **end their session**: whatever
+  streams next — another replay, your own driving in the same car — opens a
+  fresh one, which is what keeps a replay separable from the laps you then
+  drive yourself. A discarded buffer of plausible size logs its tick count
+  and candidate times for diagnosis. Multi-lap race replays already recorded like driving — the
+  salvage additionally rescues their *final* lap when the replay runs to the
+  flag, while a final lap the replay cuts short still fails the time check and
+  is discarded. (#26 is what made this matter: the lap most worth co-selecting
+  in a cross-session comparison is the leader's.)
+
+### Changed
+
+- **Lap lists no longer drag the telemetry along.** (#26) Every lap-summary
+  query loaded each lap's full 60 Hz sample blob only to show a row of
+  aggregate numbers — the storage hotspot #26 flagged, and one that grew with
+  the archive. The summary queries now leave the blobs unread, which is what
+  makes querying the *entire* archive — the Bests board, the Add lap… picker —
+  cheap. `GET /api/laps` also gained `track=` and `category=` filters, and lap
+  summaries now carry `track_name`, so both features are one request each.
 
 ## [0.5.0] - 2026-08-17
 
