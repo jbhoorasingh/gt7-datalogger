@@ -9,12 +9,13 @@ the user owns.
 """
 
 import json
+import math
 
 import pytest
 
 from app.config import Settings
 from app.main import SEED_DIGEST_KEY, sync_track_seed
-from app.processing import track_seed
+from app.processing import track_seed, tracks
 from app.processing.track_bundle import BundleError
 from app.processing.tracks import TrackSignature
 from app.storage.db import init_db, make_engine, make_session_factory
@@ -228,3 +229,104 @@ def test_the_shipped_seed_is_valid() -> None:
     assert len(rows) > 50
     assert len({r.official_id for r in rows}) == len(rows)
     assert all(r.provenance in track_seed.PROVENANCES for r in rows)
+
+
+# --- direction (#58) ----------------------------------------------------------
+
+
+def _ring(n: int = 240, radius: float = 500.0) -> list[list[float]]:
+    """A closed circular path, anticlockwise, as the seed stores it."""
+    return [
+        [radius * math.cos(2 * math.pi * i / n), radius * math.sin(2 * math.pi * i / n)]
+        for i in range(n)
+    ]
+
+
+def _lap_from(path: list[list[float]], reverse: bool = False) -> dict[str, list[float]]:
+    pts = path[::-1] if reverse else path
+    return {"pos_x": [p[0] for p in pts], "pos_z": [p[1] for p in pts],
+            "dist": [float(i) for i in range(len(pts))]}
+
+
+def _seeded(path=None, reverse=True, radius=500.0) -> dict:
+    row = _row("fwd001", "Ring Circuit", 3141.0, half=radius)
+    row["path"] = path if path is not None else _ring(radius=radius)
+    if reverse:
+        row["reverse"] = {"official_id": "rev001", "official_name": "Ring Circuit (Reverse)"}
+    return row
+
+
+def test_direction_is_decisive_both_ways() -> None:
+    """The measurement the whole reverse story rests on."""
+    path = [(p[0], p[1]) for p in _ring()]
+    assert tracks.travel_direction(_lap_from(_ring()), path) == pytest.approx(1.0)
+    assert tracks.travel_direction(_lap_from(_ring(), reverse=True), path) == pytest.approx(-1.0)
+
+
+def test_direction_is_zero_when_the_lap_is_somewhere_else() -> None:
+    """No overlap is evidence the geometry match was wrong, not weak evidence."""
+    elsewhere = {"pos_x": [9000.0 + i for i in range(100)],
+                 "pos_z": [9000.0] * 100, "dist": [float(i) for i in range(100)]}
+    assert tracks.travel_direction(elsewhere, [(p[0], p[1]) for p in _ring()]) == 0.0
+
+
+async def test_a_reverse_lap_gets_the_reverse_layouts_name(repo) -> None:
+    """The bug this closes: 10 of the author's Deep Forest laps were reverse
+    laps wearing the forward layout's name, pooling into its bests."""
+    await repo.sync_seeded_tracks(track_seed.parse(_doc(_seeded())))
+    sig = TrackSignature(3141.0, -500.0, 500.0, -500.0, 500.0)
+    assert await repo.find_track(sig, _lap_from(_ring())) == "Ring Circuit"
+    assert await repo.find_track(sig, _lap_from(_ring(), reverse=True)) == "Ring Circuit (Reverse)"
+
+
+async def test_a_backwards_lap_with_no_reverse_layout_declines(repo) -> None:
+    """GT7 has no reverse of this circuit, so a backwards lap of it is not a
+    lap of it — the geometry matched something the lap did not drive."""
+    await repo.sync_seeded_tracks(track_seed.parse(_doc(_seeded(reverse=False))))
+    sig = TrackSignature(3141.0, -500.0, 500.0, -500.0, 500.0)
+    assert await repo.find_track(sig, _lap_from(_ring(), reverse=True)) is None
+
+
+async def test_a_seed_without_a_path_still_names_forward(repo) -> None:
+    """Older seeds carry no path; they behave as they did before direction."""
+    row = _seeded()
+    row.pop("path")
+    await repo.sync_seeded_tracks(track_seed.parse(_doc(row)))
+    sig = TrackSignature(3141.0, -500.0, 500.0, -500.0, 500.0)
+    assert await repo.find_track(sig, _lap_from(_ring(), reverse=True)) == "Ring Circuit"
+
+
+async def test_direction_is_skipped_when_the_caller_has_no_lap(repo) -> None:
+    """A caller holding only a signature has no direction question to answer."""
+    await repo.sync_seeded_tracks(track_seed.parse(_doc(_seeded())))
+    sig = TrackSignature(3141.0, -500.0, 500.0, -500.0, 500.0)
+    assert await repo.find_track(sig) == "Ring Circuit"
+
+
+async def test_a_user_named_circuit_skips_direction_entirely(repo) -> None:
+    """A user row describes whichever way its author drove; it is not judged."""
+    sig = TrackSignature(3141.0, -500.0, 500.0, -500.0, 500.0)
+    await repo.sync_seeded_tracks(track_seed.parse(_doc(_seeded())))
+    await repo.create_track("My Ring", sig)
+    assert await repo.find_track(sig, _lap_from(_ring(), reverse=True)) == "My Ring"
+
+
+def test_a_malformed_path_is_refused() -> None:
+    row = _seeded()
+    row["path"] = [[0.0, 0.0], [1.0]]
+    with pytest.raises(BundleError, match=r"path\[1\]"):
+        track_seed.parse(_doc(row))
+
+
+def test_half_a_reverse_twin_is_refused() -> None:
+    """A name without an id (or vice versa) cannot be written to a session."""
+    row = _seeded()
+    row["reverse"] = {"official_name": "Ring Circuit (Reverse)"}
+    with pytest.raises(BundleError, match="reverse needs both"):
+        track_seed.parse(_doc(row))
+
+
+def test_the_shipped_seed_carries_paths_and_reverse_twins() -> None:
+    rows = track_seed.load(Settings().track_signatures_json)
+    assert sum(1 for r in rows if r.path) == len(rows)
+    assert sum(1 for r in rows if r.reverse_name) > 20

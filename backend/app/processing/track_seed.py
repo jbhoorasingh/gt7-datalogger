@@ -40,6 +40,9 @@ SEED_VERSION = 1
 # The catalog knows 121 configurations; a seed listing hundreds more is not a
 # seed for this game.
 MAX_SEED_ROWS = 500
+# The Nordschleife is 20 km; at a point every 20 m that is ~1,000. Ten times
+# that is room for a finer step without being a channel for a huge document.
+MAX_PATH_POINTS = 10_000
 PROVENANCES = ("survey", "capture")
 
 
@@ -55,6 +58,16 @@ class SeedRow:
     min_z: float
     max_z: float
     provenance: str
+    # The racing line, thinned to roughly a point every 20 m and kept in
+    # DRIVING ORDER. Order is the whole point: a bounding box cannot tell a
+    # layout from its reverse — same box, same length — and the direction a
+    # lap runs along this path is what separates them.
+    path: tuple[tuple[float, float], ...] = ()
+    # The reverse configuration of the same layout, when GT7 has one. Carried
+    # here rather than looked up, so naming a reverse lap needs no catalog
+    # read on the identification path.
+    reverse_id: str = ""
+    reverse_name: str = ""
 
 
 def parse(raw: Any) -> list[SeedRow]:
@@ -105,8 +118,47 @@ def parse(raw: Any) -> list[SeedRow]:
             raise BundleError(f"{where}: length_m must be positive")
         if box["min_x"] > box["max_x"] or box["min_z"] > box["max_z"]:
             raise BundleError(f"{where}: bounding box is inside out")
-        out.append(SeedRow(official_id=official_id, name=name, provenance=provenance, **box))
+        path = _path(entry.get("path"), where)
+        twin = entry.get("reverse") or {}
+        if not isinstance(twin, dict):
+            raise BundleError(f"{where}: reverse is not an object")
+        reverse_id = _text(twin.get("official_id", ""), f"{where}: reverse.official_id", 32).strip()
+        reverse_name = _text(
+            twin.get("official_name", ""), f"{where}: reverse.official_name", MAX_TRACK_NAME
+        ).strip()
+        # A twin named but not identified (or the other way round) cannot be
+        # written to a session, and half a name is worse than none.
+        if bool(reverse_id) != bool(reverse_name):
+            raise BundleError(f"{where}: reverse needs both official_id and official_name")
+        out.append(SeedRow(
+            official_id=official_id, name=name, provenance=provenance, path=path,
+            reverse_id=reverse_id, reverse_name=reverse_name, **box,
+        ))
     return out
+
+
+def _path(raw: Any, where: str) -> tuple[tuple[float, float], ...]:
+    """The thinned racing line, as (x, z) pairs in driving order.
+
+    Absent is allowed and means "no direction evidence for this circuit" —
+    the app then declines rather than guessing which way round a lap went,
+    exactly as it does for a signature that matches two circuits.
+    """
+    if raw is None:
+        return ()
+    if not isinstance(raw, list):
+        raise BundleError(f"{where}: path is not a list")
+    if len(raw) > MAX_PATH_POINTS:
+        raise BundleError(f"{where}: path has more than {MAX_PATH_POINTS} points")
+    out: list[tuple[float, float]] = []
+    for i, point in enumerate(raw):
+        if not isinstance(point, list | tuple) or len(point) != 2:
+            raise BundleError(f"{where}: path[{i}] is not an [x, z] pair")
+        out.append((
+            _number(point[0], f"{where}: path[{i}].x"),
+            _number(point[1], f"{where}: path[{i}].z"),
+        ))
+    return tuple(out)
 
 
 def digest(path: Path) -> str:

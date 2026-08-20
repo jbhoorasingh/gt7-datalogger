@@ -78,6 +78,14 @@ class TrackRow(Base):
     # nothing joins a typed name to the catalog, which is the whole reason
     # track_catalog.py suggests rather than decides.
     official_id: Mapped[str] = mapped_column(default="")
+    # The seeded racing line as compact JSON [[x, z], ...], in DRIVING ORDER,
+    # and the reverse configuration of the same layout when GT7 has one (#58).
+    # Order is what a bounding box throws away and what tells a layout from
+    # its reverse. Empty on user rows: they carry no path, and they describe
+    # whichever way round their author happened to drive.
+    path_json: Mapped[str] = mapped_column(default="")
+    reverse_id: Mapped[str] = mapped_column(default="")
+    reverse_name: Mapped[str] = mapped_column(default="")
 
 
 class SettingRow(Base):
