@@ -258,6 +258,7 @@ class Repository:
                     LapRow.number,
                     LapRow.time_ms,
                     LapRow.finished_at,
+                    SessionRow.started_at,
                     LapRow.clean_lap,
                     LapRow.off_survey_count,
                     LapRow.salvaged,
@@ -296,7 +297,9 @@ class Repository:
                     "session_id": r.session_id,
                     "number": r.number,
                     "time_ms": r.time_ms,
-                    "finished_at": r.finished_at,
+                    # Imported laps can carry an empty finished_at; the board
+                    # still owes the row a date — same fallback as best_lap_in.
+                    "finished_at": r.finished_at or r.started_at,
                     "clean_lap": r.clean_lap,
                     "off_survey_count": r.off_survey_count,
                     "salvaged": bool(r.salvaged),

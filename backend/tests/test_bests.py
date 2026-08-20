@@ -209,6 +209,24 @@ async def test_category_filter_narrows_rows_not_recomputes_them(client) -> None:
     assert [b for b in gr3 if b["car_id"] == 11] == []
 
 
+async def test_board_dates_fall_back_to_session_start(client) -> None:
+    """Imported laps can carry an empty finished_at; the board still owes the
+    row a date — same fallback best_lap_in already uses."""
+    c, repo = client
+    s = await repo.create_session(
+        SessionInfo(car_id=13, started_at="2026-08-20T05:00:00Z"), "Car 13"
+    )
+    await repo.set_session_track(s, "Monza")
+    undated = make_lap(1, 99_000, 13, "Gr.3")
+    undated.finished_at = ""
+    await repo.save_lap(s, undated)
+
+    row = next(
+        b for b in (await c.get("/api/laps/bests")).json()["bests"] if b["car_id"] == 13
+    )
+    assert row["finished_at"] == "2026-08-20T05:00:00Z"
+
+
 async def test_salvaged_provenance_survives_to_board_and_summaries(client) -> None:
     """A salvaged replay lap must stay identifiable wherever its time shows
     up — the alternative is a Bests row nobody can trace weeks later."""
