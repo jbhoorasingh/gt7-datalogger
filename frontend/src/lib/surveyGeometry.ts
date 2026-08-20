@@ -1,22 +1,34 @@
 // Geometry for the survey map's forming track: the run's accumulated border
-// edge points pair up left↔right wherever they face each other across the
-// road, filling in the confirmed surface span by span. Matching is purely
-// local — no lap ordering or centerline needed — so partial coverage just
-// fills in as laps add evidence.
+// edge points pair up left↔right wherever both borders are surveyed across
+// the road from each other, filling in the confirmed surface span by span.
+// Matching is purely local — no lap ordering or centerline needed — so
+// partial coverage just fills in as laps add evidence.
 
 import type { SurveyEdge } from "@/lib/types";
 
 // Matched pairs must look like a road cross-section: the line from the left
-// point to the right point should run along the car's right-normal, between
-// plausible road widths, with both contacts driven in the same direction.
+// point across should run along its right-normal, between plausible widths.
+// The across gate is sign-free (|dot|) and matches track_compile's: border
+// evidence is recorded from both directions of travel, so headings carry no
+// usable sign.
 const ROAD_WIDTH_MIN_M = 3;
 const ROAD_WIDTH_MAX_M = 40;
-const ACROSS_MIN_DOT = 0.85; // L→R direction vs right-normal: cos ~32°
-const HEADING_MIN_DOT = 0.7; // both points from the same direction of travel
+const ACROSS_MIN_DOT = 0.7; // L→across direction vs right-normal: cos ~45°
 const QUAD_HALF_LENGTH_M = 2.5; // along-track extent of one filled span
-// Spatial hash cell for the right-side candidates: one cell spans the whole
-// search radius, so scanning the 3×3 neighborhood covers every match. Keeps
-// the pairing near-linear as edge points accumulate into the thousands.
+// Left points pair against the right border CURVE, not against individual
+// right points: L and R evidence come from different laps, so on real
+// bundles the two sides' points almost never sit directly opposite each
+// other — point-to-point pairing filled 1-4% of a well-surveyed circuit
+// (#44). The curve is approximated by linking each right point to its
+// nearest same-side neighbours; a left point then pairs with the nearest
+// point ON those segments, which exists wherever the right border is
+// surveyed at all on that stretch. Same idea as the server-side compiler
+// (backend/app/processing/track_compile.py), which fixed the same defect
+// for bundle maps.
+const SEG_LINK_M = 6; // max neighbour spacing that still reads as one border
+// Spatial hash cell spanning the whole search radius, so scanning the 3×3
+// neighborhood covers every match. Keeps the pairing near-linear as edge
+// points accumulate into the thousands.
 const CELL_M = ROAD_WIDTH_MAX_M;
 
 // The trail is a time sequence, not a continuous path: pit returns, resets
@@ -295,7 +307,7 @@ export function borderCoverage(
 }
 
 // Quads [x1,z1, x2,z2, x3,z3, x4,z4] spanning left→right wherever a left
-// border point has a right border point directly across from it.
+// border point has the right border curve across from it (see SEG_LINK_M).
 //
 // Every kind contributes, "runoff" included. It used to be excluded, on the
 // reading that it bounded the run-off rather than the road — but that is not
@@ -305,49 +317,115 @@ export function borderCoverage(
 // to have pavement beyond them. Excluding them drew no road at all through
 // exactly the corners someone had taken the trouble to survey.
 export function roadQuads(edges: SurveyEdge[]): number[][] {
-  const usable = edges;
-  const rights = new Map<string, SurveyEdge[]>();
-  for (const e of usable) {
-    if (e.side !== "R") continue;
-    const key = `${Math.floor(e.x / CELL_M)}:${Math.floor(e.z / CELL_M)}`;
-    const bucket = rights.get(key);
-    if (bucket) bucket.push(e);
-    else rights.set(key, [e]);
+  const rights = edges.filter((e) => e.side === "R");
+
+  // The right border as a segment soup: each right point linked to its
+  // nearest neighbour on either side of it (split by its own heading, sign
+  // irrelevant). No global ordering needed — nearest-point-on-curve queries
+  // work on unordered segments — and capping at two links per point keeps
+  // kerb-chatter clusters from exploding into O(n²) segments.
+  const linkCells = new Map<string, number[]>();
+  rights.forEach((r, i) => {
+    const key = `${Math.floor(r.x / SEG_LINK_M)}:${Math.floor(r.z / SEG_LINK_M)}`;
+    const bucket = linkCells.get(key);
+    if (bucket) bucket.push(i);
+    else linkCells.set(key, [i]);
+  });
+  // Segments as [ax, az, bx, bz]; isolated right points stay in as
+  // zero-length segments so sparse evidence still pairs like it used to.
+  const segments: number[][] = [];
+  const linked = new Set<string>();
+  rights.forEach((r, i) => {
+    let fwd = -1;
+    let fwdDist = SEG_LINK_M;
+    let back = -1;
+    let backDist = SEG_LINK_M;
+    const cx = Math.floor(r.x / SEG_LINK_M);
+    const cz = Math.floor(r.z / SEG_LINK_M);
+    for (let gx = cx - 1; gx <= cx + 1; gx++) {
+      for (let gz = cz - 1; gz <= cz + 1; gz++) {
+        for (const j of linkCells.get(`${gx}:${gz}`) ?? []) {
+          if (j === i) continue;
+          const q = rights[j];
+          const d = Math.hypot(q.x - r.x, q.z - r.z);
+          if ((q.x - r.x) * r.hx + (q.z - r.z) * r.hz >= 0) {
+            if (d < fwdDist) {
+              fwd = j;
+              fwdDist = d;
+            }
+          } else if (d < backDist) {
+            back = j;
+            backDist = d;
+          }
+        }
+      }
+    }
+    let isolated = true;
+    for (const j of [fwd, back]) {
+      if (j < 0) continue;
+      isolated = false;
+      const key = i < j ? `${i}:${j}` : `${j}:${i}`;
+      if (linked.has(key)) continue;
+      linked.add(key);
+      segments.push([r.x, r.z, rights[j].x, rights[j].z]);
+    }
+    if (isolated) segments.push([r.x, r.z, r.x, r.z]);
+  });
+
+  // Segments bucketed by midpoint; segments are ≤ SEG_LINK_M long and the
+  // query radius is ROAD_WIDTH_MAX_M = CELL_M, so the 3×3 scan sees them all.
+  const segCells = new Map<string, number[][]>();
+  for (const s of segments) {
+    const key = `${Math.floor((s[0] + s[2]) / 2 / CELL_M)}:${Math.floor((s[1] + s[3]) / 2 / CELL_M)}`;
+    const bucket = segCells.get(key);
+    if (bucket) bucket.push(s);
+    else segCells.set(key, [s]);
   }
+
   const quads: number[][] = [];
-  for (const l of usable) {
+  for (const l of edges) {
     if (l.side !== "L") continue;
     const rnx = l.hz; // right-normal of the left point's heading
     const rnz = -l.hx;
-    let best: SurveyEdge | null = null;
+    // Nearest point on the right border curve, gated to a plausible
+    // cross-section: within road widths and near-perpendicular to travel.
+    let bestX = 0;
+    let bestZ = 0;
     let bestDist = ROAD_WIDTH_MAX_M;
+    let found = false;
     const cx = Math.floor(l.x / CELL_M);
     const cz = Math.floor(l.z / CELL_M);
     for (let gx = cx - 1; gx <= cx + 1; gx++) {
       for (let gz = cz - 1; gz <= cz + 1; gz++) {
-        for (const r of rights.get(`${gx}:${gz}`) ?? []) {
-          const dx = r.x - l.x;
-          const dz = r.z - l.z;
-          const dist = Math.hypot(dx, dz);
+        for (const [ax2, az2, bx2, bz2] of segCells.get(`${gx}:${gz}`) ?? []) {
+          const dx = bx2 - ax2;
+          const dz = bz2 - az2;
+          const seg2 = dx * dx + dz * dz;
+          const t =
+            seg2 < 1e-12
+              ? 0
+              : Math.max(0, Math.min(1, ((l.x - ax2) * dx + (l.z - az2) * dz) / seg2));
+          const px = ax2 + dx * t;
+          const pz = az2 + dz * t;
+          const dist = Math.hypot(px - l.x, pz - l.z);
           if (dist < ROAD_WIDTH_MIN_M || dist >= bestDist) continue;
-          if ((dx * rnx + dz * rnz) / dist < ACROSS_MIN_DOT) continue;
-          if (l.hx * r.hx + l.hz * r.hz < HEADING_MIN_DOT) continue;
-          best = r;
+          if (Math.abs(((px - l.x) * rnx + (pz - l.z) * rnz) / dist) < ACROSS_MIN_DOT)
+            continue;
+          bestX = px;
+          bestZ = pz;
           bestDist = dist;
+          found = true;
         }
       }
     }
-    if (!best) continue;
-    let ax = l.hx + best.hx;
-    let az = l.hz + best.hz;
-    const alen = Math.hypot(ax, az) || 1;
-    ax = (ax / alen) * QUAD_HALF_LENGTH_M;
-    az = (az / alen) * QUAD_HALF_LENGTH_M;
+    if (!found) continue;
+    const ax = l.hx * QUAD_HALF_LENGTH_M;
+    const az = l.hz * QUAD_HALF_LENGTH_M;
     quads.push([
       l.x - ax, l.z - az,
       l.x + ax, l.z + az,
-      best.x + ax, best.z + az,
-      best.x - ax, best.z - az,
+      bestX + ax, bestZ + az,
+      bestX - ax, bestZ - az,
     ]);
   }
   return quads;

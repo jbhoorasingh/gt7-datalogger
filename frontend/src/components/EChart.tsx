@@ -1,8 +1,44 @@
 // Thin ECharts wrapper: theme defaults, resize handling, optional group connect.
+//
+// ECharts is imported modularly (#33): only the chart and component types the
+// app actually renders are registered, instead of the ~1.1 MB whole-library
+// import. Adding a new series or option feature to any chart may need its
+// module registered here — a missing one fails loudly at render with an
+// "is not loaded" error. Type-only imports still come from "echarts"; they
+// are erased at build time and cost nothing.
 
-import * as echarts from "echarts";
+import type * as echartsTypes from "echarts";
+import { CustomChart, EffectScatterChart, LineChart, ScatterChart } from "echarts/charts";
+import {
+  DataZoomComponent,
+  GridComponent,
+  LegendComponent,
+  MarkAreaComponent,
+  MarkLineComponent,
+  TitleComponent,
+  ToolboxComponent,
+  TooltipComponent,
+} from "echarts/components";
+import * as echarts from "echarts/core";
+import { CanvasRenderer } from "echarts/renderers";
 import { useEffect, useRef } from "react";
 import { SERIES_COLORS } from "@/lib/colors";
+
+echarts.use([
+  LineChart,
+  ScatterChart,
+  CustomChart,
+  EffectScatterChart, // survey map's gap beacons
+  GridComponent,
+  TitleComponent, // StackedCharts per-panel titles
+  TooltipComponent,
+  DataZoomComponent,
+  ToolboxComponent, // StackedCharts zoom controls
+  LegendComponent,
+  MarkLineComponent,
+  MarkAreaComponent, // delta zero-line + event bands
+  CanvasRenderer,
+]);
 
 export const CHART_COLORS = {
   axis: "#3a414c",
@@ -14,11 +50,11 @@ export const CHART_COLORS = {
   coast: "#3b82f6",
 };
 
-export function baseGrid(): echarts.GridComponentOption {
+export function baseGrid(): echartsTypes.GridComponentOption {
   return { left: 52, right: 16, top: 28, bottom: 24, containLabel: false };
 }
 
-export function baseAxis(name?: string): echarts.XAXisComponentOption {
+export function baseAxis(name?: string): echartsTypes.XAXisComponentOption {
   return {
     type: "value",
     name,
@@ -29,10 +65,10 @@ export function baseAxis(name?: string): echarts.XAXisComponentOption {
 }
 
 interface Props {
-  option: echarts.EChartsOption;
+  option: echartsTypes.EChartsOption;
   group?: string;
   className?: string;
-  onInit?: (chart: echarts.ECharts) => void;
+  onInit?: (chart: echartsTypes.ECharts) => void;
   notMerge?: boolean;
   // In merge mode, replace these components wholesale (matched by id) so
   // entries dropped from the option are removed instead of lingering.
@@ -41,7 +77,7 @@ interface Props {
 
 export function EChart({ option, group, className, onInit, notMerge, replaceMerge }: Props) {
   const el = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<echarts.ECharts | null>(null);
+  const chartRef = useRef<echartsTypes.ECharts | null>(null);
 
   useEffect(() => {
     if (!el.current) return;

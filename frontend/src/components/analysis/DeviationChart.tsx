@@ -59,6 +59,7 @@ export function DeviationChart({
           name: "Median speed",
           type: "line",
           data: data.dist.map((d, i) => [d, median[i]]),
+          sampling: "lttb", // per-metre samples; draw to canvas width (#33)
           showSymbol: false,
           lineStyle: { width: 1.4 },
           color: CHART_COLORS.series[0],
@@ -68,6 +69,7 @@ export function DeviationChart({
           type: "line",
           yAxisIndex: 1,
           data: data.dist.map((d, i) => [d, dev[i]]),
+          sampling: "lttb",
           showSymbol: false,
           lineStyle: { width: 1 },
           areaStyle: { opacity: 0.25 },

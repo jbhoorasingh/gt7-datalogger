@@ -109,7 +109,22 @@ export function LayoutBuilder({ flash }: { flash: (text: string) => void }) {
   const importFile = useRef<HTMLInputElement>(null);
 
   const { layout } = draft;
-  const { frame, laps } = useLiveFrame(layout.demo);
+
+  // The builder mounts inside Admin, usually below the fold — its frame loop
+  // must not run while it is scrolled out of sight (#32).
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(([entry]) =>
+      setVisible(entry.isIntersecting),
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const { frame, laps } = useLiveFrame(layout.demo, visible);
 
   useEffect(() => {
     localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
@@ -338,7 +353,7 @@ export function LayoutBuilder({ flash }: { flash: (text: string) => void }) {
     : "fill";
 
   return (
-    <div className="space-y-3 p-4">
+    <div ref={rootRef} className="space-y-3 p-4">
       {legacyPresets && (
         <div className="flex flex-wrap items-center gap-2 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-xs">
           <span>

@@ -288,6 +288,11 @@ export function StackedCharts({
           xAxisIndex: gi,
           yAxisIndex: gi,
           data: dist.map((d, i) => [d, values[i]]),
+          // Perceptual downsampling to the canvas width (#33): many laps ×
+          // many panels can put ~184k points in one chart; drawing them all
+          // buys nothing visually and stalls a Pi. Zooming re-samples, so
+          // detail comes back where the viewport looks.
+          sampling: "lttb",
           showSymbol: false,
           step: panel.step ? "end" : undefined,
           lineStyle: { width: 1.4 },

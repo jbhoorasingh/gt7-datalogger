@@ -1,7 +1,7 @@
-// Live/Race view: large readouts driven by a rAF loop reading liveFrameRef,
-// so 30 Hz telemetry never causes React re-renders.
+// Live/Race view: large readouts driven by useLiveFrame's bounded sampling
+// of liveFrameRef, so 30 Hz telemetry re-renders at the capped UI rate (#32)
+// instead of once per animation frame.
 
-import { useEffect, useRef, useState } from "react";
 import {
   formatDelta,
   formatDuration,
@@ -22,21 +22,12 @@ import {
   type LapSummary,
   type LiveFrame,
 } from "@/lib/types";
+import { useLiveFrame } from "@/lib/useLiveFrame";
 import { useSettings } from "@/store/settings";
-import { liveFrameRef, useTelemetry } from "@/store/telemetry";
+import { useTelemetry } from "@/store/telemetry";
 
 export function LiveView() {
-  const [frame, setFrame] = useState<LiveFrame | null>(null);
-  const raf = useRef(0);
-
-  useEffect(() => {
-    const tick = () => {
-      setFrame(liveFrameRef.current);
-      raf.current = requestAnimationFrame(tick);
-    };
-    raf.current = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf.current);
-  }, []);
+  const { frame } = useLiveFrame(false);
 
   if (!frame) {
     return (
@@ -69,7 +60,7 @@ function Dashboard({ frame }: { frame: LiveFrame }) {
   const finished = frame.total_laps > 0 && frame.current_lap > frame.total_laps;
 
   return (
-    <div className="grid h-full grid-cols-1 gap-3 p-3 lg:grid-cols-[1fr_320px]">
+    <div className="grid min-h-full grid-cols-1 gap-3 p-3 lg:h-full lg:grid-cols-[1fr_320px]">
       <div className="flex flex-col gap-3">
         {/* RPM bar */}
         <div className="rounded-xl bg-panel p-3">
@@ -216,12 +207,16 @@ function Dashboard({ frame }: { frame: LiveFrame }) {
         </div>
       </div>
 
-      {/* Strategy + recent laps */}
-      <div className="hidden max-h-full flex-col gap-3 overflow-hidden lg:flex">
+      {/* Strategy + recent laps. Below lg this stacks under the main panels
+          instead of disappearing (#29): a tablet is the obvious second-screen
+          device, and this rail holds the fuel strategy plus the only in-app
+          route from Live into Analysis. The height constraints are lg-only —
+          stacked, the panels size to their content and the page scrolls. */}
+      <div className="flex flex-col gap-3 lg:max-h-full lg:overflow-hidden">
         <StrategyPanel frame={frame} laps={recentLaps} />
-        <Panel className="flex min-h-0 flex-1 flex-col overflow-hidden p-4">
+        <Panel className="flex flex-col overflow-hidden p-4 lg:min-h-0 lg:flex-1">
           <Label>Recent laps</Label>
-        <div className="mt-2 flex-1 space-y-1 overflow-y-auto font-tabular text-sm">
+        <div className="mt-2 max-h-72 space-y-1 overflow-y-auto font-tabular text-sm lg:max-h-none lg:flex-1">
           {recentLaps.length === 0 && (
             <div className="text-ink-dim">Completed laps appear here.</div>
           )}

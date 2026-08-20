@@ -502,8 +502,8 @@ export function SurveyView() {
         z: 1,
       },
       {
-        // Confirmed road: filled wherever a left border point has a right
-        // border point directly across from it.
+        // Confirmed road: filled wherever a left border point has the right
+        // border surveyed across from it.
         id: "road-fill",
         type: "custom",
         data: quads,
@@ -1032,7 +1032,7 @@ export function SurveyView() {
               />
               wall
             </span>
-            <span title="Filled where a left border point has a right border point directly across">
+            <span title="Filled where the left border has the right border surveyed across from it">
               <i
                 className="mr-1 inline-block h-2.5 w-4 align-middle"
                 style={{ backgroundColor: ROAD_FILL }}
