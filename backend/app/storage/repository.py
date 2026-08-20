@@ -6,7 +6,7 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import case, delete, func, select, text, update
+from sqlalchemy import Row, case, delete, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.processing.laps import CompletedLap, SessionInfo
@@ -18,7 +18,11 @@ from app.storage.db import LapRow, LayoutRow, SessionRow, SettingRow, TrackRow
 EXPORT_VERSION = 2
 
 
-def lap_summary(row: LapRow) -> dict[str, Any]:
+def lap_summary(row: LapRow | Row[Any]) -> dict[str, Any]:
+    """Summary dict from a lap row — the ORM object or a projected Row.
+
+    list_laps hands in a column projection (the same attributes, minus the
+    sample blob it exists to avoid loading); get_lap hands in the ORM row."""
     return {
         "id": row.id,
         "session_id": row.session_id,
