@@ -324,13 +324,26 @@ export function TracksView() {
                   ok={row.named || b != null}
                   label="auto-ID"
                   title={
-                    row.named
-                      ? "This circuit has a geometry signature, so sessions here identify themselves"
-                      : b != null
-                        ? "Sessions here identify themselves by matching the surveyed road — no signature needed"
-                        : "Neither a geometry signature nor a survey — sessions here will NOT be identified. Name it from a lap in Sessions, or survey it."
+                    row.provenance === "user"
+                      ? "You named this circuit, so sessions here identify themselves — and your name outranks any shipped signature"
+                      : row.provenance === "seed"
+                        ? "Identified by a signature that shipped with the app, not one you made. Naming it yourself from a lap in Sessions replaces it."
+                        : b != null
+                          ? "Sessions here identify themselves by matching the surveyed road — no signature needed"
+                          : "Neither a geometry signature nor a survey — sessions here will NOT be identified. Name it from a lap in Sessions, or survey it."
                   }
                 />
+                {/* Only worth its own chip when it is the ONLY thing naming
+                    the circuit: once you have named or surveyed it, where the
+                    shipped signature came from stops being your problem. */}
+                {row.provenance === "seed" && b == null && (
+                  <span
+                    className="rounded-full bg-panel-2 px-2 py-0.5 text-[11px] text-ink-dim"
+                    title="This name came from the shipped signature set, computed from a published lap — not from anything driven or surveyed on this installation."
+                  >
+                    shipped
+                  </span>
+                )}
                 <Flag
                   ok={b != null}
                   label="survey"
@@ -580,7 +593,14 @@ export function TracksView() {
 
       {data && (
         <p className="px-1 text-xs text-ink-dim">
-          {data.catalog_configs} official configurations known · this installation is{" "}
+          {data.catalog_configs} official configurations known ·{" "}
+          {data.seeded_signatures > 0 && (
+            <>
+              {data.seeded_signatures} shipped signatures waiting for a circuit to be
+              driven, listed here only once one has been ·{" "}
+            </>
+          )}
+          this installation is{" "}
           <span className="font-tabular">{data.source}</span>, the id stamped on every vote
           it casts so merged bundles can tell whose evidence is whose.
           {!getAdminToken() && " Actions may need an admin token (Admin → Connection)."}

@@ -5,6 +5,15 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Files shipped inside the package, addressed from the package rather than from
+# the working directory. The older data settings below are CWD-relative and so
+# depend on being started from the repo root — which is why the Docker image
+# has to set GT7_CARS_CSV by hand, and why GT7_TRACKS_JSON quietly resolves to
+# nothing there. #57 tracks moving them all onto this; anything added since is
+# already on it, because a default that only works from one directory is a
+# feature that silently does nothing everywhere else.
+PACKAGE_DATA = Path(__file__).resolve().parent.parent / "data"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="GT7_", env_file=".env", extra="ignore")
@@ -33,7 +42,7 @@ class Settings(BaseSettings):
     # the file's contents differ from what was last loaded; blank disables
     # seeding entirely and restores the pre-#58 behaviour of naming nothing
     # until the user does.
-    track_signatures_json: Path = Path("data/track-signatures.json")
+    track_signatures_json: Path = PACKAGE_DATA / "track-signatures.json"
     sample_lap: Path = Path("data/sample_lap.json")
 
     http_host: str = "0.0.0.0"
