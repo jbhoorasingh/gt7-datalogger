@@ -316,6 +316,8 @@ export function SurveyView() {
   // moving is easy to call out. (Single-tick blips can slip between the
   // 500 ms samples — the undocumented flag bits are watched server-side.)
   const [rawOpen, setRawOpen] = useState(false);
+  // Fullscreen takeover for the map card — phone-in-the-cockpit mode.
+  const [fsMap, setFsMap] = useState(false);
   const [packet, setPacket] = useState<Record<string, unknown> | null>(null);
   const [changedKeys, setChangedKeys] = useState<Set<string>>(new Set());
   const prevPacket = useRef<Record<string, unknown> | null>(null);
@@ -734,11 +736,11 @@ export function SurveyView() {
   const active = status?.active ?? false;
 
   return (
-    <div className="mx-auto max-w-6xl space-y-3 p-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <h2 className="text-lg font-semibold">Surface survey</h2>
-        <div className="ml-auto flex items-center gap-2">
-          <label className="flex items-center gap-1.5 text-xs text-ink-dim">
+    <div className="mx-auto flex max-w-[1200px] flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <h2 className="text-[17px] font-medium">Surface survey</h2>
+        <div className="ml-auto flex flex-wrap items-center gap-2 text-[11.5px] text-ink-dim">
+          <label className="flex items-center gap-1.5 text-[11.5px] text-ink-dim">
             track
             <input
               list="survey-tracks"
@@ -748,7 +750,7 @@ export function SurveyView() {
                 setTrack(e.target.value);
                 setTrackTouched(true);
               }}
-              className="w-40 rounded border border-edge bg-panel-2 px-1.5 py-1 text-xs text-ink"
+              className="w-40 rounded border border-edge bg-transparent px-3 py-1 text-[11.5px] text-ink-soft"
               title="Which circuit these samples describe — defaults to the session's identified track"
             />
             <datalist id="survey-tracks">
@@ -775,7 +777,7 @@ export function SurveyView() {
             )}
           </label>
           <label
-            className="flex items-center gap-1.5 text-xs text-ink-dim"
+            className="flex items-center gap-1.5 text-[11.5px] text-ink-dim"
             title="Starting assumption for the car's axle track width — replaced automatically once enough 4-wheel edge crossings have measured the real value"
           >
             width
@@ -787,21 +789,29 @@ export function SurveyView() {
               value={trackWidth}
               disabled={active}
               onChange={(e) => setTrackWidth(e.target.value)}
-              className="w-16 rounded border border-edge bg-panel-2 px-1.5 py-1 text-right font-tabular text-xs text-ink"
+              className="w-16 rounded border border-edge bg-transparent px-3 py-1 text-right font-tabular text-[11.5px] text-ink-soft"
             />
             m
           </label>
           {active ? (
-            <button className="btn-danger" onClick={stop} disabled={busy}>
+            <button
+              className="btn btn-danger px-3 py-[5px] text-[11.5px]"
+              onClick={stop}
+              disabled={busy}
+            >
               Stop survey
             </button>
           ) : (
-            <button className="btn" onClick={start} disabled={busy || !wsConnected}>
+            <button
+              className="btn btn-primary px-3 py-[5px] text-[11.5px]"
+              onClick={start}
+              disabled={busy || !wsConnected}
+            >
               Start survey
             </button>
           )}
           <a
-            className={`btn ${status?.log_path ? "" : "pointer-events-none opacity-40"}`}
+            className={`btn px-3 py-[5px] text-[11.5px] ${status?.log_path ? "" : "pointer-events-none opacity-45"}`}
             href={api.survey.exportUrl}
             download
             title="Full transition log (positions, velocity, raw rotation floats, contact points)"
@@ -811,90 +821,21 @@ export function SurveyView() {
         </div>
       </div>
 
+      {/* The full list of mapped circuits lives in Tracks; here it is one
+          line of context, and the track field autocompletes from it. */}
       {!active && bundles.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 text-xs text-ink-dim">
-          <span title="Persistent per-circuit survey bundles — pick one and start to resume exactly where you left off">
-            Mapped circuits:
-          </span>
-          {bundles.map((b) => (
-            <button
-              key={b.slug}
-              className="rounded-full border border-edge px-2 py-0.5 hover:border-accent hover:text-accent"
-              title={`Resume ${b.track}: ${b.points} points from ${b.runs} run${
-                b.runs === 1 ? "" : "s"
-              }`}
-              onClick={() => {
-                setTrack(b.track);
-                setTrackTouched(true);
-              }}
-            >
-              {b.track} · {b.points.toLocaleString()} pts
-            </button>
-          ))}
+        <div className="text-[11px] text-ink-faint">
+          {bundles.length} circuit{bundles.length === 1 ? "" : "s"} already mapped ·{" "}
+          <a className="text-accent underline underline-offset-[3px]" href="#/tracks">
+            manage them in Tracks
+          </a>
         </div>
       )}
 
       {active && status != null && (
-        <div className="flex flex-wrap items-center gap-2 rounded-lg bg-panel px-3 py-2 text-xs">
-          <span
-            className="text-ink-dim"
-            title="Where surface data is silent — walls, paved run-off — declare the boundary you are driving along and the survey records it from your wheel line"
-          >
-            Mark boundary:
-          </span>
-          {([null, "L", "R"] as const).map((side) => (
-            <button
-              key={side ?? "off"}
-              className={`rounded border px-2 py-0.5 ${
-                status.mark_side === side
-                  ? "border-accent text-accent"
-                  : "border-edge text-ink-dim hover:text-ink"
-              }`}
-              onClick={() => setMark(side, status.mark_kind)}
-            >
-              {side === null ? "off" : side === "L" ? "left" : "right"}
-            </button>
-          ))}
-          <span className="ml-2 text-ink-dim">as</span>
-          {MARK_KINDS.map((kind) => (
-            <button
-              key={kind}
-              className={`rounded border px-2 py-0.5 ${
-                status.mark_kind === kind
-                  ? "border-accent text-accent"
-                  : "border-edge text-ink-dim hover:text-ink"
-              }`}
-              onClick={() => setMark(status.mark_side, kind)}
-            >
-              {kind === "runoff" ? "run-off edge" : kind}
-            </button>
-          ))}
-          {status.mark_side != null && (
-            <span className="ml-auto font-medium text-warn">
-              MARKING {status.mark_side === "L" ? "left" : "right"} {status.mark_kind} —
-              drive along the boundary
-            </span>
-          )}
-
-          {/* Guidance for the selected tag. Always visible rather than a
-              tooltip: the choice is made while driving, and the run-off vs
-              edge distinction is the one that actually gets mis-tagged. */}
-          <div className="w-full border-t border-edge pt-2 text-[11px] leading-relaxed text-ink-dim">
-            <span className="text-ink">
-              {status.mark_kind === "runoff" ? "run-off edge" : status.mark_kind}
-            </span>{" "}
-            — {MARK_HELP[status.mark_kind as keyof typeof MARK_HELP]?.what}{" "}
-            <span className="text-ink-dim/80">
-              {MARK_HELP[status.mark_kind as keyof typeof MARK_HELP]?.when}
-            </span>
-          </div>
-        </div>
-      )}
-
-      {active && status != null && (
-        <div className="text-xs text-ink-dim">
+        <div className="text-[11px] leading-[1.7] text-ink-faint">
           Surveying{" "}
-          <span className="text-ink">{status.track || "unidentified track"}</span>
+          <span className="text-ink-soft">{status.track || "unidentified track"}</span>
           {status.session_id != null && <> · session #{status.session_id}</>}
           {status.bundle != null && (
             <>
@@ -911,7 +852,9 @@ export function SurveyView() {
           )}{" "}
           · width
           in use{" "}
-          <span className="text-ink">{status.width_in_use_m.toFixed(2)} m</span>{" "}
+          <span className="font-tabular text-ink-soft">
+            {status.width_in_use_m.toFixed(2)} m
+          </span>{" "}
           {status.width_source === "cornering" ? (
             <span className="text-throttle">
               (measured from {status.yaw_samples} cornering samples)
@@ -963,24 +906,37 @@ export function SurveyView() {
         </div>
       )}
 
-      <div className="grid gap-3 lg:grid-cols-2">
-        <div className="rounded-xl bg-panel p-3">
-          <div className="mb-2 flex items-baseline justify-between text-xs text-ink-dim">
-            <span>
-              The track so far · scroll to zoom, drag to pan · arrows = travel
-              direction
-            </span>
-            <span className="flex items-center gap-2 font-tabular">
+      <div className="grid items-start gap-3 lg:grid-cols-[1fr_340px]">
+        <div
+          className={
+            fsMap
+              ? "fixed inset-0 z-[200] flex flex-col bg-surface"
+              : "panel flex min-h-[380px] flex-col"
+          }
+        >
+          <div className="flex flex-shrink-0 flex-wrap items-center gap-2.5 px-3.5 py-2.5 text-[10.5px] text-ink-faint">
+            <span className="section-header">The track so far</span>
+            <span>scroll to zoom · drag to pan · arrows = travel direction</span>
+            <span className="ml-auto font-tabular">
               {status?.edge_points ?? 0} edge points · {status?.transitions ?? 0}{" "}
               transitions · {status?.packets ?? 0} packets
-              <button
-                className="rounded border border-edge px-1.5 text-ink-dim hover:text-ink"
-                onClick={() => chartRef.current?.dispatchAction({ type: "restore" })}
-              >
-                reset view
-              </button>
             </span>
+            <button
+              className="rounded border border-edge px-2.5 py-0.5 text-[10.5px] text-ink-muted transition-colors hover:border-accent hover:text-accent"
+              onClick={() => chartRef.current?.dispatchAction({ type: "restore" })}
+            >
+              reset view
+            </button>
+            {/* Full screen turns the card into the whole viewport — this is
+                the view you prop a phone up with while driving. */}
+            <button
+              className="rounded border border-edge px-2.5 py-0.5 text-[10.5px] text-ink-muted transition-colors hover:border-accent hover:text-accent"
+              onClick={() => setFsMap((f) => !f)}
+            >
+              {fsMap ? "exit full screen" : "full screen"}
+            </button>
           </div>
+          <div className="rule" />
           {/* Merge mode keeps the zoom alive across the 3 s data refreshes
               (full replace reset the dataZoom windows — zoom "snapped
               back"), and because every series always exists (empty data
@@ -989,12 +945,12 @@ export function SurveyView() {
           <EChart
             option={option}
             notMerge={false}
-            className="aspect-square w-full"
+            className={fsMap ? "min-h-0 w-full flex-1" : "aspect-[16/9] w-full"}
             onInit={(chart) => {
               chartRef.current = chart;
             }}
           />
-          <div className="mt-1 flex flex-wrap gap-3 text-[10px] text-ink-dim">
+          <div className="flex flex-shrink-0 flex-wrap gap-3 px-3.5 pb-2 text-[10px] text-ink-dim">
             <span>
               <i className="mr-1 inline-block h-0.5 w-4 bg-edge align-middle" />
               driven
@@ -1057,22 +1013,99 @@ export function SurveyView() {
                 </span>
               ))}
           </div>
+
+          {active && status != null && (
+          <div className="flex flex-col gap-2.5 border-t border-divider px-3.5 py-3">
+            <div className="flex flex-wrap items-center gap-2.5">
+          <span
+            className="text-[11px] text-ink-faint"
+            title="Where surface data is silent — walls, paved run-off — declare the boundary you are driving along and the survey records it from your wheel line"
+          >
+            Mark boundary
+          </span>
+          {/* 44px minimum targets: these are pressed on a phone or tablet
+              propped beside the wheel, mid-lap. */}
+          <div className="flex gap-2">
+            {([null, "L", "R"] as const).map((side) => (
+              <button
+                key={side ?? "off"}
+                className={`min-h-[44px] min-w-[64px] rounded-lg border px-3.5 text-[12.5px] font-semibold transition-colors ${
+                  status.mark_side === side
+                    ? "border-accent bg-accent/14 text-accent-300"
+                    : "border-edge text-ink-dim hover:text-ink"
+                }`}
+                onClick={() => setMark(side, status.mark_kind)}
+              >
+                {side === null ? "off" : side === "L" ? "left" : "right"}
+              </button>
+            ))}
+          </div>
+          <span className="text-[11px] text-ink-faint">as</span>
+          <div className="flex gap-2">
+            {MARK_KINDS.map((kind) => (
+              <button
+                key={kind}
+                className={`min-h-[44px] rounded-lg border px-3.5 text-[12.5px] font-semibold transition-colors ${
+                  status.mark_kind === kind
+                    ? "border-accent bg-accent/14 text-accent-300"
+                    : "border-edge text-ink-dim hover:text-ink"
+                }`}
+                onClick={() => setMark(status.mark_side, kind)}
+              >
+                {kind === "runoff" ? "run-off edge" : kind}
+              </button>
+            ))}
+          </div>
+          {status.mark_side != null && (
+            <span className="text-[11.5px] font-semibold text-warn">
+              MARKING {status.mark_side === "L" ? "left" : "right"}{" "}
+              {status.mark_kind === "runoff" ? "run-off edge" : status.mark_kind} — drive
+              along the boundary
+            </span>
+          )}
+          <button
+            className="ml-auto min-h-[44px] rounded-lg border border-brake/50 bg-brake/10 px-5 text-[12.5px] font-semibold text-brake transition-colors hover:bg-brake/25"
+            onClick={stop}
+            disabled={busy}
+          >
+            End survey
+          </button>
+            </div>
+
+          {/* Guidance for the selected tag. Always visible rather than a
+              tooltip: the choice is made while driving, and the run-off vs
+              edge distinction is the one that actually gets mis-tagged. */}
+            <div className="border-t border-divider pt-2 text-[10.5px] leading-relaxed text-ink-faint">
+              <span className="text-ink-soft">
+                {status.mark_kind === "runoff" ? "run-off edge" : status.mark_kind}
+              </span>{" "}
+              — {MARK_HELP[status.mark_kind as keyof typeof MARK_HELP]?.what}{" "}
+              {MARK_HELP[status.mark_kind as keyof typeof MARK_HELP]?.when}
+            </div>
+          </div>
+          )}
+
+          {!active && (
+            <div className="flex flex-1 items-center justify-center px-4 py-10 text-xs text-ink-ghost">
+              No survey running — start one, drive a lap and touch the edges
+            </div>
+          )}
         </div>
 
-        <div className="space-y-3">
-          <div className="rounded-xl bg-panel p-3">
+        <div className="flex flex-col gap-3">
+          <div className="panel px-3.5 py-3">
             <div
-              className="mb-2 text-xs text-ink-dim"
+              className="section-header"
               title="How much of the driven loop has each border established — closed means the perimeter is complete and the largest gap says where to drive next"
             >
               Track completeness
             </div>
             {coverage == null ? (
-              <div className="text-sm text-ink-dim">
+              <div className="mt-2 text-xs text-ink-muted">
                 Gathering data — drive a lap and touch the edges.
               </div>
             ) : (
-              <div className="space-y-1.5 font-tabular text-xs">
+              <div className="mt-2.5 flex flex-col gap-2 font-tabular text-[11px]">
                 {(
                   [
                     ["Left border", coverage.left, LEFT_BORDER_COLOR],
@@ -1081,14 +1114,14 @@ export function SurveyView() {
                 ).map(([label, side, color]) => (
                   <div key={label} className="flex items-center gap-2">
                     <span
-                      className="w-20 shrink-0 text-ink-dim"
+                      className="w-[70px] shrink-0 text-ink-faint"
                       title="Left/right of the DIRECTION OF TRAVEL, not of the screen — follow the arrows on the map"
                     >
                       {label}
                     </span>
-                    <div className="h-1.5 flex-1 rounded bg-panel-2">
+                    <div className="h-1.5 flex-1 rounded-[3px] bg-panel-2">
                       <div
-                        className="h-full rounded"
+                        className="h-full rounded-[3px]"
                         style={{
                           width: `${Math.min(100, side.pct).toFixed(0)}%`,
                           backgroundColor: color,
@@ -1148,18 +1181,18 @@ export function SurveyView() {
             )}
           </div>
 
-          <div className="rounded-xl bg-panel p-3">
-            <div className="mb-2 text-xs text-ink-dim">Live wheel surface</div>
-            <div className="grid grid-cols-2 gap-2">
+          <div className="panel px-3.5 py-3">
+            <div className="section-header">Live wheel surface</div>
+            <div className="mt-2 grid grid-cols-2 gap-1.5">
               {SURVEY_WHEELS.map((w, i) => {
                 const meta = CODE_META[wheels[i]] ?? CODE_META[7];
                 return (
                   <div
                     key={w}
-                    className="flex items-center justify-between rounded-lg border border-edge px-3 py-2"
+                    className="flex items-center justify-between rounded-[5px] px-2.5 py-2 text-[11px]"
                     style={{ backgroundColor: `${meta.color}22` }}
                   >
-                    <span className="text-xs text-ink-dim">{w}</span>
+                    <span className="text-ink-dim">{w}</span>
                     <span className="font-medium" style={{ color: meta.color }}>
                       {meta.label}
                     </span>
@@ -1169,10 +1202,10 @@ export function SurveyView() {
             </div>
           </div>
 
-          <div className="rounded-xl bg-panel p-3">
-            <div className="mb-2 text-xs text-ink-dim">Chars seen per wheel</div>
+          <div className="panel px-3.5 py-3">
+            <div className="section-header">Chars seen per wheel</div>
             {status == null || status.chars_seen.length === 0 ? (
-              <div className="text-sm text-ink-dim">
+              <div className="mt-2 text-xs text-ink-muted">
                 Nothing yet — start a survey and get on track.
               </div>
             ) : (
@@ -1196,13 +1229,16 @@ export function SurveyView() {
             )}
           </div>
 
-          <div className="rounded-xl bg-panel p-3">
-            <div className="mb-2 text-xs text-ink-dim">
-              Latest transitions (newest first)
+          <div className="panel px-3.5 py-3">
+            <div className="section-header">
+              Latest transitions{" "}
+              <span className="font-normal normal-case tracking-normal text-ink-faint">
+                — newest first
+              </span>
             </div>
-            <div className="max-h-64 overflow-y-auto">
+            <div className="mt-2 max-h-[230px] overflow-y-auto">
               {transitions.length === 0 ? (
-                <div className="text-sm text-ink-dim">No transitions yet.</div>
+                <div className="text-xs text-ink-muted">No transitions yet.</div>
               ) : (
                 <table className="w-full font-tabular text-xs">
                   <tbody>
@@ -1240,7 +1276,7 @@ export function SurveyView() {
         </div>
       </div>
 
-      <div className="rounded-xl bg-panel p-3">
+      <div className="panel px-3.5 py-3">
         <button
           className="flex w-full items-center justify-between text-left text-xs text-ink-dim hover:text-ink"
           onClick={() => setRawOpen((open) => !open)}
