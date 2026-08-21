@@ -420,6 +420,18 @@ newer channels are simply absent and the charts skip them.
   race-telemetry dashboard this project reached full parity with (and then extended).
 - [MacManley/gt7-udp](https://github.com/MacManley/gt7-udp) — a GT7 UDP telemetry
   parser for ESP32 / ESP8266 boards, and a great reference for the packet format.
+- [zetetos/gt-telemetry](https://github.com/zetetos/gt-telemetry) — a Go telemetry
+  library, and the source of the **circuit captures the shipped track signatures are
+  built from**: 84 recorded laps, one per configuration, published as world coordinates
+  under MIT. Their coordinates are GT7's own, so they line up with ours with no
+  transform — which is what makes a circuit identify itself on a fresh install before
+  anyone has driven or surveyed it. Not affiliated; the captures are used with
+  attribution.
+- [jbhoorasingh/gt7-datalogger-track-data](https://github.com/jbhoorasingh/gt7-datalogger-track-data)
+  — this project's own track data, kept separate because it changes every time somebody
+  drives: surveyed border geometry for GT7 circuits, the catalog of all 121
+  configurations, and the generated `signatures.json` this app vendors. The app can pull
+  contributed bundles from it directly (**Tracks → Shared bundles**).
 
 ## Screenshots
 

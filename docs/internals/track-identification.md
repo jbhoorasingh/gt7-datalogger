@@ -73,6 +73,13 @@ racing line for 78 GT7 configurations, generated in
 [gt7-datalogger-track-data](https://github.com/jbhoorasingh/gt7-datalogger-track-data)
 and vendored so the first packet on an offline machine resolves.
 
+Most of them come from the circuit captures published by
+[zetetos/gt-telemetry](https://github.com/zetetos/gt-telemetry) (MIT): one recorded lap
+per configuration, as GT7 world coordinates. Those coordinates are the same ones the
+packets carry, so no transform is involved — verified against this project's own
+surveys, where the capture and the surveyed borders agree to within a few metres of
+centre and a few percent of extent.
+
 Nine of them are derived from circuits that repository has **surveyed** — a bundle is the
 road itself, so its bounding box is better evidence than one lap's, and the configuration
 it belongs to is already confirmed rather than matched by name. The rest come from

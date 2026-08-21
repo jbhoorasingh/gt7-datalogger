@@ -110,5 +110,17 @@ a modern UI.
 Also see [MacManley/gt7-udp](https://github.com/MacManley/gt7-udp), a GT7 UDP telemetry
 parser for ESP32 / ESP8266 boards and a great reference for the packet format.
 
+The [shipped track signatures](internals/track-identification.md#the-shipped-signatures)
+are built from the circuit captures published by
+[zetetos/gt-telemetry](https://github.com/zetetos/gt-telemetry) — 84 recorded laps, one
+per configuration, released under MIT. Their world coordinates are GT7's own, so they
+need no transform to line up with ours, which is what lets a circuit identify itself on
+an install where nobody has driven or surveyed anything. Not affiliated; used with
+attribution.
+
+This project's own track data lives in
+[gt7-datalogger-track-data](https://github.com/jbhoorasingh/gt7-datalogger-track-data),
+separate because it changes every time somebody drives rather than every release.
+
 Licensed under the
 [MIT License](https://github.com/jbhoorasingh/gt7-datalogger/blob/main/LICENSE).
