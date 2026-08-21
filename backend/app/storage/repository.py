@@ -625,6 +625,11 @@ class Repository:
             await db.commit()
         return len(rows)
 
+    async def has_tracks(self) -> bool:
+        """Whether any signature exists to match against, seeded or your own."""
+        async with self._sf() as db:
+            return (await db.execute(select(TrackRow.id).limit(1))).first() is not None
+
     async def create_track(self, name: str, sig: TrackSignature) -> int:
         async with self._sf() as db:
             row = TrackRow(

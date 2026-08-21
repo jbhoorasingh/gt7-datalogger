@@ -179,14 +179,18 @@ a rename rebuilds them without anyone having to remember to.
 
 ## Naming sessions that were recorded first
 
-New sessions identify themselves as they are recorded, but a history recorded before a
-circuit was surveyed has already missed its chance. **Tracks → Identify sessions**
-(`POST /api/tracks/identify`) re-runs the bundle match over every unlabelled session,
-using each one's shortest **full** lap. Full, because a pit out-lap can cover only shared
-tarmac and prove nothing; shortest for a duller reason — a lap is a sample blob of a few
-hundred kilobytes, and this is the difference between reading a gigabyte and reading a
-fraction of it. Being full costs nothing on top: a lap that covers the route covers it
-however quickly it was driven. Sessions with no confident match are left alone.
+New sessions identify themselves as they are recorded, but a history recorded before the
+app could recognise a circuit has already missed its chance. **Tracks → Identify sessions**
+(`POST /api/tracks/identify`) re-runs identification over every unlabelled session,
+signature first and then bundles — the same order, and the same code, the live path uses,
+so a backfilled name means exactly what a live one does. The lap's positions go with it,
+so a reverse lap in your history is named after the reverse configuration rather than its
+forward twin. Each session is judged on its shortest **full** lap. Full, because a pit
+out-lap can cover only shared tarmac and prove nothing; shortest for a duller reason —
+a lap is a sample blob of a few hundred kilobytes, and this is the difference between
+reading a gigabyte and reading a fraction of it. Being full costs nothing on top: a lap
+that covers the route covers it however quickly it was driven. Sessions with no confident
+match are left alone.
 
 ## Managing tracks
 

@@ -47,6 +47,7 @@ from app.processing import (
     track_outline,
     tracks,
 )
+from app.processing.tracks import signature_from_samples
 
 if TYPE_CHECKING:
     from app.service import TelemetryService
@@ -271,27 +272,33 @@ async def outline(
 # --- naming sessions from the survey bundles (#41) -----------------------------
 
 
-def _match_blob(
-    raw: str | None, prints: list[tracks.Fingerprint]
-) -> tuple[str, float] | None:
-    """Decode one lap's samples and score it. Runs on a worker thread: the
-    JSON decode is the entire cost of identifying a session."""
+def _decode(raw: str | None) -> dict[str, list[float]] | None:
+    """One lap's samples. Runs on a worker thread: the JSON decode is the
+    entire cost of identifying a session, and there is one per candidate."""
     if not raw:
         return None
     try:
-        samples = json.loads(raw)
+        decoded: dict[str, list[float]] = json.loads(raw)
     except ValueError:
         return None
-    return tracks.match_bundles(samples, prints)
+    return decoded
 
 
 @router.post("/tracks/identify", dependencies=[Depends(require_admin)])
 async def identify_sessions(request: Request) -> dict[str, Any]:
-    """Name every unlabelled session that was driven on a surveyed circuit.
+    """Name every unlabelled session this installation can now recognise.
 
     New sessions identify themselves as they are recorded; this is for the
-    history that was already on disk before the bundles existed — which, for
-    anyone who surveyed a circuit before this shipped, is all of it.
+    history that was already on disk before the evidence existed — which, for
+    anyone whose install predates the shipped signatures, is all of it.
+
+    Both fingerprints are tried, in the same order and by the same code the
+    live path uses, so a backfilled name and a live one mean the same thing.
+    That ordering was the bug this fixes: the backfill only ever consulted the
+    survey bundles, which was right when a signature existed solely because
+    somebody had typed a name — there was nothing to backfill from. Shipping
+    78 of them (#58) made it wrong, and silently: history sat unnamed at
+    circuits the app had recognised on sight all along.
 
     Sessions with no confident match are left alone rather than given a
     best guess: an unlabelled session is honest, a mislabelled one is not.
@@ -299,24 +306,42 @@ async def identify_sessions(request: Request) -> dict[str, Any]:
     service = svc(request)
     directory = data_dir(request)
     prints = await asyncio.to_thread(tracks.load_fingerprints, directory)
-    if not prints:
-        raise HTTPException(409, "no circuits have been surveyed yet")
+    if not prints and not await service.repo.has_tracks():
+        raise HTTPException(409, "no circuits are known yet — nothing to match against")
 
     candidates = await service.repo.unnamed_sessions_with_lap()
     named: dict[str, int] = {}
+    by_source: dict[str, int] = {"signature": 0, "survey bundle": 0}
     for session_id, lap_id in candidates:
         raw = await service.repo.lap_samples_json(lap_id)
-        hit = await asyncio.to_thread(_match_blob, raw, prints)
-        if hit is None:
+        samples = await asyncio.to_thread(_decode, raw)
+        if samples is None:
             continue
-        track, _coverage = hit
+        # Signature first, then bundles — `service._identify_track`'s order.
+        # Passing the samples is what lets a seeded signature tell a layout
+        # from its reverse, so a backfilled reverse lap is named after the
+        # reverse configuration rather than its twin.
+        sig = signature_from_samples(samples)
+        track = await service.repo.find_track(sig, samples) if sig else None
+        source = "signature"
+        if track is None:
+            hit = await asyncio.to_thread(tracks.match_bundles, samples, prints)
+            if hit is None:
+                continue
+            track, _coverage = hit
+            source = "survey bundle"
         await service.repo.set_session_track(session_id, track)
         named[track] = named.get(track, 0) + 1
+        by_source[source] += 1
         if session_id == service.session_id:
             # The session being driven right now is in this list too.
             service.track_name = track
     if named:
-        log.info("identified %d sessions from survey bundles: %s", sum(named.values()), named)
+        log.info(
+            "identified %d sessions (%d by signature, %d by survey bundle): %s",
+            sum(named.values()), by_source["signature"], by_source["survey bundle"],
+            named,
+        )
     return {
         "checked": len(candidates),
         "identified": sum(named.values()),
