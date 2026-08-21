@@ -102,6 +102,7 @@ def lap_summary(row: LapRow | Row[Any]) -> dict[str, Any]:
         "off_survey_count": row.off_survey_count,
         "clean_lap": row.clean_lap,
         "salvaged": bool(row.salvaged),
+        "race_position": row.race_position,
         "event_counts": _event_counts(row.events_json),
     }
 
@@ -157,6 +158,7 @@ class Repository:
                 off_survey_count=lap.off_survey_count,
                 clean_lap=lap.clean_lap,
                 salvaged=lap.salvaged,
+                race_position=lap.race_position,
                 max_water_temp=lap.max_water_temp,
                 max_oil_temp=lap.max_oil_temp,
                 min_oil_pressure=lap.min_oil_pressure,
@@ -207,6 +209,10 @@ class Repository:
                     "bests_excluded": bool(s.bests_excluded),
                     "lap_count": count,
                     "best_lap_time_ms": best,
+                    "final_position": s.final_position,
+                    "final_total_positions": s.final_total_positions,
+                    "race_laps": s.race_laps,
+                    "race_time_ms": s.race_time_ms,
                 }
                 for s, count, best, lap_category in rows
             ]
@@ -363,6 +369,39 @@ class Repository:
                 for r in rows
             ]
 
+    async def record_race_result(
+        self, session_id: int, position: int, total_positions: int, race_laps: int
+    ) -> int | None:
+        """Write the final race result onto the session at the checkered-flag
+        edge (#60). Returns the total race time it derived, or None.
+
+        No packet field carries the total, so it is the sum of the stored lap
+        times — and only when laps 1..race_laps are ALL present, exactly once
+        each. A dropped stream, a salvage, or a session that started mid-race
+        leaves a gap, and a sum across a gap is a confidently wrong number;
+        NULL is the honest answer then.
+        """
+        async with self._sf() as db:
+            row = await db.get(SessionRow, session_id)
+            if row is None:
+                return None
+            times = (
+                await db.execute(
+                    select(LapRow.number, LapRow.time_ms).where(
+                        LapRow.session_id == session_id
+                    )
+                )
+            ).all()
+            numbers = [n for n, _ in times]
+            complete = race_laps > 0 and sorted(numbers) == list(range(1, race_laps + 1))
+            race_time = sum(t for _, t in times) if complete else None
+            row.final_position = position
+            row.final_total_positions = total_positions
+            row.race_laps = race_laps
+            row.race_time_ms = race_time
+            await db.commit()
+            return race_time
+
     async def session_lap_stats(self, session_id: int) -> dict[str, Any]:
         """Aggregates for a session without materializing lap rows.
 
@@ -468,6 +507,7 @@ class Repository:
                     LapRow.off_survey_count,
                     LapRow.clean_lap,
                     LapRow.salvaged,
+                    LapRow.race_position,
                     LapRow.events_json,
                     SessionRow.track_name,
                 )
@@ -859,5 +899,10 @@ class Repository:
         # Provenance survives the round-trip: a salvaged lap exported and
         # imported elsewhere is still a salvaged lap (#26).
         completed.salvaged = bool(lap.get("salvaged", False))
+        # Position at lap end re-derived from the per-tick channel when the
+        # file carries one (#60) — same "last valid reading" the recorder used.
+        race_pos = lap["samples"].get("race_pos")
+        if race_pos:
+            completed.race_position = int(race_pos[-1])
         completed.compute_metrics()
         return await self.save_lap(session_id, completed)

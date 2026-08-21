@@ -213,6 +213,92 @@ async def test_laps_without_packet_c_have_a_blank_category(client) -> None:
     assert laps[0]["car_category"] == ""
 
 
+async def drive_race(
+    service: TelemetryService, race_laps: int, *, skip_lap: int | None = None
+) -> None:
+    """A short race with position reporting: P4 climbing to P2, checkered
+    flag, a few cool-down packets. skip_lap simulates a stream gap — that
+    lap's packets never arrive, and the counter jump costs the lap before it
+    too (a boundary that isn't prev+1 completes nothing)."""
+    pid = 0
+    for lap in range(1, race_laps + 1):
+        if lap == skip_lap:
+            continue
+        for _ in range(60):
+            pid += 1
+            await service._on_packet(
+                parse_packet(
+                    build_packet(
+                        packet_id=pid,
+                        current_lap=lap,
+                        total_laps=race_laps,
+                        last_lap_time_ms=61_000 if lap > 1 else -1,
+                        race_position=4 if lap == 1 else 2,
+                        total_positions=8,
+                        speed_mps=50.0,
+                        flags=ON_TRACK,
+                        car_id=7,
+                    )
+                )
+            )
+    for _ in range(5):
+        pid += 1
+        await service._on_packet(
+            parse_packet(
+                build_packet(
+                    packet_id=pid,
+                    current_lap=race_laps + 1,
+                    total_laps=race_laps,
+                    last_lap_time_ms=61_000,
+                    race_position=2,
+                    total_positions=8,
+                    flags=ON_TRACK,
+                    car_id=7,
+                )
+            )
+        )
+
+
+async def test_race_result_is_persisted(client) -> None:
+    """A finished race leaves its result on the session and its position on
+    every lap — the answer the live pipeline used to throw away (#60)."""
+    c, service = client
+    await drive_race(service, race_laps=3)
+
+    session = (await c.get("/api/sessions")).json()[0]
+    assert session["final_position"] == 2
+    assert session["final_total_positions"] == 8
+    assert session["race_laps"] == 3
+    # All three laps stored at 61 000 ms each — the sum is trustworthy.
+    assert session["race_time_ms"] == 3 * 61_000
+
+    laps = (await c.get(f"/api/sessions/{session['id']}/laps")).json()
+    assert sorted(lap["race_position"] for lap in laps) == [2, 2, 4]
+
+
+async def test_race_time_absent_when_a_lap_is_missing(client) -> None:
+    """A gap in the stream leaves a lap unrecorded; the result still lands
+    but the total stays NULL rather than summing across the hole."""
+    c, service = client
+    await drive_race(service, race_laps=3, skip_lap=2)
+
+    session = (await c.get("/api/sessions")).json()[0]
+    assert session["final_position"] == 2
+    assert session["race_time_ms"] is None
+
+
+async def test_time_trial_session_has_no_race_result(client) -> None:
+    c, service = client
+    await drive_laps(service, laps=2)  # no total_laps, no position reporting
+    session = (await c.get("/api/sessions")).json()[0]
+    assert session["final_position"] == -1
+    assert session["final_total_positions"] == -1
+    assert session["race_laps"] == 0
+    assert session["race_time_ms"] is None
+    laps = (await c.get(f"/api/sessions/{session['id']}/laps")).json()
+    assert all(lap["race_position"] == -1 for lap in laps)
+
+
 async def test_session_note_and_tags_roundtrip(client) -> None:
     """Notes and tags land on the session and come back from the listing (#25).
 
