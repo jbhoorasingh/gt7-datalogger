@@ -15,6 +15,7 @@ import { DeviationChart } from "@/components/analysis/DeviationChart";
 import { FuelMapPanel } from "@/components/analysis/FuelMapPanel";
 import { GearingPanel } from "@/components/analysis/GearingPanel";
 import { GGDiagram, ggLap, type GGLap } from "@/components/analysis/GGDiagram";
+import { PlaybackBar } from "@/components/analysis/PlaybackBar";
 import { RaceLineMap, type MapLap } from "@/components/analysis/RaceLineMap";
 import { StackedCharts } from "@/components/analysis/StackedCharts";
 import { LargeDialog } from "@/components/ui/Dialog";
@@ -64,6 +65,15 @@ const MAP_COLUMNS = ["surface"];
 // The g-g diagram is always shown when the recording has an accelerometer, so
 // its columns ride along regardless of the chart picker (#16).
 const GG_COLUMNS = ["acc_lat", "acc_long"];
+
+// Playback (#59) synthesizes a LiveFrame at the playhead for the transport's
+// widget strip, so its channels ride along whatever the chart picker says.
+// Optional columns (steer, race_pos) simply come back absent on recordings
+// without them.
+const PLAYBACK_COLUMNS = [
+  "speed", "throttle", "brake", "gear", "rpm", "boost", "tire_slip",
+  "steer", "race_pos",
+];
 
 export function AnalysisView({ request }: { request: AnalysisRequest }) {
   const units = useSettings((s) => s.units);
@@ -284,6 +294,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
         ...CORNER_COLUMNS,
         ...MAP_COLUMNS,
         ...GG_COLUMNS,
+        ...PLAYBACK_COLUMNS,
       ]),
     ],
     [channelKeys],
@@ -365,6 +376,21 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
       });
     }
   }, []);
+
+  // While playback runs, the playhead owns the cursor: chart hover would
+  // otherwise fight it frame by frame (and every mouse-leave would blank the
+  // dot mid-lap). Paused or stopped, hover works exactly as before.
+  const playbackActive = useRef(false);
+  const onPlayingChange = useCallback((playing: boolean) => {
+    playbackActive.current = playing;
+  }, []);
+  const onHoverCursorDist = useCallback(
+    (d: number | null) => {
+      if (playbackActive.current) return;
+      onCursorDist(d);
+    },
+    [onCursorDist],
+  );
 
   const lapLabels = useMemo(() => {
     const labels: Record<string, string> = {};
@@ -688,13 +714,23 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
         {loading && !compare && <div className="skeleton h-96" />}
         {compare && (
           <div className="rounded-xl bg-panel p-2">
+            {refEntry && (
+              // Keyed on the reference lap so switching it rewinds the clock.
+              <PlaybackBar
+                key={refLap}
+                series={refEntry.series}
+                lap={refSummary}
+                onCursorDist={onCursorDist}
+                onPlayingChange={onPlayingChange}
+              />
+            )}
             <StackedCharts
               data={compare}
               lapLabels={lapLabels}
               lapColors={lapColors}
               units={units}
               channels={channelDefs}
-              onCursorDist={onCursorDist}
+              onCursorDist={onHoverCursorDist}
               zoomRange={zoomRange}
               onZoomChange={setZoomRange}
             />
