@@ -533,6 +533,11 @@ class TelemetryService:
             "pos_z": round(p.position_z, 2),
             "tod_ms": p.day_progression_ms,
             "track_name": self.track_name,
+            # Steering wheel angle, radians (packet B+); the steering-wheel
+            # widget rotates by it. null below packet B, never a fake 0.
+            "steer_rad": (
+                round(p.wheel_rotation, 3) if p.wheel_rotation is not None else None
+            ),
         }
 
     async def status(self) -> dict[str, Any]:

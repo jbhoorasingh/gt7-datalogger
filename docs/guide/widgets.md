@@ -48,6 +48,20 @@ Sizes 2×1 · 4×1 · 2×2 · 4×2 · 4×4. The redline comes from the car itsel
 
 Sizes 2×1 · 4×1 · 1×2 · 2×2.
 
+### Steering wheel — `steering`
+
+| Style | Shows |
+| --- | --- |
+| Wheel + angle (default) | a wheel graphic rotated by the broadcast steering angle, degrees readout below |
+| Wheel only | the wheel, no readout |
+
+Sizes 1×1 · 1×2 · 2×2 · 4×4. GT7 broadcasts the wheel's rotation in radians as an
+**absolute angle** (packet **B** or wider — see
+[Configuration](../getting-started/configuration.md)), so the graphic turns exactly as
+far as the driver's wheel does; no lock-to-lock assumption is baked in. On a plain
+packet-A stream the wheel dims and the readout shows `–`. The same widget renders a
+stored lap on the Analysis view's [playback strip](analysis-view.md#lap-playback).
+
 ### Boost — `boost`
 
 | Style | Shows |

@@ -107,6 +107,21 @@ export const WIDGET_META: Record<WidgetId, WidgetMeta> = {
       [2, 2],
     ],
   },
+  steering: {
+    label: WIDGET_LABELS.steering,
+    group: "driving",
+    variants: [
+      { key: "wheel", label: "Wheel + angle", baseW: 72 },
+      { key: "plain", label: "Wheel only", baseW: 72 },
+    ],
+    defaultVariant: "wheel",
+    sizes: [
+      [1, 1],
+      [1, 2],
+      [2, 2],
+      [4, 4],
+    ],
+  },
   times: {
     label: WIDGET_LABELS.times,
     group: "timing",

@@ -38,6 +38,9 @@ export interface LiveFrame {
   pos_z: number;
   tod_ms: number;
   track_name: string;
+  // Steering wheel angle in radians as broadcast (packet B+); null when the
+  // stream doesn't carry it. Positive = turning right in GT7's convention.
+  steer_rad: number | null;
 }
 
 export interface ConnectionStatus {
