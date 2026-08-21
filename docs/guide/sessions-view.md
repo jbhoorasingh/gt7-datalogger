@@ -28,6 +28,28 @@ recorded before packet C, and **All** is the only way back to sessions that have
 class at all. A session whose own class is blank — its very first packet was a narrower
 format — takes the class its laps recorded.
 
+## Race results
+
+A session that saw the checkered flag carries its result: a **P3/12**-style chip on the
+row, with the race length and — when it can be known — the total race time in the
+chip's tooltip. The result is written once, at the moment GT7's lap counter passes the
+race distance, so it means *position at the finish*:
+
+- A **time trial** (GT7 reports no positions there) shows no chip — "no race" is kept
+  distinct from finishing last.
+- A session that **ended mid-race** (stream stopped, race restarted) claims no result
+  either, however well it was going at the time.
+- The **total race time** is the sum of the stored lap times, and is only stated when
+  every lap of the race is accounted for — a dropped stream or a mid-race join leaves a
+  gap, and a sum across a gap would be confidently wrong, so the tooltip simply omits
+  it. (GT7 broadcasts no total-time field, and the in-game clock runs at the event's
+  own day-speed multiplier, so neither is a substitute.)
+
+In race sessions the lap table also gains a **Pos** column — the position each lap was
+completed in, which is what makes the race readable after the fact: the lap you gained
+two places on is right there next to its time. Per-tick position is recorded too, as
+the **Race position** channel in [Analysis](analysis-view.md#channel-picker).
+
 ## Notes & tags
 
 Expanding a session reveals an editor for two user-set fields:
