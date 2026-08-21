@@ -152,6 +152,12 @@ async def test_packet_c_records_every_optional_column(client) -> None:
     samples = detail["samples"]
     n = len(samples["t"])
     for column in OPTIONAL_COLUMNS:
+        if column == "race_pos":
+            # Gated by racing, not by packet format (#60): drive() is a time
+            # trial (GT7 reports no positions), so the column stays absent.
+            # test_laps covers the race case.
+            assert column not in samples
+            continue
         assert column in samples, column
         assert len(samples[column]) == n, column
     assert samples["steer"][0] == pytest.approx(0.42)

@@ -247,6 +247,7 @@ CSV_CHANNELS = (
     ("acc_vert", "Accel Vertical", ""),
     ("throttle_f", "Throttle Applied", "%"),
     ("brake_f", "Brake Applied", "%"),
+    ("race_pos", "Race Position", ""),
 )
 
 
