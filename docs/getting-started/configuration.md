@@ -16,6 +16,7 @@ working directory.
 | `GT7_PACKET_FORMAT` | `C` | Telemetry format requested from the console: `A`, `B`, `~`, or `C` (richest, needs GT7 v1.68+; also settable in Admin) |
 | `GT7_DB_PATH` | `data/gt7.db` | SQLite database path — also accepts a full SQLAlchemy async URL (e.g. Postgres) |
 | `GT7_CARS_CSV` | `data/cars.csv` | Car ID → name lookup table |
+| `GT7_TRACK_SIGNATURES_JSON` | *(bundled)* | Shipped track signatures, synced into the `tracks` table at startup so a fresh install [identifies circuits](../internals/track-identification.md#the-shipped-signatures) it has never seen driven. Defaults to the copy inside the package, so it resolves whatever directory the app was started from. Set it blank to turn seeding off and identify only what you have named and surveyed |
 | `GT7_WS_RATE` | `30` | Live stream rate to the browser (Hz); capture stays at ~60 Hz |
 | `GT7_WEBHOOK_URL` | *(empty)* | Webhook for race notifications (also settable in Admin) |
 | `GT7_WEBHOOK_EVENTS` | *(all)* | Comma-separated events to send: `personal_best`, `session_summary`, `overtake`, `position_lost`, `off_road` (toggles in Admin) |
