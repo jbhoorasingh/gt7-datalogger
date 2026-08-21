@@ -74,8 +74,11 @@ per-feature guides, how every calculation works, and the API reference.
   shared with every chart, and per-lap **compare / set-reference** shortcuts into Analysis.
 - Export/import laps as JSON, **CSV / MoTeC-compatible export** for MoTeC i2 or Excel,
   delete laps or whole sessions, manual "log lap now", and a record on/off toggle.
-- **Track auto-identification** — name a circuit once and every future session on it is
-  tagged automatically from the lap geometry.
+- **Track auto-identification** — 78 GT7 configurations are recognised out of the box,
+  from signatures shipped with the app, so a fresh install tags sessions on the first
+  lap without you naming anything. Naming a circuit yourself always outranks a shipped
+  name, surveyed circuits identify themselves from their borders, and a lap driven the
+  wrong way round a layout is tagged as its reverse rather than as the layout itself.
 - **Personal-bests board** — a **Bests** tab with each circuit's fastest counting lap
   per car across every session: time, gap to the circuit's outright best, class chip
   and filter, and one click into Analysis. Sessions can be excluded from bests —
@@ -382,6 +385,7 @@ working directory):
 | `GT7_PS_IP` | *(empty)* | Console IP; empty = broadcast auto-discovery |
 | `GT7_DB_PATH` | `data/gt7.db` | SQLite database path |
 | `GT7_CARS_CSV` | `data/cars.csv` | Car ID → name lookup table |
+| `GT7_TRACK_SIGNATURES_JSON` | *(bundled)* | Shipped track signatures, synced into the `tracks` table at startup so a fresh install recognises circuits it has never seen driven. Resolves from the package, so it works whatever directory you start from. Blank turns seeding off |
 | `GT7_WS_RATE` | `30` | Live stream rate to the browser (Hz) |
 | `GT7_WEBHOOK_URL` | *(empty)* | Webhook for PB / session notifications (also settable in Admin) |
 | `GT7_HTTP_PORT` | `8000` | HTTP port |
@@ -416,6 +420,18 @@ newer channels are simply absent and the charts skip them.
   race-telemetry dashboard this project reached full parity with (and then extended).
 - [MacManley/gt7-udp](https://github.com/MacManley/gt7-udp) — a GT7 UDP telemetry
   parser for ESP32 / ESP8266 boards, and a great reference for the packet format.
+- [zetetos/gt-telemetry](https://github.com/zetetos/gt-telemetry) — a Go telemetry
+  library, and the source of the **circuit captures the shipped track signatures are
+  built from**: 84 recorded laps, one per configuration, published as world coordinates
+  under MIT. Their coordinates are GT7's own, so they line up with ours with no
+  transform — which is what makes a circuit identify itself on a fresh install before
+  anyone has driven or surveyed it. Not affiliated; the captures are used with
+  attribution.
+- [jbhoorasingh/gt7-datalogger-track-data](https://github.com/jbhoorasingh/gt7-datalogger-track-data)
+  — this project's own track data, kept separate because it changes every time somebody
+  drives: surveyed border geometry for GT7 circuits, the catalog of all 121
+  configurations, and the generated `signatures.json` this app vendors. The app can pull
+  contributed bundles from it directly (**Tracks → Shared bundles**).
 
 ## Screenshots
 
@@ -447,4 +463,10 @@ pit-window projections, live delta, tires, engine health, and an alert banner ro
 
 ![Driver dashboard](docs/screenshots/dash.png)
 
-*All screenshots were captured against the built-in simulated telemetry source.*
+**Tracks view** — the three sources of track knowledge joined, with the gaps called out:
+what is surveyed, what is named, and what the official layout is:
+
+![Tracks view](docs/screenshots/tracks.png)
+
+*Screenshots were captured against the built-in simulated telemetry source, except the
+Tracks view, which shows real recorded sessions — an empty one would say nothing.*

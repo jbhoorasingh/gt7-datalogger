@@ -2,6 +2,13 @@
 
 **What do I have, and what is missing.**
 
+![Tracks view](../screenshots/tracks.png)
+
+Three states in one shot: circuits mapped in detail (Lago Maggiore, Deep Forest),
+one named by hand and nothing else (Sim Ring), and one the app recognised on its
+own from a **shipped** signature, with the official layout it thinks it is
+waiting to be confirmed (Trial Mountain).
+
 Three separate things can be true about a circuit, and until this view existed
 nothing on any screen showed them together:
 
@@ -33,9 +40,10 @@ appear without anyone naming anything. See
 [Track identification](../internals/track-identification.md#matching-against-a-survey-bundle).
 
 Sessions recorded **before** a circuit was surveyed never got that chance.
-**Identify sessions** re-runs the match over every unlabelled session in your
-history and names the ones that were driven on a circuit you have since
-mapped. Sessions with no confident match are left alone — an unlabelled
+**Identify sessions** re-runs identification over every unlabelled session in
+your history and names the ones it can now place — whether that is a circuit
+you have since mapped, one you have since named, or one the app ships a
+signature for. Sessions with no confident match are left alone — an unlabelled
 session is honest, a mislabelled one is not.
 
 ## Reading a row

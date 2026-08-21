@@ -309,3 +309,41 @@ async def test_a_named_signature_still_wins(client) -> None:
     service.session_id = None
     await drive(service, radius=200.0)
     assert service.track_name == "My Own Name"
+
+
+async def test_backfill_names_history_from_a_shipped_signature(client) -> None:
+    """History recorded before the signatures shipped is nameable too (#58).
+
+    The backfill only ever consulted the survey bundles. That was right while a
+    signature existed solely because somebody had typed a name — the sessions
+    worth backfilling were, by definition, the ones nobody had named. Shipping
+    78 of them made it wrong and made it silent: on the author's own install,
+    29 of 44 unnamed sessions were sitting at circuits the app recognised on
+    sight, and no screen said so.
+    """
+    from app.processing import track_seed
+
+    c, service, _data_dir = client
+    await drive(service, radius=200.0)
+    assert (await c.get("/api/sessions")).json()[0]["track_name"] == ""
+
+    # A shipped signature covering the circle just driven: 2*pi*200 = 1257 m.
+    await service.repo.sync_seeded_tracks([
+        track_seed.SeedRow(
+            official_id="abc123", name="Shipped Circuit", length_m=1257.0,
+            min_x=-200.0, max_x=200.0, min_z=-200.0, max_z=200.0,
+            provenance="capture",
+        )
+    ])
+
+    result = (await c.post("/api/tracks/identify")).json()
+    assert result["identified"] == 1
+    assert result["tracks"] == {"Shipped Circuit": 1}
+    assert (await c.get("/api/sessions")).json()[0]["track_name"] == "Shipped Circuit"
+
+
+async def test_backfill_still_refuses_with_nothing_to_match_against(client) -> None:
+    """No bundles AND no signatures is the only case with nothing to say."""
+    c, service, _data_dir = client
+    await drive(service, radius=200.0)
+    assert (await c.post("/api/tracks/identify")).status_code == 409
