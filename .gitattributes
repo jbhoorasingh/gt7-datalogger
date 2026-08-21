@@ -1,0 +1,14 @@
+# Generated data, committed so a fresh install works offline but never edited
+# by hand — every one of these is the output of a script, and the script is the
+# thing to review when one changes.
+#
+# `linguist-generated` collapses them in pull request diffs and keeps them out
+# of the repository's language statistics. That matters most for the track
+# signatures: it is 21,000 path points, so a review of the code beside it would
+# otherwise open on ~87,000 added lines of coordinates.
+#
+# To see one anyway, `git diff` locally, or expand it in the web view.
+
+backend/data/track-signatures.json linguist-generated=true
+backend/data/tracks.json           linguist-generated=true
+backend/data/cars.csv              linguist-generated=true
