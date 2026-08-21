@@ -146,10 +146,13 @@ export const api = {
     get<{ bests: PersonalBest[] }>(
       `/api/laps/bests${category ? `?category=${encodeURIComponent(category)}` : ""}`,
     ),
-  // note / bests_excluded are the only session fields a human is allowed to
-  // rewrite after the fact; everything else is what the telemetry said.
-  updateSession: (id: number, patch: { note?: string; bests_excluded?: boolean }) =>
-    send<{ status: string }>(`/api/sessions/${id}`, "PATCH", patch),
+  // note / tags / bests_excluded are the only session fields a human is
+  // allowed to rewrite after the fact; everything else is what the telemetry
+  // said. An empty tags array clears them.
+  updateSession: (
+    id: number,
+    patch: { note?: string; tags?: string[]; bests_excluded?: boolean },
+  ) => send<{ status: string }>(`/api/sessions/${id}`, "PATCH", patch),
   sessionLaps: (id: number) => get<LapSummary[]>(`/api/sessions/${id}/laps`),
   // `track` narrows to one circuit's laps across every session — what the
   // Analysis "+ Add lap" picker feeds on (#26).

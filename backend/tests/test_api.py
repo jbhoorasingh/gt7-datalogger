@@ -213,6 +213,52 @@ async def test_laps_without_packet_c_have_a_blank_category(client) -> None:
     assert laps[0]["car_category"] == ""
 
 
+async def test_session_note_and_tags_roundtrip(client) -> None:
+    """Notes and tags land on the session and come back from the listing (#25).
+
+    Patching one must not clobber the other — the UI edits them separately.
+    """
+    c, service = client
+    await drive_laps(service, laps=1)
+    sid = (await c.get("/api/sessions")).json()[0]["id"]
+
+    resp = await c.patch(f"/api/sessions/{sid}", json={"note": "testing new diff"})
+    assert resp.status_code == 200
+    resp = await c.patch(f"/api/sessions/{sid}", json={"tags": ["wet", "race sim"]})
+    assert resp.status_code == 200
+
+    session = (await c.get("/api/sessions")).json()[0]
+    assert session["note"] == "testing new diff"
+    assert session["tags"] == ["wet", "race sim"]
+
+    # An empty list clears the tags; the note survives.
+    await c.patch(f"/api/sessions/{sid}", json={"tags": []})
+    session = (await c.get("/api/sessions")).json()[0]
+    assert session["tags"] == []
+    assert session["note"] == "testing new diff"
+
+
+async def test_session_tags_are_cleaned_not_trusted(client) -> None:
+    """Whitespace-only and duplicate tags collapse; a comma would corrupt the
+    comma-joined storage, so it is rejected outright."""
+    c, service = client
+    await drive_laps(service, laps=1)
+    sid = (await c.get("/api/sessions")).json()[0]["id"]
+
+    resp = await c.patch(
+        f"/api/sessions/{sid}", json={"tags": ["  wet ", "wet", "WET", "", "race sim"]}
+    )
+    assert resp.status_code == 200
+    assert (await c.get("/api/sessions")).json()[0]["tags"] == ["wet", "race sim"]
+
+    assert (
+        await c.patch(f"/api/sessions/{sid}", json={"tags": ["a,b"]})
+    ).status_code == 422
+    assert (
+        await c.patch(f"/api/sessions/{sid}", json={"tags": ["x" * 41]})
+    ).status_code == 422
+
+
 async def test_survey_track_can_be_assigned_mid_run(client, tmp_path) -> None:
     """A survey started before the circuit was known must be attachable to
     one without losing what it gathered (#45)."""
