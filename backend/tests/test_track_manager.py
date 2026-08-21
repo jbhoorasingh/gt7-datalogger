@@ -913,9 +913,14 @@ async def test_seeded_signatures_stay_out_of_the_table_until_driven(client) -> N
     )
     await service.repo.set_session_track(sid, "Driven Circuit")
 
-    rows = {r["name"]: r for r in (await c.get("/api/track-overview")).json()["tracks"]}
+    body = (await c.get("/api/track-overview")).json()
+    rows = {r["name"]: r for r in body["tracks"]}
     assert rows["Driven Circuit"]["named"] is True
     assert rows["Driven Circuit"]["provenance"] == "seed"
+    # ...and it stops being counted as waiting, now that its row is right
+    # there: the footer must not claim a circuit is still to come while
+    # listing it directly above.
+    assert body["seeded_signatures"] == 1
 
 
 async def test_a_user_named_circuit_outranks_a_seeded_one_in_the_overview(client) -> None:

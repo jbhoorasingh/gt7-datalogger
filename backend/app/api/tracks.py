@@ -167,10 +167,14 @@ async def overview(request: Request) -> dict[str, Any]:
     # surveyed would bury every row that means something under rows that mean
     # "this circuit exists in GT7" — which the catalog already said. The count
     # goes in the footer instead, where the other whole-installation facts are.
+    unlisted = 0
     for track in seeded:
         existing = rows.get(track_bundle.slugify(track["name"]))
-        if existing is None or existing["named"]:
-            continue  # not driven here, or the user's own name already wins
+        if existing is None:
+            unlisted += 1  # nothing driven or surveyed here yet
+            continue
+        if existing["named"]:
+            continue  # the user's own name already wins this row
         existing["named"] = True
         existing["provenance"] = "seed"
         existing["track_id"] = track["id"]
@@ -189,11 +193,13 @@ async def overview(request: Request) -> dict[str, Any]:
         "tracks": sorted(rows.values(), key=lambda r: r["name"].lower()),
         "logs": survey_log.list_logs(directory),
         "catalog_configs": len(configs),
-        # Shipped signatures held but not listed above (#58) — the circuits
+        # Shipped signatures held but NOT listed above (#58) — the circuits
         # that will name themselves the first time they are driven. Reported
         # because "nothing here recognises that circuit yet" and "it is
         # already waiting for you" look identical in a table that omits both.
-        "seeded_signatures": len(seeded),
+        # Counting every seeded row instead would make the footer claim a
+        # circuit is still waiting while its row sits directly above.
+        "seeded_signatures": unlisted,
     }
 
 

@@ -140,9 +140,13 @@ def parse(raw: Any) -> list[SeedRow]:
 def _path(raw: Any, where: str) -> tuple[tuple[float, float], ...]:
     """The thinned racing line, as (x, z) pairs in driving order.
 
-    Absent is allowed and means "no direction evidence for this circuit" —
-    the app then declines rather than guessing which way round a lap went,
-    exactly as it does for a signature that matches two circuits.
+    Absent is allowed, and a row without one is named forward without its
+    direction being judged — the behaviour of every build before direction
+    existed (`Repository._resolve_direction`). That is deliberate: declining
+    instead would make a path-less seed worse than useless, refusing circuits
+    it can identify perfectly well. The cost is that a reverse lap at such a
+    circuit still gets its forward twin's name, so a generator that CAN emit a
+    path should always emit one.
     """
     if raw is None:
         return ()
