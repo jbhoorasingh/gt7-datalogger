@@ -18,7 +18,7 @@ from app.notify import Notifier
 from app.processing import track_bundle, track_limits, tracks
 from app.processing.analysis import Samples, time_delta_at
 from app.processing.cars import CarDatabase
-from app.processing.laps import CompletedLap, LapProcessor, SessionInfo
+from app.processing.laps import CompletedLap, LapProcessor, RaceResult, SessionInfo
 from app.processing.live_events import LiveEvent, LiveEventWatcher
 from app.processing.surface import encode_surface
 from app.processing.survey import SurfaceSurvey
@@ -86,7 +86,11 @@ class TelemetryService:
         self.repo = repo
         self.cars = cars
         self.started_at = time.time()
-        self.processor = LapProcessor(on_lap=self._on_lap, on_session=self._on_session)
+        self.processor = LapProcessor(
+            on_lap=self._on_lap,
+            on_session=self._on_session,
+            on_race_result=self._on_race_result,
+        )
         self.source: UdpTelemetrySource | SimTelemetrySource
         if settings.source == "sim":
             self.source = SimTelemetrySource(
@@ -354,6 +358,7 @@ class TelemetryService:
             "off_survey_count": lap.off_survey_count,
             "clean_lap": lap.clean_lap,
             "salvaged": lap.salvaged,
+            "race_position": lap.race_position,
             "car_name": self.cars.name(lap.car_id),
             "fuel_consumed": round(lap.fuel_consumed, 3),
             "full_throttle_pct": round(lap.full_throttle_pct, 1),
@@ -367,6 +372,32 @@ class TelemetryService:
             "event_counts": _count_events(lap.events),
         }
         self._publish({"type": "lap", "data": summary})
+
+    async def _on_race_result(self, result: RaceResult) -> None:
+        """The checkered flag fell (#60): persist the finish on the session.
+
+        Runs after the final lap's save (the processor fires the edge behind
+        the boundary handler), so the race-time completeness check sees every
+        lap the session will ever have.
+        """
+        if self.session_id is None:
+            return
+        race_time = await self.repo.record_race_result(
+            self.session_id,
+            result.final_position,
+            result.total_positions,
+            result.race_laps,
+        )
+        log.info(
+            "race finished: P%d/%d over %d laps (total %s)",
+            result.final_position,
+            result.total_positions,
+            result.race_laps,
+            f"{race_time} ms" if race_time is not None else "unknown — laps missing",
+        )
+        # Nudge open Sessions/Analysis views to refetch; the result lands
+        # after the last lap's own event already did so.
+        self._publish({"type": "session", "data": await self.status()})
 
     async def _identify_track(self, lap: CompletedLap) -> None:
         sig = signature_from_samples(lap.samples)

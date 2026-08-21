@@ -77,10 +77,10 @@ SPANS_FOR_MEDIAN = 3
 # and the real partials sat at 88 %, 88 %, 81 %, 65 % and 40 %.
 PROVISIONAL_SPAN_RATIO = 0.93
 
-# Columns only the extended packet formats can fill (#15, #16, #18). Unlike
-# every other column these are NOT appended on ticks that lack them, and a lap
-# that did not carry one from start to finish drops it entirely — see
-# prune_optional for why zero-filling would be worse than absence.
+# Columns not every recording can fill. Unlike every other column these are
+# NOT appended on ticks that lack them, and a lap that did not carry one from
+# start to finish drops it entirely — see prune_optional for why zero-filling
+# would be worse than absence.
 #
 #   steer                       packet B  wheel_rotation, radians as broadcast
 #   acc_lat/acc_long/acc_vert   packet B  sway/surge/heave, raw accelerometer
@@ -89,10 +89,15 @@ PROVISIONAL_SPAN_RATIO = 0.93
 #   throttle_f/brake_f          packet ~  pedal AFTER the aids acted on it, %;
 #                                         the gap to throttle/brake is the
 #                                         intervention, measured not inferred
+#   race_pos                    any format, but only while GT7 is actually
+#                                         reporting positions (#60): it sends
+#                                         -1 outside races, and a column of
+#                                         -1s would chart as "P-1"
 OPTIONAL_COLUMNS = (
     "steer",
     "acc_lat", "acc_long", "acc_vert",
     "throttle_f", "brake_f",
+    "race_pos",
 )
 
 # Columnar per-tick series kept for each lap. Column order matters for the
@@ -265,6 +270,9 @@ class CompletedLap:
     # replay endings (#26). The time is GT7's own, verified against the
     # integrated clock rather than reported at a boundary.
     salvaged: bool = False
+    # Race position when this lap completed (#60): the last valid reading GT7
+    # made during the lap. -1 = no position reporting (time trial, practice).
+    race_position: int = -1
 
     def compute_metrics(self) -> None:
         # Imported laps from older export versions may lack the newer columns;
@@ -328,8 +336,20 @@ class SessionInfo:
     car_category: str = ""  # packet C: "Gr.3", "Gr.4", "N300"...
 
 
+@dataclass(slots=True)
+class RaceResult:
+    """The finish, caught at the checkered-flag edge (#60): GT7 reports
+    current_lap = total_laps + 1 once the flag falls, and this is the only
+    moment "position at the finish" exists on the wire."""
+
+    final_position: int
+    total_positions: int
+    race_laps: int
+
+
 LapCallback = Callable[[CompletedLap], Awaitable[None]]
 SessionCallback = Callable[[SessionInfo], Awaitable[None]]
+RaceResultCallback = Callable[[RaceResult], Awaitable[None]]
 
 
 @dataclass
@@ -350,6 +370,7 @@ class LapProcessor:
 
     on_lap: LapCallback
     on_session: SessionCallback
+    on_race_result: RaceResultCallback | None = None
     min_lap_ticks: int = MIN_LAP_TICKS
 
     _session: SessionInfo | None = None
@@ -386,6 +407,17 @@ class LapProcessor:
     _max_water: float = 0.0
     _max_oil: float = 0.0
     _min_oil_pressure: float = -1.0
+    # Race position (#60). GT7 sends -1 where there is no position reporting
+    # and the field can flicker side-by-side, so only valid readings (pos >= 1
+    # in a field of >= 2) are kept: the last one during the lap buffer stamps
+    # the completed lap, the last one of the session is the fallback for the
+    # final result if the flag packet itself reads -1.
+    _lap_position: int = -1
+    _session_position: int = -1
+    _session_total_positions: int = -1
+    # The checkered-flag edge fires once per session, however long the
+    # cool-down streams past-finish packets.
+    _race_finished: bool = False
 
     @property
     def session(self) -> SessionInfo | None:
@@ -479,7 +511,18 @@ class LapProcessor:
             self._partial.clear()
             self._lap_clock_worst_ms = 0
             self._lap_clock_samples = 0
+            self._session_position = -1
+            self._session_total_positions = -1
+            self._race_finished = False
             await self.on_session(self._session)
+
+        # Track the last VALID position of the session (#60): GT7 sends -1
+        # where there is no reporting, and the packet that carries the
+        # checkered-flag edge below can already be blank, so the result falls
+        # back to the last reading the race itself made.
+        if p.race_position >= 1 and p.total_positions >= 2:
+            self._session_position = p.race_position
+            self._session_total_positions = p.total_positions
 
         if p.current_lap != self._current_lap:
             await self._handle_lap_boundary(p)
@@ -487,6 +530,22 @@ class LapProcessor:
         # After the checkered flag GT7 reports current_lap = total_laps + 1;
         # the cool-down lap is not real driving, so don't record it.
         past_finish = 0 < p.total_laps < p.current_lap
+        # ...and that same edge is the only moment "position at the finish"
+        # exists (#60): commit the race result exactly once per session, AFTER
+        # the boundary handler above has emitted the final lap. Flag set
+        # before the await — cool-down packets keep arriving meanwhile. A
+        # session with no valid position (a lapped event without reporting)
+        # deliberately claims no result rather than a P-1.
+        if past_finish and not self._race_finished:
+            self._race_finished = True
+            if self._session_position >= 1 and self.on_race_result is not None:
+                await self.on_race_result(
+                    RaceResult(
+                        final_position=self._session_position,
+                        total_positions=self._session_total_positions,
+                        race_laps=p.total_laps,
+                    )
+                )
         # Lap 0 is sampled too: a replay may stream its flying lap with the
         # counter parked at 0 (time-trial out-lap semantics), and salvage is
         # the only path that can commit it (#26). The completion rule still
@@ -527,6 +586,7 @@ class LapProcessor:
         finished_clock = self._gt_clock
         fuel_start = self._fuel_start
         engine = (self._max_water, self._max_oil, self._min_oil_pressure)
+        lap_position = self._lap_position
 
         # A transition that abandons the buffer instead of completing it — a
         # jump to -1, a forward jump past prev+1, an out-lap's 0 -> 1 — can
@@ -566,6 +626,7 @@ class LapProcessor:
                 fuel_start=fuel_start,
                 fuel_end=p.fuel_level,
                 tod_ms=p.day_progression_ms,
+                race_position=lap_position,
             )
             lap.max_water_temp = round(engine[0], 1)
             lap.max_oil_temp = round(engine[1], 1)
@@ -605,6 +666,7 @@ class LapProcessor:
         self._max_water = 0.0
         self._max_oil = 0.0
         self._min_oil_pressure = -1.0
+        self._lap_position = -1
 
     def _salvage_candidates(self, p: TelemetryPacket) -> list[int]:
         """Lap times GT7 itself has vouched for, deduped (#26).
@@ -687,6 +749,7 @@ class LapProcessor:
             fuel_end=src.fuel_level,
             tod_ms=src.day_progression_ms,
             salvaged=True,
+            race_position=self._lap_position,
         )
         lap.max_water_temp = round(self._max_water, 1)
         lap.max_oil_temp = round(self._max_oil, 1)
@@ -894,6 +957,12 @@ class LapProcessor:
             s["throttle_f"].append(round(p.throttle_filtered / 2.55, 1))
         if p.brake_filtered is not None:
             s["brake_f"].append(round(p.brake_filtered / 2.55, 1))
+        # Position only while GT7 is actually reporting one (#60): it sends
+        # -1 outside races, and a race joined mid-lap leaves the column short
+        # — prune_optional then drops it rather than padding with lies.
+        if p.race_position >= 1 and p.total_positions >= 2:
+            s["race_pos"].append(float(p.race_position))
+            self._lap_position = p.race_position
         # GT7's own lap clock beside the samples (packet C only): the salvage
         # trimmer needs to know where inside this buffer the lap began (#26).
         if p.lap_time_ms is not None:

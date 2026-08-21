@@ -54,6 +54,22 @@ class SessionRow(Base):
     # is a human call, made per session. Excluded sessions stay fully browsable;
     # they just never own a best (#26).
     bests_excluded: Mapped[bool] = mapped_column(default=False)
+    # The race result (#60), written once at the checkered-flag edge (GT7
+    # reports current_lap = total_laps + 1 after the finish). -1 = no result:
+    # a time trial (GT7 sends -1 for position where there is no reporting) or
+    # a stream that ended mid-race — deliberately distinct from finishing
+    # last, which is >= 2. final_position means "position AT the finish", not
+    # at the last recorded lap; a session that never saw the flag keeps -1.
+    final_position: Mapped[int] = mapped_column(default=-1)
+    final_total_positions: Mapped[int] = mapped_column(default=-1)
+    # The race distance (packet total_laps); 0 = not a lapped race.
+    race_laps: Mapped[int] = mapped_column(default=0)
+    # Sum of the stored lap times, and NULL unless every lap 1..race_laps is
+    # accounted for: no packet field carries the real total, and a sum over a
+    # session with a missing lap (dropped stream, mid-race join) is a
+    # confidently wrong number. tod_ms is NOT a substitute — it is in-game
+    # time of day and advances at the event's own rate multiplier.
+    race_time_ms: Mapped[int | None] = mapped_column(default=None)
 
     laps: Mapped[list[LapRow]] = relationship(
         back_populates="session", cascade="all, delete-orphan"
@@ -156,6 +172,9 @@ class LapRow(Base):
     # list can always be traced to its provenance; a server log line rotates
     # away, a row does not.
     salvaged: Mapped[bool] = mapped_column(default=False)
+    # Race position when the lap completed (#60) — which lap places were
+    # gained or lost on. -1 = no position reporting (time trial, practice).
+    race_position: Mapped[int] = mapped_column(default=-1)
     events_json: Mapped[str] = mapped_column(Text, default="[]")
     gearing_json: Mapped[str] = mapped_column(Text, default="")
     samples_json: Mapped[str] = mapped_column(Text)

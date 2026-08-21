@@ -10,7 +10,7 @@ import type { Units } from "@/lib/format";
 import { speedValue } from "@/lib/format";
 import type { Samples } from "@/lib/types";
 
-export type ChannelGroup = "Driving" | "Tires & wheels" | "Chassis" | "Engine";
+export type ChannelGroup = "Driving" | "Tires & wheels" | "Chassis" | "Engine" | "Race";
 
 // Broadcast accelerometer channels carry no documented unit; the compare
 // endpoint fits them against physics and returns a multiplier to g. This is
@@ -50,6 +50,12 @@ export const CHANNELS: ChannelDef[] = [
   // Steering, at last (#15): understeer is more lock with no more rotation,
   // and that only shows next to the yaw-rate trace above.
   { key: "steer", title: "Steering (rad)", group: "Driving", height: 0.8 },
+
+  // --- Race ---
+  // Only recorded while GT7 reports positions (#60): absent on time trials,
+  // so the panel simply stays empty there. Steps, never slopes — you are
+  // P4 or P3, not P3.5.
+  { key: "race_pos", title: "Race position", group: "Race", height: 0.6, step: true },
 
   // --- Driver aids, measured rather than inferred (#18) ---
   // The pedal AFTER the aids acted on it. Plotted against the raw pedal these

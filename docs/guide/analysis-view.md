@@ -80,6 +80,7 @@ The **Channels (n)** button opens a grouped picker with ~20 channels:
 | Group | Channels |
 | --- | --- |
 | Driving | Speed, Throttle, Brake, Coasting, Gear, Yaw rate, **Steering**, **Throttle/Brake applied**, **TCS cut**, **ABS release** |
+| Race | **Race position** — recorded only while GT7 reports positions, so the panel is simply empty on time trials |
 | Engine | RPM, Boost |
 | Tires & wheels | Tire spd/car spd, slip front/rear avg, slip per wheel, tire temp front/rear avg, **tire temp F−R balance** |
 | Chassis | Ride height, susp travel front/rear avg, **lateral / longitudinal / vertical g** |

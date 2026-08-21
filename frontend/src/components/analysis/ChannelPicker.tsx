@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { CHANNELS, DEFAULT_CHANNEL_KEYS, type ChannelGroup } from "@/lib/channels";
 
-const GROUPS: ChannelGroup[] = ["Driving", "Tires & wheels", "Chassis", "Engine"];
+const GROUPS: ChannelGroup[] = ["Driving", "Race", "Tires & wheels", "Chassis", "Engine"];
 
 export function ChannelPicker({
   selected,
