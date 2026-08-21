@@ -31,6 +31,9 @@ TICK = 1 / 60
 TRACK_LENGTH = 3200.0  # meters
 CAR_ID = 3298  # Shelby GT350R '16 in the bundled cars.csv
 FUEL_PER_LAP = 1.8
+# How long a simulated race streams its cool-down (past-finish packets)
+# before restarting — long enough for the finish edge (#60) to be seen.
+COOLDOWN_TICKS = 180  # ~3 s
 
 
 @dataclass(slots=True, frozen=True)
@@ -236,6 +239,7 @@ class SimTelemetrySource:
         position = max(1, sim.race_positions // 2) if sim.race_positions else -1
         best_ms = -1
         last_ms = -1
+        cooldown = 0  # >0 = past the checkered flag, restart when it runs out
         lap_jitter = rng.uniform(-1.5, 1.5)
 
         while True:
@@ -281,16 +285,25 @@ class SimTelemetrySource:
                 last_ms = int((tick - lap_start_tick) * TICK * 1000)
                 best_ms = last_ms if best_ms < 0 else min(best_ms, last_ms)
                 if sim.race_laps and new_lap > sim.race_laps:
-                    # Checkered flag: start the race again rather than driving
-                    # cool-down laps forever. The lap counter reset is exactly
-                    # what a real race restart looks like to the pipeline.
-                    distance, new_lap, fuel, best_ms = 0.0, 1, sim.fuel_start, -1
-                    position = sim.race_positions // 2 if sim.race_positions else -1
+                    # Checkered flag, the way GT7 reports it: current_lap
+                    # runs past total_laps while the cool-down is driven. A
+                    # few seconds of it lets the pipeline catch the finish
+                    # edge (#60) before the restart below.
+                    cooldown = COOLDOWN_TICKS
                 lap = new_lap
                 lap_start_tick = tick
                 lap_jitter = rng.uniform(-1.5, 1.5)
                 if position > 1 and lap % 2 == 0:
                     position -= 1
+            if cooldown:
+                cooldown -= 1
+                if cooldown == 0:
+                    # Start the race again rather than cooling down forever.
+                    # The lap counter reset is exactly what a real race
+                    # restart looks like to the pipeline.
+                    distance, lap, fuel, best_ms = 0.0, 1, sim.fuel_start, -1
+                    lap_start_tick = tick
+                    position = sim.race_positions // 2 if sim.race_positions else -1
 
             px, pz = _position_at(distance)
 

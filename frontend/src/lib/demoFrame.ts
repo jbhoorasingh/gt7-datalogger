@@ -71,6 +71,10 @@ export function demoFrame(nowMs: number): LiveFrame {
     pos_z: 0,
     tod_ms: (14 * 3600 + Math.floor(nowMs / 1000) * 4) * 1000, // fast in-game clock
     track_name: "Design Ring",
+    // Saw the wheel through the two corners so the steering widget moves.
+    steer_rad:
+      1.1 * (corner(t, 5.6, 2.4, 1) - corner(t, 13.9, 2.0, 0.8)) *
+      Math.sin((t / LOOP_S) * 4 * Math.PI),
   };
 }
 

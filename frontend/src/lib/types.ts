@@ -38,6 +38,9 @@ export interface LiveFrame {
   pos_z: number;
   tod_ms: number;
   track_name: string;
+  // Steering wheel angle in radians as broadcast (packet B+); null when the
+  // stream doesn't carry it. Positive = turning right in GT7's convention.
+  steer_rad: number | null;
 }
 
 export interface ConnectionStatus {
@@ -85,6 +88,8 @@ export interface LapSummary {
   // replay ending); the time is GT7's own, verified against the integrated
   // clock (#26).
   salvaged?: boolean;
+  // Race position when the lap completed (#60); -1 = no position reporting.
+  race_position?: number;
   event_counts?: Record<string, number>;
 }
 
@@ -375,6 +380,15 @@ export interface SessionSummary {
   // driver's stint is indistinguishable from own driving in telemetry, so
   // only a human can rule its laps out as personal bests.
   bests_excluded: boolean;
+  // The race result (#60), written at the checkered-flag edge. -1 = no
+  // result: a time trial, or a stream that ended mid-race — deliberately
+  // distinct from finishing last (>= 2).
+  final_position: number;
+  final_total_positions: number;
+  race_laps: number; // race distance in laps; 0 = not a lapped race
+  // Sum of the stored lap times; null unless every lap 1..race_laps is
+  // accounted for (a sum across a missing lap would be confidently wrong).
+  race_time_ms: number | null;
 }
 
 export interface Track {

@@ -245,6 +245,19 @@ export function SessionsView() {
                     excluded from bests
                   </span>
                 )}
+                {s.final_position >= 1 && (
+                  <Tip
+                    content={`Finished P${s.final_position} of ${s.final_total_positions} — ${s.race_laps}-lap race${
+                      s.race_time_ms != null
+                        ? `, total ${formatLapTime(s.race_time_ms)}`
+                        : ""
+                    }`}
+                  >
+                    <span className="shrink-0 rounded-full bg-throttle/10 px-2 py-0.5 font-tabular text-xs text-throttle">
+                      P{s.final_position}/{s.final_total_positions}
+                    </span>
+                  </Tip>
+                )}
                 {s.track_name ? (
                   <span className="rounded-full bg-accent/10 px-2 py-0.5 text-xs text-accent">
                     {s.track_name}
@@ -513,16 +526,23 @@ function LapTable({
 }) {
   if (laps.length === 0) return <div className="p-4 text-sm text-ink-dim">No laps.</div>;
   const bestId = laps.reduce((a, b) => (b.time_ms < a.time_ms ? b : a)).id;
+  // Position per lap (#60): only worth a column when the session was a race
+  // — a time trial would show a column of dashes.
+  const hasPositions = laps.some((l) => (l.race_position ?? -1) >= 1);
   return (
     <div className="overflow-x-auto">
       <table className="w-full font-tabular text-xs">
         <thead>
           <tr className="text-left text-ink-dim">
-            {["Lap", "Time", "Δ best", "Fuel", "Full thr.", "Full brake", "Coast", "Spin", "Events", "Off-track", "Max spd", ""].map(
-              (h) => (
-                <th key={h} className="px-2 py-2 font-normal">{h}</th>
-              ),
-            )}
+            {[
+              "Lap",
+              "Time",
+              "Δ best",
+              ...(hasPositions ? ["Pos"] : []),
+              "Fuel", "Full thr.", "Full brake", "Coast", "Spin", "Events", "Off-track", "Max spd", "",
+            ].map((h) => (
+              <th key={h} className="px-2 py-2 font-normal">{h}</th>
+            ))}
           </tr>
         </thead>
         <tbody>
@@ -556,6 +576,11 @@ function LapTable({
                 >
                   {diff == null ? "–" : diff === 0 ? "best" : `+${(diff / 1000).toFixed(3)}`}
                 </td>
+                {hasPositions && (
+                  <td className="px-2 py-1.5">
+                    {(lap.race_position ?? -1) >= 1 ? `P${lap.race_position}` : "–"}
+                  </td>
+                )}
                 <td className="px-2 py-1.5">{lap.fuel_consumed.toFixed(2)} L</td>
                 <td className="px-2 py-1.5">{lap.full_throttle_pct.toFixed(0)}%</td>
                 <td className="px-2 py-1.5">{lap.full_brake_pct.toFixed(0)}%</td>

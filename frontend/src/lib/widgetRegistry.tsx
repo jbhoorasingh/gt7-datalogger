@@ -14,6 +14,7 @@ import { InputsWidget } from "@/components/widgets/InputsWidget";
 import { PositionWidget } from "@/components/widgets/PositionWidget";
 import { RpmWidget } from "@/components/widgets/RpmWidget";
 import { SpeedWidget } from "@/components/widgets/SpeedWidget";
+import { SteeringWidget } from "@/components/widgets/SteeringWidget";
 import { StrategyWidget } from "@/components/widgets/StrategyWidget";
 import { TimesWidget } from "@/components/widgets/TimesWidget";
 import { TiresWidget } from "@/components/widgets/TiresWidget";
@@ -25,6 +26,7 @@ export const WIDGET_COMPONENTS: Record<WidgetId, ComponentType<WidgetRenderProps
   speed: SpeedWidget,
   rpm: RpmWidget,
   inputs: InputsWidget,
+  steering: SteeringWidget,
   times: TimesWidget,
   delta: DeltaWidget,
   position: PositionWidget,

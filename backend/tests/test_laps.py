@@ -3,7 +3,7 @@
 import pytest
 
 from app.models import SimulatorFlags, TelemetryPacket
-from app.processing.laps import CompletedLap, LapProcessor, SessionInfo
+from app.processing.laps import CompletedLap, LapProcessor, RaceResult, SessionInfo
 from app.telemetry.packet import build_packet, parse_packet
 
 ON_TRACK = int(SimulatorFlags.CAR_ON_TRACK)
@@ -18,6 +18,7 @@ class Collector:
     def __init__(self) -> None:
         self.laps: list[CompletedLap] = []
         self.sessions: list[SessionInfo] = []
+        self.results: list[RaceResult] = []
 
     async def on_lap(self, lap: CompletedLap) -> None:
         self.laps.append(lap)
@@ -25,11 +26,22 @@ class Collector:
     async def on_session(self, info: SessionInfo) -> None:
         self.sessions.append(info)
 
+    async def on_result(self, result: RaceResult) -> None:
+        self.results.append(result)
+
 
 @pytest.fixture
 def setup() -> tuple[LapProcessor, Collector]:
     c = Collector()
-    return LapProcessor(on_lap=c.on_lap, on_session=c.on_session, min_lap_ticks=1), c
+    return (
+        LapProcessor(
+            on_lap=c.on_lap,
+            on_session=c.on_session,
+            on_race_result=c.on_result,
+            min_lap_ticks=1,
+        ),
+        c,
+    )
 
 
 async def feed_lap(proc: LapProcessor, lap_number: int, ticks: int, **kw) -> None:
@@ -311,6 +323,124 @@ async def test_metrics_time_weighted_under_drops(setup) -> None:
     lap = c.laps[0]
     assert lap.full_throttle_pct == pytest.approx(100.0 * 10 / 40, abs=0.5)
     assert lap.coasting_pct == pytest.approx(100.0 * 30 / 40, abs=0.5)
+
+
+# --- race position & the final result (#60) -----------------------------------
+
+
+async def test_race_lap_records_position_and_channel(setup) -> None:
+    proc, c = setup
+    await feed_lap(proc, 1, 60, race_position=4, total_positions=8, total_laps=3)
+    await proc.feed(
+        make_packet(
+            current_lap=2, last_lap_time_ms=61_000,
+            race_position=4, total_positions=8, total_laps=3,
+        )
+    )
+    lap = c.laps[0]
+    assert lap.race_position == 4
+    assert lap.samples["race_pos"] == [4.0] * 60
+
+
+async def test_time_trial_keeps_no_position(setup) -> None:
+    """GT7 sends -1 (and a field of 1) outside races: no per-lap position and
+    no channel — 'no race' must never read as P-1 or chart as one."""
+    proc, c = setup
+    await feed_lap(proc, 1, 60)  # build_packet default: position 1 of 1
+    await proc.feed(make_packet(current_lap=2, last_lap_time_ms=61_000))
+    lap = c.laps[0]
+    assert lap.race_position == -1
+    assert "race_pos" not in lap.samples
+
+
+async def test_position_channel_dropped_when_reporting_starts_mid_lap(setup) -> None:
+    """A partial column would silently mis-align with dist; the lap keeps the
+    scalar (last valid reading) and drops the channel."""
+    proc, c = setup
+    await feed_lap(proc, 1, 30)
+    await feed_lap(proc, 1, 30, race_position=5, total_positions=8)
+    await proc.feed(
+        make_packet(current_lap=2, last_lap_time_ms=61_000, race_position=5, total_positions=8)
+    )
+    lap = c.laps[0]
+    assert lap.race_position == 5
+    assert "race_pos" not in lap.samples
+
+
+async def test_finish_edge_commits_the_result_once(setup) -> None:
+    proc, c = setup
+    for lap in (1, 2, 3):
+        await feed_lap(
+            proc, lap, 60, race_position=3, total_positions=8, total_laps=3,
+            last_lap_time_ms=61_000 if lap > 1 else -1,
+        )
+    # Checkered flag: the counter passes total_laps; cool-down keeps streaming.
+    for _ in range(10):
+        await proc.feed(
+            make_packet(
+                current_lap=4, total_laps=3, last_lap_time_ms=61_000,
+                race_position=2, total_positions=8,
+            )
+        )
+    assert len(c.results) == 1
+    result = c.results[0]
+    assert result.final_position == 2
+    assert result.total_positions == 8
+    assert result.race_laps == 3
+    assert len(c.laps) == 3  # the flag packet also completed the final lap
+
+
+async def test_finish_result_falls_back_to_last_valid_position(setup) -> None:
+    """Some menus blank the position before the first past-finish packet; the
+    result must carry the race's last real reading, not a -1."""
+    proc, c = setup
+    await feed_lap(proc, 3, 60, race_position=6, total_positions=12, total_laps=3)
+    await proc.feed(
+        make_packet(
+            current_lap=4, total_laps=3, last_lap_time_ms=61_000,
+            race_position=-1, total_positions=0,
+        )
+    )
+    assert len(c.results) == 1
+    assert c.results[0].final_position == 6
+    assert c.results[0].total_positions == 12
+
+
+async def test_race_without_position_reporting_claims_no_result(setup) -> None:
+    """A lapped event where GT7 never reported positions must record nothing
+    — 'no race result' stays distinct from finishing anywhere."""
+    proc, c = setup
+    await feed_lap(proc, 3, 60, total_laps=3)  # default: position 1 of 1
+    await proc.feed(make_packet(current_lap=4, total_laps=3, last_lap_time_ms=61_000))
+    assert c.results == []
+
+
+async def test_stream_ending_mid_race_claims_no_result(setup) -> None:
+    """No checkered flag, no result: a race the stream abandoned on lap 2
+    must not claim a finishing position from wherever it happened to run."""
+    proc, c = setup
+    await feed_lap(proc, 2, 60, race_position=4, total_positions=8, total_laps=6)
+    # Menu bounce / restart: counter resets, tearing the session down.
+    await feed_lap(proc, 1, 5, race_position=4, total_positions=8, total_laps=6)
+    assert c.results == []
+
+
+async def test_second_race_gets_its_own_result(setup) -> None:
+    """The finish edge re-arms with the session: a restart after the flag is
+    a new race, not a continuation of the finished one."""
+    proc, c = setup
+    for final_pos in (2, 5):
+        await feed_lap(
+            proc, 1, 60, race_position=final_pos, total_positions=8, total_laps=1
+        )
+        await proc.feed(
+            make_packet(
+                current_lap=2, total_laps=1, last_lap_time_ms=61_000,
+                race_position=final_pos, total_positions=8,
+            )
+        )
+    assert [r.final_position for r in c.results] == [2, 5]
+    assert len(c.sessions) == 2
 
 
 # --- lap salvage: streams that end at the line (#26) --------------------------
