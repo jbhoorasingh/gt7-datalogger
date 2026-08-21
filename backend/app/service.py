@@ -375,7 +375,7 @@ class TelemetryService:
         # A signature a human created outranks anything inferred; the survey
         # bundles answer when there is no signature, which is the normal state
         # for someone who has surveyed circuits but never named one (#41).
-        name = await self.repo.find_track(sig)
+        name = await self.repo.find_track(sig, lap.samples)
         source = "signature"
         if not name:
             hit = await asyncio.to_thread(

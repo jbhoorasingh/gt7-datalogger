@@ -3,15 +3,65 @@
 from __future__ import annotations
 
 import json
+import logging
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import Row, case, delete, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.processing import tracks as tracks_module
 from app.processing.laps import CompletedLap, SessionInfo
+from app.processing.track_seed import SeedRow
 from app.processing.tracks import IDENTIFY_MIN_TICKS, TrackSignature, matches
 from app.storage.db import LapRow, LayoutRow, SessionRow, SettingRow, TrackRow
+
+log = logging.getLogger(__name__)
+
+
+def _resolve_direction(
+    track: TrackRow, samples: dict[str, list[float]] | None
+) -> str | None:
+    """The name a seeded match deserves once direction is taken into account.
+
+    A bounding box is blind to which way round a lap went, and a reverse
+    layout has exactly its forward twin's box and length. So a seeded row
+    matched on geometry alone names reverse laps after the forward
+    configuration — and because bests key on the circuit name, forward and
+    reverse times then pool under one name and compete for the same personal
+    best. On the author's recordings that was 10 laps of Deep Forest Reverse
+    filed as Deep Forest Raceway, alongside 6 genuine forward ones.
+
+    The seeded path settles it, and not marginally: across 101 recorded laps
+    every score landed at ±1.00, with nothing at all between the thresholds.
+    A weak score therefore does not mean "probably forward" — it means the lap
+    does not really follow this path, so the geometry match was wrong and the
+    honest answer is no name.
+    """
+    if samples is None or not track.path_json:
+        return track.name  # nothing to judge with; the box is all there is
+    try:
+        path = [(float(x), float(z)) for x, z in json.loads(track.path_json)]
+    except (ValueError, TypeError):  # pragma: no cover - written by us
+        log.warning("track %s has an unreadable path; naming it forward", track.name)
+        return track.name
+    score = tracks_module.travel_direction(samples, path)
+    if score >= tracks_module.DIRECTION_MIN:
+        return track.name
+    if score <= -tracks_module.DIRECTION_MIN:
+        if track.reverse_name:
+            log.info("lap runs %s backwards: naming it %s", track.name, track.reverse_name)
+            return track.reverse_name
+        # Known to be the reverse of this circuit, but GT7 has no reverse
+        # configuration for it — so the match itself is wrong.
+        log.info("lap runs %s backwards and it has no reverse layout; declining", track.name)
+        return None
+    log.info(
+        "lap does not follow %s in either direction (%.2f); declining", track.name, score
+    )
+    return None
+
 
 # v2 (Tier 1): per-corner sample columns, events, aid/engine metrics, gearing.
 # v1 files import fine — missing columns stay absent and charts skip them.
@@ -489,18 +539,91 @@ class Repository:
                     "name": t.name,
                     "length_m": t.length_m,
                     "created_at": t.created_at,
+                    # A seeded row is one the build supplied, not one this
+                    # installation learned; the Tracks view says so rather
+                    # than presenting 80 circuits as the user's own work.
+                    "provenance": t.provenance,
+                    "official_id": t.official_id,
                 }
                 for t in rows
             ]
 
-    async def find_track(self, sig: TrackSignature) -> str | None:
-        """Name of the stored track matching this signature, if any."""
+    async def find_track(
+        self, sig: TrackSignature, samples: dict[str, list[float]] | None = None
+    ) -> str | None:
+        """Name of the stored track matching this signature, if any.
+
+        `samples` is the lap itself, and is what separates a layout from its
+        reverse — see `_resolve_direction`. Without it a seeded match is taken
+        at face value, which is right for callers that have only a signature
+        (there is no direction question to answer) and is the pre-#58 answer.
+
+        User rows are consulted first and win outright: a name a person typed
+        outranks one computed offline, whatever the geometry says.
+
+        Seed rows then answer only if they agree. Before #58 this method could
+        return the first match and be right, because the table never held two
+        rows that could both match one lap — a user names the circuit they are
+        driving, once. Seeding 80-odd configurations makes that false: a
+        bounding box cannot tell Lago Maggiore Full Course from Suzuka, nor
+        Road Atlanta from Watkins Glen, and on the author's own recordings 24
+        of 146 laps matched two seeds. Picking whichever the database returned
+        first would put a wrong circuit name on a session silently, so an
+        ambiguous seed declines instead. `match_bundles` already refuses on the
+        same reasoning; this is the signature path catching up.
+        """
         async with self._sf() as db:
-            rows = (await db.execute(select(TrackRow))).scalars()
-            for track in rows:
-                if matches(sig, track):
-                    return track.name
-        return None
+            rows = list((await db.execute(select(TrackRow))).scalars())
+        for track in rows:
+            if track.provenance != "seed" and matches(sig, track):
+                return track.name
+        seeded = [t for t in rows if t.provenance == "seed" and matches(sig, t)]
+        if len({t.name for t in seeded}) > 1:
+            log.info(
+                "seeded signature ambiguous between %s; declining",
+                sorted({t.name for t in seeded}),
+            )
+            return None
+        if not seeded:
+            return None
+        return _resolve_direction(seeded[0], samples)
+
+    async def sync_seeded_tracks(self, rows: Sequence[SeedRow]) -> int:
+        """Replace every seeded row with `rows`. User rows are never touched.
+
+        Wholesale replace rather than a row-by-row reconcile because the seed
+        file is the whole truth about its own rows: a configuration dropped
+        upstream (a capture that turned out to be half a lap) has to disappear
+        here too, and a diff that only ever adds and updates would leave it
+        behind forever. `provenance` is what makes the blunt version safe.
+        """
+        async with self._sf() as db:
+            await db.execute(delete(TrackRow).where(TrackRow.provenance == "seed"))
+            created = datetime.now(UTC).isoformat()
+            db.add_all(
+                [
+                    TrackRow(
+                        name=row.name,
+                        length_m=row.length_m,
+                        min_x=row.min_x,
+                        max_x=row.max_x,
+                        min_z=row.min_z,
+                        max_z=row.max_z,
+                        created_at=created,
+                        provenance="seed",
+                        official_id=row.official_id,
+                        path_json=(
+                            json.dumps([[x, z] for x, z in row.path], separators=(",", ":"))
+                            if row.path else ""
+                        ),
+                        reverse_id=row.reverse_id,
+                        reverse_name=row.reverse_name,
+                    )
+                    for row in rows
+                ]
+            )
+            await db.commit()
+        return len(rows)
 
     async def create_track(self, name: str, sig: TrackSignature) -> int:
         async with self._sf() as db:

@@ -272,6 +272,11 @@ export interface TrackOverviewRow {
   slug: string;
   name: string;
   named: boolean; // in the DB tracks table -> auto-identification works
+  // Which kind of signature names it: "user" if somebody typed it here,
+  // "seed" if the build shipped it (#58). Both auto-identify; only one is
+  // this installation's own knowledge, and a seeded row is the weaker claim
+  // — it is a bounding box computed from somebody else's lap.
+  provenance: "user" | "seed" | null;
   track_id: number | null;
   length_m: number | null;
   bundle: TrackBundleInfo | null;
@@ -285,6 +290,11 @@ export interface TrackOverview {
   tracks: TrackOverviewRow[];
   logs: SurveyLog[];
   catalog_configs: number;
+  // Shipped signatures held but not listed in `tracks` — circuits that will
+  // name themselves the first time they are driven (#58). They are kept out
+  // of the table so 77 undriven rows cannot bury the ones that mean
+  // something, and reported here so their absence is not read as a gap.
+  seeded_signatures: number;
 }
 
 export interface SurveyStatus {

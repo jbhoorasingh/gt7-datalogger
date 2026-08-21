@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import logging
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -268,3 +269,76 @@ def identify_from_bundles(
 ) -> tuple[str, float] | None:
     """Name the circuit a lap was driven on from the survey bundles."""
     return match_bundles(samples, load_fingerprints(data_dir))
+
+
+# --- which way round the lap went (#58) ---------------------------------------
+
+# Cell size for indexing a seed's path. Same 20 m reasoning as BUNDLE_CELL_M:
+# wide enough to span a carriageway, so the nearest path point is found
+# whichever line through the corner the driver took.
+PATH_CELL_M = 20.0
+# Lap positions tested. The answer saturates long before this — every one of
+# 101 of the author's laps scored ±1.00 — so the count is set for a stable
+# result on a short lap rather than for precision.
+DIRECTION_SAMPLES = 80
+# Above this the lap ran the seed's way round; below its negative, the other
+# way. The gap between them is deliberately huge because the measurement is
+# not marginal: across those 101 laps NOTHING landed between -0.50 and +0.50,
+# and the values that did land near ±0.6 were laps matching a seed they had
+# no business matching. A weak score means the geometry does not correspond,
+# which is a reason to decline, not to round to the nearest answer.
+DIRECTION_MIN = 0.5
+
+
+def travel_direction(
+    samples: dict[str, list[float]], path: Sequence[tuple[float, float]]
+) -> float:
+    """Which way round `path` this lap went: +1 the same way, -1 the other.
+
+    Walks the path rather than measuring the loop's chirality, because
+    chirality does not survive a crossover — Suzuka is a figure-eight and its
+    signed area says almost nothing. For each lap position this takes the
+    nearest path point and asks whether that index advanced or retreated,
+    wrapping at the start/finish, which is a question a crossover cannot
+    confuse: both arms of the eight are at different path indices.
+
+    Returns a share in [-1, 1]; 0.0 when the lap and the path do not overlap
+    enough to tell, which is itself evidence the match is wrong.
+    """
+    xs = samples.get("pos_x") or []
+    zs = samples.get("pos_z") or []
+    n = min(len(xs), len(zs))
+    total = len(path)
+    if n < 2 or total < 8:
+        return 0.0
+    grid: dict[tuple[int, int], list[int]] = {}
+    for i, (px, pz) in enumerate(path):
+        grid.setdefault(
+            (math.floor(px / PATH_CELL_M), math.floor(pz / PATH_CELL_M)), []
+        ).append(i)
+    step = max(1, n // DIRECTION_SAMPLES)
+    found: list[int] = []
+    for i in range(0, n, step):
+        cx = math.floor(xs[i] / PATH_CELL_M)
+        cz = math.floor(zs[i] / PATH_CELL_M)
+        near = [
+            j
+            for a in (-1, 0, 1)
+            for b in (-1, 0, 1)
+            for j in grid.get((cx + a, cz + b), ())
+        ]
+        if near:
+            found.append(
+                min(near, key=lambda j: (path[j][0] - xs[i]) ** 2 + (path[j][1] - zs[i]) ** 2)
+            )
+    forward = backward = 0
+    for a, b in zip(found, found[1:], strict=False):
+        advance = (b - a) % total
+        if advance == 0:
+            continue
+        if advance < total / 2:
+            forward += 1
+        else:
+            backward += 1
+    tested = forward + backward
+    return (forward - backward) / tested if tested else 0.0

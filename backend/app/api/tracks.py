@@ -129,6 +129,9 @@ async def overview(request: Request) -> dict[str, Any]:
                 "slug": slug,
                 "name": name,
                 "named": False,
+                # Which kind of signature does the naming: "user" (someone
+                # typed it here) or "seed" (the build shipped it, #58).
+                "provenance": None,
                 "track_id": None,
                 "length_m": None,
                 "bundle": None,
@@ -139,10 +142,14 @@ async def overview(request: Request) -> dict[str, Any]:
             rows[slug] = row
         return row
 
-    for track in named:
+    user_named = [t for t in named if t.get("provenance") != "seed"]
+    seeded = [t for t in named if t.get("provenance") == "seed"]
+
+    for track in user_named:
         row = row_for(track["name"])
         row["name"] = track["name"]  # the DB label is the canonical spelling
         row["named"] = True
+        row["provenance"] = "user"
         row["track_id"] = track["id"]
         row["length_m"] = track["length_m"]
 
@@ -153,6 +160,26 @@ async def overview(request: Request) -> dict[str, Any]:
 
     for label, count in session_counts.items():
         row_for(label)["sessions"] = count
+
+    # Seeded signatures attach to rows that exist for another reason; they
+    # never create one. The table is built around the DISAGREEMENTS between
+    # the three sources, and 77 shipped configurations nobody has driven or
+    # surveyed would bury every row that means something under rows that mean
+    # "this circuit exists in GT7" — which the catalog already said. The count
+    # goes in the footer instead, where the other whole-installation facts are.
+    unlisted = 0
+    for track in seeded:
+        existing = rows.get(track_bundle.slugify(track["name"]))
+        if existing is None:
+            unlisted += 1  # nothing driven or surveyed here yet
+            continue
+        if existing["named"]:
+            continue  # the user's own name already wins this row
+        existing["named"] = True
+        existing["provenance"] = "seed"
+        existing["track_id"] = track["id"]
+        if existing["length_m"] is None:
+            existing["length_m"] = track["length_m"]
 
     for row in rows.values():
         if row["official"] is None:
@@ -166,6 +193,13 @@ async def overview(request: Request) -> dict[str, Any]:
         "tracks": sorted(rows.values(), key=lambda r: r["name"].lower()),
         "logs": survey_log.list_logs(directory),
         "catalog_configs": len(configs),
+        # Shipped signatures held but NOT listed above (#58) — the circuits
+        # that will name themselves the first time they are driven. Reported
+        # because "nothing here recognises that circuit yet" and "it is
+        # already waiting for you" look identical in a table that omits both.
+        # Counting every seeded row instead would make the footer claim a
+        # circuit is still waiting while its row sits directly above.
+        "seeded_signatures": unlisted,
     }
 
 

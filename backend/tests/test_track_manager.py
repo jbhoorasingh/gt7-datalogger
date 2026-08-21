@@ -882,3 +882,60 @@ async def test_import_stops_reading_an_oversized_body(client, monkeypatch) -> No
     resp = await c.post("/api/track-bundles/import", content=chunks(),
                         headers={"Content-Type": "application/json"})
     assert resp.status_code == 413
+
+
+async def test_seeded_signatures_stay_out_of_the_table_until_driven(client) -> None:
+    """77 shipped configurations must not bury the rows that mean something.
+
+    The table exists to show where the three sources DISAGREE. A seeded
+    signature for a circuit nobody has driven or surveyed disagrees with
+    nothing — it restates the catalog — so it is counted in the footer and
+    listed only once there is something to say about it.
+    """
+    from app.processing.track_seed import SeedRow
+
+    c, service, _tmp = client
+    await service.repo.sync_seeded_tracks([
+        SeedRow("aaa111", "Undriven Circuit", 3500.0, -300.0, 300.0, -300.0, 300.0, "capture"),
+        SeedRow("bbb222", "Driven Circuit", 4500.0, -400.0, 400.0, -400.0, 400.0, "capture"),
+    ])
+
+    body = (await c.get("/api/track-overview")).json()
+    assert body["seeded_signatures"] == 2
+    assert "Undriven Circuit" not in {r["name"] for r in body["tracks"]}
+
+    # Once a session carries the label, the row appears and says where the
+    # name came from — a shipped bounding box, not this installation's work.
+    from app.processing.laps import SessionInfo
+
+    sid = await service.repo.create_session(
+        SessionInfo(car_id=1, started_at="2026-08-20T00:00:00+00:00"), "Test Car"
+    )
+    await service.repo.set_session_track(sid, "Driven Circuit")
+
+    body = (await c.get("/api/track-overview")).json()
+    rows = {r["name"]: r for r in body["tracks"]}
+    assert rows["Driven Circuit"]["named"] is True
+    assert rows["Driven Circuit"]["provenance"] == "seed"
+    # ...and it stops being counted as waiting, now that its row is right
+    # there: the footer must not claim a circuit is still to come while
+    # listing it directly above.
+    assert body["seeded_signatures"] == 1
+
+
+async def test_a_user_named_circuit_outranks_a_seeded_one_in_the_overview(client) -> None:
+    """The row reports the stronger claim, matching what find_track returns."""
+    from app.processing.track_seed import SeedRow
+    from app.processing.tracks import TrackSignature
+
+    c, service, _tmp = client
+    await service.repo.create_track(
+        "Deep Forest Raceway",
+        TrackSignature(3500.0, -300.0, 300.0, -300.0, 300.0),
+    )
+    await service.repo.sync_seeded_tracks([
+        SeedRow("aaa111", "Deep Forest Raceway", 3500.0, -300.0, 300.0, -300.0, 300.0, "capture"),
+    ])
+
+    rows = {r["name"]: r for r in (await c.get("/api/track-overview")).json()["tracks"]}
+    assert rows["Deep Forest Raceway"]["provenance"] == "user"
