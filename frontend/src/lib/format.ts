@@ -47,3 +47,14 @@ export function formatTime(iso: string): string {
   const d = new Date(iso);
   return isNaN(d.getTime()) ? iso : d.toLocaleString();
 }
+
+// Short-form timestamp for dense table rows: "8/21 1:09 AM". Full precision
+// stays available in a tooltip via formatTime().
+export function formatTimeShort(iso: string): string {
+  if (!iso) return "–";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  const date = d.toLocaleDateString(undefined, { month: "numeric", day: "numeric" });
+  const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return `${date} ${time}`;
+}

@@ -3,13 +3,12 @@
 // source of truth for cross-view handoff (Sessions/Live → Analysis) and makes
 // every view bookmarkable. The /overlay path is handled separately (lib/overlay).
 
-export type View = "live" | "analysis" | "sessions" | "bests" | "survey" | "tracks" | "admin";
+export type View = "live" | "analysis" | "sessions" | "survey" | "tracks" | "admin";
 
 const VIEWS: readonly View[] = [
   "live",
   "analysis",
   "sessions",
-  "bests",
   "survey",
   "tracks",
   "admin",
@@ -25,8 +24,14 @@ export function parseHash(hash: string): Route {
   const qIndex = stripped.indexOf("?");
   const path = qIndex >= 0 ? stripped.slice(0, qIndex) : stripped;
   const query = qIndex >= 0 ? stripped.slice(qIndex + 1) : "";
+  const params = new URLSearchParams(query);
+  // Bests folded into Sessions as a sub-tab; keep old #/bests links working.
+  if (path === "bests") {
+    params.set("sub", "bests");
+    return { view: "sessions", params };
+  }
   const view = (VIEWS as readonly string[]).includes(path) ? (path as View) : "live";
-  return { view, params: new URLSearchParams(query) };
+  return { view, params };
 }
 
 export function routeHash(view: View, params?: Record<string, string>): string {

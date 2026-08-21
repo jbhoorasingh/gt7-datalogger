@@ -112,6 +112,10 @@ interface MapProps {
   // Lets the map drive the zoom every panel shares, so picking a corner here
   // takes the charts there too.
   onZoomChange?: (range: [number, number] | null) => void;
+  // Hero mode: the map runs full-bleed across the page at a fixed height
+  // instead of squaring off inside a rail, and the throttle/brake/coast key
+  // moves up into the panel header, so it is dropped from the row below.
+  hero?: boolean;
 }
 
 export function RaceLineMap(props: MapProps) {
@@ -123,7 +127,7 @@ export function RaceLineMap(props: MapProps) {
           instances would both re-render the outline's thousands of segments,
           and only one of them would be visible. */}
       {maximized ? (
-        <div className="aspect-square w-full" />
+        <div className={props.hero ? "h-[380px] w-full" : "aspect-square w-full"} />
       ) : (
         <MapBody {...props} onMaximize={() => setMaximized(true)} />
       )}
@@ -146,6 +150,7 @@ function MapBody({
   outline,
   onZoomChange,
   onMaximize,
+  hero = false,
   maximized = false,
 }: MapProps & { onMaximize?: () => void; maximized?: boolean }) {
   const chartRef = useRef<echarts.ECharts | null>(null);
@@ -645,9 +650,14 @@ function MapBody({
             {lap.label}
           </span>
         ))}
-        <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-throttle" />throttle</span>
-        <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-brake" />brake</span>
-        <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-coast" />coast</span>
+        {/* In hero mode these three sit in the panel header instead. */}
+        {!hero && (
+          <>
+            <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-throttle" />throttle</span>
+            <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-brake" />brake</span>
+            <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-coast" />coast</span>
+          </>
+        )}
         <span className="text-warn">▲ peak</span>
         <span className="text-[#c084fc]">▼ valley</span>
         {hasSurface && (
