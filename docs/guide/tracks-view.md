@@ -2,6 +2,13 @@
 
 **What do I have, and what is missing.**
 
+![Tracks view](../screenshots/tracks.png)
+
+Three states in one shot: circuits mapped in detail (Lago Maggiore, Deep Forest),
+one named by hand and nothing else (Sim Ring), and one the app recognised on its
+own from a **shipped** signature, with the official layout it thinks it is
+waiting to be confirmed (Trial Mountain).
+
 Three separate things can be true about a circuit, and until this view existed
 nothing on any screen showed them together:
 

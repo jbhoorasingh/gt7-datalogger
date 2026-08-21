@@ -73,7 +73,12 @@ Open <http://localhost:8000> and start driving. No PlayStation handy? Run
 
 ![Driver dashboard](screenshots/dash.png)
 
-*All screenshots were captured against the built-in simulated telemetry source.*
+**Tracks view** — what is surveyed, what is named, and what the official layout is:
+
+![Tracks view](screenshots/tracks.png)
+
+*Screenshots were captured against the built-in simulated telemetry source, except the
+Tracks view, which shows real recorded sessions — an empty one would say nothing.*
 
 ## How it works
 
