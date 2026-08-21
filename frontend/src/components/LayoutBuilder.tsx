@@ -393,7 +393,7 @@ export function LayoutBuilder({ flash }: { flash: (text: string) => void }) {
         ))}
         <span className="mx-2 h-4 w-px bg-edge" />
         <span className="text-xs text-ink-dim">Saved layouts:</span>
-        {saved.length === 0 && <span className="text-xs text-ink-dim/60">none yet</span>}
+        {saved.length === 0 && <span className="text-xs text-ink-ghost">none yet</span>}
         {saved.map((s) => (
           <button
             key={s.id}
@@ -433,7 +433,7 @@ export function LayoutBuilder({ flash }: { flash: (text: string) => void }) {
             <button className="btn" onClick={() => setRenaming(true)}>
               Rename…
             </button>
-            <button className="btn-danger" onClick={() => setDeleting(true)}>
+            <button className="btn btn-danger" onClick={() => setDeleting(true)}>
               Delete
             </button>
           </>
@@ -640,7 +640,7 @@ export function LayoutBuilder({ flash }: { flash: (text: string) => void }) {
               step={5}
               value={layout.bg}
               onChange={(e) => patchLayout({ bg: Number(e.target.value) })}
-              className="flex-1 accent-[#38bdf8]"
+              className="flex-1 accent-accent"
             />
           </label>
 
@@ -649,7 +649,7 @@ export function LayoutBuilder({ flash }: { flash: (text: string) => void }) {
               type="checkbox"
               checked={layout.demo}
               onChange={(e) => patchLayout({ demo: e.target.checked })}
-              className="accent-[#38bdf8]"
+              className="accent-accent"
             />
             Placeholder data when no telemetry (animated fake lap; the fuel
             slowly drains so the alerts widget fires too)
@@ -666,7 +666,7 @@ export function LayoutBuilder({ flash }: { flash: (text: string) => void }) {
                 if (ids.length === 0) return null;
                 return (
                   <div key={group} className="flex flex-wrap items-center gap-1">
-                    <span className="w-16 text-[10px] uppercase tracking-wider text-ink-dim/70">
+                    <span className="w-16 text-[10px] uppercase tracking-wider text-ink-faint">
                       {WIDGET_GROUP_LABELS[group]}
                     </span>
                     {ids.map((id) => (

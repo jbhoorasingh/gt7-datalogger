@@ -19,7 +19,7 @@ export function AidsWidget({ frame }: WidgetRenderProps) {
             <span
               key={label}
               className={`rounded border px-1.5 py-0.5 text-[9px] font-semibold leading-none ${
-                on ? activeClass : "border-white/10 text-ink-dim/60"
+                on ? activeClass : "border-edge text-ink-ghost"
               }`}
             >
               {label}

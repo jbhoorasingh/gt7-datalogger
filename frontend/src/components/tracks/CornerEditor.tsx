@@ -354,7 +354,7 @@ export function CornerEditor({
       {error && <div className="text-xs text-brake">{error}</div>}
 
       <div className="grid gap-3 lg:grid-cols-[1fr_20rem]">
-        <div className="rounded-xl bg-panel p-2">
+        <div className="panel p-2">
           {/* The instruction sits ABOVE the map: the map is square and eats a
               screen's worth of height, so anything under it is off-screen at
               the moment it is needed. */}
@@ -386,7 +386,7 @@ export function CornerEditor({
           />
         </div>
 
-        <div className="max-h-[32rem] space-y-2 overflow-y-auto rounded-xl bg-panel p-2">
+        <div className="max-h-[32rem] space-y-2 overflow-y-auto panel p-2">
           {corners.length === 0 && (
             <p className="p-2 text-xs text-ink-dim">
               No corners yet. Hit <b>Place corners</b> and click your way around the
@@ -449,7 +449,7 @@ export function CornerEditor({
                     ↓
                   </button>
                   <button
-                    className="btn-danger ml-auto"
+                    className="btn btn-danger ml-auto"
                     // The row selects on click, so without this the parent
                     // re-selects index i straight after the removal — which is
                     // now a DIFFERENT corner, and an armed entry/exit mode
@@ -531,7 +531,7 @@ export function CornerEditor({
                     end
                   </button>
                   <button
-                    className="btn-danger"
+                    className="btn btn-danger"
                     onClick={(e) => {
                       e.stopPropagation();  // as above: the row selects on click
                       setSections((prev) => prev.filter((_, j) => j !== i));

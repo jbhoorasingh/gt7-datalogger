@@ -763,7 +763,7 @@ export function SurveyView() {
                 so the label has to be settable mid-run, not only at start. */}
             {active && track.trim() !== (status?.track ?? "") && (
               <button
-                className="btn btn-accent whitespace-nowrap"
+                className="btn btn-primary whitespace-nowrap"
                 disabled={busy || !track.trim()}
                 onClick={assignTrack}
                 title={

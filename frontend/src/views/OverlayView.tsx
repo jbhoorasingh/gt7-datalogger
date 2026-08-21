@@ -180,7 +180,7 @@ function LegacyOverlay({ config }: { config: OverlayConfig }) {
     >
       <div
         className={`flex items-stretch gap-3 rounded-2xl px-4 py-3 font-tabular ${
-          bare ? "" : "border border-white/10 backdrop-blur-sm"
+          bare ? "" : "border border-edge backdrop-blur-sm"
         }`}
         style={card}
       >
@@ -236,7 +236,7 @@ function Widget({ id, frame, laps, card, layout, bare, scale }: WidgetProps) {
   }
   return (
     <div
-      className={`rounded-xl p-3 ${bare ? "" : "border border-white/10"}`}
+      className={`rounded-xl p-3 ${bare ? "" : "border border-edge"}`}
       style={{ ...card, ...(scale !== 1 ? { zoom: scale } : {}) }}
     >
       {body}

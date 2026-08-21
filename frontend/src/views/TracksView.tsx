@@ -514,7 +514,7 @@ export function TracksView() {
                 </button>
                 {b && (
                   <button
-                    className="btn-danger ml-auto"
+                    className="btn btn-danger ml-auto"
                     disabled={busy}
                     onClick={() => setDeleting(row)}
                   >

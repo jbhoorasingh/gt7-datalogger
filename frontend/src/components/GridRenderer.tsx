@@ -59,7 +59,12 @@ export function GridRenderer({
   const cardAlpha = layout.page === "green" ? 1 : layout.bg / 100;
   const card: CSSProperties = bare
     ? {}
-    : { backgroundColor: `rgba(8, 10, 14, ${cardAlpha})` };
+    : {
+        backgroundColor: `rgba(8, 10, 14, ${cardAlpha})`,
+        // Hairline ring rather than a border: on a transparent OBS page the
+        // ring rides the alpha with the fill instead of drawing a hard line.
+        boxShadow: `0 0 0 1px rgba(38, 43, 51, ${cardAlpha})`,
+      };
 
   const outerStyle: CSSProperties = {
     padding: `${layout.padY}px ${layout.padX}px`,
@@ -133,7 +138,7 @@ function GridCell({
   return (
     <div
       className={`flex items-center justify-center overflow-hidden ${
-        frameless ? "" : "rounded-xl border border-white/10 p-3"
+        frameless ? "" : "rounded-panel px-4 py-4"
       }`}
       style={{
         gridColumn: `${cell.x + 1} / span ${cell.w}`,

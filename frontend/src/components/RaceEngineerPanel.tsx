@@ -34,7 +34,14 @@ const CATEGORY_HINT: Record<CalloutCategory, string> = {
   coaching: "lockups, wheelspin, corner losses",
 };
 
-export function RaceEngineerPanel({ compact = false }: { compact?: boolean }) {
+export function RaceEngineerPanel({
+  compact = false,
+  hideStatus = false,
+}: {
+  compact?: boolean;
+  /** /engineer renders the same rows in its own rail card instead. */
+  hideStatus?: boolean;
+}) {
   const s = useEngineer();
   const wsConnected = useTelemetry((st) => st.wsConnected);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
@@ -74,6 +81,7 @@ export function RaceEngineerPanel({ compact = false }: { compact?: boolean }) {
         )}
       </div>
 
+      {!hideStatus && (
       <div className="grid grid-cols-2 gap-x-4 gap-y-1 font-tabular text-[11px]">
         <Row k="Voice preference" v={s.enabled ? "enabled" : "off"} ok={s.enabled} />
         <Row
@@ -118,7 +126,8 @@ export function RaceEngineerPanel({ compact = false }: { compact?: boolean }) {
             ok={s.serverStatus?.coaching_ready ?? false}
           />
         )}
-      </div>
+        </div>
+      )}
 
       {s.speechError && (
         <p className="rounded-md border border-brake/40 bg-brake/10 p-2 text-[11px] text-brake">
@@ -243,7 +252,7 @@ export function RaceEngineerPanel({ compact = false }: { compact?: boolean }) {
               >
                 <input
                   type="checkbox"
-                  className="translate-y-px accent-sky-400"
+                  className="translate-y-px accent-accent"
                   checked={s.categories.includes(category)}
                   onChange={(e) => s.toggleCategory(category, e.target.checked)}
                 />
@@ -259,7 +268,7 @@ export function RaceEngineerPanel({ compact = false }: { compact?: boolean }) {
         <label className="flex cursor-pointer items-baseline gap-2 text-xs">
           <input
             type="checkbox"
-            className="translate-y-px accent-sky-400"
+            className="translate-y-px accent-accent"
             checked={s.captions}
             onChange={(e) => s.setCaptions(e.target.checked)}
           />
@@ -268,7 +277,7 @@ export function RaceEngineerPanel({ compact = false }: { compact?: boolean }) {
         <label className="flex cursor-pointer items-baseline gap-2 text-xs">
           <input
             type="checkbox"
-            className="translate-y-px accent-sky-400"
+            className="translate-y-px accent-accent"
             checked={s.muteWhenHidden}
             onChange={(e) => s.setMuteWhenHidden(e.target.checked)}
           />
@@ -300,7 +309,7 @@ export function CalloutReference({
   serverCategories: CalloutCategory[] | null;
 }) {
   return (
-    <details className="mt-2 rounded-md border border-edge bg-panel-2/60">
+    <details className="mt-2 rounded-md border border-edge bg-panel-2">
       <summary className="cursor-pointer px-2 py-1 text-[11px] text-ink-dim hover:text-ink">
         What each category says
       </summary>
@@ -345,7 +354,7 @@ export function CalloutReference({
 function Row({ k, v, ok }: { k: string; v: string; ok?: boolean }) {
   return (
     <>
-      <span className="text-ink-dim">{k}</span>
+      <span className="text-ink-faint">{k}</span>
       <span className={`text-right ${ok === undefined ? "" : ok ? "text-throttle" : "text-warn"}`}>
         {v}
       </span>
@@ -372,11 +381,11 @@ function Slider({
     <label className="block">
       <span className="mb-1 flex justify-between text-[11px] text-ink-dim">
         <span>{label}</span>
-        <span className="font-tabular">{value.toFixed(2)}</span>
+        <span className="font-tabular text-ink-soft">{value.toFixed(2)}</span>
       </span>
       <input
         type="range"
-        className="w-full accent-sky-400"
+        className="w-full"
         min={min}
         max={max}
         step={step}
@@ -384,5 +393,61 @@ function Slider({
         onChange={(e) => onChange(Number(e.target.value))}
       />
     </label>
+  );
+}
+
+// The same status rows the panel shows inline, for hosts that give them
+// their own card (see /engineer).
+export function RaceEngineerStatus() {
+  const s = useEngineer();
+  const wsConnected = useTelemetry((st) => st.wsConnected);
+  const isSpeaker = s.activeClientId !== "" && s.activeClientId === clientId();
+  const otherSpeaker = s.activeClientId !== "" && !isSpeaker;
+  return (
+    <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 font-tabular text-[11.5px]">
+      <Row k="Voice preference" v={s.enabled ? "enabled" : "off"} ok={s.enabled} />
+      <Row
+        k="Browser audio"
+        v={
+          !s.supported
+            ? "unsupported"
+            : s.speechError
+              ? `${s.failedCount} failed`
+              : s.spokenCount > 0
+                ? "speaking"
+                : s.audioReady
+                  ? "armed"
+                  : "needs a click"
+        }
+        ok={s.supported && (s.spokenCount > 0 || s.audioReady) && !s.speechError}
+      />
+      <Row
+        k="Active speaker"
+        v={isSpeaker ? "this device" : otherSpeaker ? "another device" : "none"}
+        ok={isSpeaker}
+      />
+      <Row k="Connection" v={wsConnected ? "connected" : "offline"} ok={wsConnected} />
+      <Row
+        k="Server callouts"
+        v={
+          s.serverStatus == null
+            ? "unknown"
+            : !s.serverStatus.enabled
+              ? "disabled"
+              : s.serverStatus.active
+                ? "running"
+                : "idle"
+        }
+        ok={s.serverStatus?.active ?? false}
+      />
+      <Row k="Queued" v={String(s.queue.length)} />
+      {s.verbosity === "coach" && (
+        <Row
+          k="Coaching"
+          v={s.serverStatus?.coaching_ready ? "ready" : "needs a few laps"}
+          ok={s.serverStatus?.coaching_ready ?? false}
+        />
+      )}
+    </div>
   );
 }
