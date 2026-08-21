@@ -18,7 +18,7 @@ about, merged across all three, with the gaps called out.
 ## Identifying sessions
 
 Most circuits recognise themselves before you have done anything at all: the
-app ships signatures for 77 GT7 configurations, so a session at one of them is
+app ships signatures for 78 GT7 configurations, so a session at one of them is
 named on its first completed lap. Those rows are marked **shipped** to keep
 them apart from circuits you named yourself — and a name you write always wins
 over one the build supplied, so naming a circuit yourself is how you correct a
@@ -46,7 +46,7 @@ circuit whose only name came from the shipped signatures carries a fourth,
 **shipped**, which disappears once you have named or surveyed it yourself.
 
 Circuits that have only a shipped signature and nothing else get **no row** —
-they would be 77 lines restating the catalog, burying the rows that record an
+they would be 78 lines restating the catalog, burying the rows that record an
 actual disagreement. The footer counts them instead, so "nothing here knows
 that circuit" and "it is already waiting for you" stop looking identical. Then
 the bundle's numbers:

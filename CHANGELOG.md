@@ -12,12 +12,12 @@ Notable changes to GT7 Datalogger. The format follows
   circuit, a survey bundle once somebody maps one — so a new install recognised
   nothing, and every session stayed unnamed with no hint that naming one circuit
   would light up the track badge, the outline, category bests and corner labels.
-  The app now ships signatures for 77 GT7 configurations, generated offline from
-  published circuit captures and vendored so the first packet resolves with no
-  network. They live in the same `tracks` table as your own and are marked as
+  The app now ships signatures for 78 GT7 configurations — nine from circuits we
+  have surveyed ourselves, the rest from published circuit captures — generated
+  offline and vendored so the first packet resolves with no network. They live in the same `tracks` table as your own and are marked as
   shipped, which is what keeps the two apart: **a circuit you named always wins**,
   and a re-sync replaces every shipped row and none of yours. The Tracks view
-  labels them, and keeps undriven ones out of the table so 77 rows restating the
+  labels them, and keeps undriven ones out of the table so 78 rows restating the
   catalog cannot bury the rows that mean something.
 - **Reverse layouts are told apart from their forward twin.** (#58) A reverse
   layout has exactly the same bounding box and length as the layout it reverses,

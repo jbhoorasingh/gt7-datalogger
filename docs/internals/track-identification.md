@@ -4,7 +4,7 @@ GT7 telemetry doesn't include the track name — but its world coordinates are f
 circuit. The datalogger exploits that in three ways, tried in order:
 
 1. **A signature you wrote**, when you name a circuit by hand.
-2. **A signature that shipped with the app** — geometry for 77 configurations,
+2. **A signature that shipped with the app** — geometry for 78 configurations,
    computed offline so a fresh install recognises circuits it has never seen driven.
 3. **A [survey bundle](../guide/tracks-view.md)** — the surveyed road itself.
 
@@ -69,9 +69,16 @@ session stayed unnamed with no hint that naming one circuit would light up the t
 badge, the outline, category bests and corner labels.
 
 The app therefore ships `backend/data/track-signatures.json`: length, bounding box and
-racing line for 77 GT7 configurations, generated from published circuit captures in
+racing line for 78 GT7 configurations, generated in
 [gt7-datalogger-track-data](https://github.com/jbhoorasingh/gt7-datalogger-track-data)
 and vendored so the first packet on an offline machine resolves.
+
+Nine of them are derived from circuits that repository has **surveyed** — a bundle is the
+road itself, so its bounding box is better evidence than one lap's, and the configuration
+it belongs to is already confirmed rather than matched by name. The rest come from
+published circuit captures. A configuration we have surveyed but whose capture was
+dropped for not being a whole lap gets a signature with no racing line, and is named
+forward without its direction judged.
 
 They are loaded into the same `tracks` table as your own, marked `provenance = "seed"`,
 which is what keeps the two kinds apart:
@@ -92,7 +99,7 @@ would have named reverse laps after the forward configuration. That is worse tha
 cosmetic mislabel: personal bests are keyed on the circuit name, so forward and reverse
 times would pool and compete for the same best. On the author's own recordings that was
 10 laps of Deep Forest Reverse filed as Deep Forest Raceway, alongside 6 genuine forward
-laps at that circuit — and 36 of the 77 shipped configurations have a reverse twin.
+laps at that circuit — and 36 of the 78 shipped configurations have a reverse twin.
 
 What separates them is the one thing a bounding box discards: **the order the road is
 driven in**. Each shipped signature carries the racing line thinned to a point every
