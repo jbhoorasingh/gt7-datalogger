@@ -98,6 +98,14 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Fixed
 
+- **Identify sessions now uses the shipped signatures.** (#58) It only ever
+  matched against survey bundles, which was right when a signature existed
+  only because somebody had typed a name — there was nothing to backfill from.
+  With 78 signatures shipping, history sat unnamed at circuits the app
+  recognises on sight: 29 of 44 unnamed sessions on the author's install. It
+  now tries signatures first and bundles second, the same order as a live lap,
+  and passes the lap's positions so a reverse lap in your history is named
+  after the reverse configuration rather than its forward twin.
 - **Identification refuses to guess between two circuits that look alike.** (#58)
   Signature matching returned the first row that fitted, which was only ever
   correct because the table could not hold two rows that both matched — you name
