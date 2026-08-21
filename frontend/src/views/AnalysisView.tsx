@@ -648,7 +648,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
               s.car_name
             } · ${s.lap_count} laps`,
           }))}
-          className="rounded-md border-edge px-2.5 py-[5px] text-xs text-ink-soft"
+          className="px-2.5 py-[5px] text-xs"
         />
 
         <div className="h-[18px] w-px shrink-0 bg-divider" />
@@ -698,7 +698,8 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
                   label: `S${lap.session_id}·L${lap.number} · ${formatLapTime(lap.time_ms)}`,
                 })),
               ]}
-              className="border-none px-1 py-0 font-tabular text-[11.5px] text-accent"
+              variant="bare"
+              className="px-1 font-tabular text-[11.5px]"
             />
           </div>
         )}

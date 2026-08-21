@@ -608,7 +608,9 @@ function MapBody({
       <div ref={boxRef} className={maximized ? "relative min-h-0 flex-1" : "relative"}>
         <EChart
           option={option}
-          className={maximized ? "h-full w-full" : "aspect-square w-full"}
+          className={
+            maximized ? "h-full w-full" : hero ? "h-[380px] w-full" : "aspect-square w-full"
+          }
           onInit={(chart) => {
             chartRef.current = chart;
             chart.on("click", (e) => {

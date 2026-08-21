@@ -3,10 +3,13 @@
 // into the analysis URL by the parent, so a shared deep link reproduces the
 // same panel set.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { CHANNELS, DEFAULT_CHANNEL_KEYS, type ChannelGroup } from "@/lib/channels";
 
 const GROUPS: ChannelGroup[] = ["Driving", "Engine", "Chassis", "Tires & wheels", "Race"];
+
+// Breathing room kept between the popover and the viewport edge.
+const MARGIN = 16;
 
 export function ChannelPicker({
   selected,
@@ -17,6 +20,23 @@ export function ChannelPicker({
 }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
+  const pop = useRef<HTMLDivElement>(null);
+  // The Channels button sits wherever the lap chips leave it, so a 620px
+  // popover anchored to it can hang off the right edge — and the columns that
+  // fall outside are simply unreachable. Measure once on open and pull it
+  // back inside the viewport.
+  const [shift, setShift] = useState(0);
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setShift(0);
+      return;
+    }
+    const el = pop.current;
+    if (!el) return;
+    const overflow = el.getBoundingClientRect().right - (window.innerWidth - MARGIN);
+    if (overflow > 0) setShift(-overflow);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -55,8 +75,14 @@ export function ChannelPicker({
       {open && (
         // Anchored left, but flipped to hug the right edge on viewports too
         // narrow for 620px so the popover never runs off-screen.
-        <div className="elevated absolute left-0 top-[calc(100%+6px)] z-50 max-h-[70vh] w-[620px] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-panel bg-surface px-4 py-3.5">
-          <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-3">
+        <div
+          ref={pop}
+          style={{ marginLeft: shift }}
+          className="elevated absolute left-0 top-[calc(100%+6px)] z-50 flex max-h-[70vh] w-[620px] max-w-[calc(100vw-2rem)] flex-col rounded-panel bg-surface"
+        >
+          {/* Only the group columns scroll — the footer's presets and Done
+              stay reachable however long the channel list gets. */}
+          <div className="grid min-h-0 flex-1 grid-cols-2 gap-3.5 overflow-y-auto px-4 pb-2 pt-3.5 sm:grid-cols-3">
             {GROUPS.map((group) => {
               const items = CHANNELS.filter((c) => c.group === group);
               if (items.length === 0) return null;
@@ -91,7 +117,7 @@ export function ChannelPicker({
               );
             })}
           </div>
-          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-divider pt-2.5">
+          <div className="flex flex-shrink-0 flex-wrap items-center gap-2 border-t border-divider px-4 py-2.5">
             <button
               className="btn px-2.5 py-[3px] hover:border-accent hover:text-accent"
               onClick={() => onChange([...DEFAULT_CHANNEL_KEYS])}

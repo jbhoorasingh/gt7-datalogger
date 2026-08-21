@@ -657,13 +657,13 @@ function LapTable({
   // Position per lap (#60): only worth a column when the session was a race
   // — a time trial would show a column of dashes.
   const hasPositions = laps.some((l) => (l.race_position ?? -1) >= 1);
-  const cols = `40px 84px 66px ${hasPositions ? "46px " : ""}60px 56px 56px 52px 46px 64px 66px 1fr`;
+  const cols = `40px 84px 66px ${hasPositions ? "46px " : ""}60px 64px 64px 52px 46px 88px 66px 1fr`;
 
   return (
     <div className="overflow-x-auto">
-      <div className="min-w-[860px]">
+      <div className="min-w-[900px]">
         <div
-          className="section-header grid gap-2 py-1 text-[9.5px] tracking-[0.1em]"
+          className="section-header grid gap-2 py-1 text-[9.5px] tracking-[0.1em] [&>span]:whitespace-nowrap"
           style={{ gridTemplateColumns: cols }}
         >
           <span>Lap</span>
@@ -724,8 +724,14 @@ function LapTable({
                   are the same kind of "what went wrong this lap" count, and
                   the tooltip spells the letters out. */}
               <span
-                className={offTrack > 0 || offSurvey > 0 ? "text-brake" : "text-ink-faint"}
-                title="lockups · spins · bottoming · kerbs, then off-track excursions (surface flags · beyond the surveyed edge)"
+                className={`min-w-0 truncate ${
+                  offTrack > 0 || offSurvey > 0 ? "text-brake" : "text-ink-faint"
+                }`}
+                title={`${formatEventCounts(lap.event_counts)}${
+                  offTrack > 0 ? ` · ${offTrack} off-track` : ""
+                }${
+                  offSurvey > 0 ? ` · ${offSurvey} beyond the surveyed edge` : ""
+                } — lockups · spins · bottoming · kerbs`}
               >
                 {formatEventCounts(lap.event_counts)}
                 {offTrack > 0 && ` ${offTrack}⚠`}

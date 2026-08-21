@@ -55,18 +55,32 @@ export function RaceEngineerPanel({
   const serverCategories = s.serverStatus?.categories ?? null;
 
   return (
-    <div className={`space-y-3 ${compact ? "text-xs" : "text-sm"} p-3`}>
+    <div className={`flex flex-col gap-3.5 ${compact ? "text-xs" : "text-[13px]"} p-3.5`}>
       <div className="flex flex-wrap items-center gap-2">
         {!s.enabled || !s.audioReady ? (
-          <button className="btn" onClick={() => void s.enableVoice()}>
+          <button
+            className={`btn btn-primary rounded-md px-5 text-[12.5px] font-semibold ${
+              compact ? "" : "min-h-[44px]"
+            }`}
+            onClick={() => void s.enableVoice()}
+          >
             Enable Race Engineer
           </button>
         ) : (
-          <button className="btn" onClick={() => s.setEnabled(false)}>
+          <button
+            className={`btn rounded-md px-5 text-[12.5px] font-semibold ${
+              compact ? "" : "min-h-[44px]"
+            }`}
+            onClick={() => s.setEnabled(false)}
+          >
             Disable voice
           </button>
         )}
-        <button className="btn" disabled={!s.supported} onClick={() => s.testVoice()}>
+        <button
+          className={`btn rounded-md px-4 text-[12.5px] ${compact ? "" : "min-h-[44px]"}`}
+          disabled={!s.supported}
+          onClick={() => s.testVoice()}
+        >
           Test voice
         </button>
         {s.enabled && s.audioReady && !isSpeaker && (
@@ -150,9 +164,9 @@ export function RaceEngineerPanel({
       )}
 
       <label className="block">
-        <span className="mb-1 block text-[11px] text-ink-dim">Voice</span>
+        <span className="mb-1.5 block text-[11px] text-ink-dim">Voice</span>
         <select
-          className="w-full rounded-md border border-edge bg-panel-2 px-2 py-1 text-xs focus:border-accent focus:outline-none"
+          className="w-full rounded-[5px] border border-edge bg-transparent px-3 py-2 text-xs text-ink-soft focus:border-accent focus:outline-none"
           value={s.voiceURI}
           onChange={(e) => {
             const voice = voices.find((v) => v.voiceURI === e.target.value);
@@ -232,8 +246,8 @@ export function RaceEngineerPanel({
       </div>
 
       <div>
-        <span className="mb-1 block text-[11px] text-ink-dim">Categories</span>
-        <div className="grid grid-cols-2 gap-x-3">
+        <span className="mb-1.5 block text-[11px] text-ink-dim">Categories</span>
+        <div className={`grid gap-x-3 gap-y-1 ${compact ? "grid-cols-2" : "grid-cols-2 sm:grid-cols-3"}`}>
           {CALLOUT_CATEGORIES.map((category) => {
             const inMode = VERBOSITY_CATEGORIES[s.verbosity].includes(category);
             const onServer = serverCategories == null || serverCategories.includes(category);

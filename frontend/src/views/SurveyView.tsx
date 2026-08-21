@@ -735,6 +735,10 @@ export function SurveyView() {
   const unknown = Object.keys(status?.unknown_chars ?? {});
   const active = status?.active ?? false;
 
+  // Idle with nothing gathered draws no chart at all; once a run is going (or
+  // a previous one left evidence) the map is the point of the card.
+  const hasMap = active || (status?.edge_points ?? 0) > 0;
+
   return (
     <div className="mx-auto flex max-w-[1200px] flex-col gap-3">
       <div className="flex flex-wrap items-center gap-3">
@@ -942,14 +946,17 @@ export function SurveyView() {
               back"), and because every series always exists (empty data
               when unused) updates apply IN PLACE: replace-merge tore the
               series down and rebuilt them each refresh, which flickered. */}
+          {hasMap && (
           <EChart
             option={option}
             notMerge={false}
-            className={fsMap ? "min-h-0 w-full flex-1" : "aspect-[16/9] w-full"}
+            className={fsMap ? "min-h-0 w-full flex-1" : "h-[420px] w-full"}
             onInit={(chart) => {
               chartRef.current = chart;
             }}
           />
+          )}
+          {hasMap && (
           <div className="flex flex-shrink-0 flex-wrap gap-3 px-3.5 pb-2 text-[10px] text-ink-dim">
             <span>
               <i className="mr-1 inline-block h-0.5 w-4 bg-edge align-middle" />
@@ -1013,6 +1020,7 @@ export function SurveyView() {
                 </span>
               ))}
           </div>
+          )}
 
           {active && status != null && (
           <div className="flex flex-col gap-2.5 border-t border-divider px-3.5 py-3">
@@ -1085,8 +1093,8 @@ export function SurveyView() {
           </div>
           )}
 
-          {!active && (
-            <div className="flex flex-1 items-center justify-center px-4 py-10 text-xs text-ink-ghost">
+          {!hasMap && (
+            <div className="flex flex-1 items-center justify-center px-4 py-16 text-xs text-ink-ghost">
               No survey running — start one, drive a lap and touch the edges
             </div>
           )}
