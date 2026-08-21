@@ -1,12 +1,15 @@
 # Track identification
 
 GT7 telemetry doesn't include the track name — but its world coordinates are fixed per
-circuit. The datalogger exploits that in two ways, tried in order:
+circuit. The datalogger exploits that in three ways, tried in order:
 
-1. **A stored signature**, written when you name a circuit by hand.
-2. **A [survey bundle](../guide/tracks-view.md)** — the surveyed road itself.
+1. **A signature you wrote**, when you name a circuit by hand.
+2. **A signature that shipped with the app** — geometry for 77 configurations,
+   computed offline so a fresh install recognises circuits it has never seen driven.
+3. **A [survey bundle](../guide/tracks-view.md)** — the surveyed road itself.
 
-A name a person typed outranks anything inferred, so the signature goes first.
+The order is the point. A name a person typed outranks anything inferred, and a
+signature this installation learned outranks one the build supplied.
 
 ## The signature
 
@@ -33,8 +36,14 @@ four** gates to pass:
    sit in different places in GT7's world space.
 4. **Each extent within 20 %** of the stored width/depth.
 
-The first matching track's name is applied to the session and broadcast live, so the
-track badge appears in the UI immediately.
+The matching track's name is applied to the session and broadcast live, so the track
+badge appears in the UI immediately.
+
+Where **two** shipped signatures both match, no name is applied at all. A bounding box
+cannot separate Lago Maggiore Full Course from Suzuka, nor Michelin Raceway Road Atlanta
+from Watkins Glen International, and picking whichever came back first would put a wrong
+circuit on a session with nothing to show it had guessed. Your own signatures are not
+subject to this — the circuit you named is the one you meant.
 
 ## Why this works
 
@@ -43,9 +52,72 @@ track badge appears in the UI immediately.
 - Different layouts of the same venue (e.g. full circuit vs short course) differ in
   length by far more than 4 %, so they register as separate tracks — name each layout
   once.
-- Reverse layouts share geometry, so they will match the forward layout's signature.
-  If you drive both directions regularly, include the direction in the name you give
-  the first one you record.
+- Different **venues** can still collide. Two circuits that happen to occupy a similar
+  rectangle at a similar length are indistinguishable to a bounding box; 15 of the 84
+  published captures collide with another, which is why an ambiguous shipped signature
+  declines rather than guesses.
+- Reverse layouts share geometry exactly — same tarmac, same box, same length. A
+  signature **you** wrote cannot tell them apart, so if you drive both directions
+  regularly, include the direction in the name you give the first one you record. The
+  shipped signatures *can* tell them apart; see below.
+
+## The shipped signatures
+
+A signature only exists once somebody has *named* a circuit, and a bundle only once
+somebody has *surveyed* one — so a fresh install recognised nothing at all, and every
+session stayed unnamed with no hint that naming one circuit would light up the track
+badge, the outline, category bests and corner labels.
+
+The app therefore ships `backend/data/track-signatures.json`: length, bounding box and
+racing line for 77 GT7 configurations, generated from published circuit captures in
+[gt7-datalogger-track-data](https://github.com/jbhoorasingh/gt7-datalogger-track-data)
+and vendored so the first packet on an offline machine resolves.
+
+They are loaded into the same `tracks` table as your own, marked `provenance = "seed"`,
+which is what keeps the two kinds apart:
+
+- A row you created **wins outright** over a shipped one.
+- A re-sync replaces every shipped row and **no** row of yours.
+- The Tracks view labels a circuit named this way **shipped**, so a name the build
+  supplied is never mistaken for one you made.
+
+Syncing runs at startup off the file's content hash, so it writes on a first run and on
+a release that changes the seed, and never otherwise. A missing or invalid file is not
+fatal — identification simply falls back to what you have named and surveyed.
+
+### Telling a layout from its reverse
+
+A reverse layout has exactly its forward twin's bounding box and length, so seeding
+would have named reverse laps after the forward configuration. That is worse than a
+cosmetic mislabel: personal bests are keyed on the circuit name, so forward and reverse
+times would pool and compete for the same best. On the author's own recordings that was
+10 laps of Deep Forest Reverse filed as Deep Forest Raceway, alongside 6 genuine forward
+laps at that circuit — and 36 of the 77 shipped configurations have a reverse twin.
+
+What separates them is the one thing a bounding box discards: **the order the road is
+driven in**. Each shipped signature carries the racing line thinned to a point every
+20 m, kept in driving order, and a lap is walked against it — for each position, the
+nearest path point, and whether that index advanced or retreated, wrapping at the line.
+
+This is deliberately *not* a test of whether the loop runs clockwise. Signed area does
+not survive a crossover, and Suzuka is a figure-eight whose signed area says almost
+nothing; walking the path is indifferent to crossovers because both arms of the eight
+sit at different path indices.
+
+A lap running the seed's way keeps the forward name. A lap running the other way is
+named after the **reverse configuration**, whose own official id and name GT7 publishes
+and the seed carries. A lap running backwards along a circuit that *has* no reverse
+configuration is declined — if the road only runs one way, a lap going the other way
+did not drive it.
+
+!!! note "Calibration"
+    Across 101 recorded laps, **every** direction score landed at ±1.00 and nothing at
+    all fell between the thresholds. So the ±0.5 cut is not a balance point — a weak
+    score means the lap does not follow that path at all, which is evidence the geometry
+    match itself was wrong, and the session is left unnamed.
+
+A shipped signature with no path (an older seed) is named forward without its direction
+being judged, which is how the app behaved before direction existed.
 
 ## Matching against a survey bundle
 
@@ -119,3 +191,7 @@ however quickly it was driven. Sessions with no confident match are left alone.
 
 Deleting a track signature doesn't touch any session data — it only stops future
 auto-matching by signature. A surveyed circuit keeps identifying itself from its bundle.
+
+Deleting a **shipped** signature is temporary: the next sync that sees a changed seed
+file restores it. To override one permanently, name that circuit yourself — your own
+signature wins over the shipped one for good.

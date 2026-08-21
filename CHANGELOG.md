@@ -7,6 +7,28 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Added
 
+- **Circuits name themselves on a fresh install.** (#58) Track identification
+  needed data only you could produce — a signature exists once somebody names a
+  circuit, a survey bundle once somebody maps one — so a new install recognised
+  nothing, and every session stayed unnamed with no hint that naming one circuit
+  would light up the track badge, the outline, category bests and corner labels.
+  The app now ships signatures for 77 GT7 configurations, generated offline from
+  published circuit captures and vendored so the first packet resolves with no
+  network. They live in the same `tracks` table as your own and are marked as
+  shipped, which is what keeps the two apart: **a circuit you named always wins**,
+  and a re-sync replaces every shipped row and none of yours. The Tracks view
+  labels them, and keeps undriven ones out of the table so 77 rows restating the
+  catalog cannot bury the rows that mean something.
+- **Reverse layouts are told apart from their forward twin.** (#58) A reverse
+  layout has exactly the same bounding box and length as the layout it reverses,
+  so a shipped signature would have named reverse laps after the forward
+  configuration — and because bests key on the circuit name, forward and reverse
+  times would have pooled and competed for the same personal best. Each shipped
+  signature now carries the racing line in driving order, and a lap is walked
+  against it to see which way round it went. Not a clockwise test: signed area
+  does not survive a crossover, and Suzuka is a figure-eight. Measured over 896
+  recorded laps, this moved 10 laps of Deep Forest Reverse off Deep Forest
+  Raceway, where they had been sitting alongside 6 genuine forward laps.
 - **Per-corner report card, sorted by time lost.** (#21) The Analysis view
   answers "where am I actually losing the lap" as a table under the charts:
   per corner, entry/minimum/exit speed and the time spent through it for the
@@ -76,6 +98,15 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Fixed
 
+- **Identification refuses to guess between two circuits that look alike.** (#58)
+  Signature matching returned the first row that fitted, which was only ever
+  correct because the table could not hold two rows that both matched — you name
+  the circuit you are driving, once. It can now, and a bounding box cannot
+  separate Lago Maggiore Full Course from Suzuka, nor Road Atlanta from Watkins
+  Glen; 24 of 146 real laps matched two. An ambiguous match now produces no name
+  rather than a silent wrong one, the discipline survey-bundle matching already
+  had. This also fixes the same latent bug for anyone who had named two circuits
+  with similar geometry.
 - **Watching the time-trial leader's replay now leaves a lap you can
   analyze.** GT7 streams a replay exactly like driving — no replay flag exists
   — but a single-lap replay ends *at* the finish line, so the lap-counter step

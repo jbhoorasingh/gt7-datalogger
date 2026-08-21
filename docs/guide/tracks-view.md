@@ -7,7 +7,7 @@ nothing on any screen showed them together:
 
 | you have | which means | where it lives |
 |---|---|---|
-| a **named track** | a five-number signature sessions can match against | the `tracks` table |
+| a **named track** | a five-number signature sessions can match against — one you wrote, or one that shipped with the app | the `tracks` table |
 | a **survey bundle** | its borders, elevation and finish line are mapped — *and* sessions driven on it identify themselves | `data/track-bundles/` |
 | an **official layout match** | its real length and turn count are known | `backend/data/tracks.json` |
 
@@ -17,7 +17,14 @@ about, merged across all three, with the gaps called out.
 
 ## Identifying sessions
 
-A surveyed circuit recognises itself. When a new session's first lap has no
+Most circuits recognise themselves before you have done anything at all: the
+app ships signatures for 77 GT7 configurations, so a session at one of them is
+named on its first completed lap. Those rows are marked **shipped** to keep
+them apart from circuits you named yourself — and a name you write always wins
+over one the build supplied, so naming a circuit yourself is how you correct a
+shipped name you disagree with.
+
+A surveyed circuit recognises itself too. When a new session's first lap has no
 matching signature, the lap is compared against the survey bundles — *did this
 lap drive on this tarmac?* — and a confident match names the session. That is
 what makes the track badge, the surveyed road under the
@@ -34,7 +41,14 @@ session is honest, a mislabelled one is not.
 ## Reading a row
 
 Each row starts with three chips — **auto-ID**, **survey**, **official
-layout** — filled in when you have that thing, dashed when you do not. Then
+layout** — filled in when you have that thing, dashed when you do not. A
+circuit whose only name came from the shipped signatures carries a fourth,
+**shipped**, which disappears once you have named or surveyed it yourself.
+
+Circuits that have only a shipped signature and nothing else get **no row** —
+they would be 77 lines restating the catalog, burying the rows that record an
+actual disagreement. The footer counts them instead, so "nothing here knows
+that circuit" and "it is already waiting for you" stop looking identical. Then
 the bundle's numbers:
 
 - **metres mapped** — border records, one per metre per side.
