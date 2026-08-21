@@ -70,22 +70,48 @@ class SessionPatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     note: str | None = Field(None, max_length=500)
+    # Repeatable labels for filtering ("wet", "race sim") — an empty list
+    # clears them (#25). Bounded because they are stored comma-joined in one
+    # column, which is also why a tag may not contain a comma.
+    tags: list[str] | None = Field(None, max_length=20)
     # True marks the session as not the user's own driving — GT7 records
     # replays like driven laps, so this is the only way a TT-leader replay
     # stays off the personal-best board (#26).
     bests_excluded: bool | None = None
+
+    @field_validator("tags")
+    @classmethod
+    def _clean_tags(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        cleaned: list[str] = []
+        for tag in value:
+            tag = tag.strip()
+            if not tag:
+                continue
+            if "," in tag:
+                raise ValueError("tags cannot contain commas")
+            if len(tag) > 40:
+                raise ValueError("tags are limited to 40 characters")
+            # Dedupe case-insensitively but keep the case the user typed.
+            if tag.lower() not in {t.lower() for t in cleaned}:
+                cleaned.append(tag)
+        return cleaned
 
 
 @router.patch("/sessions/{session_id}", dependencies=[Depends(require_admin)])
 async def update_session(
     request: Request, session_id: int, payload: SessionPatch
 ) -> dict[str, str]:
-    if payload.note is None and payload.bests_excluded is None:
+    if payload.note is None and payload.tags is None and payload.bests_excluded is None:
         # An empty patch answered "updated" would be the same silent no-op a
         # typo'd field used to be.
         raise HTTPException(400, "nothing to update")
     updated = await svc(request).repo.update_session(
-        session_id, note=payload.note, bests_excluded=payload.bests_excluded
+        session_id,
+        note=payload.note,
+        tags=payload.tags,
+        bests_excluded=payload.bests_excluded,
     )
     if not updated:
         raise HTTPException(404, "session not found")

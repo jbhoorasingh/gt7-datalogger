@@ -28,6 +28,22 @@ recorded before packet C, and **All** is the only way back to sessions that have
 class at all. A session whose own class is blank — its very first packet was a narrower
 format — takes the class its laps recorded.
 
+## Notes & tags
+
+Expanding a session reveals an editor for two user-set fields:
+
+- **Notes** — free text, up to 500 characters: setup changes, conditions, what to try
+  next. A session with a note shows a ✎ marker on its row; hover it to read the note
+  without expanding.
+- **Tags** — short repeatable labels ("wet", "race sim", "testing new diff"), added
+  with **Enter** or the **add** button and removed from their chips. Tags appear on the
+  session row, and once any exist a **Tag** filter strip joins the category filter above
+  the list — the two combine, so *Gr.3 + wet* is one click each.
+
+Tags are deduplicated case-insensitively, limited to 40 characters, and may not contain
+commas. Both fields save through the same admin-gated PATCH as the bests toggle below,
+and editing one never disturbs the other.
+
 ## Excluding a session from bests
 
 Each session offers an **exclude from bests** toggle. It exists because of replays:

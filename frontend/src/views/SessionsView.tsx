@@ -28,6 +28,8 @@ export function SessionsView() {
   // Empty string = no filter; sessions recorded without packet C have no
   // category and are only reachable from "All".
   const [category, setCategory] = useState("");
+  // User-set session tags as a second, orthogonal filter (#25).
+  const [tag, setTag] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
 
   // Only offer categories actually present, so the control disappears
@@ -35,12 +37,17 @@ export function SessionsView() {
   const categories = [
     ...new Set((sessions ?? []).map((s) => s.car_category).filter(Boolean)),
   ].sort();
+  const allTags = [...new Set((sessions ?? []).flatMap((s) => s.tags ?? []))].sort();
   // Deleting the last session of the filtered category would otherwise leave
   // the filter set to a value with no chip and no rows — a blank list with no
   // way back. Fall back to unfiltered whenever the selection stops existing.
+  // Same for a tag removed from its last session.
   const active = categories.includes(category) ? category : "";
+  const activeTag = allTags.includes(tag) ? tag : "";
   const visible = (sessions ?? []).filter(
-    (s) => !active || s.car_category === active,
+    (s) =>
+      (!active || s.car_category === active) &&
+      (!activeTag || (s.tags ?? []).includes(activeTag)),
   );
 
   const refresh = useCallback(() => {
@@ -194,6 +201,26 @@ export function SessionsView() {
         </div>
       )}
 
+      {allTags.length > 0 && (
+        <div className="mb-2 flex flex-wrap items-center gap-1">
+          <span className="mr-1 text-xs text-ink-dim">Tag</span>
+          {["", ...allTags].map((t) => (
+            <button
+              key={t || "all"}
+              onClick={() => setTag(t)}
+              aria-pressed={activeTag === t}
+              className={`rounded-full px-3 py-1 text-xs transition-colors ${
+                activeTag === t
+                  ? "bg-accent/15 text-accent"
+                  : "text-ink-dim hover:bg-panel-2 hover:text-ink"
+              }`}
+            >
+              {t || "All"}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="space-y-2">
         {visible.map((s) => (
           <div key={s.id} className="rounded-xl bg-panel">
@@ -234,6 +261,21 @@ export function SessionsView() {
                       name track…
                     </button>
                   )
+                )}
+                {(s.tags ?? []).map((t) => (
+                  <span
+                    key={t}
+                    className="shrink-0 rounded-full bg-panel-2 px-2 py-0.5 text-xs text-ink-dim"
+                  >
+                    #{t}
+                  </span>
+                ))}
+                {s.note && (
+                  <Tip content={s.note}>
+                    <span className="shrink-0 text-xs text-ink-dim" aria-label="Session note">
+                      ✎
+                    </span>
+                  </Tip>
                 )}
                 <span className="text-xs text-ink-dim">{formatTime(s.started_at)}</span>
                 <span className="ml-auto flex items-center gap-3">
@@ -279,6 +321,7 @@ export function SessionsView() {
                     })
                   }
                 />
+                <NotesEditor key={s.id} session={s} onSaved={refresh} />
                 <div className="flex justify-end gap-2 px-2 pt-2">
                   <Tip content="Replay recordings and other drivers' laps are indistinguishable from your own driving in telemetry — keeping them off the Bests board is a manual call.">
                     <button className="btn" onClick={() => toggleBestsExcluded(s)}>
@@ -344,6 +387,100 @@ export function SessionsView() {
         }}
         onCancel={() => setDeletingLap(null)}
       />
+    </div>
+  );
+}
+
+// Note + tag editor for one expanded session (#25). The note is a local
+// draft saved explicitly; tags save on every add/remove (each is one small,
+// deliberate edit). key={session.id} remounts it per session, so a draft
+// never bleeds from one session into another.
+function NotesEditor({
+  session,
+  onSaved,
+}: {
+  session: SessionSummary;
+  onSaved: () => void;
+}) {
+  const [note, setNote] = useState(session.note);
+  const [newTag, setNewTag] = useState("");
+  const tags = session.tags ?? [];
+
+  async function save(patch: { note?: string; tags?: string[] }) {
+    try {
+      await api.updateSession(session.id, patch);
+      onSaved();
+    } catch {
+      toast("Could not update session", "error");
+    }
+  }
+
+  function addTag() {
+    const t = newTag.trim();
+    if (!t) return;
+    if (t.includes(",")) {
+      toast("Tags cannot contain commas", "error");
+      return;
+    }
+    setNewTag("");
+    // Same case-insensitive dedupe the server applies, so the UI never shows
+    // an add that the PATCH would collapse.
+    if (tags.some((x) => x.toLowerCase() === t.toLowerCase())) return;
+    void save({ tags: [...tags, t] });
+  }
+
+  return (
+    <div className="mx-2 mt-2 space-y-2 rounded-lg bg-panel-2/40 p-2">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-xs text-ink-dim">Tags</span>
+        {tags.map((t) => (
+          <span
+            key={t}
+            className="flex items-center gap-1 rounded-full bg-panel-2 px-2 py-0.5 text-xs"
+          >
+            #{t}
+            <button
+              className="text-ink-dim hover:text-brake"
+              aria-label={`Remove tag ${t}`}
+              onClick={() => void save({ tags: tags.filter((x) => x !== t) })}
+            >
+              ×
+            </button>
+          </span>
+        ))}
+        <input
+          value={newTag}
+          onChange={(e) => setNewTag(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") addTag();
+          }}
+          maxLength={40}
+          placeholder="add tag…"
+          className="w-28 rounded-md border border-edge bg-transparent px-2 py-1 text-xs outline-none placeholder:text-ink-dim/60 focus:border-accent/50"
+        />
+        {newTag.trim() && (
+          <button className="text-xs text-ink-dim hover:text-accent" onClick={addTag}>
+            add
+          </button>
+        )}
+      </div>
+      <div className="flex items-start gap-2">
+        <textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          rows={2}
+          maxLength={500}
+          placeholder="Notes — setup changes, conditions, what to try next…"
+          className="min-w-0 flex-1 resize-y rounded-md border border-edge bg-transparent px-2 py-1.5 text-xs outline-none placeholder:text-ink-dim/60 focus:border-accent/50"
+        />
+        <button
+          className="btn shrink-0"
+          disabled={note === session.note}
+          onClick={() => void save({ note })}
+        >
+          Save note
+        </button>
+      </div>
     </div>
   );
 }

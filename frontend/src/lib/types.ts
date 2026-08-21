@@ -365,6 +365,9 @@ export interface SessionSummary {
   car_name: string;
   car_category: string; // packet C: "Gr.3", "Gr.4", "N300"...; "" when unknown
   note: string;
+  // User-set labels ("wet", "race sim") for telling sessions apart and
+  // filtering the list (#25). Never inferred from telemetry.
+  tags: string[];
   track_name: string;
   lap_count: number;
   best_lap_time_ms: number | null;

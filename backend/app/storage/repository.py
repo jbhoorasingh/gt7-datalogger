@@ -202,6 +202,7 @@ class Repository:
                     "car_name": s.car_name,
                     "car_category": s.car_category or lap_category or "",
                     "note": s.note,
+                    "tags": [t for t in s.tags.split(",") if t],
                     "track_name": s.track_name,
                     "bests_excluded": bool(s.bests_excluded),
                     "lap_count": count,
@@ -217,13 +218,15 @@ class Repository:
         self,
         session_id: int,
         note: str | None = None,
+        tags: list[str] | None = None,
         bests_excluded: bool | None = None,
     ) -> bool:
         """Patch a session's user-editable fields; False when no such row.
 
         None means "leave alone", not "clear" — the PATCH endpoint sends only
         the fields the user touched, and a note must survive the neighbouring
-        bests_excluded checkbox being flipped (#26).
+        bests_excluded checkbox being flipped (#26). An empty list DOES clear
+        the tags: removing the last tag is a real edit.
         """
         async with self._sf() as db:
             row = await db.get(SessionRow, session_id)
@@ -231,6 +234,8 @@ class Repository:
                 return False
             if note is not None:
                 row.note = note
+            if tags is not None:
+                row.tags = ",".join(tags)
             if bests_excluded is not None:
                 row.bests_excluded = bests_excluded
             await db.commit()

@@ -43,6 +43,10 @@ class SessionRow(Base):
     # denormalised like car_id, so category filtering never needs the join.
     car_category: Mapped[str] = mapped_column(default="")
     note: Mapped[str] = mapped_column(default="")
+    # User-set labels ("wet", "race sim"), comma-separated (#25). Tags may not
+    # contain commas — the PATCH endpoint enforces it — so the join is
+    # unambiguous without a JSON column.
+    tags: Mapped[str] = mapped_column(default="")
     track_name: Mapped[str] = mapped_column(default="")
     # User-set: GT7 records replays exactly like driving — no packet field
     # distinguishes a TT leader's replay from your own laps — so keeping a
