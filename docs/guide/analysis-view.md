@@ -57,6 +57,32 @@ one panel per selected channel.
   bottoming/kerbs on suspension panels; TCS activity shades Throttle, ASM shades Speed.
   Bands are tinted in the lap's color.
 
+## Lap playback
+
+Above the charts sits a transport — **play / pause, a scrub bar, and 0.25× – 4×
+speed** — that drives the same synced cursor the hover does. Press play and the lap
+*happens*: the dot runs around the race line, the traction-circle marker sweeps, and the
+Corner Detail widget follows, with no mouse involved.
+
+The playhead is **distance-locked** (every compared lap sits at the same metre mark, so
+the time diff under the cursor stays directly readable) but it advances on the
+**reference lap's own clock** — it dwells through slow corners and sweeps down the
+straights, rather than gliding at constant metres per second.
+
+Beside the transport, a strip of the live-dashboard widgets renders the reference lap at
+the playhead: the **steering wheel** turning (packet B+ recordings), the
+**throttle/brake bars**, current **gear** and **speed** — the driver's hands, replayed.
+
+Details worth knowing:
+
+- **Scrubbing while playing** repositions the clock and playback continues from there;
+  chart *hover* is ignored while playing (the playhead owns the cursor) and works
+  normally whenever playback is paused or stopped.
+- Playback **pauses itself when the tab is hidden**, and under a system
+  *reduced motion* preference the cursor steps a few times a second instead of
+  animating every frame.
+- Switching the reference lap (or the selection) rewinds to the start.
+
 ## Corner report card
 
 Below the charts, one row per corner: entry / minimum / exit speed and the time spent
