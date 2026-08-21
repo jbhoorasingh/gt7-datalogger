@@ -563,7 +563,14 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
             }}
             options={sessions.map((s) => ({
               value: String(s.id),
-              label: `#${s.id} · ${s.car_name} · ${s.lap_count} laps`,
+              // The circuit goes first: it is what you are looking for when
+              // picking a session to analyse, and since #58 most sessions
+              // have one. Omitted rather than shown blank when they do not,
+              // so an unidentified session reads as unidentified instead of
+              // as a formatting glitch.
+              label: `#${s.id}${s.track_name ? ` · ${s.track_name}` : ""} · ${
+                s.car_name
+              } · ${s.lap_count} laps`,
             }))}
             className="px-2 py-1.5 text-sm"
           />
