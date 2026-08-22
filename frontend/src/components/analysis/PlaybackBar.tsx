@@ -65,12 +65,17 @@ export function PlaybackBar({
 
   useEffect(() => onPlayingChange?.(playing), [playing, onPlayingChange]);
 
-  // A different lap (or a refetch) is a different clock: rewind and stop.
+  // A different lap is a different clock: rewind and stop. Keyed on the lap's
+  // LENGTH, not the series object — a refetch (any lap completing anywhere
+  // bumps the lap epoch, and live telemetry does that while you watch) hands
+  // back an identical lap in a new object, and resetting on identity stopped
+  // playback a few seconds in, every time.  Switching reference lap remounts
+  // this component via key={refLap}, so that case is already covered.
   useEffect(() => {
     tRef.current = 0;
     setTUI(0);
     setPlaying(false);
-  }, [series]);
+  }, [endS]);
 
   const pushCursor = useCallback(
     (tS: number) => onCursorDist(distAtTime(series, tS)),

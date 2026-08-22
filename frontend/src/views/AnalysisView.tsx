@@ -77,6 +77,8 @@ const PLAYBACK_COLUMNS = [
 
 export function AnalysisView({ request }: { request: AnalysisRequest }) {
   const units = useSettings((s) => s.units);
+  const mapFollow = useSettings((s) => s.mapFollow);
+  const setMapFollow = useSettings((s) => s.setMapFollow);
   const lapEpoch = useTelemetry((s) => s.lapEpoch);
 
   // Seed from the shared selection so switching tabs doesn't reset the view.
@@ -381,8 +383,12 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
   // otherwise fight it frame by frame (and every mouse-leave would blank the
   // dot mid-lap). Paused or stopped, hover works exactly as before.
   const playbackActive = useRef(false);
-  const onPlayingChange = useCallback((playing: boolean) => {
-    playbackActive.current = playing;
+  // Mirrored into state as well: the ref exists so hover arbitration costs no
+  // re-render, but the follow camera is a rendered prop and needs the value.
+  const [playing, setPlaying] = useState(false);
+  const onPlayingChange = useCallback((isPlaying: boolean) => {
+    playbackActive.current = isPlaying;
+    setPlaying(isPlaying);
   }, []);
   const onHoverCursorDist = useCallback(
     (d: number | null) => {
@@ -752,6 +758,19 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
                       : "full lap"}
                 </span>
               </Tip>
+              <Tip content="While playback runs, zoom the map in and pan with the car instead of framing the whole circuit">
+                <button
+                  onClick={() => setMapFollow(!mapFollow)}
+                  aria-pressed={mapFollow}
+                  className={`mr-1 rounded border px-2.5 py-0.5 text-[10.5px] transition-colors ${
+                    mapFollow
+                      ? "border-accent bg-accent/14 text-accent-300"
+                      : "border-edge text-ink-dim hover:border-accent hover:text-accent"
+                  }`}
+                >
+                  Follow
+                </button>
+              </Tip>
               {SECTORS.map(([label, a, b]) => {
                 // "Full" is the null range; the others compare against the
                 // window they would set, so the active button survives a
@@ -782,6 +801,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
           </div>
           <RaceLineMap
             hero
+            follow={mapFollow && playing}
             laps={mapLaps}
             cursorDist={cursorDist}
             step={compare!.step}
