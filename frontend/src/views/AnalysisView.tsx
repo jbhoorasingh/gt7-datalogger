@@ -383,12 +383,8 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
   // otherwise fight it frame by frame (and every mouse-leave would blank the
   // dot mid-lap). Paused or stopped, hover works exactly as before.
   const playbackActive = useRef(false);
-  // Mirrored into state as well: the ref exists so hover arbitration costs no
-  // re-render, but the follow camera is a rendered prop and needs the value.
-  const [playing, setPlaying] = useState(false);
-  const onPlayingChange = useCallback((isPlaying: boolean) => {
-    playbackActive.current = isPlaying;
-    setPlaying(isPlaying);
+  const onPlayingChange = useCallback((playing: boolean) => {
+    playbackActive.current = playing;
   }, []);
   const onHoverCursorDist = useCallback(
     (d: number | null) => {
@@ -483,17 +479,36 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
     setSelected((cur) => (cur.includes(lap.id) ? cur : [...cur, lap.id]));
   };
 
+  // The quickest lap currently on screen. Pinned to purple below, so the
+  // benchmark is identifiable at a glance among several moving cursor dots.
+  const fastestLapId = useMemo(() => {
+    let bestId: number | null = null;
+    let bestMs = Infinity;
+    for (const lap of [...laps, ...guests]) {
+      if (!selected.includes(lap.id) && lap.id !== refLap) continue;
+      // A partial lap's time is not a lap time (pit out-lap), so it cannot be
+      // the fastest — it would otherwise win every comparison it appears in.
+      if (lap.counts_for_best === false) continue;
+      if (lap.time_ms > 0 && lap.time_ms < bestMs) {
+        bestMs = lap.time_ms;
+        bestId = lap.id;
+      }
+    }
+    return bestId;
+  }, [laps, guests, selected, refLap]);
+
   // One color assignment for everything that shows the compared laps together
   // (chips, chart series, map, corner detail): id-keyed, but two selected laps
-  // never share a color (laps 6 apart otherwise would — latest vs best hits it).
+  // never share a color (laps 6 apart otherwise would — latest vs best hits it),
+  // and the fastest of them always takes purple.
   const lapColors = useMemo<Record<string, string>>(() => {
     const ids = new Set<number>(selected);
     if (refLap != null) ids.add(refLap);
     for (const id of Object.keys(compare?.laps ?? {})) ids.add(Number(id));
     return Object.fromEntries(
-      [...lapColorMap(ids)].map(([id, color]) => [String(id), color]),
+      [...lapColorMap(ids, fastestLapId)].map(([id, color]) => [String(id), color]),
     );
-  }, [selected, refLap, compare]);
+  }, [selected, refLap, compare, fastestLapId]);
   const colorOf = (id: string | number) =>
     lapColors[String(id)] ?? lapColor(Number(id));
 
@@ -801,7 +816,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
           </div>
           <RaceLineMap
             hero
-            follow={mapFollow && playing}
+            follow={mapFollow}
             laps={mapLaps}
             cursorDist={cursorDist}
             step={compare!.step}

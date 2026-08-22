@@ -591,10 +591,12 @@ function MapBody({
         type: "scatter",
         data: [] as number[][],
         symbolSize: (lap.isRef ? 12 : 9) * (maximized ? 1.3 : 1),
-        itemStyle: lap.isRef
-          ? { color: "#fff", borderColor: CHART_COLORS.series[0], borderWidth: 3 }
-          : { color: lap.color, borderColor: "#fff", borderWidth: 1.5 },
-        z: 10,
+        itemStyle: {
+          color: lap.color,
+          borderColor: "#fff",
+          borderWidth: lap.isRef ? 3 : 1.5,
+        },
+        z: lap.isRef ? 11 : 10,
         silent: true,
       });
     }

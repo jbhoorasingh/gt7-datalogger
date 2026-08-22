@@ -280,6 +280,27 @@ export function StackedCharts({
         splitNumber: 3,
       });
 
+      // Playhead: one empty series per panel whose markLine is moved by the
+      // cursor effect. A markLine keyed on xAxis spans its grid's full height,
+      // so the line tracks the panel however its y range is scaled.
+      series.push({
+        type: "line",
+        id: `playhead|${panel.key}`,
+        xAxisIndex: gi,
+        yAxisIndex: gi,
+        data: [],
+        silent: true,
+        z: 20,
+        markLine: {
+          silent: true,
+          symbol: "none",
+          animation: false,
+          label: { show: false },
+          lineStyle: { color: CHART_COLORS.value, width: 1, type: "solid", opacity: 0.8 },
+          data: [],
+        },
+      });
+
       lapIds.forEach((lapId) => {
         const entry = data.laps[lapId];
         const isDelta = panel.key === "delta";
@@ -371,12 +392,12 @@ export function StackedCharts({
           areaStyle: { color: CHART_COLORS.split },
         },
         selectedDataBackground: {
-          lineStyle: { color: "#38bdf8" },
-          areaStyle: { color: "#38bdf8", opacity: 0.2 },
+          lineStyle: { color: CHART_COLORS.accent },
+          areaStyle: { color: CHART_COLORS.accent, opacity: 0.2 },
         },
         fillerColor: "rgba(56, 189, 248, 0.15)",
-        handleStyle: { color: "#38bdf8", borderColor: "#38bdf8" },
-        moveHandleStyle: { color: "#38bdf8" },
+        handleStyle: { color: CHART_COLORS.accent, borderColor: CHART_COLORS.accent },
+        moveHandleStyle: { color: CHART_COLORS.accent },
         textStyle: { color: CHART_COLORS.label, fontSize: 10 },
         labelFormatter: (value: number) => `${Math.round(value)}m`,
         // Window state is applied via dispatchAction (single source of truth);
@@ -405,7 +426,7 @@ export function StackedCharts({
             filterMode: "none",
             brushStyle: {
               color: "rgba(56, 189, 248, 0.15)",
-              borderColor: "#38bdf8",
+              borderColor: CHART_COLORS.accent,
               borderWidth: 1,
             },
           },
@@ -422,9 +443,9 @@ export function StackedCharts({
       axisPointer: {
         type: "cross",
         link: [{ xAxisIndex: "all" }],
-        lineStyle: { color: "#38bdf8", width: 1, type: "dashed" },
-        crossStyle: { color: "#38bdf8", width: 1, type: "dashed" },
-        label: { backgroundColor: "#1e232b", color: "#38bdf8", fontSize: 10, padding: [2, 5] },
+        lineStyle: { color: CHART_COLORS.accent, width: 1, type: "dashed" },
+        crossStyle: { color: CHART_COLORS.accent, width: 1, type: "dashed" },
+        label: { backgroundColor: "#1e232b", color: CHART_COLORS.accent, fontSize: 10, padding: [2, 5] },
       },
       tooltip: {
         trigger: "axis",
@@ -530,13 +551,26 @@ export function StackedCharts({
       const shown = panel.transform ? panel.transform(v, units) : v;
       return { ...base, text: fmt(panel.key, shown) };
     });
+    // The playhead line, moved by series id so nothing is rebuilt. Empty
+    // markLine data when there is no cursor, which draws nothing.
+    const playheads: SeriesOption[] = panels.map((panel) => ({
+      id: `playhead|${panel.key}`,
+      type: "line",
+      markLine: { data: cursorDist == null ? [] : [{ xAxis: cursorDist }] },
+    }) as SeriesOption);
+
     const current = (chart.getOption().title ?? []) as Record<string, unknown>[];
-    if (current.length === 0) return;
-    const next = current.map((t, i) => {
-      const hit = titles.find((x) => x.index === i);
-      return hit ? { ...t, text: hit.text } : t;
-    });
-    chart.setOption({ title: next });
+    const next =
+      current.length === 0
+        ? undefined
+        : current.map((t, i) => {
+            const hit = titles.find((x) => x.index === i);
+            return hit ? { ...t, text: hit.text } : t;
+          });
+    chart.setOption(
+      { series: playheads, ...(next ? { title: next } : {}) },
+      { notMerge: false, lazyUpdate: true },
+    );
   }, [cursorDist, refLapId, data, panels, units]);
 
   return (

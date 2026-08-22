@@ -43,6 +43,9 @@ echarts.use([
 export const CHART_COLORS = {
   axis: "#3a414c",
   label: "#8b93a1", // --color-ink-dim
+  // Canvas cannot read CSS custom properties, so chart-side colours are
+  // literals kept in step with the tokens in index.css by hand.
+  accent: "#3ec9ff", // --color-accent
   value: "#aeb6c2", // --color-ink-muted, for readouts beside a label
   split: "#1e232b",
   series: [...SERIES_COLORS] as string[],

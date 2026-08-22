@@ -12,7 +12,7 @@ import { LapSparkline } from "@/components/LapSparkline";
 import { ConfirmDialog, PromptDialog } from "@/components/ui/Dialog";
 import { Tip } from "@/components/ui/Tooltip";
 import { api } from "@/lib/api";
-import { lapColor } from "@/lib/colors";
+import { lapColorMap } from "@/lib/colors";
 import { formatLapTime, formatSpeed, formatTime, formatTimeShort } from "@/lib/format";
 import { openInAnalysis } from "@/lib/router";
 import type { LapSummary, PersonalBest, SessionSummary } from "@/lib/types";
@@ -654,6 +654,9 @@ function LapTable({
 }) {
   if (laps.length === 0) return <div className="text-[11.5px] text-ink-faint">No laps.</div>;
   const bestId = laps.reduce((a, b) => (b.time_ms < a.time_ms ? b : a)).id;
+  // The session's quickest lap takes purple, and no other lap in the table can
+  // land on it — the same convention the Analysis charts and map use.
+  const colors = lapColorMap(laps.map((l) => l.id), bestId);
   // Position per lap (#60): only worth a column when the session was a race
   // — a time trial would show a column of dashes.
   const hasPositions = laps.some((l) => (l.race_position ?? -1) >= 1);
@@ -694,7 +697,7 @@ function LapTable({
               <span className="flex items-center gap-1.5 text-ink-faint">
                 <span
                   className="h-[7px] w-[7px] shrink-0 rounded-full"
-                  style={{ backgroundColor: lapColor(lap.id) }}
+                  style={{ backgroundColor: colors.get(lap.id) }}
                   title="This lap's color in charts and maps"
                 />
                 {lap.number}
