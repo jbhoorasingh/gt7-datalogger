@@ -263,7 +263,7 @@ export function GridCanvas({
                 <div
                   key={cell.id}
                   className={`absolute flex cursor-grab touch-none items-center justify-center overflow-hidden active:cursor-grabbing ${
-                    frameless ? "" : "rounded-xl border border-white/10 p-3"
+                    frameless ? "" : "rounded-xl border border-edge p-3"
                   } ${isSelected ? "ring-2 ring-accent" : ""} ${dragging ? "opacity-40" : ""}`}
                   style={{
                     left: left(cell.x),

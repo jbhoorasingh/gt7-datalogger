@@ -42,12 +42,17 @@ echarts.use([
 
 export const CHART_COLORS = {
   axis: "#3a414c",
-  label: "#8b93a1",
+  label: "#8b93a1", // --color-ink-dim
+  // Canvas cannot read CSS custom properties, so chart-side colours are
+  // literals kept in step with the tokens in index.css by hand.
+  accent: "#3ec9ff", // --color-accent
+  value: "#aeb6c2", // --color-ink-muted, for readouts beside a label
   split: "#1e232b",
   series: [...SERIES_COLORS] as string[],
-  throttle: "#22c55e",
-  brake: "#ef4444",
-  coast: "#3b82f6",
+  throttle: "#4ade80",
+  brake: "#f47272",
+  coast: "#5b93f5",
+  warn: "#f5b14e",
 };
 
 export function baseGrid(): echartsTypes.GridComponentOption {

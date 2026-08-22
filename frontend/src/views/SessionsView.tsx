@@ -1,24 +1,38 @@
 // Sessions view: browse historical sessions, inspect and manage laps,
 // export/import laps as JSON, manual "log lap now", and jump into the
 // Analysis view with a session or lap pre-selected.
+//
+// Also hosts the personal-bests board as a sub-tab (#26) — same history,
+// two readings of it — so the category filter and the top-level actions are
+// shared rather than duplicated across two nav entries.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { BestsBoard } from "@/components/BestsBoard";
 import { LapSparkline } from "@/components/LapSparkline";
 import { ConfirmDialog, PromptDialog } from "@/components/ui/Dialog";
 import { Tip } from "@/components/ui/Tooltip";
 import { api } from "@/lib/api";
-import { lapColor } from "@/lib/colors";
-import { formatLapTime, formatSpeed, formatTime } from "@/lib/format";
+import { lapColorMap } from "@/lib/colors";
+import { formatLapTime, formatSpeed, formatTime, formatTimeShort } from "@/lib/format";
 import { openInAnalysis } from "@/lib/router";
-import type { LapSummary, SessionSummary } from "@/lib/types";
+import type { LapSummary, PersonalBest, SessionSummary } from "@/lib/types";
 import { useSettings } from "@/store/settings";
 import { useTelemetry } from "@/store/telemetry";
 import { toast } from "@/store/toasts";
 
-export function SessionsView() {
+type SubTab = "sessions" | "bests";
+
+// Session row and its header share one template so the columns line up:
+// # · car/circuit · started · trend · laps · best · analyze · chevron.
+const ROW_COLS =
+  "44px minmax(220px,1.6fr) minmax(96px,150px) 100px 52px 76px 72px 18px";
+
+export function SessionsView({ subTab = "sessions" }: { subTab?: SubTab }) {
   const units = useSettings((s) => s.units);
   const lapEpoch = useTelemetry((s) => s.lapEpoch);
+  const [sub, setSub] = useState<SubTab>(subTab);
   const [sessions, setSessions] = useState<SessionSummary[] | null>(null);
+  const [bests, setBests] = useState<PersonalBest[] | null>(null);
   const [expanded, setExpanded] = useState<number | null>(null);
   const [laps, setLaps] = useState<Record<number, LapSummary[]>>({});
   const [naming, setNaming] = useState<number | null>(null); // session id
@@ -32,11 +46,14 @@ export function SessionsView() {
   const [tag, setTag] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
 
-  // Only offer categories actually present, so the control disappears
-  // entirely on a history recorded before packet C.
-  const categories = [
-    ...new Set((sessions ?? []).map((s) => s.car_category).filter(Boolean)),
-  ].sort();
+  // A pasted #/bests link arrives as a prop; keep following it if the URL
+  // changes under us, while in-page clicks drive the local state.
+  useEffect(() => setSub(subTab), [subTab]);
+
+  // Only offer categories actually present in the board being shown, so the
+  // control disappears entirely on a history recorded before packet C.
+  const source = sub === "bests" ? (bests ?? []) : (sessions ?? []);
+  const categories = [...new Set(source.map((s) => s.car_category).filter(Boolean))].sort();
   const allTags = [...new Set((sessions ?? []).flatMap((s) => s.tags ?? []))].sort();
   // Deleting the last session of the filtered category would otherwise leave
   // the filter set to a value with no chip and no rows — a blank list with no
@@ -49,6 +66,7 @@ export function SessionsView() {
       (!active || s.car_category === active) &&
       (!activeTag || (s.tags ?? []).includes(activeTag)),
   );
+  const visibleBests = bests?.filter((b) => !active || b.car_category === active) ?? null;
 
   const refresh = useCallback(() => {
     api.sessions()
@@ -57,6 +75,15 @@ export function SessionsView() {
   }, []);
 
   useEffect(refresh, [refresh, lapEpoch]);
+
+  // Bests are only fetched once the board is actually opened — the Sessions
+  // sub-tab is the landing view and does not need them.
+  useEffect(() => {
+    if (sub !== "bests") return;
+    api.personalBests()
+      .then((r) => setBests(r.bests))
+      .catch(() => toast("Could not load bests", "error"));
+  }, [sub, lapEpoch]);
 
   useEffect(() => {
     if (expanded == null) return;
@@ -140,18 +167,53 @@ export function SessionsView() {
     }
   }
 
-  // Open a session in the Analysis view (default latest-vs-best selection).
-  function analyzeSession(s: SessionSummary) {
-    openInAnalysis({ session: s.id });
-  }
-
   return (
-    <div className="mx-auto max-w-6xl p-3">
-      <div className="mb-3 flex items-center gap-2">
-        <h2 className="text-lg font-semibold">Sessions</h2>
+    <div className="mx-auto flex max-w-[1200px] flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-3.5">
+        <div className="flex overflow-hidden rounded-md border border-edge">
+          {(["sessions", "bests"] as const).map((id) => (
+            <button
+              key={id}
+              onClick={() => setSub(id)}
+              aria-pressed={sub === id}
+              className={`px-4 py-1.5 text-xs capitalize transition-colors ${
+                sub === id ? "bg-accent/15 text-accent-300" : "text-ink-dim hover:text-ink"
+              }`}
+            >
+              {id}
+            </button>
+          ))}
+        </div>
+
+        {categories.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 text-[11px]">
+            {["", ...categories].map((c) => (
+              <button
+                key={c || "all"}
+                onClick={() => setCategory(c)}
+                aria-pressed={active === c}
+                className={`rounded-[11px] px-2.5 py-0.5 transition-colors ${
+                  active === c
+                    ? "bg-accent/15 text-accent-300"
+                    : "text-ink-faint hover:text-ink"
+                }`}
+              >
+                {c || "All"}
+              </button>
+            ))}
+          </div>
+        )}
+
         <div className="ml-auto flex gap-2">
-          <button onClick={logLapNow} className="btn">Log lap now</button>
-          <button onClick={() => fileInput.current?.click()} className="btn">Import lap…</button>
+          <button onClick={logLapNow} className="btn btn-primary px-3 py-[5px] text-[11.5px]">
+            Log lap now
+          </button>
+          <button
+            onClick={() => fileInput.current?.click()}
+            className="btn px-3 py-[5px] text-[11.5px]"
+          >
+            Import lap…
+          </button>
           <input
             ref={fileInput}
             type="file"
@@ -166,53 +228,18 @@ export function SessionsView() {
         </div>
       </div>
 
-      {sessions == null && (
-        <div className="space-y-2">
-          {[0, 1, 2].map((i) => (
-            <div key={i} className="skeleton h-12" />
-          ))}
-        </div>
-      )}
-
-      {sessions != null && sessions.length === 0 && (
-        <div className="rounded-xl bg-panel p-8 text-center text-ink-dim">
-          <div className="mb-1 text-lg text-ink">No sessions recorded yet</div>
-          Laps are recorded automatically while you drive — or import a lap file above.
-        </div>
-      )}
-
-      {categories.length > 0 && (
-        <div className="mb-2 flex flex-wrap items-center gap-1">
-          <span className="mr-1 text-xs text-ink-dim">Category</span>
-          {["", ...categories].map((c) => (
-            <button
-              key={c || "all"}
-              onClick={() => setCategory(c)}
-              aria-pressed={active === c}
-              className={`rounded-full px-3 py-1 text-xs transition-colors ${
-                active === c
-                  ? "bg-accent/15 text-accent"
-                  : "text-ink-dim hover:bg-panel-2 hover:text-ink"
-              }`}
-            >
-              {c || "All"}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {allTags.length > 0 && (
-        <div className="mb-2 flex flex-wrap items-center gap-1">
-          <span className="mr-1 text-xs text-ink-dim">Tag</span>
+      {/* Tags are a second, orthogonal filter — only rendered once any
+          session actually carries one. */}
+      {sub === "sessions" && allTags.length > 0 && (
+        <div className="-mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
+          <span className="section-header mr-1">Tag</span>
           {["", ...allTags].map((t) => (
             <button
               key={t || "all"}
               onClick={() => setTag(t)}
               aria-pressed={activeTag === t}
-              className={`rounded-full px-3 py-1 text-xs transition-colors ${
-                activeTag === t
-                  ? "bg-accent/15 text-accent"
-                  : "text-ink-dim hover:bg-panel-2 hover:text-ink"
+              className={`rounded-[11px] px-2.5 py-0.5 transition-colors ${
+                activeTag === t ? "bg-accent/15 text-accent-300" : "text-ink-faint hover:text-ink"
               }`}
             >
               {t || "All"}
@@ -221,135 +248,61 @@ export function SessionsView() {
         </div>
       )}
 
-      <div className="space-y-2">
-        {visible.map((s) => (
-          <div key={s.id} className="rounded-xl bg-panel">
-            <div className="flex w-full items-center gap-4 px-4 py-3">
-              {/* Click-to-toggle convenience area. Deliberately a div, not a
-                  button: it contains the "name track…" button, and interactive
-                  elements must not nest. The chevron button below is the
-                  accessible toggle. */}
-              <div
-                onClick={() => setExpanded(expanded === s.id ? null : s.id)}
-                className="flex min-w-0 flex-1 cursor-pointer items-center gap-4 text-left"
-              >
-                <span className="font-tabular text-sm text-ink-dim">#{s.id}</span>
-                <span className="truncate font-medium">{s.car_name}</span>
-                {s.car_category && (
-                  <span className="shrink-0 rounded-full bg-panel-2 px-2 py-0.5 text-xs text-ink-dim">
-                    {s.car_category}
-                  </span>
-                )}
-                {s.bests_excluded && (
-                  <span className="shrink-0 rounded-full border border-dashed border-edge px-2 py-0.5 text-xs text-ink-dim">
-                    excluded from bests
-                  </span>
-                )}
-                {s.final_position >= 1 && (
-                  <Tip
-                    content={`Finished P${s.final_position} of ${s.final_total_positions} — ${s.race_laps}-lap race${
-                      s.race_time_ms != null
-                        ? `, total ${formatLapTime(s.race_time_ms)}`
-                        : ""
-                    }`}
-                  >
-                    <span className="shrink-0 rounded-full bg-throttle/10 px-2 py-0.5 font-tabular text-xs text-throttle">
-                      P{s.final_position}/{s.final_total_positions}
-                    </span>
-                  </Tip>
-                )}
-                {s.track_name ? (
-                  <span className="rounded-full bg-accent/10 px-2 py-0.5 text-xs text-accent">
-                    {s.track_name}
-                  </span>
-                ) : (
-                  s.lap_count > 0 && (
-                    <button
-                      className="rounded-full border border-dashed border-edge px-2 py-0.5 text-xs text-ink-dim hover:text-ink"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setNaming(s.id);
-                      }}
-                    >
-                      name track…
-                    </button>
-                  )
-                )}
-                {(s.tags ?? []).map((t) => (
-                  <span
-                    key={t}
-                    className="shrink-0 rounded-full bg-panel-2 px-2 py-0.5 text-xs text-ink-dim"
-                  >
-                    #{t}
-                  </span>
-                ))}
-                {s.note && (
-                  <Tip content={s.note}>
-                    <span className="shrink-0 text-xs text-ink-dim" aria-label="Session note">
-                      ✎
-                    </span>
-                  </Tip>
-                )}
-                <span className="text-xs text-ink-dim">{formatTime(s.started_at)}</span>
-                <span className="ml-auto flex items-center gap-3">
-                  {s.lap_count > 1 && <LapSparkline sessionId={s.id} lapCount={s.lap_count} />}
-                  <span className="font-tabular text-sm">
-                    {s.lap_count} laps
-                    {s.best_lap_time_ms != null && (
-                      <span className="ml-3 text-accent">{formatLapTime(s.best_lap_time_ms)}</span>
-                    )}
-                  </span>
-                </span>
-              </div>
-              {s.lap_count > 0 && (
-                <Tip content="Open this session in the Analysis view">
-                  <button className="btn shrink-0" onClick={() => analyzeSession(s)}>
-                    Analyze
-                  </button>
-                </Tip>
-              )}
-              <button
-                onClick={() => setExpanded(expanded === s.id ? null : s.id)}
-                className="text-ink-dim"
-                aria-expanded={expanded === s.id}
-                aria-label={expanded === s.id ? "Collapse session" : "Expand session"}
-              >
-                {expanded === s.id ? "▾" : "▸"}
-              </button>
+      {sub === "bests" ? (
+        <BestsBoard bests={visibleBests} />
+      ) : (
+        <>
+          {sessions == null && (
+            <div className="flex flex-col gap-1.5">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="skeleton h-[46px]" />
+              ))}
             </div>
+          )}
 
-            {expanded === s.id && (
-              <div className="border-t border-edge px-2 pb-2">
-                <LapTable
-                  laps={laps[s.id] ?? []}
-                  units={units}
-                  bestMs={s.best_lap_time_ms}
-                  onExport={exportLap}
-                  onDelete={(id) => setDeletingLap({ sessionId: s.id, lapId: id })}
-                  onCompare={(id, refId) =>
-                    openInAnalysis({
-                      session: s.id,
-                      laps: refId != null && refId !== id ? [id, refId] : [id],
-                      ref: refId ?? id,
-                    })
-                  }
-                />
-                <NotesEditor key={s.id} session={s} onSaved={refresh} />
-                <div className="flex justify-end gap-2 px-2 pt-2">
-                  <Tip content="Replay recordings and other drivers' laps are indistinguishable from your own driving in telemetry — keeping them off the Bests board is a manual call.">
-                    <button className="btn" onClick={() => toggleBestsExcluded(s)}>
-                      {s.bests_excluded ? "Include in bests" : "Exclude from bests"}
-                    </button>
-                  </Tip>
-                  <button className="btn-danger" onClick={() => setDeletingSession(s.id)}>
-                    Delete session
-                  </button>
-                </div>
+          {sessions != null && sessions.length === 0 && (
+            <div className="panel p-8 text-center text-ink-dim">
+              <div className="mb-1 text-base text-ink">No sessions recorded yet</div>
+              Laps are recorded automatically while you drive — or import a lap file above.
+            </div>
+          )}
+
+          {visible.length > 0 && (
+            <div className="flex flex-col">
+              <div
+                className="section-header grid gap-3 px-3.5 py-1.5 text-[9.5px] tracking-[0.12em]"
+                style={{ gridTemplateColumns: ROW_COLS }}
+              >
+                <span>#</span>
+                <span>Car · circuit</span>
+                <span>Started</span>
+                <span>Trend</span>
+                <span className="text-right">Laps</span>
+                <span className="text-right">Best</span>
+                <span />
+                <span />
               </div>
-            )}
-          </div>
-        ))}
-      </div>
+
+              {visible.map((s) => (
+                <SessionRow
+                  key={s.id}
+                  session={s}
+                  units={units}
+                  open={expanded === s.id}
+                  laps={laps[s.id] ?? []}
+                  onToggle={() => setExpanded(expanded === s.id ? null : s.id)}
+                  onNameTrack={() => setNaming(s.id)}
+                  onExportLap={exportLap}
+                  onDeleteLap={(lapId) => setDeletingLap({ sessionId: s.id, lapId })}
+                  onDeleteSession={() => setDeletingSession(s.id)}
+                  onToggleExcluded={() => toggleBestsExcluded(s)}
+                  onSaved={refresh}
+                />
+              ))}
+            </div>
+          )}
+        </>
+      )}
 
       <PromptDialog
         open={naming != null}
@@ -404,6 +357,181 @@ export function SessionsView() {
   );
 }
 
+function SessionRow({
+  session: s,
+  units,
+  open,
+  laps,
+  onToggle,
+  onNameTrack,
+  onExportLap,
+  onDeleteLap,
+  onDeleteSession,
+  onToggleExcluded,
+  onSaved,
+}: {
+  session: SessionSummary;
+  units: "metric" | "imperial";
+  open: boolean;
+  laps: LapSummary[];
+  onToggle: () => void;
+  onNameTrack: () => void;
+  onExportLap: (id: number) => void;
+  onDeleteLap: (id: number) => void;
+  onDeleteSession: () => void;
+  onToggleExcluded: () => void;
+  onSaved: () => void;
+}) {
+  return (
+    <div className="panel mb-1.5 overflow-hidden rounded-[7px]">
+      {/* Click-to-toggle convenience area. Deliberately a div, not a button:
+          it contains the "name track…" and "Analyze" buttons, and interactive
+          elements must not nest. The chevron below is the accessible toggle. */}
+      <div
+        onClick={onToggle}
+        className="grid cursor-pointer items-center gap-3 px-3.5 py-2.5 transition-colors hover:bg-panel-2/70"
+        style={{ gridTemplateColumns: ROW_COLS }}
+      >
+        <span className="font-tabular text-xs text-ink-faint">#{s.id}</span>
+
+        <span className="flex min-w-0 flex-col items-start gap-1">
+          <span className="text-[12.5px] font-medium">{s.car_name}</span>
+          <span className="flex flex-wrap gap-1.5">
+            {s.car_category && (
+              <span className="rounded-[9px] border border-edge px-2 py-px text-[10px] text-ink-dim">
+                {s.car_category}
+              </span>
+            )}
+            {s.track_name ? (
+              <span className="whitespace-nowrap rounded-[9px] border border-accent/38 bg-accent/22 px-2.5 py-px text-[10px] font-medium text-accent-200">
+                {s.track_name}
+              </span>
+            ) : (
+              s.lap_count > 0 && (
+                <button
+                  className="rounded-[9px] border border-dashed border-edge px-2 py-px text-[10px] text-ink-faint transition-colors hover:border-accent hover:text-accent"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onNameTrack();
+                  }}
+                >
+                  name track…
+                </button>
+              )
+            )}
+            {s.final_position >= 1 && (
+              <Tip
+                content={`Finished P${s.final_position} of ${s.final_total_positions} — ${s.race_laps}-lap race${
+                  s.race_time_ms != null ? `, total ${formatLapTime(s.race_time_ms)}` : ""
+                }`}
+              >
+                <span className="whitespace-nowrap rounded-[9px] border border-throttle/38 bg-throttle/15 px-2 py-px font-tabular text-[10px] text-throttle">
+                  P{s.final_position}/{s.final_total_positions}
+                </span>
+              </Tip>
+            )}
+            {s.bests_excluded && (
+              <span className="whitespace-nowrap rounded-[9px] border border-dashed border-edge px-2 py-px text-[10px] text-ink-faint">
+                excluded from bests
+              </span>
+            )}
+            {(s.tags ?? []).map((t) => (
+              <span
+                key={t}
+                className="rounded-[9px] bg-edge px-2 py-px text-[10px] text-ink-soft"
+              >
+                #{t}
+              </span>
+            ))}
+            {s.note && (
+              <Tip content={s.note}>
+                <span className="text-[10px] text-ink-faint" aria-label="Session note">
+                  ✎
+                </span>
+              </Tip>
+            )}
+          </span>
+        </span>
+
+        <span className="font-tabular text-[11px] text-ink-faint" title={formatTime(s.started_at)}>
+          {formatTimeShort(s.started_at)}
+        </span>
+
+        <span>{s.lap_count > 1 && <LapSparkline sessionId={s.id} lapCount={s.lap_count} />}</span>
+
+        <span className="text-right font-tabular text-xs">{s.lap_count}</span>
+        <span className="text-right font-tabular text-xs text-accent">
+          {s.best_lap_time_ms != null ? formatLapTime(s.best_lap_time_ms) : "–"}
+        </span>
+
+        <span className="text-right">
+          {s.lap_count > 0 && (
+            <Tip content="Open this session in the Analysis view">
+              <button
+                className="btn px-2.5 py-[3px] text-[11px] hover:border-accent hover:text-accent"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openInAnalysis({ session: s.id });
+                }}
+              >
+                Analyze
+              </button>
+            </Tip>
+          )}
+        </span>
+
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggle();
+          }}
+          className="text-center text-[10px] text-ink-faint"
+          aria-expanded={open}
+          aria-label={open ? "Collapse session" : "Expand session"}
+        >
+          {open ? "▾" : "▸"}
+        </button>
+      </div>
+
+      {open && (
+        <>
+          <div className="rule" />
+          <div className="flex flex-col gap-2.5 px-3.5 py-2.5">
+            <LapTable
+              laps={laps}
+              units={units}
+              bestMs={s.best_lap_time_ms}
+              onExport={onExportLap}
+              onDelete={onDeleteLap}
+              onCompare={(id, refId) =>
+                openInAnalysis({
+                  session: s.id,
+                  laps: refId != null && refId !== id ? [id, refId] : [id],
+                  ref: refId ?? id,
+                })
+              }
+            />
+            <NotesEditor key={s.id} session={s} onSaved={onSaved} />
+            <div className="flex justify-end gap-2">
+              <Tip content="Replay recordings and other drivers' laps are indistinguishable from your own driving in telemetry — keeping them off the Bests board is a manual call.">
+                <button
+                  className="btn px-3 py-1 hover:border-accent hover:text-accent"
+                  onClick={onToggleExcluded}
+                >
+                  {s.bests_excluded ? "Include in bests" : "Exclude from bests"}
+                </button>
+              </Tip>
+              <button className="btn btn-danger px-3 py-1" onClick={onDeleteSession}>
+                Delete session
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // Note + tag editor for one expanded session (#25). The note is a local
 // draft saved explicitly; tags save on every add/remove (each is one small,
 // deliberate edit). key={session.id} remounts it per session, so a draft
@@ -443,17 +571,17 @@ function NotesEditor({
   }
 
   return (
-    <div className="mx-2 mt-2 space-y-2 rounded-lg bg-panel-2/40 p-2">
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className="text-xs text-ink-dim">Tags</span>
+    <div className="flex flex-col gap-2 rounded-md bg-panel-2 px-3 py-2.5">
+      <div className="flex flex-wrap items-center gap-2 text-[11px]">
+        <span className="text-ink-faint">Tags</span>
         {tags.map((t) => (
           <span
             key={t}
-            className="flex items-center gap-1 rounded-full bg-panel-2 px-2 py-0.5 text-xs"
+            className="flex items-center gap-1 rounded-[9px] bg-edge px-2.5 py-px text-ink-soft"
           >
             #{t}
             <button
-              className="text-ink-dim hover:text-brake"
+              className="text-ink-faint transition-colors hover:text-brake"
               aria-label={`Remove tag ${t}`}
               onClick={() => void save({ tags: tags.filter((x) => x !== t) })}
             >
@@ -469,10 +597,10 @@ function NotesEditor({
           }}
           maxLength={40}
           placeholder="add tag…"
-          className="w-28 rounded-md border border-edge bg-transparent px-2 py-1 text-xs outline-none placeholder:text-ink-dim/60 focus:border-accent/50"
+          className="w-28 rounded-[5px] border border-edge bg-transparent px-2.5 py-[3px] text-[11px] outline-none placeholder:text-ink-ghost focus:border-accent"
         />
         {newTag.trim() && (
-          <button className="text-xs text-ink-dim hover:text-accent" onClick={addTag}>
+          <button className="text-[11px] text-ink-faint hover:text-accent" onClick={addTag}>
             add
           </button>
         )}
@@ -484,10 +612,10 @@ function NotesEditor({
           rows={2}
           maxLength={500}
           placeholder="Notes — setup changes, conditions, what to try next…"
-          className="min-w-0 flex-1 resize-y rounded-md border border-edge bg-transparent px-2 py-1.5 text-xs outline-none placeholder:text-ink-dim/60 focus:border-accent/50"
+          className="min-h-[34px] min-w-0 flex-1 resize-y rounded-[5px] border border-edge bg-transparent px-2.5 py-[7px] text-[11.5px] outline-none placeholder:text-ink-ghost focus:border-accent"
         />
         <button
-          className="btn shrink-0"
+          className="btn shrink-0 px-3 py-[5px]"
           disabled={note === session.note}
           onClick={() => void save({ note })}
         >
@@ -524,127 +652,141 @@ function LapTable({
   onDelete: (id: number) => void;
   onCompare: (id: number, refId: number | null) => void;
 }) {
-  if (laps.length === 0) return <div className="p-4 text-sm text-ink-dim">No laps.</div>;
+  if (laps.length === 0) return <div className="text-[11.5px] text-ink-faint">No laps.</div>;
   const bestId = laps.reduce((a, b) => (b.time_ms < a.time_ms ? b : a)).id;
+  // The session's quickest lap takes purple, and no other lap in the table can
+  // land on it — the same convention the Analysis charts and map use.
+  const colors = lapColorMap(laps.map((l) => l.id), bestId);
   // Position per lap (#60): only worth a column when the session was a race
   // — a time trial would show a column of dashes.
   const hasPositions = laps.some((l) => (l.race_position ?? -1) >= 1);
+  const cols = `40px 84px 66px ${hasPositions ? "46px " : ""}60px 64px 64px 52px 46px 88px 66px 1fr`;
+
   return (
     <div className="overflow-x-auto">
-      <table className="w-full font-tabular text-xs">
-        <thead>
-          <tr className="text-left text-ink-dim">
-            {[
-              "Lap",
-              "Time",
-              "Δ best",
-              ...(hasPositions ? ["Pos"] : []),
-              "Fuel", "Full thr.", "Full brake", "Coast", "Spin", "Events", "Off-track", "Max spd", "",
-            ].map((h) => (
-              <th key={h} className="px-2 py-2 font-normal">{h}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {laps.map((lap) => {
-            const isBest = bestMs != null && lap.time_ms === bestMs;
-            const diff = bestMs != null ? lap.time_ms - bestMs : null;
-            return (
-              <tr key={lap.id} className="border-t border-edge/50 hover:bg-panel-2/50">
-                <td className="px-2 py-1.5 text-ink-dim">
-                  <span className="flex items-center gap-1.5">
-                    <span
-                      className="h-2 w-2 shrink-0 rounded-full"
-                      style={{ backgroundColor: lapColor(lap.id) }}
-                      title="This lap's color in charts and maps"
-                    />
-                    {lap.number}
-                    {lap.salvaged && (
-                      <span title="Salvaged from a stream that ended at the line (replay ending) — the time is GT7's own">
-                        ⟲
-                      </span>
-                    )}
+      <div className="min-w-[900px]">
+        <div
+          className="section-header grid gap-2 py-1 text-[9.5px] tracking-[0.1em] [&>span]:whitespace-nowrap"
+          style={{ gridTemplateColumns: cols }}
+        >
+          <span>Lap</span>
+          <span>Time</span>
+          <span>Δ best</span>
+          {hasPositions && <span>Pos</span>}
+          <span>Fuel</span>
+          <span>Full thr.</span>
+          <span>Full brk</span>
+          <span>Coast</span>
+          <span>Spin</span>
+          <span>Events</span>
+          <span>Max spd</span>
+          <span />
+        </div>
+
+        {laps.map((lap) => {
+          const isBest = bestMs != null && lap.time_ms === bestMs;
+          const diff = bestMs != null ? lap.time_ms - bestMs : null;
+          const offTrack = lap.off_track_count ?? -1;
+          const offSurvey = lap.off_survey_count ?? -1;
+          return (
+            <div
+              key={lap.id}
+              className="rule-row grid items-baseline gap-2 py-[5px] font-tabular text-[11.5px] transition-colors hover:bg-panel-2"
+              style={{ gridTemplateColumns: cols }}
+            >
+              <span className="flex items-center gap-1.5 text-ink-faint">
+                <span
+                  className="h-[7px] w-[7px] shrink-0 rounded-full"
+                  style={{ backgroundColor: colors.get(lap.id) }}
+                  title="This lap's color in charts and maps"
+                />
+                {lap.number}
+                {lap.salvaged && (
+                  <span title="Salvaged from a stream that ended at the line (replay ending) — the time is GT7's own">
+                    ⟲
                   </span>
-                </td>
-                <td className={`px-2 py-1.5 ${isBest ? "text-accent" : ""}`}>
-                  {formatLapTime(lap.time_ms)}
-                </td>
-                <td
-                  className={`px-2 py-1.5 ${
-                    diff == null ? "text-ink-dim" : diff === 0 ? "text-throttle" : "text-brake"
-                  }`}
-                >
-                  {diff == null ? "–" : diff === 0 ? "best" : `+${(diff / 1000).toFixed(3)}`}
-                </td>
-                {hasPositions && (
-                  <td className="px-2 py-1.5">
-                    {(lap.race_position ?? -1) >= 1 ? `P${lap.race_position}` : "–"}
-                  </td>
                 )}
-                <td className="px-2 py-1.5">{lap.fuel_consumed.toFixed(2)} L</td>
-                <td className="px-2 py-1.5">{lap.full_throttle_pct.toFixed(0)}%</td>
-                <td className="px-2 py-1.5">{lap.full_brake_pct.toFixed(0)}%</td>
-                <td className="px-2 py-1.5">{lap.coasting_pct.toFixed(0)}%</td>
-                <td className="px-2 py-1.5">{lap.tire_spin_pct.toFixed(0)}%</td>
-                <td className="px-2 py-1.5 text-ink-dim" title="lockups · spins · bottoming · kerbs">
-                  {formatEventCounts(lap.event_counts)}
-                </td>
-                <td
-                  className={`px-2 py-1.5 whitespace-nowrap ${lap.clean_lap === false ? "text-brake" : "text-ink-dim"}`}
-                >
-                  <span title="Off-track excursions from surface flags (3+ wheels on grass/gravel/dirt) — dash when the lap was recorded without surface data">
-                    {lap.off_track_count == null || lap.off_track_count < 0
-                      ? "–"
-                      : lap.off_track_count > 0
-                        ? `${lap.off_track_count} ⚠`
-                        : (lap.off_survey_count ?? -1) > 0
-                          ? "0"
-                          : "clean"}
-                  </span>
-                  {(lap.off_survey_count ?? -1) > 0 && (
-                    <span title="Excursions beyond the surveyed road edge — the car left the mapped road surface (paved runoff counts)">
-                      {` · ${lap.off_survey_count} ⚠`}
-                    </span>
-                  )}
-                </td>
-                <td className="px-2 py-1.5">{formatSpeed(lap.max_speed, units)}</td>
-                <td className="px-2 py-1.5 text-right whitespace-nowrap">
-                  <Tip content="Compare against the session's best lap in Analysis">
-                    <button
-                      className="mr-2 text-ink-dim hover:text-accent"
-                      onClick={() => onCompare(lap.id, lap.id === bestId ? null : bestId)}
-                    >
-                      compare
-                    </button>
-                  </Tip>
-                  <Tip content="Open Analysis with this lap as the reference">
-                    <button
-                      className="mr-2 text-ink-dim hover:text-accent"
-                      onClick={() => onCompare(lap.id, lap.id)}
-                    >
-                      set ref
-                    </button>
-                  </Tip>
-                  <button className="mr-2 text-ink-dim hover:text-ink" onClick={() => onExport(lap.id)}>
-                    json
-                  </button>
-                  <a
-                    className="mr-2 text-ink-dim hover:text-ink"
-                    href={api.lapCsvUrl(lap.id)}
-                    download
-                    title="MoTeC-compatible CSV"
+              </span>
+              <span className={isBest ? "text-accent" : ""}>{formatLapTime(lap.time_ms)}</span>
+              <span
+                className={
+                  diff == null ? "text-ink-faint" : diff === 0 ? "text-throttle" : "text-brake"
+                }
+              >
+                {diff == null ? "–" : diff === 0 ? "best" : `+${(diff / 1000).toFixed(3)}`}
+              </span>
+              {hasPositions && (
+                <span>{(lap.race_position ?? -1) >= 1 ? `P${lap.race_position}` : "–"}</span>
+              )}
+              <span>{lap.fuel_consumed.toFixed(2)} L</span>
+              <span>{lap.full_throttle_pct.toFixed(0)}%</span>
+              <span>{lap.full_brake_pct.toFixed(0)}%</span>
+              <span>{lap.coasting_pct.toFixed(0)}%</span>
+              <span>{lap.tire_spin_pct.toFixed(0)}%</span>
+              {/* Off-track excursions ride along with the event code — they
+                  are the same kind of "what went wrong this lap" count, and
+                  the tooltip spells the letters out. */}
+              <span
+                className={`min-w-0 truncate ${
+                  offTrack > 0 || offSurvey > 0 ? "text-brake" : "text-ink-faint"
+                }`}
+                title={`${formatEventCounts(lap.event_counts)}${
+                  offTrack > 0 ? ` · ${offTrack} off-track` : ""
+                }${
+                  offSurvey > 0 ? ` · ${offSurvey} beyond the surveyed edge` : ""
+                } — lockups · spins · bottoming · kerbs`}
+              >
+                {formatEventCounts(lap.event_counts)}
+                {offTrack > 0 && ` ${offTrack}⚠`}
+                {offSurvey > 0 && `·${offSurvey}⚠`}
+              </span>
+              <span>{formatSpeed(lap.max_speed, units)}</span>
+              <span className="whitespace-nowrap text-right text-[10.5px] text-ink-faint">
+                <Tip content="Compare against the session's best lap in Analysis">
+                  <button
+                    className="transition-colors hover:text-accent"
+                    onClick={() => onCompare(lap.id, lap.id === bestId ? null : bestId)}
                   >
-                    csv
-                  </a>
-                  <button className="text-ink-dim hover:text-brake" onClick={() => onDelete(lap.id)}>
-                    delete
+                    compare
                   </button>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+                </Tip>
+                {" · "}
+                <Tip content="Open Analysis with this lap as the reference">
+                  <button
+                    className="transition-colors hover:text-accent"
+                    onClick={() => onCompare(lap.id, lap.id)}
+                  >
+                    set ref
+                  </button>
+                </Tip>
+                {" · "}
+                <button
+                  className="transition-colors hover:text-accent"
+                  onClick={() => onExport(lap.id)}
+                >
+                  json
+                </button>
+                {" · "}
+                <a
+                  className="transition-colors hover:text-accent"
+                  href={api.lapCsvUrl(lap.id)}
+                  download
+                  title="MoTeC-compatible CSV"
+                >
+                  csv
+                </a>
+                {" · "}
+                <button
+                  className="transition-colors hover:text-brake"
+                  onClick={() => onDelete(lap.id)}
+                >
+                  delete
+                </button>
+              </span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

@@ -36,8 +36,8 @@ export function LapSparkline({ sessionId, lapCount }: { sessionId: number; lapCo
   const min = Math.min(...times);
   const max = Math.max(...times);
   const span = Math.max(1, max - min);
-  const W = 96;
-  const H = 22;
+  const W = 100;
+  const H = 24;
   const PAD = 3;
   const x = (i: number) => PAD + (i / (times.length - 1)) * (W - 2 * PAD);
   const y = (t: number) => PAD + ((t - min) / span) * (H - 2 * PAD);
@@ -56,13 +56,12 @@ export function LapSparkline({ sessionId, lapCount }: { sessionId: number; lapCo
       <polyline
         points={points}
         fill="none"
-        stroke="var(--color-ink-dim)"
-        strokeWidth="1"
+        stroke="var(--color-ink-faint)"
+        strokeWidth="1.5"
         strokeLinejoin="round"
         strokeLinecap="round"
-        opacity="0.7"
       />
-      <circle cx={x(bestIdx)} cy={y(min)} r="2" fill="var(--color-accent)" />
+      <circle cx={x(bestIdx)} cy={y(min)} r="2.5" fill="var(--color-accent)" />
     </svg>
   );
 }

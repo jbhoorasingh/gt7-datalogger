@@ -9,42 +9,55 @@ export interface SelectOption {
   label: React.ReactNode;
 }
 
+// Trigger chrome per variant. Each variant supplies its OWN border,
+// background and text colour so `className` never has to fight them:
+// competing utilities from the same group resolve by stylesheet order, not
+// by which one the caller wrote last.
+const TRIGGER_VARIANTS = {
+  default:
+    "rounded-md border border-edge bg-transparent text-ink-soft hover:border-accent",
+  // Inline label-and-value, for a toolbar where the control IS the text.
+  bare: "border-0 bg-transparent text-accent hover:text-accent-300",
+} as const;
+
 export function Select({
   value,
   onValueChange,
   options,
   className = "",
   ariaLabel,
+  variant = "default",
 }: {
   value: string;
   onValueChange: (value: string) => void;
   options: SelectOption[];
   className?: string; // sizing/typography for the trigger
   ariaLabel?: string;
+  variant?: keyof typeof TRIGGER_VARIANTS;
 }) {
   return (
     <SelectPrimitive.Root value={value} onValueChange={onValueChange}>
       <SelectPrimitive.Trigger
         aria-label={ariaLabel}
-        className={`inline-flex items-center justify-between gap-2 rounded-md border border-edge bg-panel-2 text-ink hover:border-accent/50 data-[placeholder]:text-ink-dim ${className}`}
+        className={`inline-flex items-center justify-between gap-2 transition-colors data-[placeholder]:text-ink-dim ${TRIGGER_VARIANTS[variant]} ${className}`}
       >
         <span className="truncate">
           <SelectPrimitive.Value />
         </span>
-        <SelectPrimitive.Icon className="text-ink-dim">▾</SelectPrimitive.Icon>
+        <SelectPrimitive.Icon className="text-[10px] text-ink-faint">▾</SelectPrimitive.Icon>
       </SelectPrimitive.Trigger>
       <SelectPrimitive.Portal>
         <SelectPrimitive.Content
           position="popper"
           sideOffset={4}
-          className="z-50 max-h-72 min-w-[var(--radix-select-trigger-width)] overflow-y-auto rounded-md border border-edge bg-panel py-1 shadow-lg shadow-black/40"
+          className="elevated z-50 max-h-72 min-w-[var(--radix-select-trigger-width)] overflow-y-auto rounded-panel bg-panel py-1"
         >
           <SelectPrimitive.Viewport>
             {options.map((o) => (
               <SelectPrimitive.Item
                 key={o.value}
                 value={o.value}
-                className="flex cursor-pointer items-center gap-2 px-2.5 py-1.5 text-xs text-ink outline-none data-[highlighted]:bg-panel-2 data-[state=checked]:text-accent"
+                className="flex cursor-pointer items-center gap-2 px-2.5 py-1.5 text-xs text-ink-soft outline-none data-[highlighted]:bg-panel-2 data-[highlighted]:text-ink data-[state=checked]:text-accent"
               >
                 <SelectPrimitive.ItemText>{o.label}</SelectPrimitive.ItemText>
                 <SelectPrimitive.ItemIndicator className="ml-auto text-accent">

@@ -22,6 +22,40 @@ interface PanelDef {
 
 // The time-diff panel is the anchor of the view and always first;
 // every other panel comes from the channel picker.
+// Channel-aware value formatting, shared by the tooltip and the per-strip
+// playhead readouts.
+function formatValueFor(units: Units) {
+  return (key: string, v: number): string => {
+      if (key.startsWith("slip_") || key === "tire_slip") return `${v.toFixed(2)}×`;
+      if (key.startsWith("tt_")) {
+        const sign = key === "tt_balance" && v > 0 ? "+" : "";
+        return `${sign}${v.toFixed(1)} °C`;
+      }
+      if (key.startsWith("sus_") || key === "body_height") return `${v.toFixed(1)} mm`;
+      switch (key) {
+        case "delta":
+          return `${v >= 0 ? "+" : ""}${v.toFixed(3)} s`;
+        case "speed":
+          return `${Math.round(v)} ${speedUnit(units)}`;
+        case "throttle":
+        case "brake":
+          return `${Math.round(v)}%`;
+        case "coast":
+          return v >= 0.5 ? "coasting" : "—";
+        case "gear":
+          return `${Math.round(v)}`;
+        case "rpm":
+          return `${Math.round(v).toLocaleString()} rpm`;
+        case "boost":
+          return `${v.toFixed(2)} bar`;
+        case "yaw_rate":
+          return `${v.toFixed(2)} rad/s`;
+        default:
+          return v.toFixed(2);
+      }
+  };
+}
+
 const DELTA_PANEL: PanelDef = { key: "delta", title: "Time diff (s)", height: 1.2 };
 
 type MarkAreaBand = [{ xAxis: number }, { xAxis: number }];
@@ -87,6 +121,8 @@ export function StackedCharts({
   onCursorDist,
   zoomRange,
   onZoomChange,
+  cursorDist,
+  refLapId,
 }: {
   data: CompareResult;
   lapLabels: Record<string, string>;
@@ -97,6 +133,10 @@ export function StackedCharts({
   onCursorDist?: (dist: number | null) => void;
   zoomRange?: [number, number] | null;
   onZoomChange?: (range: [number, number] | null) => void;
+  /** Shared playhead, echoed as a per-strip value readout. */
+  cursorDist?: number | null;
+  /** Which lap the readouts report — the reference lap. */
+  refLapId?: string | null;
 }) {
   const chartRef = useRef<echarts.ECharts | null>(null);
 
@@ -189,35 +229,7 @@ export function StackedCharts({
     // panel after the lap selection changes.
     const seriesMeta = new Map<string, { panelKey: string; panelTitle: string; lapId: string }>();
 
-    const formatValue = (key: string, v: number): string => {
-      if (key.startsWith("slip_") || key === "tire_slip") return `${v.toFixed(2)}×`;
-      if (key.startsWith("tt_")) {
-        const sign = key === "tt_balance" && v > 0 ? "+" : "";
-        return `${sign}${v.toFixed(1)} °C`;
-      }
-      if (key.startsWith("sus_") || key === "body_height") return `${v.toFixed(1)} mm`;
-      switch (key) {
-        case "delta":
-          return `${v >= 0 ? "+" : ""}${v.toFixed(3)} s`;
-        case "speed":
-          return `${Math.round(v)} ${speedUnit(units)}`;
-        case "throttle":
-        case "brake":
-          return `${Math.round(v)}%`;
-        case "coast":
-          return v >= 0.5 ? "coasting" : "—";
-        case "gear":
-          return `${Math.round(v)}`;
-        case "rpm":
-          return `${Math.round(v).toLocaleString()} rpm`;
-        case "boost":
-          return `${v.toFixed(2)} bar`;
-        case "yaw_rate":
-          return `${v.toFixed(2)} rad/s`;
-        default:
-          return v.toFixed(2);
-      }
-    };
+    const formatValue = formatValueFor(units);
 
     let cursor = 2;
     panels.forEach((panel, gi) => {
@@ -229,10 +241,21 @@ export function StackedCharts({
         height: `${h - 3}%`,
       });
       titles.push({
-        text: panel.title,
+        text: panel.title.toUpperCase(),
         left: 56,
         top: `${cursor - 0.4}%`,
-        textStyle: { color: CHART_COLORS.label, fontSize: 11, fontWeight: 400 },
+        textStyle: { color: CHART_COLORS.label, fontSize: 10, fontWeight: 600 },
+      });
+      // Right-aligned live value at the playhead. Text is filled in by the
+      // cursor effect below rather than here, so moving the playhead does not
+      // rebuild the whole option (and with it every series' data). Two titles
+      // per panel, so panel i's readout is title 2i+1.
+      titles.push({
+        text: "",
+        right: 12,
+        top: `${cursor - 0.4}%`,
+        textAlign: "right",
+        textStyle: { color: CHART_COLORS.value, fontSize: 10.5, fontWeight: 400 },
       });
       cursor += h;
       xAxes.push({
@@ -255,6 +278,27 @@ export function StackedCharts({
         axisLabel: { color: CHART_COLORS.label, fontSize: 9 },
         splitLine: { lineStyle: { color: CHART_COLORS.split } },
         splitNumber: 3,
+      });
+
+      // Playhead: one empty series per panel whose markLine is moved by the
+      // cursor effect. A markLine keyed on xAxis spans its grid's full height,
+      // so the line tracks the panel however its y range is scaled.
+      series.push({
+        type: "line",
+        id: `playhead|${panel.key}`,
+        xAxisIndex: gi,
+        yAxisIndex: gi,
+        data: [],
+        silent: true,
+        z: 20,
+        markLine: {
+          silent: true,
+          symbol: "none",
+          animation: false,
+          label: { show: false },
+          lineStyle: { color: CHART_COLORS.value, width: 1, type: "solid", opacity: 0.8 },
+          data: [],
+        },
       });
 
       lapIds.forEach((lapId) => {
@@ -348,12 +392,12 @@ export function StackedCharts({
           areaStyle: { color: CHART_COLORS.split },
         },
         selectedDataBackground: {
-          lineStyle: { color: "#38bdf8" },
-          areaStyle: { color: "#38bdf8", opacity: 0.2 },
+          lineStyle: { color: CHART_COLORS.accent },
+          areaStyle: { color: CHART_COLORS.accent, opacity: 0.2 },
         },
         fillerColor: "rgba(56, 189, 248, 0.15)",
-        handleStyle: { color: "#38bdf8", borderColor: "#38bdf8" },
-        moveHandleStyle: { color: "#38bdf8" },
+        handleStyle: { color: CHART_COLORS.accent, borderColor: CHART_COLORS.accent },
+        moveHandleStyle: { color: CHART_COLORS.accent },
         textStyle: { color: CHART_COLORS.label, fontSize: 10 },
         labelFormatter: (value: number) => `${Math.round(value)}m`,
         // Window state is applied via dispatchAction (single source of truth);
@@ -382,7 +426,7 @@ export function StackedCharts({
             filterMode: "none",
             brushStyle: {
               color: "rgba(56, 189, 248, 0.15)",
-              borderColor: "#38bdf8",
+              borderColor: CHART_COLORS.accent,
               borderWidth: 1,
             },
           },
@@ -399,9 +443,9 @@ export function StackedCharts({
       axisPointer: {
         type: "cross",
         link: [{ xAxisIndex: "all" }],
-        lineStyle: { color: "#38bdf8", width: 1, type: "dashed" },
-        crossStyle: { color: "#38bdf8", width: 1, type: "dashed" },
-        label: { backgroundColor: "#1e232b", color: "#38bdf8", fontSize: 10, padding: [2, 5] },
+        lineStyle: { color: CHART_COLORS.accent, width: 1, type: "dashed" },
+        crossStyle: { color: CHART_COLORS.accent, width: 1, type: "dashed" },
+        label: { backgroundColor: "#1e232b", color: CHART_COLORS.accent, fontSize: 10, padding: [2, 5] },
       },
       tooltip: {
         trigger: "axis",
@@ -465,57 +509,72 @@ export function StackedCharts({
     };
   }, [data, lapLabels, lapColors, units, panels]);
 
+  // Per-strip value readout at the playhead. Updated with a title-only
+  // setOption so the series data is never rebuilt as the cursor moves.
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const fmt = formatValueFor(units);
+    const refEntry = refLapId != null ? data.laps[refLapId] : undefined;
+    const titles = panels.map((panel, i) => {
+      const base = { index: i * 2 + 1 };
+      if (cursorDist == null) return { ...base, text: "" };
+      // The reference lap has no delta of its own, so the delta strip reads
+      // out the first lap that does — the one the chart actually draws.
+      const entry =
+        panel.key === "delta"
+          ? Object.values(data.laps).find((l) => l.delta)
+          : refEntry;
+      if (!entry) return { ...base, text: "" };
+      const dist = panel.key === "delta" ? entry.delta!.dist : entry.series.dist;
+      const raw =
+        panel.key === "delta"
+          ? entry.delta!.delta_ms.map((v) => v / 1000)
+          : panel.def
+            ? channelValues(panel.def, entry.series)
+            : entry.series[panel.key] ?? [];
+      if (!raw || !dist || dist.length === 0) return { ...base, text: "" };
+      // Nearest sample to the playhead; dist is monotonic so a scan from the
+      // proportional guess would do, but these arrays are short enough.
+      let lo = 0;
+      let hi = dist.length - 1;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (dist[mid] < cursorDist) lo = mid + 1;
+        else hi = mid;
+      }
+      const i0 = lo > 0 && Math.abs(dist[lo - 1] - cursorDist) < Math.abs(dist[lo] - cursorDist)
+        ? lo - 1
+        : lo;
+      const v = raw[i0];
+      if (v == null || !Number.isFinite(v)) return { ...base, text: "" };
+      const shown = panel.transform ? panel.transform(v, units) : v;
+      return { ...base, text: fmt(panel.key, shown) };
+    });
+    // The playhead line, moved by series id so nothing is rebuilt. Empty
+    // markLine data when there is no cursor, which draws nothing.
+    const playheads: SeriesOption[] = panels.map((panel) => ({
+      id: `playhead|${panel.key}`,
+      type: "line",
+      markLine: { data: cursorDist == null ? [] : [{ xAxis: cursorDist }] },
+    }) as SeriesOption);
+
+    const current = (chart.getOption().title ?? []) as Record<string, unknown>[];
+    const next =
+      current.length === 0
+        ? undefined
+        : current.map((t, i) => {
+            const hit = titles.find((x) => x.index === i);
+            return hit ? { ...t, text: hit.text } : t;
+          });
+    chart.setOption(
+      { series: playheads, ...(next ? { title: next } : {}) },
+      { notMerge: false, lazyUpdate: true },
+    );
+  }, [cursorDist, refLapId, data, panels, units]);
+
   return (
     <div className="flex flex-col">
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2 border-b border-edge/60 pb-2 text-xs">
-        <div className="flex items-center gap-2">
-          <span className="font-semibold text-ink-dim">Zoom Level:</span>
-          {zoomRange ? (
-            <span className="inline-flex items-center gap-1.5 rounded-md bg-accent/15 px-2 py-0.5 font-tabular text-accent">
-              <span>
-                🔍 {zoomRange[0].toFixed(0)}m – {zoomRange[1].toFixed(0)}m
-              </span>
-              <span className="text-[10px] opacity-75">
-                ({(zoomRange[1] - zoomRange[0]).toFixed(0)}m section)
-              </span>
-            </span>
-          ) : (
-            <span className="text-ink-dim">Full lap (0m – {maxDist.toFixed(0)}m)</span>
-          )}
-          <span className="hidden text-[11px] text-ink-dim/70 sm:inline">
-            • Drag across a chart to zoom · double-click to reset
-          </span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          {zoomRange && (
-            <button
-              onClick={() => onZoomChange?.(null)}
-              className="rounded border border-edge bg-panel-2 px-2 py-0.5 text-xs font-medium text-ink transition-colors hover:border-accent hover:text-accent"
-              title="Reset zoom to full lap"
-            >
-              Reset Zoom
-            </button>
-          )}
-          <button
-            onClick={() => onZoomChange?.([0, maxDist * 0.33])}
-            className="rounded border border-edge px-2 py-0.5 text-[11px] text-ink-dim transition-colors hover:border-edge-bright hover:text-ink"
-          >
-            S1 (0-33%)
-          </button>
-          <button
-            onClick={() => onZoomChange?.([maxDist * 0.33, maxDist * 0.66])}
-            className="rounded border border-edge px-2 py-0.5 text-[11px] text-ink-dim transition-colors hover:border-edge-bright hover:text-ink"
-          >
-            S2 (33-66%)
-          </button>
-          <button
-            onClick={() => onZoomChange?.([maxDist * 0.66, maxDist])}
-            className="rounded border border-edge px-2 py-0.5 text-[11px] text-ink-dim transition-colors hover:border-edge-bright hover:text-ink"
-          >
-            S3 (66-100%)
-          </button>
-        </div>
-      </div>
       <div className="relative w-full select-none" onDoubleClick={() => onZoomChange?.(null)}>
         <EChart
           option={option}

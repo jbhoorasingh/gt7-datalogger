@@ -34,7 +34,7 @@ const WEBHOOK_EVENTS: { value: WebhookEvent; label: string; hint: string }[] = [
 ];
 
 const LEVEL_COLORS: Record<string, string> = {
-  DEBUG: "text-ink-dim",
+  DEBUG: "text-ink-faint",
   INFO: "text-ink",
   WARNING: "text-warn",
   ERROR: "text-brake",
@@ -103,8 +103,8 @@ export function AdminView() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-3 p-3">
-      <h2 className="text-lg font-semibold">Admin</h2>
+    <div className="mx-auto flex max-w-[1200px] flex-col gap-3">
+      <h2 className="text-[17px] font-medium">Admin</h2>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         {/* Connection settings */}
@@ -127,7 +127,7 @@ export function AdminView() {
         {/* Diagnostics */}
         <Panel title="Diagnostics" subtitle="live health — refreshes every 5 s">
           {stats ? (
-            <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 p-4 font-tabular text-sm">
+            <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 px-4 py-3.5 font-tabular text-[11.5px]">
               <Stat k="Telemetry" v={stats.source.connected ? "connected" : "no data"}
                 cls={stats.source.connected ? "text-throttle" : "text-brake"} />
               <Stat k="Console" v={stats.source.console_ip || "auto-discover"} />
@@ -147,7 +147,8 @@ export function AdminView() {
           ) : (
             <div className="p-4 text-sm text-ink-dim">Loading…</div>
           )}
-          <div className="flex gap-2 border-t border-edge p-3">
+          <div className="rule" />
+          <div className="flex flex-wrap gap-2 px-4 py-3">
             <button
               className="btn"
               disabled={busy !== null}
@@ -204,7 +205,7 @@ export function AdminView() {
 
       {/* Data management */}
       <Panel title="Data management" subtitle="recorded sessions and laps">
-        <div className="flex flex-wrap items-center gap-2 p-3">
+        <div className="flex flex-wrap items-center gap-2 px-4 py-3">
           <button
             className="btn"
             disabled={busy !== null}
@@ -213,13 +214,13 @@ export function AdminView() {
             Compact database
           </button>
           <button
-            className="btn-danger"
+            className="btn btn-danger"
             disabled={busy !== null}
             onClick={() => setConfirmingClear(true)}
           >
             Delete all recorded data
           </button>
-          <span className="text-xs text-ink-dim">
+          <span className="text-[10.5px] text-ink-faint">
             Settings are kept. Export laps you want to keep first (Sessions view).
           </span>
         </div>
@@ -299,7 +300,7 @@ function ConnectionForm({
             value={ip}
             onChange={(e) => setIp(e.target.value)}
             placeholder="e.g. 192.168.1.30 — empty = auto-discover"
-            className="w-full rounded-md border border-edge bg-panel-2 px-3 py-1.5 font-tabular text-sm placeholder:text-ink-dim/60 focus:border-accent focus:outline-none"
+            className="w-full rounded-md border border-edge bg-panel-2 px-3 py-1.5 font-tabular text-sm placeholder:text-ink-ghost focus:border-accent focus:outline-none"
             onKeyDown={(e) => {
               if (e.key === "Enter" && ip !== settings.ps_ip) onApply({ ps_ip: ip }, "Console IP");
             }}
@@ -378,7 +379,7 @@ function ConnectionForm({
             value={token}
             onChange={(e) => setToken(e.target.value)}
             placeholder="empty = server is open"
-            className="w-full rounded-md border border-edge bg-panel-2 px-3 py-1.5 font-tabular text-sm placeholder:text-ink-dim/60 focus:border-accent focus:outline-none"
+            className="w-full rounded-md border border-edge bg-panel-2 px-3 py-1.5 font-tabular text-sm placeholder:text-ink-ghost focus:border-accent focus:outline-none"
           />
           <button
             className="btn shrink-0"
@@ -434,7 +435,7 @@ function WebhookForm({
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             placeholder="https://discord.com/api/webhooks/… (or any HTTP endpoint)"
-            className="w-full rounded-md border border-edge bg-panel-2 px-3 py-1.5 font-tabular text-sm placeholder:text-ink-dim/60 focus:border-accent focus:outline-none"
+            className="w-full rounded-md border border-edge bg-panel-2 px-3 py-1.5 font-tabular text-sm placeholder:text-ink-ghost focus:border-accent focus:outline-none"
           />
           <button
             className="btn shrink-0"
@@ -477,7 +478,7 @@ function WebhookForm({
             >
               <input
                 type="checkbox"
-                className="translate-y-px accent-sky-400"
+                className="translate-y-px accent-accent"
                 checked={settings.webhook_events.includes(ev.value)}
                 disabled={busy !== null || !settings.webhook_url}
                 onChange={(e) => toggleEvent(ev.value, e.target.checked)}
@@ -528,7 +529,7 @@ function RaceEngineerForm({
       <label className="flex cursor-pointer items-baseline gap-2 text-sm">
         <input
           type="checkbox"
-          className="translate-y-px accent-sky-400"
+          className="translate-y-px accent-accent"
           checked={settings.race_engineer}
           disabled={busy !== null}
           onChange={(e) => onApply({ race_engineer: e.target.checked }, "Race Engineer")}
@@ -595,7 +596,7 @@ function RaceEngineerForm({
             <label key={category} className="flex cursor-pointer items-baseline gap-1.5 text-xs">
               <input
                 type="checkbox"
-                className="translate-y-px accent-sky-400"
+                className="translate-y-px accent-accent"
                 checked={settings.race_engineer_categories.includes(category)}
                 disabled={busy !== null || !settings.race_engineer}
                 onChange={(e) => toggleCategory(category, e.target.checked)}
@@ -719,7 +720,7 @@ function LogViewer() {
 
   return (
     <div>
-      <div className="flex items-center gap-2 border-b border-edge px-3 py-2">
+      <div className="flex flex-wrap items-center gap-2 px-4 py-2">
         <Select
           ariaLabel="Log level filter"
           value={level || "all"}
@@ -743,13 +744,17 @@ function LogViewer() {
           {logs.length} entries · refreshes every 2 s
         </span>
       </div>
-      <div ref={scroller} className="h-72 overflow-y-auto p-2 font-mono text-[11px] leading-5">
-        {logs.length === 0 && <div className="p-2 text-ink-dim">No log entries.</div>}
+      <div className="rule" />
+      <div
+        ref={scroller}
+        className="h-72 overflow-y-auto px-3 py-2 font-mono text-[10.5px] leading-5"
+      >
+        {logs.length === 0 && <div className="p-2 text-ink-faint">No log entries.</div>}
         {logs.map((r, i) => (
-          <div key={`${r.ts}-${i}`} className="flex gap-2 whitespace-pre-wrap break-all px-1 hover:bg-panel-2/60">
-            <span className="shrink-0 text-ink-dim">{r.ts.slice(11, 19)}</span>
+          <div key={`${r.ts}-${i}`} className="flex gap-2 whitespace-pre-wrap break-all px-1 hover:bg-panel-2">
+            <span className="shrink-0 text-ink-faint">{r.ts.slice(11, 19)}</span>
             <span className={`w-16 shrink-0 ${LEVEL_COLORS[r.level] ?? "text-ink"}`}>{r.level}</span>
-            <span className="shrink-0 text-ink-dim">{r.logger}</span>
+            <span className="shrink-0 text-ink-faint">{r.logger}</span>
             <span>{r.message}</span>
           </div>
         ))}
@@ -768,17 +773,12 @@ function Panel({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-xl bg-panel">
-      <div className="flex items-baseline gap-2 border-b border-edge px-3 py-2">
-        <span className="text-[10px] font-semibold uppercase tracking-widest text-ink-dim">
-          {title}
-        </span>
-        {subtitle && (
-          <span className="text-[11px] normal-case tracking-normal text-ink-dim/80">
-            {subtitle}
-          </span>
-        )}
+    <div className="panel min-w-0">
+      <div className="flex items-baseline gap-2 px-4 py-2.5">
+        <span className="section-header">{title}</span>
+        {subtitle && <span className="text-[10.5px] text-ink-faint">{subtitle}</span>}
       </div>
+      <div className="rule" />
       {children}
     </div>
   );
@@ -787,7 +787,7 @@ function Panel({
 function Stat({ k, v, cls }: { k: string; v: string; cls?: string }) {
   return (
     <>
-      <span className="text-ink-dim">{k}</span>
+      <span className="text-ink-faint">{k}</span>
       <span className={`text-right ${cls ?? ""}`}>{v}</span>
     </>
   );

@@ -65,6 +65,11 @@ const CORNER_PAD_M = 40;
 // Chart margin, subtracted when measuring the plotting area's pixel aspect.
 const GRID_PAD = 8;
 
+// Metres of track across the longer axis while the follow camera is on. Wide
+// enough to hold a whole corner and its entry, tight enough that the car is
+// visibly moving rather than crawling.
+const FOLLOW_SPAN_M = 220;
+
 function zoneOf(throttle: number, brake: number): number {
   if (brake >= 1) return 0;
   if (throttle >= 1) return 2;
@@ -112,6 +117,43 @@ interface MapProps {
   // Lets the map drive the zoom every panel shares, so picking a corner here
   // takes the charts there too.
   onZoomChange?: (range: [number, number] | null) => void;
+  // Hero mode: the map runs full-bleed across the page at a fixed height
+  // instead of squaring off inside a rail, and the throttle/brake/coast key
+  // moves up into the panel header, so it is dropped from the row below.
+  hero?: boolean;
+  // Follow camera: frame a fixed window of track around the reference car at
+  // the cursor instead of the whole circuit. Driven by playback, so at a
+  // racing pace the map reads as a moving view of the corner being driven.
+  follow?: boolean;
+  /** Width of that window, in metres of track across the longer axis. */
+  followSpanM?: number;
+}
+
+// The follow camera's window: a fixed span of metres centred on the reference
+// car. Uses the same pixel-aspect rule as the full view, so a metre across
+// stays a metre down and corner shapes survive the zoom.
+function followWindow(
+  ref: MapLap | undefined,
+  cursorDist: number | null,
+  step: number,
+  aspect: number,
+  spanM: number,
+): { xMin: number; xMax: number; zMin: number; zMax: number } | null {
+  if (!ref || cursorDist == null || step <= 0) return null;
+  const s = ref.entry.series;
+  if (s.dist.length === 0) return null;
+  const i = Math.min(s.dist.length - 1, Math.max(0, Math.round(cursorDist / step)));
+  const x = s.pos_x[i];
+  const z = s.pos_z[i];
+  if (x == null || z == null || !isFinite(x) || !isFinite(z)) return null;
+  const spanX = spanM * Math.max(1, aspect);
+  const spanZ = spanM * Math.max(1, 1 / aspect);
+  return {
+    xMin: x - spanX / 2,
+    xMax: x + spanX / 2,
+    zMin: z - spanZ / 2,
+    zMax: z + spanZ / 2,
+  };
 }
 
 export function RaceLineMap(props: MapProps) {
@@ -123,7 +165,7 @@ export function RaceLineMap(props: MapProps) {
           instances would both re-render the outline's thousands of segments,
           and only one of them would be visible. */}
       {maximized ? (
-        <div className="aspect-square w-full" />
+        <div className={props.hero ? "h-[380px] w-full" : "aspect-square w-full"} />
       ) : (
         <MapBody {...props} onMaximize={() => setMaximized(true)} />
       )}
@@ -146,6 +188,9 @@ function MapBody({
   outline,
   onZoomChange,
   onMaximize,
+  hero = false,
+  follow = false,
+  followSpanM = FOLLOW_SPAN_M,
   maximized = false,
 }: MapProps & { onMaximize?: () => void; maximized?: boolean }) {
   const chartRef = useRef<echarts.ECharts | null>(null);
@@ -188,6 +233,82 @@ function MapBody({
   cornersRef.current = corners;
   const zoomRef = useRef(zoomToCorner);
   zoomRef.current = zoomToCorner;
+
+  // The framing of the whole view, kept OUT of the option memo: the follow
+  // camera swaps the axes every animation frame and needs a value to restore
+  // without rebuilding the option (and with it every outline segment).
+  const baseAxis = useMemo(() => {
+    // The window to show: the zoomed section of the reference lap, or
+    // everything there is. Collected from every drawn layer so the surveyed
+    // road cannot fall outside the frame.
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    const see = (x: number, z: number) => {
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (z < minZ) minZ = z;
+      if (z > maxZ) maxZ = z;
+    };
+
+    if (zoomRange && ref) {
+      const s = ref.entry.series;
+      for (let i = 0; i < s.dist.length; i++) {
+        const d = s.dist[i];
+        if (d >= zoomRange[0] && d <= zoomRange[1] && s.pos_x[i] != null && s.pos_z[i] != null) {
+          see(s.pos_x[i], s.pos_z[i]);
+        }
+      }
+    } else {
+      for (const lap of laps) {
+        const s = lap.entry.series;
+        for (let i = 0; i < s.dist.length; i++) {
+          if (s.pos_x[i] != null && s.pos_z[i] != null) see(s.pos_x[i], s.pos_z[i]);
+        }
+      }
+      // EVERY vertex of every layer. Sampling one corner of each quad and one
+      // end of each segment leaves whatever lies past it outside the explicit
+      // axis limits, and the things most likely to be out there are the ones
+      // worth seeing: a wall beyond the ordinary border, or a finish line
+      // reaching 12 m either side of the road.
+      for (const quad of outline?.road ?? []) {
+        for (let i = 0; i + 1 < quad.length; i += 2) see(quad[i], quad[i + 1]);
+      }
+      for (const segments of [outline?.edges ?? [], outline?.walls ?? [], outline?.gaps ?? []]) {
+        for (const seg of segments) {
+          see(seg[0], seg[1]);
+          see(seg[2], seg[3]);
+        }
+      }
+      if (outline?.finish) {
+        see(outline.finish[0], outline.finish[1]);
+        see(outline.finish[2], outline.finish[3]);
+      }
+    }
+
+    // A metre across must be a metre down, or the map lies about every
+    // corner's shape. Equal spans would do that only on a square plot; the
+    // spans instead follow the plotting area's pixel aspect, so the wider
+    // dimension simply shows more track.
+    let axis: { xMin: number; xMax: number; zMin: number; zMax: number } | null = null;
+    if (isFinite(minX) && isFinite(maxX) && isFinite(minZ) && isFinite(maxZ)) {
+      const pad = Math.max(Math.max(maxX - minX, maxZ - minZ) * 0.06, 8);
+      const span = Math.max(maxX - minX, maxZ - minZ) + pad * 2;
+      const spanX = span * Math.max(1, aspect);
+      const spanZ = span * Math.max(1, 1 / aspect);
+      const cx = (minX + maxX) / 2;
+      const cz = (minZ + maxZ) / 2;
+      axis = {
+        xMin: cx - spanX / 2,
+        xMax: cx + spanX / 2,
+        zMin: cz - spanZ / 2,
+        zMax: cz + spanZ / 2,
+      };
+    }
+
+    return axis;
+  }, [laps, outline, ref, zoomRange, aspect]);
 
   const option = useMemo<EChartsOption>(() => {
     const series: SeriesOption[] = [];
@@ -264,75 +385,6 @@ function MapBody({
           z: 0.9,
         });
       }
-    }
-
-    // The window to show: the zoomed section of the reference lap, or
-    // everything there is. Collected from every drawn layer so the surveyed
-    // road cannot fall outside the frame.
-    let minX = Infinity;
-    let maxX = -Infinity;
-    let minZ = Infinity;
-    let maxZ = -Infinity;
-    const see = (x: number, z: number) => {
-      if (x < minX) minX = x;
-      if (x > maxX) maxX = x;
-      if (z < minZ) minZ = z;
-      if (z > maxZ) maxZ = z;
-    };
-
-    if (zoomRange && ref) {
-      const s = ref.entry.series;
-      for (let i = 0; i < s.dist.length; i++) {
-        const d = s.dist[i];
-        if (d >= zoomRange[0] && d <= zoomRange[1] && s.pos_x[i] != null && s.pos_z[i] != null) {
-          see(s.pos_x[i], s.pos_z[i]);
-        }
-      }
-    } else {
-      for (const lap of laps) {
-        const s = lap.entry.series;
-        for (let i = 0; i < s.dist.length; i++) {
-          if (s.pos_x[i] != null && s.pos_z[i] != null) see(s.pos_x[i], s.pos_z[i]);
-        }
-      }
-      // EVERY vertex of every layer. Sampling one corner of each quad and one
-      // end of each segment leaves whatever lies past it outside the explicit
-      // axis limits, and the things most likely to be out there are the ones
-      // worth seeing: a wall beyond the ordinary border, or a finish line
-      // reaching 12 m either side of the road.
-      for (const quad of outline?.road ?? []) {
-        for (let i = 0; i + 1 < quad.length; i += 2) see(quad[i], quad[i + 1]);
-      }
-      for (const segments of [outline?.edges ?? [], outline?.walls ?? [], outline?.gaps ?? []]) {
-        for (const seg of segments) {
-          see(seg[0], seg[1]);
-          see(seg[2], seg[3]);
-        }
-      }
-      if (outline?.finish) {
-        see(outline.finish[0], outline.finish[1]);
-        see(outline.finish[2], outline.finish[3]);
-      }
-    }
-
-    // A metre across must be a metre down, or the map lies about every
-    // corner's shape. Equal spans would do that only on a square plot; the
-    // spans instead follow the plotting area's pixel aspect, so the wider
-    // dimension simply shows more track.
-    let axis: { xMin: number; xMax: number; zMin: number; zMax: number } | null = null;
-    if (isFinite(minX) && isFinite(maxX) && isFinite(minZ) && isFinite(maxZ)) {
-      const pad = Math.max(Math.max(maxX - minX, maxZ - minZ) * 0.06, 8);
-      const span = Math.max(maxX - minX, maxZ - minZ) + pad * 2;
-      const spanX = span * Math.max(1, aspect);
-      const spanZ = span * Math.max(1, 1 / aspect);
-      const cx = (minX + maxX) / 2;
-      const cz = (minZ + maxZ) / 2;
-      axis = {
-        xMin: cx - spanX / 2,
-        xMax: cx + spanX / 2,
-        zMin: cz - spanZ / 2,
-        zMax: cz + spanZ / 2,
-      };
     }
 
     // Comparison laps first (under the reference), as solid colored lines.
@@ -539,10 +591,12 @@ function MapBody({
         type: "scatter",
         data: [] as number[][],
         symbolSize: (lap.isRef ? 12 : 9) * (maximized ? 1.3 : 1),
-        itemStyle: lap.isRef
-          ? { color: "#fff", borderColor: CHART_COLORS.series[0], borderWidth: 3 }
-          : { color: lap.color, borderColor: "#fff", borderWidth: 1.5 },
-        z: 10,
+        itemStyle: {
+          color: lap.color,
+          borderColor: "#fff",
+          borderWidth: lap.isRef ? 3 : 1.5,
+        },
+        z: lap.isRef ? 11 : 10,
         silent: true,
       });
     }
@@ -553,13 +607,13 @@ function MapBody({
       xAxis: {
         type: "value",
         show: false,
-        ...(axis ? { min: axis.xMin, max: axis.xMax } : { scale: true }),
+        ...(baseAxis ? { min: baseAxis.xMin, max: baseAxis.xMax } : { scale: true }),
       },
       yAxis: {
         type: "value",
         show: false,
         inverse: true,
-        ...(axis ? { min: axis.zMin, max: axis.zMax } : { scale: true }),
+        ...(baseAxis ? { min: baseAxis.zMin, max: baseAxis.zMax } : { scale: true }),
       },
       // Free pan and wheel-zoom, but only where it cannot fight the page:
       // in the rail the map sits inside a scrolling column, and a wheel that
@@ -577,10 +631,20 @@ function MapBody({
       tooltip: { show: false },
       series,
     };
-  }, [laps, zoomRange, outline, corners, current, maximized, ref, aspect]);
+  }, [laps, zoomRange, outline, corners, current, maximized, ref, baseAxis]);
+
+  // Whether the axes are currently displaced by the follow camera, so the
+  // full view is restored exactly once when it switches off — pushing the
+  // base axis on every frame would fight the dialog's own pan and zoom.
+  const following = useRef(false);
 
   // Cursor updates merge into the existing chart by series id — no rebuild.
+  // The follow camera rides along in the SAME setOption: this runs every
+  // animation frame during playback, and rebuilding the option (thousands of
+  // outline segments) at that rate would stall the page.
   useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
     const updates: SeriesOption[] = laps.map((lap) => {
       const s = lap.entry.series;
       let data: number[][] = [];
@@ -592,8 +656,20 @@ function MapBody({
       }
       return { id: `cursor-${lap.id}`, data } as SeriesOption;
     });
-    chartRef.current?.setOption({ series: updates }, { notMerge: false, lazyUpdate: true });
-  }, [laps, cursorDist, step]);
+
+    const patch: Record<string, unknown> = { series: updates };
+    const window = follow ? followWindow(ref, cursorDist, step, aspect, followSpanM) : null;
+    if (window) {
+      patch.xAxis = { min: window.xMin, max: window.xMax };
+      patch.yAxis = { min: window.zMin, max: window.zMax };
+      following.current = true;
+    } else if (following.current && baseAxis) {
+      patch.xAxis = { min: baseAxis.xMin, max: baseAxis.xMax };
+      patch.yAxis = { min: baseAxis.zMin, max: baseAxis.zMax };
+      following.current = false;
+    }
+    chart.setOption(patch, { notMerge: false, lazyUpdate: true });
+  }, [laps, cursorDist, step, follow, followSpanM, ref, aspect, baseAxis]);
 
   const others = laps.filter((lap) => !lap.isRef);
   const hasSurface = !!ref?.entry.series.surface?.some((v) => v > 0);
@@ -603,7 +679,9 @@ function MapBody({
       <div ref={boxRef} className={maximized ? "relative min-h-0 flex-1" : "relative"}>
         <EChart
           option={option}
-          className={maximized ? "h-full w-full" : "aspect-square w-full"}
+          className={
+            maximized ? "h-full w-full" : hero ? "h-[380px] w-full" : "aspect-square w-full"
+          }
           onInit={(chart) => {
             chartRef.current = chart;
             chart.on("click", (e) => {
@@ -645,9 +723,14 @@ function MapBody({
             {lap.label}
           </span>
         ))}
-        <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-throttle" />throttle</span>
-        <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-brake" />brake</span>
-        <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-coast" />coast</span>
+        {/* In hero mode these three sit in the panel header instead. */}
+        {!hero && (
+          <>
+            <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-throttle" />throttle</span>
+            <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-brake" />brake</span>
+            <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-coast" />coast</span>
+          </>
+        )}
         <span className="text-warn">▲ peak</span>
         <span className="text-[#c084fc]">▼ valley</span>
         {hasSurface && (

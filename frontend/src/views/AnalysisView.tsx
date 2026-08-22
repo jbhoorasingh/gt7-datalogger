@@ -51,6 +51,10 @@ import { useTelemetry } from "@/store/telemetry";
 
 // The Corner Detail widget always needs the per-corner columns, whatever the
 // chart picker says.
+// Lap chips shown before the row collapses — about two rows at a typical
+// width, so an ordinary session never collapses at all.
+const LAP_CHIP_BUDGET = 12;
+
 const CORNER_COLUMNS = [
   "slip_fl", "slip_fr", "slip_rl", "slip_rr",
   "tt_fl", "tt_fr", "tt_rl", "tt_rr",
@@ -77,6 +81,8 @@ const PLAYBACK_COLUMNS = [
 
 export function AnalysisView({ request }: { request: AnalysisRequest }) {
   const units = useSettings((s) => s.units);
+  const mapFollow = useSettings((s) => s.mapFollow);
+  const setMapFollow = useSettings((s) => s.setMapFollow);
   const lapEpoch = useTelemetry((s) => s.lapEpoch);
 
   // Seed from the shared selection so switching tabs doesn't reset the view.
@@ -446,6 +452,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
   // track_name there is no "same circuit" to list laps from. Fetched per
   // open so the list sees laps recorded while the view was already mounted.
   const [addOpen, setAddOpen] = useState(false);
+  const [showAllLaps, setShowAllLaps] = useState(false);
   const [addChoices, setAddChoices] = useState<LapSummary[] | null>(null);
   useEffect(() => {
     if (!addOpen || !bestTrack) return;
@@ -477,17 +484,36 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
     setSelected((cur) => (cur.includes(lap.id) ? cur : [...cur, lap.id]));
   };
 
+  // The quickest lap currently on screen. Pinned to purple below, so the
+  // benchmark is identifiable at a glance among several moving cursor dots.
+  const fastestLapId = useMemo(() => {
+    let bestId: number | null = null;
+    let bestMs = Infinity;
+    for (const lap of [...laps, ...guests]) {
+      if (!selected.includes(lap.id) && lap.id !== refLap) continue;
+      // A partial lap's time is not a lap time (pit out-lap), so it cannot be
+      // the fastest — it would otherwise win every comparison it appears in.
+      if (lap.counts_for_best === false) continue;
+      if (lap.time_ms > 0 && lap.time_ms < bestMs) {
+        bestMs = lap.time_ms;
+        bestId = lap.id;
+      }
+    }
+    return bestId;
+  }, [laps, guests, selected, refLap]);
+
   // One color assignment for everything that shows the compared laps together
   // (chips, chart series, map, corner detail): id-keyed, but two selected laps
-  // never share a color (laps 6 apart otherwise would — latest vs best hits it).
+  // never share a color (laps 6 apart otherwise would — latest vs best hits it),
+  // and the fastest of them always takes purple.
   const lapColors = useMemo<Record<string, string>>(() => {
     const ids = new Set<number>(selected);
     if (refLap != null) ids.add(refLap);
     for (const id of Object.keys(compare?.laps ?? {})) ids.add(Number(id));
     return Object.fromEntries(
-      [...lapColorMap(ids)].map(([id, color]) => [String(id), color]),
+      [...lapColorMap(ids, fastestLapId)].map(([id, color]) => [String(id), color]),
     );
-  }, [selected, refLap, compare]);
+  }, [selected, refLap, compare, fastestLapId]);
   const colorOf = (id: string | number) =>
     lapColors[String(id)] ?? lapColor(Number(id));
 
@@ -539,6 +565,39 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
     }));
   }, [compare, lapLabels, refLap, lapColors]);
 
+  // A long session lists a chip per lap, which on a 300-lap stint wrapped to
+  // dozens of rows and pushed the map off the screen. Collapsed, the row shows
+  // the most recent laps plus whatever is actually in the comparison, however
+  // far back it sits; expanded, it scrolls rather than growing without bound.
+  const visibleLaps = useMemo(() => {
+    if (showAllLaps || laps.length <= LAP_CHIP_BUDGET) return laps;
+    const head = laps.slice(0, LAP_CHIP_BUDGET);
+    const keptBack = laps
+      .slice(LAP_CHIP_BUDGET)
+      .filter((lap) => selected.includes(lap.id) || lap.id === refLap);
+    return [...head, ...keptBack];
+  }, [laps, showAllLaps, selected, refLap]);
+  const hiddenLaps = laps.length - visibleLaps.length;
+
+  // Longest distance across the compared laps — the denominator for the
+  // sector buttons and the zoom readout in the map header.
+  const maxDist = useMemo(() => {
+    if (!compare) return 0;
+    let m = 0;
+    for (const lap of Object.values(compare.laps)) {
+      const d = lap.series.dist;
+      if (d && d.length > 0) m = Math.max(m, d[d.length - 1]);
+    }
+    return m;
+  }, [compare]);
+
+  const SECTORS: [string, number, number][] = [
+    ["Full", 0, 1],
+    ["S1", 0, 0.33],
+    ["S2", 0.33, 0.66],
+    ["S3", 0.66, 1],
+  ];
+
   if (sessions == null) {
     // Failed fetch would otherwise leave the skeleton up forever.
     if (error) {
@@ -550,15 +609,11 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
       );
     }
     return (
-      <div className="grid grid-cols-1 gap-3 p-3 xl:grid-cols-[1fr_360px]">
-        <div className="space-y-3">
-          <div className="skeleton h-14" />
-          <div className="skeleton h-96" />
-        </div>
-        <div className="hidden space-y-3 xl:block">
-          <div className="skeleton h-64" />
-          <div className="skeleton h-40" />
-        </div>
+      <div className="mx-auto flex max-w-[1440px] flex-col gap-3">
+        <div className="skeleton h-9" />
+        <div className="skeleton h-[380px]" />
+        <div className="skeleton h-12" />
+        <div className="skeleton h-96" />
       </div>
     );
   }
@@ -572,158 +627,255 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
     );
   }
 
-  return (
-    <div className="grid grid-cols-1 gap-3 p-3 xl:grid-cols-[1fr_360px]">
-      {/* Left: selector + stacked charts */}
-      <div className="min-w-0">
-        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl bg-panel p-3">
-          <Select
-            ariaLabel="Session"
-            value={String(sessionId ?? "")}
-            onValueChange={(v) => {
-              manualSelection.current = false;
-              // A guest fetch started under the old session must not land
-              // its lap as a guest of the new one.
-              pendingGuestIds.current.clear();
-              setSessionId(Number(v));
-            }}
-            options={sessions.map((s) => ({
-              value: String(s.id),
-              // The circuit goes first: it is what you are looking for when
-              // picking a session to analyse, and since #58 most sessions
-              // have one. Omitted rather than shown blank when they do not,
-              // so an unidentified session reads as unidentified instead of
-              // as a formatting glitch.
-              label: `#${s.id}${s.track_name ? ` · ${s.track_name}` : ""} · ${
-                s.car_name
-              } · ${s.lap_count} laps`,
-            }))}
-            className="px-2 py-1.5 text-sm"
-          />
-          {/* Scrolls horizontally on narrow screens instead of overflowing */}
-          <div className="flex min-w-0 max-w-full gap-1.5 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-x-visible sm:pb-0">
-            {laps.map((lap) => {
-              const active = selected.includes(lap.id);
-              const isRef = lap.id === refLap;
-              return (
-                <Tip key={lap.id} content="Click to toggle, double-click to set as reference">
-                  <button
-                    onClick={() => {
-                      manualSelection.current = true;
-                      setSelected((cur) =>
-                        active ? cur.filter((id) => id !== lap.id) : [...cur, lap.id],
-                      );
-                    }}
-                    onDoubleClick={() => {
-                      manualSelection.current = true;
-                      setRefLap(lap.id);
-                    }}
-                    className={`flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 font-tabular text-xs transition-colors ${
-                      isRef
-                        ? "border-accent bg-accent/15 text-accent"
-                        : active
-                          ? "border-edge bg-panel-2 text-ink"
-                          : "border-edge text-ink-dim hover:text-ink"
-                    }`}
-                  >
-                    {active && (
-                      <span
-                        className="h-2 w-2 rounded-full"
-                        style={{ backgroundColor: colorOf(lap.id) }}
-                      />
-                    )}
-                    L{lap.number} {formatLapTime(lap.time_ms)}
-                  </button>
-                </Tip>
-              );
-            })}
-            {/* Guest laps from other sessions (#26), after the session's own —
-                same toggle/reference behavior, session-qualified label. */}
-            {guests.map((lap) => {
-              const active = selected.includes(lap.id);
-              const isRef = lap.id === refLap;
-              return (
-                <Tip key={lap.id} content="Click to toggle, double-click to set as reference">
-                  <button
-                    onClick={() => {
-                      manualSelection.current = true;
-                      setSelected((cur) =>
-                        active ? cur.filter((id) => id !== lap.id) : [...cur, lap.id],
-                      );
-                    }}
-                    onDoubleClick={() => {
-                      manualSelection.current = true;
-                      setRefLap(lap.id);
-                    }}
-                    className={`flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 font-tabular text-xs transition-colors ${
-                      isRef
-                        ? "border-accent bg-accent/15 text-accent"
-                        : active
-                          ? "border-edge bg-panel-2 text-ink"
-                          : "border-edge text-ink-dim hover:text-ink"
-                    }`}
-                  >
-                    {active && (
-                      <span
-                        className="h-2 w-2 rounded-full"
-                        style={{ backgroundColor: colorOf(lap.id) }}
-                      />
-                    )}
-                    S{lap.session_id}·L{lap.number} {formatLapTime(lap.time_ms)}
-                  </button>
-                </Tip>
-              );
-            })}
-          </div>
-          {bestTrack && (
-            <Tip content="Add a lap from another session at this circuit to the comparison">
-              <button className="btn shrink-0" onClick={() => setAddOpen(true)}>
-                + Add lap…
-              </button>
-            </Tip>
+  const lapChip = (lap: LapSummary, label: string) => {
+    const active = selected.includes(lap.id);
+    const isRef = lap.id === refLap;
+    return (
+      <Tip key={lap.id} content="Click to toggle, double-click to set as reference">
+        <button
+          onClick={() => {
+            manualSelection.current = true;
+            setSelected((cur) =>
+              active ? cur.filter((id) => id !== lap.id) : [...cur, lap.id],
+            );
+          }}
+          onDoubleClick={() => {
+            manualSelection.current = true;
+            setRefLap(lap.id);
+          }}
+          className={`flex shrink-0 items-center rounded border px-2.5 py-1 font-tabular text-[11.5px] transition-colors ${
+            isRef
+              ? "border-accent bg-accent/12 text-accent-300"
+              : active
+                ? "border-edge bg-panel-2 text-ink-soft"
+                : "border-edge text-ink-faint hover:border-ink-ghost hover:text-ink"
+          }`}
+        >
+          {active && (
+            <span
+              className="mr-1.5 inline-block h-[7px] w-[7px] rounded-full"
+              style={{ backgroundColor: colorOf(lap.id) }}
+            />
           )}
-          <ChannelPicker selected={channelKeys} onChange={setChannelKeys} />
-          {refLap != null && (
-            <div className="ml-auto">
-              <Select
-                ariaLabel="Reference lap"
-                value={String(refLap)}
-                onValueChange={(v) => {
-                  manualSelection.current = true;
-                  setRefLap(Number(v));
-                }}
-                options={[
-                  ...laps.map((lap) => ({
-                    value: String(lap.id),
-                    label: `ref: L${lap.number} ${formatLapTime(lap.time_ms)}`,
-                  })),
-                  // Guests are eligible references too — comparing today's
-                  // laps against another day's benchmark is the point (#26).
-                  ...guests.map((lap) => ({
-                    value: String(lap.id),
-                    label: `ref: S${lap.session_id}·L${lap.number} ${formatLapTime(lap.time_ms)}`,
-                  })),
-                ]}
-                className="px-2 py-1.5 text-xs"
-              />
-            </div>
+          {label}
+        </button>
+      </Tip>
+    );
+  };
+
+  return (
+    <div className="mx-auto flex max-w-[1440px] flex-col gap-3">
+      {/* 1 — toolbar: session, laps, channels, reference */}
+      <div className="flex flex-wrap items-center gap-2">
+        <Select
+          ariaLabel="Session"
+          value={String(sessionId ?? "")}
+          onValueChange={(v) => {
+            manualSelection.current = false;
+            // A guest fetch started under the old session must not land
+            // its lap as a guest of the new one.
+            pendingGuestIds.current.clear();
+            setSessionId(Number(v));
+          }}
+          options={sessions.map((s) => ({
+            value: String(s.id),
+            // The circuit goes first: it is what you are looking for when
+            // picking a session to analyse, and since #58 most sessions
+            // have one. Omitted rather than shown blank when they do not,
+            // so an unidentified session reads as unidentified instead of
+            // as a formatting glitch.
+            label: `#${s.id}${s.track_name ? ` · ${s.track_name}` : ""} · ${
+              s.car_name
+            } · ${s.lap_count} laps`,
+          }))}
+          className="px-2.5 py-[5px] text-xs"
+        />
+
+        <div className="h-[18px] w-px shrink-0 bg-divider" />
+
+        {/* Scrolls horizontally on narrow screens instead of overflowing, and
+            vertically once expanded, so the map is always still on screen. */}
+        <div
+          className={`flex min-w-0 max-w-full gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-x-visible sm:pb-0 ${
+            showAllLaps ? "max-h-32 overflow-y-auto sm:pr-1" : ""
+          }`}
+        >
+          {visibleLaps.map((lap) => lapChip(lap, `L${lap.number} ${formatLapTime(lap.time_ms)}`))}
+          {/* Guest laps from other sessions (#26), after the session's own —
+              same toggle/reference behavior, session-qualified label. */}
+          {guests.map((lap) =>
+            lapChip(lap, `S${lap.session_id}·L${lap.number} ${formatLapTime(lap.time_ms)}`),
           )}
         </div>
 
-        {error && <div className="mb-3 rounded-md bg-brake/10 p-2 text-sm text-brake">{error}</div>}
-        {loading && !compare && <div className="skeleton h-96" />}
-        {compare && (
-          <div className="rounded-xl bg-panel p-2">
-            {refEntry && (
-              // Keyed on the reference lap so switching it rewinds the clock.
-              <PlaybackBar
-                key={refLap}
-                series={refEntry.series}
-                lap={refSummary}
-                onCursorDist={onCursorDist}
-                onPlayingChange={onPlayingChange}
-              />
-            )}
+        {(hiddenLaps > 0 || showAllLaps) && (
+          <button
+            className="shrink-0 rounded border border-dashed border-edge px-2.5 py-1 text-[11.5px] text-ink-dim transition-colors hover:border-accent hover:text-accent"
+            onClick={() => setShowAllLaps((open) => !open)}
+          >
+            {showAllLaps ? "show fewer" : `+${hiddenLaps} more`}
+          </button>
+        )}
+        {bestTrack && (
+          <Tip content="Add a lap from another session at this circuit to the comparison">
+            <button
+              className="shrink-0 rounded border border-dashed border-edge px-2.5 py-1 text-[11.5px] text-ink-dim transition-colors hover:border-accent hover:text-accent"
+              onClick={() => setAddOpen(true)}
+            >
+              + Add lap…
+            </button>
+          </Tip>
+        )}
+
+        {/* 2 — channel picker popover hangs off this button */}
+        <ChannelPicker selected={channelKeys} onChange={setChannelKeys} />
+
+        {refLap != null && (
+          <div className="ml-auto flex items-center gap-1.5 text-[11.5px] text-ink-dim">
+            <span>ref</span>
+            <Select
+              ariaLabel="Reference lap"
+              value={String(refLap)}
+              onValueChange={(v) => {
+                manualSelection.current = true;
+                setRefLap(Number(v));
+              }}
+              options={[
+                ...laps.map((lap) => ({
+                  value: String(lap.id),
+                  label: `L${lap.number} · ${formatLapTime(lap.time_ms)}`,
+                })),
+                // Guests are eligible references too — comparing today's
+                // laps against another day's benchmark is the point (#26).
+                ...guests.map((lap) => ({
+                  value: String(lap.id),
+                  label: `S${lap.session_id}·L${lap.number} · ${formatLapTime(lap.time_ms)}`,
+                })),
+              ]}
+              variant="bare"
+              className="px-1 font-tabular text-[11.5px]"
+            />
+          </div>
+        )}
+      </div>
+
+      {error && <div className="rounded-md bg-brake/10 p-2 text-sm text-brake">{error}</div>}
+      {loading && !compare && <div className="skeleton h-[380px]" />}
+
+      {/* 3 — race line map hero */}
+      {refEntry && (
+        <div
+          className="overflow-hidden rounded-panel"
+          style={{
+            background:
+              "linear-gradient(180deg, var(--color-panel), color-mix(in srgb, var(--color-panel) 82%, #0c0d16))",
+            boxShadow: "0 0 0 1px var(--color-hairline)",
+          }}
+        >
+          <div className="flex flex-wrap items-center gap-3.5 px-4 py-2.5">
+            <span className="section-header">
+              Race line{bestTrack ? ` — ${bestTrack}` : ""}
+            </span>
+            <span className="flex flex-wrap gap-3 text-[10.5px] text-ink-dim">
+              <span>
+                <i className="mr-1.5 inline-block h-0.5 w-3.5 bg-throttle align-middle" />
+                throttle
+              </span>
+              <span>
+                <i className="mr-1.5 inline-block h-0.5 w-3.5 bg-brake align-middle" />
+                brake
+              </span>
+              <span>
+                <i className="mr-1.5 inline-block h-0.5 w-3.5 bg-coast align-middle" />
+                coast
+              </span>
+              {outline && (
+                <span>
+                  <i className="mr-1.5 inline-block h-0.5 w-3.5 bg-ink-dim align-middle" />
+                  surveyed borders
+                </span>
+              )}
+            </span>
+            <div className="ml-auto flex items-center gap-1">
+              <Tip content="Drag across a chart to zoom · double-click to reset">
+                <span className="mr-1.5 font-tabular text-[10.5px] text-ink-faint">
+                  {zoomRange
+                    ? `${zoomRange[0].toFixed(0)}–${zoomRange[1].toFixed(0)} m`
+                    : maxDist > 0
+                      ? `0–${maxDist.toFixed(0)} m`
+                      : "full lap"}
+                </span>
+              </Tip>
+              <Tip content="While playback runs, zoom the map in and pan with the car instead of framing the whole circuit">
+                <button
+                  onClick={() => setMapFollow(!mapFollow)}
+                  aria-pressed={mapFollow}
+                  className={`mr-1 rounded border px-2.5 py-0.5 text-[10.5px] transition-colors ${
+                    mapFollow
+                      ? "border-accent bg-accent/14 text-accent-300"
+                      : "border-edge text-ink-dim hover:border-accent hover:text-accent"
+                  }`}
+                >
+                  Follow
+                </button>
+              </Tip>
+              {SECTORS.map(([label, a, b]) => {
+                // "Full" is the null range; the others compare against the
+                // window they would set, so the active button survives a
+                // round-trip through the charts.
+                const isFull = a === 0 && b === 1;
+                const range: [number, number] = [maxDist * a, maxDist * b];
+                const on = isFull
+                  ? zoomRange == null
+                  : zoomRange != null &&
+                    Math.abs(zoomRange[0] - range[0]) < 1 &&
+                    Math.abs(zoomRange[1] - range[1]) < 1;
+                return (
+                  <button
+                    key={label}
+                    onClick={() => setZoomRange(isFull ? null : range)}
+                    aria-pressed={on}
+                    className={`rounded border px-2.5 py-0.5 text-[10.5px] transition-colors ${
+                      on
+                        ? "border-accent bg-accent/14 text-accent-300"
+                        : "border-edge text-ink-dim hover:border-accent hover:text-accent"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <RaceLineMap
+            hero
+            follow={mapFollow}
+            laps={mapLaps}
+            cursorDist={cursorDist}
+            step={compare!.step}
+            zoomRange={zoomRange}
+            outline={outline}
+            onZoomChange={setZoomRange}
+          />
+        </div>
+      )}
+
+      {compare && (
+        <>
+          {/* 4 — playback transport, keyed on the reference lap so switching
+              it rewinds the clock */}
+          {refEntry && (
+            <PlaybackBar
+              key={refLap}
+              series={refEntry.series}
+              lap={refSummary}
+              onCursorDist={onCursorDist}
+              onPlayingChange={onPlayingChange}
+            />
+          )}
+
+          {/* 5 — chart stack */}
+          <div className="panel px-4 py-3">
             <StackedCharts
               data={compare}
               lapLabels={lapLabels}
@@ -733,91 +885,31 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
               onCursorDist={onHoverCursorDist}
               zoomRange={zoomRange}
               onZoomChange={setZoomRange}
+              cursorDist={cursorDist}
+              refLapId={refLap != null ? String(refLap) : null}
             />
           </div>
-        )}
-        {reportLaps.length > 0 && refEntry?.corners && refEntry.corners.length > 0 && (
-          <div className="mt-3 rounded-xl bg-panel">
-            <div className="border-b border-edge px-3 py-2 text-[10px] font-semibold uppercase tracking-widest text-ink-dim">
-              Corner report card
-            </div>
-            <CornerReport
-              corners={refEntry.corners}
-              laps={reportLaps}
-              units={units}
-              onZoom={setZoomRange}
-            />
-          </div>
-        )}
-      </div>
+        </>
+      )}
 
-      {/* Right: race line, deviation, fuel, tuning */}
-      <div className="flex min-w-0 flex-col gap-3">
-        {refEntry && (
-          <SidePanel
-            title={mapLaps.length > 1 ? "Race lines — selected laps" : "Race line (reference lap)"}
-          >
-            <RaceLineMap
-              laps={mapLaps}
-              cursorDist={cursorDist}
-              step={compare!.step}
-              zoomRange={zoomRange}
-              outline={outline}
-              onZoomChange={setZoomRange}
-            />
-          </SidePanel>
-        )}
-        {ggLaps.length > 0 && (
-          <SidePanel title="Traction circle — g-g">
-            <GGDiagram
-              laps={ggLaps}
-              accel={compare!.accel}
-              cursorDist={cursorDist}
-              step={compare!.step}
-            />
-          </SidePanel>
-        )}
+      {/* 6 — bottom grid. auto-fit means every analysis panel the session has
+          data for flows into the same card rack, three-up on a wide screen. */}
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(300px,1fr))] gap-3">
         {cornerLaps.length > 0 && (
-          <SidePanel title="Corner detail — cursor synced">
+          <Panel title="Corner detail — cursor synced">
             <CornerDetail
               laps={cornerLaps}
               cursorDist={cursorDist}
               step={compare!.step}
               trackCorners={refEntry?.corners}
             />
-          </SidePanel>
-        )}
-        {coaching && coaching.laps.length > 0 && (
-          <SidePanel title="Race engineer — post-lap notes">
-            <CoachingPanel
-              notes={coaching.laps}
-              selected={selected}
-              lapColors={lapColors}
-              corners={refEntry?.corners ?? []}
-              onZoom={setZoomRange}
-            />
-          </SidePanel>
-        )}
-        {refLap != null && (
-          <SidePanel title="Gearing (reference lap)">
-            <GearingPanel lapId={refLap} units={units} />
-          </SidePanel>
-        )}
-        {deviation && deviation.dist.length > 0 && (
-          <SidePanel title={`Consistency — best ${deviation.lap_ids.length} laps`}>
-            <DeviationChart data={deviation} units={units} zoomRange={zoomRange} />
-          </SidePanel>
-        )}
-        {refLap != null && (
-          <SidePanel title="Fuel strategy">
-            <FuelMapPanel lapId={refLap} />
-          </SidePanel>
+          </Panel>
         )}
         {refSummary && (
-          <SidePanel title="Tuning info (reference lap)">
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1 p-3 font-tabular text-xs">
+          <Panel title="Tuning — reference lap">
+            <div className="grid grid-cols-[auto_1fr_auto_1fr] gap-x-3.5 gap-y-1.5 px-3.5 py-3 font-tabular text-[11.5px]">
               <Info k="Max speed" v={formatSpeed(refSummary.max_speed, units)} />
-              <Info k="Min body height" v={`${refSummary.min_body_height.toFixed(0)} mm`} />
+              <Info k="Min height" v={`${refSummary.min_body_height.toFixed(0)} mm`} />
               <Info k="Full throttle" v={`${refSummary.full_throttle_pct.toFixed(1)}%`} />
               <Info k="Full brake" v={`${refSummary.full_brake_pct.toFixed(1)}%`} />
               <Info k="Coasting" v={`${refSummary.coasting_pct.toFixed(1)}%`} />
@@ -843,6 +935,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
               {refSummary.event_counts && Object.keys(refSummary.event_counts).length > 0 && (
                 <Info
                   k="Events"
+                  span
                   v={Object.entries(refSummary.event_counts)
                     .map(([type, n]) => `${n} ${type}`)
                     .join(" · ")}
@@ -850,37 +943,89 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
               )}
             </div>
             {categoryBest && (
-              <CategoryBestRow
-                best={categoryBest}
-                refTimeMs={refSummary.time_ms}
-                refIsFullLap={refSummary.counts_for_best !== false}
-                onOpen={() =>
-                  openInAnalysis({
-                    session: categoryBest.session_id,
-                    laps: [categoryBest.lap_id],
-                    ref: categoryBest.lap_id,
-                  })
-                }
-                // Pull the benchmark INTO the current comparison as a guest —
-                // selecting it is enough, the resolver fetches the summary.
-                // Pointless (hence hidden) when it is already on screen.
-                onCompare={
-                  selected.includes(categoryBest.lap_id) || categoryBest.lap_id === refLap
-                    ? null
-                    : () => {
-                        manualSelection.current = true;
-                        setSelected((cur) =>
-                          cur.includes(categoryBest.lap_id)
-                            ? cur
-                            : [...cur, categoryBest.lap_id],
-                        );
-                      }
-                }
-              />
+              <>
+                <div className="rule" />
+                <CategoryBestRow
+                  best={categoryBest}
+                  refTimeMs={refSummary.time_ms}
+                  refIsFullLap={refSummary.counts_for_best !== false}
+                  onOpen={() =>
+                    openInAnalysis({
+                      session: categoryBest.session_id,
+                      laps: [categoryBest.lap_id],
+                      ref: categoryBest.lap_id,
+                    })
+                  }
+                  // Pull the benchmark INTO the current comparison as a guest —
+                  // selecting it is enough, the resolver fetches the summary.
+                  // Pointless (hence hidden) when it is already on screen.
+                  onCompare={
+                    selected.includes(categoryBest.lap_id) || categoryBest.lap_id === refLap
+                      ? null
+                      : () => {
+                          manualSelection.current = true;
+                          setSelected((cur) =>
+                            cur.includes(categoryBest.lap_id)
+                              ? cur
+                              : [...cur, categoryBest.lap_id],
+                          );
+                        }
+                  }
+                />
+              </>
             )}
-          </SidePanel>
+          </Panel>
+        )}
+        {refLap != null && (
+          <Panel title="Fuel strategy">
+            <FuelMapPanel lapId={refLap} />
+          </Panel>
+        )}
+        {ggLaps.length > 0 && (
+          <Panel title="Traction circle — g-g">
+            <GGDiagram
+              laps={ggLaps}
+              accel={compare!.accel}
+              cursorDist={cursorDist}
+              step={compare!.step}
+            />
+          </Panel>
+        )}
+        {refLap != null && (
+          <Panel title="Gearing — reference lap">
+            <GearingPanel lapId={refLap} units={units} />
+          </Panel>
+        )}
+        {deviation && deviation.dist.length > 0 && (
+          <Panel title={`Consistency — best ${deviation.lap_ids.length} laps`}>
+            <DeviationChart data={deviation} units={units} zoomRange={zoomRange} />
+          </Panel>
+        )}
+        {coaching && coaching.laps.length > 0 && (
+          <Panel title="Race engineer — post-lap notes">
+            <CoachingPanel
+              notes={coaching.laps}
+              selected={selected}
+              lapColors={lapColors}
+              corners={refEntry?.corners ?? []}
+              onZoom={setZoomRange}
+            />
+          </Panel>
         )}
       </div>
+
+      {/* The corner report is a wide table — it gets the full width rather
+          than a 300px grid cell. */}
+      {reportLaps.length > 0 && refEntry?.corners && refEntry.corners.length > 0 && (
+        <Panel title="Corner report card">
+          <CornerReport
+            corners={refEntry.corners}
+            laps={reportLaps}
+            units={units}
+            onZoom={setZoomRange}
+          />
+        </Panel>
+      )}
 
       <LargeDialog
         open={addOpen}
@@ -914,8 +1059,8 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
                     }}
                     className={`flex w-full items-baseline gap-2 rounded-md border border-edge px-3 py-2 text-left text-xs transition-colors ${
                       added
-                        ? "text-ink-dim/60"
-                        : "text-ink hover:border-accent/50 hover:bg-panel-2"
+                        ? "text-ink-ghost"
+                        : "text-ink hover:border-accent hover:bg-panel-2"
                     }`}
                   >
                     <span className="shrink-0 font-tabular">
@@ -1012,22 +1157,26 @@ function CategoryBestRow({
   );
 }
 
-function SidePanel({ title, children }: { title: string; children: React.ReactNode }) {
+// One card in the bottom grid: a section header over whatever the panel
+// draws. The header is the only chrome — the panel's hairline ring separates
+// it from its neighbours.
+function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-xl bg-panel">
-      <div className="border-b border-edge px-3 py-2 text-[10px] font-semibold uppercase tracking-widest text-ink-dim">
-        {title}
-      </div>
+    <div className="panel min-w-0">
+      <div className="section-header px-3.5 py-2.5">{title}</div>
+      <div className="rule" />
       {children}
     </div>
   );
 }
 
-function Info({ k, v }: { k: string; v: string }) {
+// One key/value pair in the tuning grid. `span` runs the value across the
+// grid's remaining columns, for values too long for a half-width cell.
+function Info({ k, v, span = false }: { k: string; v: string; span?: boolean }) {
   return (
     <>
-      <span className="text-ink-dim">{k}</span>
-      <span className="text-right">{v}</span>
+      <span className="text-ink-faint">{k}</span>
+      <span className={`text-right ${span ? "col-span-3" : ""}`}>{v}</span>
     </>
   );
 }

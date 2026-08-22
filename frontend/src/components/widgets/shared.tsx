@@ -5,7 +5,9 @@ import type { LiveFrame } from "@/lib/types";
 
 export function Caption({ children }: { children: React.ReactNode }) {
   return (
-    <div className="text-[9px] uppercase tracking-widest text-ink-dim">{children}</div>
+    <div className="text-[9px] font-semibold uppercase tracking-[0.16em] text-ink-faint">
+      {children}
+    </div>
   );
 }
 

@@ -44,13 +44,36 @@ function Flag({ ok, label, title }: { ok: boolean; label: string; title: string 
   return (
     <Tip content={title}>
       <span
-        className={`rounded-full px-2 py-0.5 text-xs ${
-          ok ? "bg-throttle/15 text-throttle" : "border border-dashed border-edge text-ink-dim"
+        className={`rounded-[9px] px-2 py-px text-[10px] ${
+          ok
+            ? "bg-throttle/14 text-throttle"
+            : "border border-dashed border-edge text-ink-faint"
         }`}
       >
         {ok ? label : `no ${label}`}
       </span>
     </Tip>
+  );
+}
+
+// 60×6 coverage meter — the share of one border the survey has established.
+// Green when the evidence is close to complete, warn while it is not.
+function MicroMeter({ label, pct }: { label: string; pct: number }) {
+  const w = Math.max(0, Math.min(60, (pct / 100) * 60));
+  return (
+    <span className="flex items-center gap-1.5">
+      <span className="text-ink-faint">{label}</span>
+      <svg viewBox="0 0 60 6" className="h-1.5 w-[60px]" aria-hidden="true">
+        <rect width="60" height="6" rx="3" fill="var(--color-panel-2)" />
+        <rect
+          width={w}
+          height="6"
+          rx="3"
+          fill={pct >= 90 ? "var(--color-throttle)" : "var(--color-warn)"}
+        />
+      </svg>
+      <span>{pct}%</span>
+    </span>
   );
 }
 
@@ -183,7 +206,7 @@ export function TracksView() {
 
   if (editing) {
     return (
-      <div className="mx-auto max-w-6xl p-3">
+      <div className="mx-auto max-w-[1200px]">
         <CornerEditor
           slug={editing.slug}
           trackName={editing.name}
@@ -203,16 +226,16 @@ export function TracksView() {
   const bundleCount = rows.filter((r) => r.bundle != null).length;
 
   return (
-    <div className="mx-auto max-w-6xl space-y-3 p-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <h2 className="text-lg font-semibold">Tracks</h2>
-        <span className="text-xs text-ink-dim">
+    <div className="mx-auto flex max-w-[1200px] flex-col gap-3">
+      <div className="flex flex-wrap items-baseline gap-3">
+        <h2 className="text-[17px] font-medium">Tracks</h2>
+        <span className="text-[11.5px] text-ink-faint">
           named tracks, survey bundles and the official catalog, in one place
         </span>
         <div className="ml-auto flex items-center gap-2">
           <Tip content="Match every unlabelled session against the surveyed circuits and name the ones that were driven on them. New sessions do this by themselves.">
             <button
-              className="btn"
+              className="btn btn-primary px-3 py-[5px] text-[11.5px]"
               disabled={busy || bundleCount === 0}
               onClick={onIdentify}
             >
@@ -220,7 +243,7 @@ export function TracksView() {
             </button>
           </Tip>
           <button
-            className="btn"
+            className="btn px-3 py-[5px] text-[11.5px] hover:border-accent hover:text-accent"
             disabled={busy}
             onClick={() => {
               importTarget.current = undefined;
@@ -242,7 +265,7 @@ export function TracksView() {
           />
           <Tip content="Land a survey run's raw JSONL from another installation. It appears in the log list — assign it to a circuit to merge its evidence.">
             <button
-              className="btn"
+              className="btn px-3 py-[5px] text-[11.5px] hover:border-accent hover:text-accent"
               disabled={busy}
               onClick={() => logInput.current?.click()}
             >
@@ -263,10 +286,10 @@ export function TracksView() {
         </div>
       </div>
 
-      {error && <div className="rounded-xl bg-panel p-3 text-sm text-brake">{error}</div>}
+      {error && <div className="panel p-3 text-sm text-brake">{error}</div>}
 
       {orphans.length > 0 && (
-        <div className="rounded-xl border border-warn/40 bg-panel p-3">
+        <div className="panel border border-warn/40 p-3">
           <h3 className="text-sm font-semibold text-warn">
             {orphans.length} survey run{orphans.length === 1 ? "" : "s"} went nowhere
           </h3>
@@ -303,18 +326,18 @@ export function TracksView() {
       )}
 
       {data && rows.length === 0 && (
-        <div className="rounded-xl bg-panel p-8 text-center text-sm text-ink-dim">
+        <div className="panel p-8 text-center text-sm text-ink-dim">
           Nothing yet. Name a track from a lap in Sessions, or run a survey.
         </div>
       )}
 
-      <div className="space-y-2">
+      <div className="flex flex-col gap-2">
         {rows.map((row) => {
           const b = row.bundle;
           return (
-            <div key={row.slug} className="rounded-xl bg-panel p-3">
+            <div key={row.slug} className="panel px-4 py-3">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-semibold">{row.name}</span>
+                <span className="text-[13.5px] font-medium">{row.name}</span>
                 {/* Either source identifies a session, so the chip reflects
                     whether identification WORKS here — not whether one
                     particular mechanism is present. Saying "no auto-ID" on a
@@ -338,7 +361,7 @@ export function TracksView() {
                     shipped signature came from stops being your problem. */}
                 {row.provenance === "seed" && b == null && (
                   <span
-                    className="rounded-full bg-panel-2 px-2 py-0.5 text-[11px] text-ink-dim"
+                    className="rounded-[9px] bg-panel-2 px-2 py-px text-[10px] text-ink-dim"
                     title="This name came from the shipped signature set, computed from a published lap — not from anything driven or surveyed on this installation."
                   >
                     shipped
@@ -363,14 +386,19 @@ export function TracksView() {
                   }
                 />
                 {row.sessions > 0 && (
-                  <span className="text-xs text-ink-dim">
+                  <span className="text-[10.5px] text-ink-faint">
                     {row.sessions} session{row.sessions === 1 ? "" : "s"}
+                  </span>
+                )}
+                {b && (
+                  <span className="ml-auto text-[10.5px] text-ink-faint">
+                    updated {when(b.updated_at)}
                   </span>
                 )}
               </div>
 
               {b && (
-                <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 font-tabular text-xs text-ink-dim">
+                <div className="mt-2.5 flex flex-wrap items-center gap-x-[22px] gap-y-2 font-tabular text-[11px] text-ink-dim">
                   {/* Border metres, NOT lap length — one record per metre per
                       side. Sitting next to an official layout length ("8
                       turns, 1,706 m") the bare word "mapped" reads as a
@@ -394,16 +422,13 @@ export function TracksView() {
                   </Tip>
                   {b.coverage && (
                     <Tip content="How much of each border the evidence establishes, measured against the compiled boundary — gaps count against it, and ✓closed means both borders form complete loops">
-                      <span
-                        className={
-                          b.coverage.L.closed && b.coverage.R.closed
-                            ? undefined
-                            : "text-warn"
-                        }
-                      >
-                        borders L {b.coverage.L.pct}% · R {b.coverage.R.pct}% · road{" "}
-                        {b.coverage.road_pct}%
-                        {b.coverage.L.closed && b.coverage.R.closed && " ✓closed"}
+                      <span className="flex items-center gap-3.5">
+                        <MicroMeter label="L" pct={b.coverage.L.pct} />
+                        <MicroMeter label="R" pct={b.coverage.R.pct} />
+                        <MicroMeter label="road" pct={b.coverage.road_pct} />
+                        {b.coverage.L.closed && b.coverage.R.closed && (
+                          <span className="text-throttle">✓closed</span>
+                        )}
                       </span>
                     </Tip>
                   )}
@@ -411,7 +436,6 @@ export function TracksView() {
                     {b.corners} corner{b.corners === 1 ? "" : "s"} labelled
                     {row.official?.turns ? ` of ${row.official.turns}` : ""}
                   </span>
-                  <span>updated {when(b.updated_at)}</span>
                 </div>
               )}
 
@@ -453,7 +477,7 @@ export function TracksView() {
                 </div>
               )}
 
-              <div className="mt-2 flex flex-wrap items-center gap-2">
+              <div className="mt-2.5 flex flex-wrap items-center gap-2">
                 <button
                   className="btn"
                   disabled={!b}
@@ -490,7 +514,7 @@ export function TracksView() {
                 </button>
                 {b && (
                   <button
-                    className="btn-danger ml-auto"
+                    className="btn btn-danger ml-auto"
                     disabled={busy}
                     onClick={() => setDeleting(row)}
                   >
@@ -504,9 +528,9 @@ export function TracksView() {
       </div>
 
       {(shared?.configured || sharedError) && (
-        <div className="rounded-xl bg-panel p-3">
-          <h3 className="text-sm font-semibold">Shared bundles</h3>
-          <p className="mt-1 text-xs text-ink-dim">
+        <div className="panel px-4 py-3">
+          <h3 className="section-header">Shared bundles</h3>
+          <p className="mt-1.5 text-[10.5px] text-ink-faint">
             Contributed track bundles offered by the configured shared repo. Pulling one
             merges it through the same validation and voting path as an imported file, so
             evidence accumulates and your own corner labels are never overwritten.
@@ -558,11 +582,11 @@ export function TracksView() {
       )}
 
       {(data?.logs.length ?? 0) > 0 && (
-        <details className="rounded-xl bg-panel p-3">
-          <summary className="cursor-pointer text-sm font-semibold">
+        <details className="panel px-4 py-3">
+          <summary className="section-header cursor-pointer">
             Survey logs ({data!.logs.length})
           </summary>
-          <p className="mt-1 text-xs text-ink-dim">
+          <p className="mt-1.5 text-[10.5px] text-ink-faint">
             Every run's raw JSONL — the complete, transportable record. Download one to
             move the run to another installation; it merges there by being assigned to a
             circuit, exactly like a local run.

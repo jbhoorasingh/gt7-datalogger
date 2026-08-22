@@ -156,7 +156,7 @@ export function PromptDialog({
           if (e.key === "Enter") submit();
         }}
         placeholder={placeholder}
-        className="mb-4 w-full rounded-md border border-edge bg-panel-2 px-3 py-1.5 text-sm placeholder:text-ink-dim/60 focus:border-accent focus:outline-none"
+        className="mb-4 w-full rounded-md border border-edge bg-panel-2 px-3 py-1.5 text-sm placeholder:text-ink-ghost focus:border-accent focus:outline-none"
       />
       {suggestions && (
         <datalist id={listId}>

@@ -13,7 +13,6 @@ import { useTelemetry } from "@/store/telemetry";
 // only the Analysis/Survey/Tracks maps use.
 const AdminView = lazy(() => import("@/views/AdminView").then((m) => ({ default: m.AdminView })));
 const AnalysisView = lazy(() => import("@/views/AnalysisView").then((m) => ({ default: m.AnalysisView })));
-const BestsView = lazy(() => import("@/views/BestsView").then((m) => ({ default: m.BestsView })));
 const DashView = lazy(() => import("@/views/DashView").then((m) => ({ default: m.DashView })));
 const EngineerView = lazy(() => import("@/views/EngineerView").then((m) => ({ default: m.EngineerView })));
 const LiveView = lazy(() => import("@/views/LiveView").then((m) => ({ default: m.LiveView })));
@@ -74,14 +73,13 @@ export default function App() {
     <TooltipProvider delayDuration={300}>
       <div className="flex h-full flex-col">
         <StatusBar view={route.view} />
-        <main className="min-h-0 flex-1 overflow-y-auto">
+        <main className="min-h-0 flex-1 overflow-y-auto px-5 pb-7 pt-3.5">
           <Suspense
             fallback={<div className="p-6 text-sm text-ink-dim">Loading…</div>}
           >
             {route.view === "live" && <LiveView />}
             {route.view === "analysis" && <AnalysisView request={analysisRequest} />}
-            {route.view === "sessions" && <SessionsView />}
-            {route.view === "bests" && <BestsView />}
+            {route.view === "sessions" && <SessionsView subTab={route.params.get("sub") === "bests" ? "bests" : "sessions"} />}
             {route.view === "survey" && <SurveyView />}
             {route.view === "tracks" && <TracksView />}
             {route.view === "admin" && <AdminView />}

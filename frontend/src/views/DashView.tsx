@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { CalloutBanner } from "@/components/CalloutBanner";
+import { computeAlerts } from "@/lib/alerts";
 import { GridRenderer } from "@/components/GridRenderer";
 import { RaceEngineerPanel } from "@/components/RaceEngineerPanel";
 import { api } from "@/lib/api";
@@ -58,86 +59,127 @@ export function DashView({ params }: { params: DashParams }) {
 
   const status = placeholder ? "placeholder" : frame ? "live" : "waiting";
 
+  const alerts = frame ? computeAlerts(frame, laps) : [];
+  const topAlert = alerts[0] ?? null;
+  const presetLabel = params.layout ?? preset.label;
+
   return (
-    <div className="relative h-full w-full font-tabular">
-      {error ? (
-        <div className="flex h-full items-center justify-center text-sm text-ink-dim">
-          {error} — save it in the Admin builder first.
+    <div className="relative flex h-full w-full flex-col gap-2.5 p-3 font-tabular">
+      {/* Meta row: what this screen is, and the three controls worth having
+          within reach while driving. */}
+      <div className="flex flex-shrink-0 flex-wrap items-center gap-2.5 text-[10.5px] text-ink-faint">
+        <span className="section-header">Driver dashboard</span>
+        <span>/dash · {presetLabel} · second display</span>
+        <span className="ml-auto flex items-center gap-1.5">
+          <button
+            className={`rounded border px-2.5 py-0.5 transition-colors ${
+              voiceEnabled && isSpeaker
+                ? "border-throttle/50 text-throttle"
+                : "border-edge text-ink-muted hover:border-accent hover:text-accent"
+            }`}
+            title={
+              voiceEnabled && isSpeaker
+                ? "Race Engineer: speaking on this device"
+                : "Race Engineer voice settings"
+            }
+            onClick={() => setEngineerOpen((open) => !open)}
+          >
+            voice
+          </button>
+          <button
+            className="rounded border border-edge px-2.5 py-0.5 text-ink-muted transition-colors hover:border-accent hover:text-accent"
+            title="Toggle fullscreen"
+            onClick={() => {
+              if (document.fullscreenElement) void document.exitFullscreen();
+              else void document.documentElement.requestFullscreen();
+            }}
+          >
+            full screen
+          </button>
+          {/* /#/live (not #/live): /dash may be a path, where a bare hash
+              change would still match isDashLocation and go nowhere. */}
+          <a
+            href="/#/live"
+            className="rounded border border-edge px-2.5 py-0.5 text-ink-muted transition-colors hover:border-accent hover:text-accent"
+            title="Back to the main app"
+          >
+            ⌂ home
+          </a>
+          <span
+            title={status}
+            className={`ml-0.5 h-2 w-2 rounded-full ${
+              status === "live"
+                ? "bg-throttle"
+                : status === "placeholder"
+                  ? "bg-warn"
+                  : "bg-brake"
+            }`}
+          />
+        </span>
+      </div>
+
+      {/* Alerts get the full width above the tiles rather than a grid cell:
+          low fuel, pit window, overheating and oil pressure are the things
+          that must be seen without looking for them. */}
+      {topAlert && (
+        <div
+          className={`flex flex-shrink-0 flex-wrap items-center gap-3 rounded-panel border px-4 py-2.5 ${
+            topAlert.severity === "critical"
+              ? "border-brake/50 bg-brake/10"
+              : "border-warn/50 bg-warn/[0.09]"
+          }`}
+        >
+          <span
+            className={`h-2 w-2 animate-pulse-dot rounded-full ${
+              topAlert.severity === "critical" ? "bg-brake" : "bg-warn"
+            }`}
+          />
+          <span
+            className={`text-sm font-semibold tracking-[0.08em] ${
+              topAlert.severity === "critical" ? "text-brake" : "text-warn"
+            }`}
+          >
+            {topAlert.message}
+          </span>
+          <span className="ml-auto text-[10.5px] text-ink-faint">
+            alerts flash here: low fuel · pit window · overheating · oil pressure
+          </span>
         </div>
-      ) : !resolved ? null : !frame ? (
-        <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-ink-dim">
-          <div>Waiting for telemetry…</div>
-          <div className="text-xs">
-            add <code className="text-ink">?demo=1</code> to preview with placeholder data
-          </div>
-        </div>
-      ) : (
-        <GridRenderer layout={resolved} frame={frame} laps={laps} />
       )}
 
-      <CalloutBanner />
-
-      {engineerOpen && (
-        <div className="absolute right-2 top-9 z-10 max-h-[80vh] w-80 overflow-y-auto rounded-xl border border-edge bg-panel/95 shadow-xl backdrop-blur">
-          <div className="flex items-baseline justify-between border-b border-edge px-3 py-2">
-            <span className="text-[10px] font-semibold uppercase tracking-widest text-ink-dim">
-              Race Engineer
-            </span>
-            <button
-              className="text-xs text-ink-dim hover:text-ink"
-              onClick={() => setEngineerOpen(false)}
-            >
-              close
-            </button>
+      <div className="relative min-h-0 flex-1">
+        {error ? (
+          <div className="flex h-full items-center justify-center text-sm text-ink-dim">
+            {error} — save it in the Admin builder first.
           </div>
-          <RaceEngineerPanel compact />
-        </div>
-      )}
+        ) : !resolved ? null : !frame ? (
+          <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-ink-dim">
+            <div>Waiting for telemetry…</div>
+            <div className="text-xs">
+              add <code className="text-ink">?demo=1</code> to preview with placeholder data
+            </div>
+          </div>
+        ) : (
+          <GridRenderer layout={resolved} frame={frame} laps={laps} />
+        )}
 
-      {/* status dot + fullscreen, kept tiny so they don't distract mid-race */}
-      <div className="absolute right-2 top-2 flex items-center gap-2">
-        <button
-          className={`rounded border border-white/10 bg-black/40 px-1.5 py-0.5 text-[10px] ${
-            voiceEnabled && isSpeaker ? "text-throttle" : "text-ink-dim hover:text-ink"
-          }`}
-          title={
-            voiceEnabled && isSpeaker
-              ? "Race Engineer: speaking on this device"
-              : "Race Engineer voice settings"
-          }
-          onClick={() => setEngineerOpen((open) => !open)}
-        >
-          {voiceEnabled && isSpeaker ? "🔊" : "🔈"}
-        </button>
-        <span
-          title={status}
-          className={`h-2 w-2 rounded-full ${
-            status === "live"
-              ? "bg-throttle"
-              : status === "placeholder"
-                ? "bg-warn"
-                : "bg-brake"
-          }`}
-        />
-        <button
-          className="rounded border border-white/10 bg-black/40 px-1.5 py-0.5 text-[10px] text-ink-dim hover:text-ink"
-          title="Toggle fullscreen"
-          onClick={() => {
-            if (document.fullscreenElement) void document.exitFullscreen();
-            else void document.documentElement.requestFullscreen();
-          }}
-        >
-          ⛶
-        </button>
-        {/* /#/live (not #/live): /dash may be a path, where a bare hash change
-            would still match isDashLocation and go nowhere. */}
-        <a
-          href="/#/live"
-          className="rounded border border-white/10 bg-black/40 px-1.5 py-0.5 text-[10px] text-ink-dim hover:text-ink"
-          title="Back to the main app"
-        >
-          ⌂
-        </a>
+        <CalloutBanner />
+
+        {engineerOpen && (
+          <div className="elevated absolute right-0 top-0 z-10 max-h-[80vh] w-80 overflow-y-auto rounded-panel bg-panel/95 backdrop-blur">
+            <div className="flex items-baseline justify-between px-3.5 py-2.5">
+              <span className="section-header">Race Engineer</span>
+              <button
+                className="text-xs text-ink-dim hover:text-ink"
+                onClick={() => setEngineerOpen(false)}
+              >
+                close
+              </button>
+            </div>
+            <div className="rule" />
+            <RaceEngineerPanel compact />
+          </div>
+        )}
       </div>
     </div>
   );

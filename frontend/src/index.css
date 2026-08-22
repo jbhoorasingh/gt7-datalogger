@@ -1,18 +1,49 @@
 @import "tailwindcss";
 
 @theme {
+  /* Ground and panels. Panels are separated from the ground by a hairline
+     ring (--color-hairline), never a drop shadow — see .panel below. */
   --color-surface: #0b0d10;
   --color-panel: #14171c;
-  --color-panel-2: #1b1f26;
+  --color-panel-2: #1b1f26; /* inset panel: note editors, transition logs */
   --color-edge: #262b33;
   --color-edge-bright: #3d4552; /* hover state for edge-bordered controls */
+  --color-hairline: #22262e; /* panel ring — one notch below --color-edge */
+
+  /* Text ramp, brightest to faintest. Numerals always render tabular
+     (.font-tabular) so readouts never jitter as digits change. */
   --color-ink: #e6e9ee;
-  --color-ink-dim: #8b93a1;
-  --color-accent: #38bdf8;
-  --color-throttle: #22c55e;
-  --color-brake: #ef4444;
-  --color-coast: #3b82f6;
-  --color-warn: #f59e0b;
+  --color-ink-soft: #cdd4dd; /* emphasised secondary: selected chips, selects */
+  --color-ink-muted: #aeb6c2; /* secondary button labels */
+  --color-ink-dim: #8b93a1; /* section headers, captions, legends */
+  --color-ink-faint: #6b7482; /* inactive tabs, metadata, hints */
+  --color-ink-ghost: #4d5560; /* disabled, placeholder, axis ticks */
+
+  /* Accent, one notch brighter than the old #38bdf8. The ramp is used for
+     text on accent-tinted fills (200/300) and for gradient ends (400/600). */
+  --color-accent: #3ec9ff;
+  --color-accent-100: #eaf8ff;
+  --color-accent-200: #c9edff;
+  --color-accent-300: #9fdfff;
+  --color-accent-400: #6ed3ff;
+  --color-accent-600: #2ba3d6;
+  --color-accent-700: #1f7da6;
+  --color-accent-800: #175a78;
+  --color-accent-900: #113b4e;
+
+  /* Data channels. Also the race line's state colors on the map hero. */
+  --color-throttle: #4ade80;
+  --color-brake: #f47272;
+  --color-coast: #5b93f5;
+  --color-warn: #f5b14e;
+
+  --radius-panel: 8px;
+}
+
+/* Divider ink, and the full-width rule built from it: rules fade to
+   transparent over the last 48px at each end rather than stopping flat. */
+@theme {
+  --color-divider: color-mix(in srgb, #e6e9ee 13%, transparent);
 }
 
 html,
@@ -24,6 +55,7 @@ body,
 body {
   @apply bg-surface text-ink antialiased;
   font-family: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font-size: 13px;
 }
 
 /* OBS browser-source mode (#overlay): page itself is fully transparent */
@@ -46,13 +78,78 @@ body.overlay-green {
   font-variant-numeric: tabular-nums;
 }
 
+/* Panel: the one container surface. A hairline ring stands in for a border
+   so panels can sit flush against each other without doubling the line. */
+.panel {
+  @apply rounded-panel bg-panel;
+  box-shadow: 0 0 0 1px var(--color-hairline);
+}
+
+/* Popovers and dialogs lift off the page — ring plus ambient darkness. */
+.elevated {
+  box-shadow:
+    0 0 0 1px var(--color-edge-bright),
+    0 6px 18px rgb(0 0 0 / 0.55);
+}
+
+/* Full-width rule with faded ends. As a background rather than a border so
+   it can also be painted on the bottom edge of a table row. */
+.rule {
+  height: 1px;
+  flex-shrink: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--color-divider) 48px,
+    var(--color-divider) calc(100% - 48px),
+    transparent
+  );
+}
+
+/* Row rule: same fade, painted on a row's bottom edge at a lighter weight. */
+.rule-row {
+  background:
+    linear-gradient(
+        90deg,
+        transparent,
+        color-mix(in srgb, var(--color-ink) 8%, transparent) 48px,
+        color-mix(in srgb, var(--color-ink) 8%, transparent) calc(100% - 48px),
+        transparent
+      )
+      no-repeat bottom / 100% 1px;
+}
+
+/* Section header: 10px caps above a panel's content. */
+.section-header {
+  @apply text-[10px] font-semibold uppercase text-ink-dim;
+  letter-spacing: 0.14em;
+}
+
+/* Buttons are outlined, never filled — the accent reads as an edge and a
+   label, so a screen full of controls stays quiet until one is hovered. */
 .btn {
-  @apply rounded-md border border-edge bg-panel-2 px-3 py-1.5 text-xs text-ink hover:border-accent/50 disabled:opacity-50;
+  @apply inline-flex items-center justify-center gap-1.5 rounded border border-edge
+    bg-transparent px-2.5 py-1 text-[11px] text-ink-muted transition-colors
+    hover:border-edge-bright hover:text-ink disabled:opacity-45
+    disabled:hover:border-edge disabled:hover:text-ink-muted;
+  font-family: inherit;
+  cursor: pointer;
+}
+.btn:disabled {
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  @apply border-accent text-accent hover:border-accent hover:bg-accent/12 hover:text-accent;
+}
+
+.btn-danger {
+  @apply border-brake/40 text-brake hover:border-brake/60 hover:bg-brake/10 hover:text-brake;
 }
 
 /* Loading placeholder blocks (lists, charts) */
 .skeleton {
-  @apply animate-pulse rounded-xl bg-panel;
+  @apply animate-pulse rounded-panel bg-panel;
 }
 
 /* Keyboard-focus affordance across all interactive elements */
@@ -61,8 +158,22 @@ body.overlay-green {
   outline-offset: 1px;
 }
 
-.btn-danger {
-  @apply rounded-md border border-brake/40 px-3 py-1.5 text-xs text-brake hover:bg-brake/10;
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.animate-pulse-dot {
+  animation: pulse-dot 1.6s infinite;
+}
+
+input[type="range"] {
+  accent-color: var(--color-accent);
 }
 
 ::-webkit-scrollbar {
