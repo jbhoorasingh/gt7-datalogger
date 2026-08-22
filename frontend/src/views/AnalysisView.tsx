@@ -51,6 +51,10 @@ import { useTelemetry } from "@/store/telemetry";
 
 // The Corner Detail widget always needs the per-corner columns, whatever the
 // chart picker says.
+// Lap chips shown before the row collapses — about two rows at a typical
+// width, so an ordinary session never collapses at all.
+const LAP_CHIP_BUDGET = 12;
+
 const CORNER_COLUMNS = [
   "slip_fl", "slip_fr", "slip_rl", "slip_rr",
   "tt_fl", "tt_fr", "tt_rl", "tt_rr",
@@ -448,6 +452,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
   // track_name there is no "same circuit" to list laps from. Fetched per
   // open so the list sees laps recorded while the view was already mounted.
   const [addOpen, setAddOpen] = useState(false);
+  const [showAllLaps, setShowAllLaps] = useState(false);
   const [addChoices, setAddChoices] = useState<LapSummary[] | null>(null);
   useEffect(() => {
     if (!addOpen || !bestTrack) return;
@@ -559,6 +564,20 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
       series: compare.laps[id].series,
     }));
   }, [compare, lapLabels, refLap, lapColors]);
+
+  // A long session lists a chip per lap, which on a 300-lap stint wrapped to
+  // dozens of rows and pushed the map off the screen. Collapsed, the row shows
+  // the most recent laps plus whatever is actually in the comparison, however
+  // far back it sits; expanded, it scrolls rather than growing without bound.
+  const visibleLaps = useMemo(() => {
+    if (showAllLaps || laps.length <= LAP_CHIP_BUDGET) return laps;
+    const head = laps.slice(0, LAP_CHIP_BUDGET);
+    const keptBack = laps
+      .slice(LAP_CHIP_BUDGET)
+      .filter((lap) => selected.includes(lap.id) || lap.id === refLap);
+    return [...head, ...keptBack];
+  }, [laps, showAllLaps, selected, refLap]);
+  const hiddenLaps = laps.length - visibleLaps.length;
 
   // Longest distance across the compared laps — the denominator for the
   // sector buttons and the zoom readout in the map header.
@@ -674,25 +693,39 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
 
         <div className="h-[18px] w-px shrink-0 bg-divider" />
 
-        {/* Scrolls horizontally on narrow screens instead of overflowing */}
-        <div className="flex min-w-0 max-w-full gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-x-visible sm:pb-0">
-          {laps.map((lap) => lapChip(lap, `L${lap.number} ${formatLapTime(lap.time_ms)}`))}
+        {/* Scrolls horizontally on narrow screens instead of overflowing, and
+            vertically once expanded, so the map is always still on screen. */}
+        <div
+          className={`flex min-w-0 max-w-full gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-x-visible sm:pb-0 ${
+            showAllLaps ? "max-h-32 overflow-y-auto sm:pr-1" : ""
+          }`}
+        >
+          {visibleLaps.map((lap) => lapChip(lap, `L${lap.number} ${formatLapTime(lap.time_ms)}`))}
           {/* Guest laps from other sessions (#26), after the session's own —
               same toggle/reference behavior, session-qualified label. */}
           {guests.map((lap) =>
             lapChip(lap, `S${lap.session_id}·L${lap.number} ${formatLapTime(lap.time_ms)}`),
           )}
-          {bestTrack && (
-            <Tip content="Add a lap from another session at this circuit to the comparison">
-              <button
-                className="shrink-0 rounded border border-dashed border-edge px-2.5 py-1 text-[11.5px] text-ink-dim transition-colors hover:border-accent hover:text-accent"
-                onClick={() => setAddOpen(true)}
-              >
-                + Add lap…
-              </button>
-            </Tip>
-          )}
         </div>
+
+        {(hiddenLaps > 0 || showAllLaps) && (
+          <button
+            className="shrink-0 rounded border border-dashed border-edge px-2.5 py-1 text-[11.5px] text-ink-dim transition-colors hover:border-accent hover:text-accent"
+            onClick={() => setShowAllLaps((open) => !open)}
+          >
+            {showAllLaps ? "show fewer" : `+${hiddenLaps} more`}
+          </button>
+        )}
+        {bestTrack && (
+          <Tip content="Add a lap from another session at this circuit to the comparison">
+            <button
+              className="shrink-0 rounded border border-dashed border-edge px-2.5 py-1 text-[11.5px] text-ink-dim transition-colors hover:border-accent hover:text-accent"
+              onClick={() => setAddOpen(true)}
+            >
+              + Add lap…
+            </button>
+          </Tip>
+        )}
 
         {/* 2 — channel picker popover hangs off this button */}
         <ChannelPicker selected={channelKeys} onChange={setChannelKeys} />
