@@ -47,15 +47,15 @@ GENERATED_KEY = "car_data_generated"      # which inventory AND column shape the
 # neither its version nor its date can detect the change on their own.
 COLUMNS_VERSION = 2
 
-
-def stamp(cars: CarDatabase) -> str:
-    """The marker recording what the session rows were last filled from."""
-    return f"{COLUMNS_VERSION}:{cars.schema_version}:{cars.generated}"
-
 # How long a refreshed inventory is considered current. GT7 content updates
 # land monthly at their fastest, so a week is already generous; the point is
 # that an install left running for months does not go a year without checking.
 STALE_AFTER = datetime.timedelta(days=7)
+
+
+def stamp(cars: CarDatabase) -> str:
+    """The marker recording what the session rows were last filled from."""
+    return f"{COLUMNS_VERSION}:{cars.schema_version}:{cars.generated}"
 
 
 def is_stale(
