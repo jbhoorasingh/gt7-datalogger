@@ -6,7 +6,7 @@ Three of them exist and nothing showed them together (#46):
 |-----------------|---------------------------|-------------------------------------|
 | named tracks    | DB `tracks` table         | geometry signature -> auto-identify |
 | survey bundles  | `data/track-bundles/*`    | borders, finish line, elevation     |
-| official catalog| `backend/data/tracks.json`| length, turns, elevation, layouts   |
+| official catalog| `app/data/tracks.json`    | length, turns, elevation, layouts   |
 
 Being able to name a track, having surveyed it, and knowing which official
 layout it is are three separate facts, and until this endpoint existed
@@ -85,7 +85,7 @@ def _catalog(request: Request) -> dict[str, Any] | None:
 
 @router.get("/track-catalog")
 async def catalog(request: Request) -> dict[str, Any]:
-    """Official GT7 track/layout metadata (bundled data/tracks.json)."""
+    """Official GT7 track/layout metadata (bundled app/data/tracks.json)."""
     doc = _catalog(request)
     if doc is None:
         raise HTTPException(404, "track catalog not bundled")

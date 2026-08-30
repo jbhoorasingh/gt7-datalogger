@@ -1,4 +1,4 @@
-"""Regenerate backend/data/tracks.json from official GT7 data + the GT wiki.
+"""Regenerate backend/app/data/tracks.json from official GT7 data + the GT wiki.
 
 Primary source is the official tracklist's own data bundle — the JS asset the
 page at gran-turismo.com/gb/gt7/tracklist/ renders from. It carries what no
@@ -49,7 +49,9 @@ OFFICIAL_PAGE = "https://www.gran-turismo.com/gb/gt7/tracklist/"
 OFFICIAL_ASSETS = "https://www.gran-turismo.com/common/dist/gt7/tracklist/assets/"
 WIKI_API = "https://gran-turismo.fandom.com/api.php"
 WIKI_LIST_PAGE = "Gran Turismo 7/Track List"
-OUT = Path(__file__).resolve().parents[1] / "data" / "tracks.json"
+# Inside the package, where the app reads it from (config.PACKAGE_DATA) and
+# where it ships from in a wheel — NOT backend/data, which is no longer read.
+OUT = Path(__file__).resolve().parents[1] / "app" / "data" / "tracks.json"
 
 # Official nameBase -> wiki course name, where they differ.
 WIKI_TRACK_ALIASES = {

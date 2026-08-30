@@ -134,7 +134,10 @@ async def refresh_cars_if_stale(
     running the day gran-turismo.com changes its page layout, is left with the
     inventory from layer 1 — which is every car we shipped knowing about.
     """
-    if not car_refresh.is_stale(stored, datetime.date.today()):
+    # One clock read for the whole run: the date that decided the refresh is
+    # the date recorded as its result, even for a task that spans midnight.
+    today = datetime.date.today()
+    if not car_refresh.is_stale(stored, today):
         return
     try:
         await car_refresh.fetch_and_store(cars, settings.refreshed_car_inventory())
@@ -144,7 +147,7 @@ async def refresh_cars_if_stale(
         log.info("car inventory not refreshed (%s); using the bundled one", exc)
         return
     try:
-        filled = await car_refresh.record(repo, cars, datetime.date.today())
+        filled = await car_refresh.record(repo, cars, today)
     except Exception:
         log.exception("refreshed car inventory could not be recorded")
         return

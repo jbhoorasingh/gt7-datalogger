@@ -1,6 +1,6 @@
 """The official GT7 track catalog, flattened, and how a bundle gets matched to it.
 
-`data/tracks.json` knows 41 tracks / 121 configurations with their real
+`app/data/tracks.json` knows 41 tracks / 121 configurations with their real
 lengths, turn counts and elevation. A survey bundle knows world coordinates
 and a name somebody typed. Nothing joins the two automatically, and nothing
 can: **GT7 broadcasts no track identifier**, and the catalog carries no world
