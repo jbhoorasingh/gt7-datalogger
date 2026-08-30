@@ -21,8 +21,10 @@ RUN pip install --no-cache-dir ./backend
 
 COPY --from=frontend /build/dist frontend/dist
 
+# The car inventory and track data ship inside the package and resolve
+# relative to it (#57), so only the database — the one thing that is the
+# user's, not ours — needs a path here.
 ENV GT7_DB_PATH=/data/gt7.db \
-    GT7_CARS_CSV=/app/backend/data/cars.csv \
     PYTHONUNBUFFERED=1
 
 VOLUME /data

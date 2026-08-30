@@ -9,7 +9,7 @@ from httpx import ASGITransport, AsyncClient
 from app.config import Settings
 from app.main import create_app
 from app.processing import track_bundle, track_catalog
-from app.processing.cars import CarDatabase
+from app.processing.cars import Car, CarDatabase
 from app.service import TelemetryService
 from app.storage.db import init_db, make_engine, make_session_factory
 from app.storage.repository import Repository
@@ -475,9 +475,7 @@ async def test_official_match_is_confirmed_not_inferred(client) -> None:
 def test_a_disagreeing_lap_length_kills_a_name_match() -> None:
     """A name can be typed wrong; a length measured from driving it cannot be
     off by a sixth."""
-    catalog = track_catalog.load(
-        str(__import__("pathlib").Path(__file__).resolve().parents[1] / "data" / "tracks.json")
-    )
+    catalog = track_catalog.load(str(Settings().tracks_json))
     configs = track_catalog.configurations(catalog)
     good = track_catalog.suggest("Autopolis International Racing Course", configs, 4674)
     assert good is not None and good["confidence"] >= 1.0
@@ -486,9 +484,7 @@ def test_a_disagreeing_lap_length_kills_a_name_match() -> None:
 
 
 def test_reverse_layouts_are_their_own_configuration() -> None:
-    catalog = track_catalog.load(
-        str(__import__("pathlib").Path(__file__).resolve().parents[1] / "data" / "tracks.json")
-    )
+    catalog = track_catalog.load(str(Settings().tracks_json))
     configs = track_catalog.configurations(catalog)
     forward = track_catalog.suggest("Alsace - Village", configs)
     reverse = track_catalog.suggest("Alsace - Village (Reverse)", configs)
@@ -909,7 +905,7 @@ async def test_seeded_signatures_stay_out_of_the_table_until_driven(client) -> N
     from app.processing.laps import SessionInfo
 
     sid = await service.repo.create_session(
-        SessionInfo(car_id=1, started_at="2026-08-20T00:00:00+00:00"), "Test Car"
+        SessionInfo(car_id=1, started_at="2026-08-20T00:00:00+00:00"), Car(id=1, name="Test Car")
     )
     await service.repo.set_session_track(sid, "Driven Circuit")
 

@@ -82,7 +82,6 @@ the directory you launch from, or as environment variables:
 GT7_SOURCE=udp
 GT7_PS_IP=192.168.1.50        # your PlayStation's IP
 GT7_DB_PATH=/home/pi/gt7-data/gt7.db
-GT7_CARS_CSV=data/cars.csv
 ```
 
 ### 5. Run it
@@ -93,8 +92,9 @@ source .venv/bin/activate
 python -m app.main            # listens on 0.0.0.0:8000
 ```
 
-Open `http://<pi-ip>:8000` from any device on the LAN. Fetch the full car list once with
-`python scripts/update_cars.py` (or from **Admin → Update car database**).
+Open `http://<pi-ip>:8000` from any device on the LAN. Car names work immediately — the
+inventory ships with the app — and refresh themselves in the background after a GT7
+content update.
 
 ### 6. Start automatically with systemd
 

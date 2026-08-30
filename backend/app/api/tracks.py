@@ -72,11 +72,9 @@ def data_dir(request: Request) -> Path:
 
 
 def _catalog_path(request: Request) -> Path | None:
+    # Package-relative since #57, so it resolves the same from any working
+    # directory and needs no repo-root fallback.
     path = svc(request).settings.tracks_json
-    if not path.exists():
-        # The default is relative to backend/; dev servers often run from the
-        # repo root (cars.csv papers over this with GT7_CARS_CSV in .env).
-        path = Path(__file__).resolve().parents[2] / "data" / "tracks.json"
     return path if path.exists() else None
 
 

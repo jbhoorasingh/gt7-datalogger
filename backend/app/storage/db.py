@@ -42,6 +42,17 @@ class SessionRow(Base):
     # Broadcast in packet C ("Gr.3", "Gr.4", "N300"...). Stored on the lap too,
     # denormalised like car_id, so category filtering never needs the join.
     car_category: Mapped[str] = mapped_column(default="")
+    # From the car inventory (#57), denormalised beside car_name for the same
+    # reason it is: a session row should describe the car without a second
+    # lookup, and the answer must survive an inventory that later drops the
+    # car. Written at session creation and re-filled at startup whenever the
+    # inventory changes (app/main.py), so sessions recorded before a car was
+    # known get their fields once it is. Empty/0 = the inventory has no answer;
+    # for year that is genuinely common (race cars carry no model year).
+    car_manufacturer: Mapped[str] = mapped_column(default="")
+    car_year: Mapped[int] = mapped_column(default=0)
+    car_drivetrain: Mapped[str] = mapped_column(default="")
+    car_aspiration: Mapped[str] = mapped_column(default="")
     note: Mapped[str] = mapped_column(default="")
     # User-set labels ("wet", "race sim"), comma-separated (#25). Tags may not
     # contain commas — the PATCH endpoint enforces it — so the join is

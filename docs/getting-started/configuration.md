@@ -15,7 +15,8 @@ working directory.
 | `GT7_PS_IP` | *(empty)* | Console IP; empty = broadcast auto-discovery |
 | `GT7_PACKET_FORMAT` | `C` | Telemetry format requested from the console: `A`, `B`, `~`, or `C` (richest, needs GT7 v1.68+; also settable in Admin) |
 | `GT7_DB_PATH` | `data/gt7.db` | SQLite database path — also accepts a full SQLAlchemy async URL (e.g. Postgres) |
-| `GT7_CARS_CSV` | `data/cars.csv` | Car ID → name lookup table |
+| `GT7_CARS_JSON` | *(bundled)* | Car inventory: id → name, manufacturer, year, category, drivetrain, aspiration and the published figures. Resolves from the package, so it works whatever directory you start from |
+| `GT7_CARS_CSV` | *(empty)* | Deprecated pre-0.6 `id,name` CSV. Set = read cars from here instead, names only. Kept for one release |
 | `GT7_TRACK_SIGNATURES_JSON` | *(bundled)* | Shipped track signatures, synced into the `tracks` table at startup so a fresh install [identifies circuits](../internals/track-identification.md#the-shipped-signatures) it has never seen driven. Defaults to the copy inside the package, so it resolves whatever directory the app was started from. Set it blank to turn seeding off and identify only what you have named and surveyed |
 | `GT7_WS_RATE` | `30` | Live stream rate to the browser (Hz); capture stays at ~60 Hz |
 | `GT7_WEBHOOK_URL` | *(empty)* | Webhook for race notifications (also settable in Admin) |
@@ -40,9 +41,16 @@ working directory.
 
 ## The car database
 
-Telemetry identifies the car by a numeric ID; a CSV lookup table maps IDs to names. The
-bundled `cars.csv` only contains a sample entry. Fetch the full community-maintained
-list either:
+Telemetry identifies the car by a numeric ID. The inventory that maps those IDs ships with
+the app — every car GT7 publishes, with its manufacturer, model year, Gr. category,
+drivetrain, aspiration and published figures — so names work on the first packet with no
+network at all.
+
+After a GT7 content update adds cars, the app picks them up on its own: it checks GT7's own
+car list in the background on first run and weekly after that. A failed check is not an
+error — you keep the bundled inventory and it tries again later.
+
+To refresh immediately instead of waiting:
 
 - from the UI: **Admin → Update car database**, or
 - from the command line:
@@ -50,6 +58,13 @@ list either:
 ```bash
 python backend/scripts/update_cars.py
 ```
+
+That writes `cars.json` next to your database, which the app prefers over the bundled copy
+from then on. `python backend/scripts/build_car_metadata.py` is the other half of this: it
+regenerates the copy committed to the repository, for cutting a release.
+
+Cars GT7 stops publishing are never dropped — a refresh only ever adds and updates, so
+sessions you recorded years ago keep their car names.
 
 ## Units & browser settings
 

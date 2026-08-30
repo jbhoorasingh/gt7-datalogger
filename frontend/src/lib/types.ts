@@ -369,6 +369,13 @@ export interface SessionSummary {
   car_id: number;
   car_name: string;
   car_category: string; // packet C: "Gr.3", "Gr.4", "N300"...; "" when unknown
+  // From the bundled car inventory, denormalised onto the session row (#57).
+  // Empty (or 0 for the year) wherever GT7's own car list has no answer —
+  // race cars and concepts routinely carry no model year.
+  car_manufacturer: string;
+  car_year: number;
+  car_drivetrain: string; // "FR", "FF", "MR", "RR", "4WD"
+  car_aspiration: string; // "NA", "TC", "SC", "TC+SC", "EV"
   note: string;
   // User-set labels ("wet", "race sim") for telling sessions apart and
   // filtering the list (#25). Never inferred from telemetry.

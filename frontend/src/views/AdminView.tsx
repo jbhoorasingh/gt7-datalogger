@@ -160,8 +160,13 @@ export function AdminView() {
               className="btn"
               disabled={busy !== null}
               onClick={() =>
-                run("Car DB update", api.admin.updateCars, (r) =>
-                  `Car database updated: ${(r as { cars: number }).cars} cars`)
+                run("Car DB update", api.admin.updateCars, (r) => {
+                  const res = r as { cars: number; sessions_updated: number };
+                  const filled = res.sessions_updated
+                    ? `, ${res.sessions_updated} session(s) updated`
+                    : "";
+                  return `Car database updated: ${res.cars} cars${filled}`;
+                })
               }
             >
               Update car database

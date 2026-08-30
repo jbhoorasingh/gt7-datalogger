@@ -7,7 +7,7 @@ import pytest
 
 from app.config import Settings
 from app.processing import track_bundle, track_compile, track_limits
-from app.processing.cars import CarDatabase
+from app.processing.cars import Car, CarDatabase
 from app.processing.laps import CompletedLap, SessionInfo, new_sample_store
 from app.processing.surface import OFF_TRACK_MIN_TICKS
 from app.processing.tracks import signature_from_samples
@@ -252,7 +252,7 @@ async def test_lap_event_after_late_identification_matches_the_row(service) -> N
     # A stored signature makes identification land, exactly one lap late.
     await svc.repo.create_track(track, signature_from_samples(samples))
     svc.session_id = await svc.repo.create_session(
-        SessionInfo(car_id=1, started_at="now"), "Car"
+        SessionInfo(car_id=1, started_at="now"), Car(id=1, name="Car")
     )
     events: list[dict] = []
     svc._publish = events.append  # type: ignore[method-assign]

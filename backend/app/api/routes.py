@@ -412,7 +412,7 @@ async def import_lap(request: Request, payload: ImportPayload) -> dict[str, Any]
 
         info = SessionInfo(car_id=lap.car_id, started_at="imported")
         service.session_id = await service.repo.create_session(
-            info, service.cars.name(info.car_id)
+            info, service.cars.get(info.car_id)
         )
     clean = payload.model_dump()
     clean["lap"] = lap.model_dump()

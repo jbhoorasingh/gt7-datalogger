@@ -357,6 +357,15 @@ export function SessionsView({ subTab = "sessions" }: { subTab?: SubTab }) {
   );
 }
 
+/** "Nissan · FR · TC" — whatever the inventory knows, joined; "" if nothing.
+ *
+ * Sessions recorded before #57, and cars GT7's list does not describe, have
+ * these fields empty, so every part is optional and an empty result renders
+ * nothing at all rather than a row of separators. */
+function carDetail(s: SessionSummary): string {
+  return [s.car_manufacturer, s.car_drivetrain, s.car_aspiration].filter(Boolean).join(" · ");
+}
+
 function SessionRow({
   session: s,
   units,
@@ -396,6 +405,11 @@ function SessionRow({
 
         <span className="flex min-w-0 flex-col items-start gap-1">
           <span className="text-[12.5px] font-medium">{s.car_name}</span>
+          {carDetail(s) && (
+            // The manufacturer and the driveline: the two things the car's
+            // name never carries (the model year usually is in it already).
+            <span className="text-[10.5px] text-ink-faint">{carDetail(s)}</span>
+          )}
           <span className="flex flex-wrap gap-1.5">
             {s.car_category && (
               <span className="rounded-[9px] border border-edge px-2 py-px text-[10px] text-ink-dim">

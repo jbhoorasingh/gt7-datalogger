@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
-from sqlalchemy import Row, case, delete, func, select, text, update
+from sqlalchemy import CursorResult, Row, case, delete, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.processing import tracks as tracks_module
+from app.processing.cars import Car
 from app.processing.laps import CompletedLap, SessionInfo
 from app.processing.track_seed import SeedRow
 from app.processing.tracks import IDENTIFY_MIN_TICKS, TrackSignature, matches
@@ -121,15 +122,75 @@ class Repository:
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._sf = session_factory
 
-    async def create_session(self, info: SessionInfo, car_name: str) -> int:
+    async def create_session(self, info: SessionInfo, car: Car | None) -> int:
+        """Open a session, denormalising what the inventory knows about the car.
+
+        `car` is None for an id the inventory has never heard of — a car added
+        by a GT7 update we have not refreshed for yet. The row then carries the
+        `Car #{id}` placeholder, and the startup backfill fills the rest in
+        once a refresh brings the car in.
+        """
         async with self._sf() as db:
             row = SessionRow(
-                started_at=info.started_at, car_id=info.car_id, car_name=car_name,
-                car_category=info.car_category,
+                started_at=info.started_at, car_id=info.car_id,
+                car_name=car.name if car else f"Car #{info.car_id}",
+                # The packet's category wins over the inventory's: it is what
+                # the car was actually racing as, and packet C sends it live.
+                car_category=info.car_category or (car.category if car else ""),
+                car_manufacturer=car.manufacturer if car else "",
+                car_year=car.year if car else 0,
+                car_drivetrain=car.drivetrain if car else "",
+                car_aspiration=car.aspiration if car else "",
             )
             db.add(row)
             await db.commit()
             return row.id
+
+    async def backfill_session_cars(self, cars: Mapping[int, Car]) -> int:
+        """Re-derive the denormalised car columns on existing sessions.
+
+        Run when the inventory changes (first start, a release with a new
+        bundled file, a background refresh). Only sessions whose car the
+        inventory knows are touched, and only one UPDATE per distinct car —
+        a user has driven tens of cars, not thousands.
+
+        car_name and car_category are filled only where they are empty or still
+        the `Car #{id}` placeholder: a name the user has been looking at should
+        not change under them for a diacritic, and a category from packet C
+        describes the actual race, not the car's showroom class.
+        """
+        async with self._sf() as db:
+            driven = set((await db.execute(select(SessionRow.car_id).distinct())).scalars())
+            updated = 0
+            for car_id in sorted(driven & set(cars)):
+                car = cars[car_id]
+                result = await db.execute(
+                    update(SessionRow)
+                    .where(SessionRow.car_id == car_id)
+                    .values(
+                        car_name=case(
+                            (
+                                or_(
+                                    SessionRow.car_name == "",
+                                    SessionRow.car_name == f"Car #{car_id}",
+                                ),
+                                car.name,
+                            ),
+                            else_=SessionRow.car_name,
+                        ),
+                        car_category=case(
+                            (SessionRow.car_category == "", car.category),
+                            else_=SessionRow.car_category,
+                        ),
+                        car_manufacturer=car.manufacturer,
+                        car_year=car.year,
+                        car_drivetrain=car.drivetrain,
+                        car_aspiration=car.aspiration,
+                    )
+                )
+                updated += cast(CursorResult[Any], result).rowcount or 0
+            await db.commit()
+            return updated
 
     async def save_lap(self, session_id: int, lap: CompletedLap) -> int:
         async with self._sf() as db:
@@ -203,6 +264,12 @@ class Repository:
                     "car_id": s.car_id,
                     "car_name": s.car_name,
                     "car_category": s.car_category or lap_category or "",
+                    # Denormalised on the row since #57; empty/0 where the
+                    # inventory has no answer for this car.
+                    "car_manufacturer": s.car_manufacturer,
+                    "car_year": s.car_year,
+                    "car_drivetrain": s.car_drivetrain,
+                    "car_aspiration": s.car_aspiration,
                     "note": s.note,
                     "tags": [t for t in s.tags.split(",") if t],
                     "track_name": s.track_name,

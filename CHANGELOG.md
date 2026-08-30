@@ -7,6 +7,24 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Added
 
+- **Cars describe themselves, and keep themselves current.** (#57) The bundled
+  car data was 575 rows of `id,name` — the app could print a name and answer
+  nothing else — and it only ever changed when somebody found the admin button,
+  which downloaded a third-party mirror of the same list. Cars are now a real
+  inventory, generated from Polyphony's own car list and shipped inside the
+  package: manufacturer, model year, Gr. category, drivetrain, aspiration,
+  displacement, power, torque, weight and dimensions, for 584 cars. It resolves
+  from the package rather than the working directory, so a fresh install names
+  every car it ships knowing about on its first packet, with no network and no
+  setup step. On top of that the app refreshes itself — on first run and weekly
+  after that, in the background, never blocking or failing a start — so cars
+  added by a GT7 content update arrive on their own. Being offline is not an
+  error: the bundled inventory is the floor, and a failed check simply keeps
+  it. A refresh only ever adds and updates, so the ten cars GT7 no longer
+  publishes keep their names for the sessions that reference them. Sessions
+  carry the manufacturer, year, drivetrain and aspiration on the row beside the
+  car name, and sessions recorded before this — or before a car was known — are
+  filled in as soon as the inventory can answer for them.
 - **Circuits name themselves on a fresh install.** (#58) Track identification
   needed data only you could produce — a signature exists once somebody names a
   circuit, a survey bundle once somebody maps one — so a new install recognised
@@ -146,6 +164,23 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Changed
 
+- **One definition of "update cars", and one of "read GT7's data".** (#57)
+  `scripts/update_cars.py` and `POST /api/admin/update-cars` each had their own
+  copy of the same download-and-map against the same hardcoded third-party URL;
+  both now call the same refresh as the background check, so the three cannot
+  drift apart, and none of them depends on that mirror any more. The car and
+  track scrapers likewise share the module that walks gran-turismo.com's
+  hash-stamped JS bundles instead of each carrying their own. The admin button
+  is no longer a step you have to know about after installing — it is the "do
+  it now" for a refresh that otherwise happens on its own.
+- **Shipped data actually ships.** (#57) `PACKAGE_DATA` pointed one directory
+  above the package, so nothing under it was included in a wheel — the track
+  signatures added in #58 among them — and the defaults only resolved when the
+  process was started from `backend/`. The read-only data now lives in
+  `app/data/` and is declared as package data, which is what lets the Docker
+  image drop its `GT7_CARS_CSV` override and the track-catalog endpoint drop
+  its repo-root fallback. `GT7_CARS_CSV` still works and still wins if you set
+  it, reading the old CSV shape for one release; `GT7_CARS_JSON` replaces it.
 - **Lap lists no longer drag the telemetry along.** (#26) Every lap-summary
   query loaded each lap's full 60 Hz sample blob only to show a row of
   aggregate numbers — the storage hotspot #26 flagged, and one that grew with
