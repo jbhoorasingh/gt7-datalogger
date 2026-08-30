@@ -107,12 +107,12 @@ async def sync_car_inventory(
     cars.load(settings.car_inventory())
     if not cars.count:
         return
-    stamp = f"{cars.schema_version}:{cars.generated}"
-    if stored.get(GENERATED_KEY) == stamp:
+    marker = car_refresh.stamp(cars)
+    if stored.get(GENERATED_KEY) == marker:
         return
     try:
         filled = await repo.backfill_session_cars(cars.all())
-        await repo.set_setting(GENERATED_KEY, stamp)
+        await repo.set_setting(GENERATED_KEY, marker)
     except Exception:  # pragma: no cover - car details must never fail a start
         log.exception("car details could not be backfilled; continuing without them")
         return

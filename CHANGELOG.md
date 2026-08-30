@@ -23,8 +23,14 @@ Notable changes to GT7 Datalogger. The format follows
   it. A refresh only ever adds and updates, so the ten cars GT7 no longer
   publishes keep their names for the sessions that reference them. Sessions
   carry the manufacturer, year, drivetrain and aspiration on the row beside the
-  car name, and sessions recorded before this — or before a car was known — are
-  filled in as soon as the inventory can answer for them.
+  car name — the full published name, model year, category, drivetrain,
+  aspiration, displacement, power, torque, weight, dimensions and PP — and
+  sessions recorded before this, or before a car was known, are filled in as
+  soon as the inventory can answer for them. Laps deliberately store no copy:
+  every lap query already joins its session, so lap listings, the Bests board
+  and lap detail read the car across a join they were making anyway, and
+  `GET /api/laps` gained `manufacturer=` and `drivetrain=` filters on the back
+  of it.
 - **Circuits name themselves on a fresh install.** (#58) Track identification
   needed data only you could produce — a signature exists once somebody names a
   circuit, a survey bundle once somebody maps one — so a new install recognised

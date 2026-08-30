@@ -134,9 +134,20 @@ async def laps(
     category: str = Query(
         "", max_length=16, description="car category, e.g. Gr.3 — all when blank"
     ),
+    manufacturer: str = Query(
+        "", max_length=64, description="car manufacturer, e.g. Nissan — all when blank"
+    ),
+    drivetrain: str = Query(
+        "", max_length=8, description="FR, FF, MR, RR or 4WD — all when blank"
+    ),
 ) -> list[dict[str, Any]]:
+    # manufacturer and drivetrain filter on the session's denormalised car
+    # columns, reached through the join list_laps already makes (#57).
     laps = await svc(request).repo.list_laps(
-        track=track.strip() or None, category=category.strip() or None
+        track=track.strip() or None,
+        category=category.strip() or None,
+        manufacturer=manufacturer.strip() or None,
+        drivetrain=drivetrain.strip() or None,
     )
     cars = svc(request).cars
     for lap in laps:

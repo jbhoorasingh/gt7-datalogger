@@ -357,6 +357,26 @@ export function SessionsView({ subTab = "sessions" }: { subTab?: SubTab }) {
   );
 }
 
+/** The car's published figures, as label/value pairs for the spec strip.
+ *
+ * A figure of 0 is "not published" rather than zero — every EV has no
+ * displacement, some cars no measured torque — so those pairs are dropped
+ * instead of rendering "0 cc". Sessions recorded before #57 have all of them
+ * empty until the startup backfill fills them in, and the strip disappears
+ * entirely rather than showing a row of dashes. */
+function carSpecs(s: SessionSummary): [string, string][] {
+  const specs: [string, string][] = [];
+  if (s.car_power_bhp) specs.push(["Power", `${s.car_power_bhp} BHP`]);
+  if (s.car_torque_kgfm) specs.push(["Torque", `${s.car_torque_kgfm} kgfm`]);
+  if (s.car_weight_kg) specs.push(["Weight", `${s.car_weight_kg} kg`]);
+  if (s.car_displacement_cc) specs.push(["Displacement", `${s.car_displacement_cc} cc`]);
+  if (s.car_performance_points) specs.push(["PP", s.car_performance_points.toFixed(2)]);
+  if (s.car_length_mm && s.car_width_mm && s.car_height_mm) {
+    specs.push(["L×W×H", `${s.car_length_mm}×${s.car_width_mm}×${s.car_height_mm} mm`]);
+  }
+  return specs;
+}
+
 /** "Nissan · FR · TC" — whatever the inventory knows, joined; "" if nothing.
  *
  * Sessions recorded before #57, and cars GT7's list does not describe, have
@@ -511,6 +531,19 @@ function SessionRow({
         <>
           <div className="rule" />
           <div className="flex flex-col gap-2.5 px-3.5 py-2.5">
+            {carSpecs(s).length > 0 && (
+              <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-[11px]">
+                <span className="font-medium text-ink-dim">
+                  {s.car_full_name || s.car_name}
+                  {s.car_year ? ` · ${s.car_year}` : ""}
+                </span>
+                {carSpecs(s).map(([label, value]) => (
+                  <span key={label} className="text-ink-faint">
+                    {label} <span className="font-tabular text-ink-dim">{value}</span>
+                  </span>
+                ))}
+              </div>
+            )}
             <LapTable
               laps={laps}
               units={units}

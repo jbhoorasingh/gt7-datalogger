@@ -53,6 +53,22 @@ class SessionRow(Base):
     car_year: Mapped[int] = mapped_column(default=0)
     car_drivetrain: Mapped[str] = mapped_column(default="")
     car_aspiration: Mapped[str] = mapped_column(default="")
+    # The car's full published name ("Nissan Skyline GTS-R (R31) '87"), where
+    # car_name is the short form GT7 shows in-game ("Skyline GTS-R (R31) '87").
+    car_full_name: Mapped[str] = mapped_column(default="")
+    # The published figures, in the source's own units. 0 = not published,
+    # which is common and meaningful: an EV has no displacement, a kart no
+    # measured torque. Denormalised with the rest so the row is the whole
+    # answer about the car that ran this session, not a key into a file that
+    # may describe it differently later.
+    car_displacement_cc: Mapped[int] = mapped_column(default=0)
+    car_power_bhp: Mapped[int] = mapped_column(default=0)
+    car_torque_kgfm: Mapped[float] = mapped_column(default=0.0)
+    car_weight_kg: Mapped[int] = mapped_column(default=0)
+    car_length_mm: Mapped[int] = mapped_column(default=0)
+    car_width_mm: Mapped[int] = mapped_column(default=0)
+    car_height_mm: Mapped[int] = mapped_column(default=0)
+    car_performance_points: Mapped[float] = mapped_column(default=0.0)
     note: Mapped[str] = mapped_column(default="")
     # User-set labels ("wet", "race sim"), comma-separated (#25). Tags may not
     # contain commas — the PATCH endpoint enforces it — so the join is

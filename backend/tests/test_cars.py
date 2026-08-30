@@ -479,8 +479,7 @@ async def test_the_backfill_only_runs_when_the_inventory_changed(repo, tmp_path)
 
     stored: dict[str, str] = {}
     await sync_car_inventory(settings, repo, db, stored, log)
-    stamp = (await repo.get_settings())[GENERATED_KEY]
-    assert stamp == f"{db.schema_version}:{db.generated}"
+    assert (await repo.get_settings())[GENERATED_KEY] == car_refresh.stamp(db)
 
     # Second start, same file: the marker matches, so nothing is rewritten.
     calls = 0
@@ -505,3 +504,142 @@ async def test_a_missing_inventory_does_not_stop_a_start(repo, tmp_path) -> None
     await sync_car_inventory(settings, repo, db, {}, logging.getLogger("t"))
     assert db.count == 0
     assert GENERATED_KEY not in await repo.get_settings()
+
+
+# --- the whole record on the row, and laps reading it across the join --------
+
+
+FULL_FIELDS = (
+    "car_manufacturer", "car_year", "car_drivetrain", "car_aspiration", "car_full_name",
+    "car_displacement_cc", "car_power_bhp", "car_torque_kgfm", "car_weight_kg",
+    "car_length_mm", "car_width_mm", "car_height_mm", "car_performance_points",
+)
+
+
+async def test_a_session_row_carries_the_whole_car_record(repo) -> None:
+    """Denormalised in full, so the row answers for the car on its own rather
+    than being a key into a file that may describe it differently later."""
+    session_id = await repo.create_session(
+        SessionInfo(car_id=102, started_at="2026-08-30T00:00:00Z"), NISSAN
+    )
+    row = next(s for s in await repo.list_sessions() if s["id"] == session_id)
+    assert row["car_full_name"] == "Nissan Skyline GTS-R (R31) '87"
+    assert row["car_displacement_cc"] == 1998
+    assert row["car_power_bhp"] == 207
+    assert row["car_torque_kgfm"] == 25.0
+    assert row["car_weight_kg"] == 1340
+    assert (row["car_length_mm"], row["car_width_mm"], row["car_height_mm"]) == (4660, 1690, 1365)
+    assert row["car_performance_points"] == 440.85
+
+
+async def test_an_unknown_car_leaves_every_figure_empty(repo) -> None:
+    session_id = await repo.create_session(
+        SessionInfo(car_id=4127, started_at="2026-08-30T00:00:00Z"), None
+    )
+    row = next(s for s in await repo.list_sessions() if s["id"] == session_id)
+    assert [row[f] for f in FULL_FIELDS] == ["", 0, "", "", "", 0, 0, 0.0, 0, 0, 0, 0, 0.0]
+
+
+async def test_the_backfill_fills_the_figures_too(repo) -> None:
+    session_id = await repo.create_session(
+        SessionInfo(car_id=102, started_at="2026-08-30T00:00:00Z"), None
+    )
+    assert await repo.backfill_session_cars({102: NISSAN}) == 1
+    row = next(s for s in await repo.list_sessions() if s["id"] == session_id)
+    assert row["car_power_bhp"] == 207
+    assert row["car_performance_points"] == 440.85
+
+
+async def _session_with_lap(repo, car: Car | None, car_id: int, track: str = "Suzuka") -> int:
+    from app.processing.laps import CompletedLap
+
+    session_id = await repo.create_session(
+        SessionInfo(car_id=car_id, started_at=f"2026-08-30T0{car_id % 9}:00:00Z"), car
+    )
+    await repo.set_session_track(session_id, track)
+    lap = CompletedLap(
+        number=1, time_ms=92_000, finished_at="2026-08-30T00:01:00Z", car_id=car_id,
+        samples={"t": [0.0], "dist": [0.0]}, fuel_start=100.0, fuel_end=99.0,
+    )
+    await repo.save_lap(session_id, lap)
+    return session_id
+
+
+async def test_lap_summaries_carry_the_cars_details_without_a_second_copy(repo) -> None:
+    """The point of #57's lap-side answer: every lap query already joins the
+    session, so the car columns come for free and `laps` stores no duplicate."""
+    await _session_with_lap(repo, NISSAN, 102)
+    laps = await repo.list_laps()
+    assert laps[0]["car_manufacturer"] == "Nissan"
+    assert laps[0]["car_year"] == 1987
+    assert laps[0]["car_drivetrain"] == "FR"
+    assert laps[0]["car_aspiration"] == "TC"
+
+
+async def test_laps_filter_by_manufacturer_and_drivetrain(repo) -> None:
+    await _session_with_lap(repo, NISSAN, 102)
+    await _session_with_lap(
+        repo, Car(id=200, name="MX-5", manufacturer="Mazda", drivetrain="FR"), 200
+    )
+    await _session_with_lap(
+        repo, Car(id=300, name="Golf", manufacturer="Volkswagen", drivetrain="FF"), 300
+    )
+
+    assert [lap["car_id"] for lap in await repo.list_laps(manufacturer="Nissan")] == [102]
+    fr = sorted(lap["car_id"] for lap in await repo.list_laps(drivetrain="FR"))
+    assert fr == [102, 200]
+    assert await repo.list_laps(manufacturer="Ferrari") == []
+
+
+async def test_the_bests_board_and_lap_detail_carry_them_too(repo) -> None:
+    await _session_with_lap(repo, NISSAN, 102)
+    board = await repo.personal_bests()
+    assert board[0]["car_manufacturer"] == "Nissan"
+    assert board[0]["car_drivetrain"] == "FR"
+
+    lap_id = (await repo.list_laps())[0]["id"]
+    detail = await repo.get_lap(lap_id, with_samples=False)
+    assert detail is not None
+    assert detail["car_manufacturer"] == "Nissan"
+    assert detail["car_year"] == 1987
+
+
+async def test_the_class_benchmark_lookup_carries_them(repo) -> None:
+    from app.processing.laps import CompletedLap
+
+    session_id = await repo.create_session(
+        SessionInfo(car_id=102, started_at="2026-08-30T00:00:00Z", car_category="Gr.3"), NISSAN
+    )
+    await repo.set_session_track(session_id, "Suzuka")
+    lap = CompletedLap(
+        number=1, time_ms=90_000, finished_at="2026-08-30T00:01:00Z", car_id=102,
+        samples={"t": [0.0], "dist": [0.0]}, fuel_start=100.0, fuel_end=99.0,
+    )
+    lap.car_category = "Gr.3"
+    await repo.save_lap(session_id, lap)
+
+    best = await repo.best_lap_in("Suzuka", "Gr.3")
+    assert best is not None
+    assert best["car_manufacturer"] == "Nissan"
+
+
+async def test_adding_columns_re_runs_the_backfill_on_upgrade(repo, tmp_path) -> None:
+    """The 0009 upgrade path: a release that adds denormalised columns leaves
+    the inventory file byte-identical, so the marker has to carry the column
+    shape as well — keyed on the file alone, old rows would keep the empty
+    values the migration gave them and nothing would ever fill them."""
+    settings = Settings(db_path=tmp_path / "gt7.db")
+    log = logging.getLogger("t")
+    db = CarDatabase()
+    db.replace(_inventory(NISSAN))
+    await repo.create_session(SessionInfo(car_id=102, started_at="2026-08-30T00:00:00Z"), None)
+
+    # A marker written by the previous release: same inventory, older shape.
+    old_marker = f"{car_refresh.COLUMNS_VERSION - 1}:{db.schema_version}:{db.generated}"
+    await repo.set_setting(GENERATED_KEY, old_marker)
+
+    await sync_car_inventory(settings, repo, db, {GENERATED_KEY: old_marker}, log)
+
+    row = (await repo.list_sessions())[0]
+    assert row["car_power_bhp"] == 207  # a column the older shape never wrote
+    assert (await repo.get_settings())[GENERATED_KEY] == car_refresh.stamp(db)

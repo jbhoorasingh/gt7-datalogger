@@ -38,7 +38,19 @@ log = logging.getLogger(__name__)
 # Settings-table keys. Same persisted key-value pattern as the rest of startup.
 UPDATED_AT_KEY = "cars_updated_at"        # ISO date of the last successful refresh
 VERSION_KEY = "car_data_version"          # inventory schema the DB was last filled from
-GENERATED_KEY = "car_data_generated"      # `meta.generated` of the loaded inventory
+GENERATED_KEY = "car_data_generated"      # which inventory AND column shape the rows hold
+
+# The shape of the denormalised car columns on the session rows. Bumped by any
+# release that adds or changes one — and that bump is what makes the backfill
+# re-run for rows written before it. The inventory file can be byte-identical
+# across such an upgrade (0009 added nine columns without touching it), so
+# neither its version nor its date can detect the change on their own.
+COLUMNS_VERSION = 2
+
+
+def stamp(cars: CarDatabase) -> str:
+    """The marker recording what the session rows were last filled from."""
+    return f"{COLUMNS_VERSION}:{cars.schema_version}:{cars.generated}"
 
 # How long a refreshed inventory is considered current. GT7 content updates
 # land monthly at their fastest, so a week is already generous; the point is
@@ -114,5 +126,5 @@ async def record(repo: Repository, cars: CarDatabase, today: datetime.date) -> i
     await repo.set_setting(UPDATED_AT_KEY, today.isoformat())
     await repo.set_setting(VERSION_KEY, str(SCHEMA_VERSION))
     filled = await repo.backfill_session_cars(cars.all())
-    await repo.set_setting(GENERATED_KEY, f"{cars.schema_version}:{cars.generated}")
+    await repo.set_setting(GENERATED_KEY, stamp(cars))
     return filled
