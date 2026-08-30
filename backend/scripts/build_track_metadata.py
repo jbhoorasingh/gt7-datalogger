@@ -1,4 +1,4 @@
-"""Regenerate backend/data/tracks.json from official GT7 data + the GT wiki.
+"""Regenerate backend/app/data/tracks.json from official GT7 data + the GT wiki.
 
 Primary source is the official tracklist's own data bundle — the JS asset the
 page at gran-turismo.com/gb/gt7/tracklist/ renders from. It carries what no
@@ -29,19 +29,29 @@ import datetime
 import difflib
 import json
 import re
+import sys
 import tempfile
 import time
 import urllib.parse
-import urllib.request
 from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from app.processing.gt7_assets import (  # noqa: E402
+    data_chunk_names,
+    http_get,
+    index_chunk_name,
+    parse_js_object,
+)
 
 OFFICIAL_PAGE = "https://www.gran-turismo.com/gb/gt7/tracklist/"
 OFFICIAL_ASSETS = "https://www.gran-turismo.com/common/dist/gt7/tracklist/assets/"
 WIKI_API = "https://gran-turismo.fandom.com/api.php"
 WIKI_LIST_PAGE = "Gran Turismo 7/Track List"
-UA = {"User-Agent": "gt7-datalogger track metadata builder"}
-OUT = Path(__file__).resolve().parents[1] / "data" / "tracks.json"
+# Inside the package, where the app reads it from (config.PACKAGE_DATA) and
+# where it ships from in a wheel — NOT backend/data, which is no longer read.
+OUT = Path(__file__).resolve().parents[1] / "app" / "data" / "tracks.json"
 
 # Official nameBase -> wiki course name, where they differ.
 WIKI_TRACK_ALIASES = {
@@ -52,34 +62,12 @@ WIKI_TRACK_ALIASES = {
 }
 
 
-def http_get(url: str) -> str:
-    req = urllib.request.Request(url, headers=UA)
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return str(resp.read().decode("utf-8"))
-
-
 # ---------------------------------------------------------------- official ---
 
 def discover_locale_assets(page_html: str) -> dict[str, str]:
     """Page HTML -> index chunk -> {locale: tracks asset filename}."""
-    index = re.search(r"assets/(index-[A-Za-z0-9_-]+\.js)", page_html)
-    if not index:
-        raise RuntimeError("could not find the tracklist index chunk in the page")
-    chunk = http_get(OFFICIAL_ASSETS + index.group(1))
-    return {
-        m.group(1): m.group(0)
-        for m in re.finditer(r"tracks\.([a-z]+)-[A-Za-z0-9_-]+\.js", chunk)
-    }
-
-
-def parse_official_js(src: str) -> dict[str, dict[str, Any]]:
-    """The asset is `const e={...};export{e as Tracks};` — quote the keys and
-    fix bare decimals, then it is JSON."""
-    body = src[src.index("{"): src.rindex(";export")]
-    body = re.sub(r"([{,])([A-Za-z_][A-Za-z0-9_]*|\d+):", r'\1"\2":', body)
-    body = re.sub(r":\s*\.(\d)", r":0.\1", body)
-    parsed: dict[str, dict[str, Any]] = json.loads(body)
-    return parsed
+    chunk = http_get(OFFICIAL_ASSETS + index_chunk_name(page_html))
+    return data_chunk_names(chunk, "tracks")
 
 
 def fetch_official() -> list[dict[str, Any]]:
@@ -88,8 +76,8 @@ def fetch_official() -> list[dict[str, Any]]:
     for locale in ("gb", "de"):
         if locale not in assets:
             raise RuntimeError(f"tracklist assets missing locale {locale!r}: {assets}")
-    en = parse_official_js(http_get(OFFICIAL_ASSETS + assets["gb"]))
-    metric = parse_official_js(http_get(OFFICIAL_ASSETS + assets["de"]))
+    en = parse_js_object(http_get(OFFICIAL_ASSETS + assets["gb"]))
+    metric = parse_js_object(http_get(OFFICIAL_ASSETS + assets["de"]))
     configs = []
     for cid, e in en.items():
         m = metric[cid]

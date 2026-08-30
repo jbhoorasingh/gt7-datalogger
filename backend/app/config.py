@@ -6,13 +6,18 @@ from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Files shipped inside the package, addressed from the package rather than from
-# the working directory. The older data settings below are CWD-relative and so
-# depend on being started from the repo root — which is why the Docker image
-# has to set GT7_CARS_CSV by hand, and why GT7_TRACKS_JSON quietly resolves to
-# nothing there. #57 tracks moving them all onto this; anything added since is
-# already on it, because a default that only works from one directory is a
+# the working directory: a default that only works from one directory is a
 # feature that silently does nothing everywhere else.
-PACKAGE_DATA = Path(__file__).resolve().parent.parent / "data"
+#
+# Until #57 this pointed at backend/data — one directory ABOVE the package, so
+# nothing under it shipped in a wheel at all (`packages.find` takes `app*`) and
+# every default depended on the process being started from backend/. The
+# read-only data now lives in app/data and is declared as package data in
+# pyproject.toml, which is what makes `pip install ./backend` self-sufficient.
+#
+# db_path deliberately stays out: it is the user's recording, not shipped
+# content, and writing it inside site-packages would be wrong on every install.
+PACKAGE_DATA = Path(__file__).resolve().parent / "data"
 
 
 class Settings(BaseSettings):
@@ -33,9 +38,18 @@ class Settings(BaseSettings):
     sim_scenario: str = "practice"
 
     db_path: Path = Path("data/gt7.db")
-    cars_csv: Path = Path("data/cars.csv")
+    # The car inventory: id -> name, manufacturer, year, category, drivetrain,
+    # aspiration and the published figures (see scripts/build_car_metadata.py).
+    # Shipped with the package so a fresh install names cars on its first
+    # packet, then refreshed in the background against GT7's own list (#57).
+    cars_json: Path = PACKAGE_DATA / "cars.json"
+    # Pre-#57 two-column id,name CSV. Empty unless an existing install pinned
+    # GT7_CARS_CSV, in which case it still wins and is still read — names only,
+    # none of the richer fields. Kept for one release so an upgrade cannot
+    # leave anybody with a config pointing at a file the app stopped reading.
+    cars_csv: Path | None = None
     # Official GT7 track/layout metadata (see scripts/build_track_metadata.py)
-    tracks_json: Path = Path("data/tracks.json")
+    tracks_json: Path = PACKAGE_DATA / "tracks.json"
     # Pre-computed track signatures, generated in gt7-datalogger-track-data and
     # vendored here so a fresh install identifies circuits on its first packet
     # with no network (#58). Synced into the tracks table at startup whenever
@@ -90,6 +104,35 @@ class Settings(BaseSettings):
     # Units spoken for distances and speeds ("metric" or "imperial"). Server
     # side because the callout text is worded before it reaches a browser.
     race_engineer_units: str = "metric"
+
+    def car_inventory(self) -> Path:
+        """The car file to read, most specific first.
+
+        A pinned GT7_CARS_CSV wins: an install that set it before #57 meant
+        "read cars from here", and that is still honoured — CarDatabase reads
+        either shape, it just gets names only. Pydantic renders an empty
+        environment variable as Path("."), so a blank GT7_CARS_CSV means unset
+        rather than "load the current directory".
+
+        Then a refreshed inventory if one has been written, then the one
+        shipped in the package. That order is what makes the refresh visible
+        without ever writing inside site-packages.
+        """
+        if self.cars_csv is not None and str(self.cars_csv) not in ("", "."):
+            return self.cars_csv
+        refreshed = self.refreshed_car_inventory()
+        return refreshed if refreshed.exists() else self.cars_json
+
+    def refreshed_car_inventory(self) -> Path:
+        """Where a refresh writes: beside the database, with the user's data.
+
+        An explicit GT7_CARS_JSON is taken as "this file is the inventory", so
+        refreshes go there instead; otherwise the package copy stays pristine
+        and the writable copy sits next to gt7.db.
+        """
+        if "cars_json" in self.model_fields_set:
+            return self.cars_json
+        return self.db_path.parent / "cars.json"
 
     def enabled_webhook_events(self) -> set[str]:
         from app.notify import parse_events

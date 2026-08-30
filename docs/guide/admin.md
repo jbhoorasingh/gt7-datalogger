@@ -33,10 +33,11 @@ session/lap counts, database size, and loaded car names. Two actions:
 
 - **Restart telemetry source** — stop/start the current source (rebinds the UDP socket,
   restarts discovery).
-- **Update car database** — downloads the community-maintained car list (from the
-  [ddm999/gt7info](https://github.com/ddm999/gt7info) project) so car IDs resolve to
-  real names. Run this once after install — the bundled `cars.csv` only has a sample
-  entry.
+- **Update car database** — refreshes the car inventory from GT7's own car list, now
+  rather than waiting for the weekly background check. You do not need to run this after
+  installing: every car GT7 publishes ships with the app. Use it when a content update
+  has just added cars you want named today. Cars the list no longer publishes keep their
+  names either way.
 
 ## Notifications
 

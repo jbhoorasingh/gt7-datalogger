@@ -10,7 +10,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.config import Settings
 from app.main import create_app
-from app.processing.cars import CarDatabase
+from app.processing.cars import Car, CarDatabase
 from app.processing.laps import CompletedLap, SessionInfo
 from app.service import TelemetryService
 from app.storage.db import init_db, make_engine, make_session_factory
@@ -77,7 +77,8 @@ async def seed(repo: Repository) -> dict[str, int]:
     board is wrong in exactly the #26 way until it is flagged excluded.
     """
     s1 = await repo.create_session(
-        SessionInfo(car_id=7, started_at="2026-08-20T00:00:00Z", car_category="Gr.3"), "Car 7"
+        SessionInfo(car_id=7, started_at="2026-08-20T00:00:00Z", car_category="Gr.3"),
+        Car(id=7, name="Car 7"),
     )
     await repo.set_session_track(s1, "Suzuka")
     await repo.save_lap(s1, make_lap(1, 92_000, 7, "Gr.3"))
@@ -86,13 +87,15 @@ async def seed(repo: Repository) -> dict[str, int]:
     await repo.save_lap(s1, make_lap(3, 45_000, 7, "Gr.3", counts=False))
 
     s2 = await repo.create_session(
-        SessionInfo(car_id=7, started_at="2026-08-20T01:00:00Z", car_category="Gr.3"), "Car 7"
+        SessionInfo(car_id=7, started_at="2026-08-20T01:00:00Z", car_category="Gr.3"),
+        Car(id=7, name="Car 7"),
     )
     await repo.set_session_track(s2, "Suzuka")
     await repo.save_lap(s2, make_lap(1, 88_000, 7, "Gr.3"))
 
     s3 = await repo.create_session(
-        SessionInfo(car_id=9, started_at="2026-08-20T02:00:00Z", car_category="Gr.4"), "Car 9"
+        SessionInfo(car_id=9, started_at="2026-08-20T02:00:00Z", car_category="Gr.4"),
+        Car(id=9, name="Car 9"),
     )
     await repo.set_session_track(s3, "Monza")
     await repo.save_lap(s3, make_lap(1, 105_000, 9, "Gr.4"))
@@ -100,7 +103,8 @@ async def seed(repo: Repository) -> dict[str, int]:
 
     # Never identified: no circuit means no board row, however quick the lap.
     s4 = await repo.create_session(
-        SessionInfo(car_id=7, started_at="2026-08-20T03:00:00Z", car_category="Gr.3"), "Car 7"
+        SessionInfo(car_id=7, started_at="2026-08-20T03:00:00Z", car_category="Gr.3"),
+        Car(id=7, name="Car 7"),
     )
     await repo.save_lap(s4, make_lap(1, 60_000, 7, "Gr.3"))
 
@@ -195,7 +199,7 @@ async def test_category_filter_narrows_rows_not_recomputes_them(client) -> None:
     c, repo = client
     await seed(repo)
     s = await repo.create_session(
-        SessionInfo(car_id=11, started_at="2026-08-20T04:00:00Z"), "Car 11"
+        SessionInfo(car_id=11, started_at="2026-08-20T04:00:00Z"), Car(id=11, name="Car 11")
     )
     await repo.set_session_track(s, "Monza")
     await repo.save_lap(s, make_lap(1, 100_000, 11, ""))  # fastest, pre-packet-C
@@ -214,7 +218,7 @@ async def test_board_dates_fall_back_to_session_start(client) -> None:
     row a date — same fallback best_lap_in already uses."""
     c, repo = client
     s = await repo.create_session(
-        SessionInfo(car_id=13, started_at="2026-08-20T05:00:00Z"), "Car 13"
+        SessionInfo(car_id=13, started_at="2026-08-20T05:00:00Z"), Car(id=13, name="Car 13")
     )
     await repo.set_session_track(s, "Monza")
     undated = make_lap(1, 99_000, 13, "Gr.3")

@@ -33,6 +33,9 @@ include = ["app*"]
 # with the package, not just be importable.
 [tool.setuptools.package-data]
 "app.migrations" = ["script.py.mako"]
+# The car inventory, the track catalog and the track signatures: read at
+# runtime from PACKAGE_DATA, so an install without them names nothing (#57).
+"app" = ["data/*.json"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

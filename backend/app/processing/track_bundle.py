@@ -40,7 +40,7 @@ correcting their lateral offset offline once a better width is known.
 Position itself stays first-seen, which keeps files stable (small diffs
 once these live in their own repo: the format is self-describing and
 versioned precisely so bundles can be exported there and imported at build
-time later, like data/tracks.json).
+time later, like app/data/tracks.json).
 
 The document also carries **authored** track knowledge (v4): corners and
 sections labelled by hand after the survey. Authored data outranks derived

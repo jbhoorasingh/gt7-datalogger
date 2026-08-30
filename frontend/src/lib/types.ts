@@ -65,6 +65,12 @@ export interface LapSummary {
   car_id?: number;
   car_name?: string;
   car_category?: string; // packet C: "Gr.3", "Gr.4", "N300"…; "" when unknown
+  // Read across the join from the lap's session, which is where the car's own
+  // details live (#57) — they cannot vary between laps of one session.
+  car_manufacturer?: string;
+  car_year?: number;
+  car_drivetrain?: string;
+  car_aspiration?: string;
   track_name?: string; // from the session row; "" when the circuit is unnamed
   fuel_consumed: number;
   full_throttle_pct: number;
@@ -369,6 +375,24 @@ export interface SessionSummary {
   car_id: number;
   car_name: string;
   car_category: string; // packet C: "Gr.3", "Gr.4", "N300"...; "" when unknown
+  // From the bundled car inventory, denormalised onto the session row (#57).
+  // Empty (or 0 for the year) wherever GT7's own car list has no answer —
+  // race cars and concepts routinely carry no model year.
+  car_manufacturer: string;
+  car_year: number;
+  car_drivetrain: string; // "FR", "FF", "MR", "RR", "4WD"
+  car_aspiration: string; // "NA", "TC", "SC", "TC+SC", "EV"
+  car_full_name: string; // "Nissan Skyline GTS-R (R31) '87"; car_name is the short form
+  // The published figures, in the source's own units. 0 = not published, which
+  // is meaningful rather than missing: an EV has no displacement.
+  car_displacement_cc: number;
+  car_power_bhp: number;
+  car_torque_kgfm: number;
+  car_weight_kg: number;
+  car_length_mm: number;
+  car_width_mm: number;
+  car_height_mm: number;
+  car_performance_points: number;
   note: string;
   // User-set labels ("wet", "race sim") for telling sessions apart and
   // filtering the list (#25). Never inferred from telemetry.

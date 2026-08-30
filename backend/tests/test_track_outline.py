@@ -9,7 +9,7 @@ from httpx import ASGITransport, AsyncClient
 from app.config import Settings
 from app.main import create_app
 from app.processing import track_bundle, track_compile, track_outline
-from app.processing.cars import CarDatabase
+from app.processing.cars import Car, CarDatabase
 from app.processing.laps import CompletedLap, SessionInfo, new_sample_store
 from app.service import TelemetryService
 from app.storage.db import init_db, make_engine, make_session_factory
@@ -196,7 +196,7 @@ async def test_endpoint_resolves_the_circuit_from_a_lap(client) -> None:
         samples=samples, fuel_start=1.0, fuel_end=1.0,
     )
     session_id = await service.repo.create_session(
-        SessionInfo(car_id=1, started_at="now"), "Car"
+        SessionInfo(car_id=1, started_at="now"), Car(id=1, name="Car")
     )
     lap_id = await service.repo.save_lap(session_id, lap)
     await service.repo.set_session_track(session_id, "Test Circuit")

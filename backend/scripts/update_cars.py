@@ -1,41 +1,57 @@
-"""Fetch the complete GT7 car ID -> name list from ddm999/gt7info.
+"""Refresh a running install's car inventory from GT7's own car list.
 
 Usage: python scripts/update_cars.py [output_path]
+
+The app refreshes itself in the background and the admin page has a button for
+it (#57); this is the same operation from a shell, for a headless box or a cron
+job. All three call app.processing.car_refresh, so they cannot drift apart.
+
+Without an argument it writes where the app looks for a refreshed inventory —
+next to the database, NOT into the package. To regenerate the copy committed to
+the repository (the one shipped inside the package), use
+`scripts/build_car_metadata.py` instead.
+
+Note this only writes the file. A running app picks it up at its next start, or
+immediately via Admin -> Update car database.
 """
 
 from __future__ import annotations
 
-import csv
-import io
+import asyncio
 import sys
-import urllib.request
 from pathlib import Path
 
-SOURCE_URL = "https://raw.githubusercontent.com/ddm999/gt7info/web-new/_data/db/cars.csv"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from app.config import get_settings  # noqa: E402
+from app.processing import car_refresh, car_source  # noqa: E402
+from app.processing.cars import CarDatabase  # noqa: E402
 
 
-def main() -> None:
-    default = Path(__file__).parent.parent / "data" / "cars.csv"
-    out = Path(sys.argv[1]) if len(sys.argv) > 1 else default
-    print(f"downloading {SOURCE_URL}")
-    with urllib.request.urlopen(SOURCE_URL, timeout=30) as resp:
-        raw = resp.read().decode("utf-8")
+async def run(out: Path | None) -> int:
+    settings = get_settings()
+    destination = out or settings.refreshed_car_inventory()
 
-    # Upstream columns: ID, ShortName, Maker (header names may vary in case).
-    reader = csv.DictReader(io.StringIO(raw))
-    fields = {f.lower(): f for f in reader.fieldnames or []}
-    id_col = fields.get("id")
-    name_col = fields.get("shortname") or fields.get("name")
-    if not id_col or not name_col:
-        sys.exit(f"unexpected columns in upstream csv: {reader.fieldnames}")
+    # Start from what the app would load, so cars GT7 no longer publishes are
+    # carried forward rather than dropped by this run.
+    cars = CarDatabase()
+    cars.load(settings.car_inventory())
+    before = cars.count
 
-    rows = [(row[id_col], row[name_col]) for row in reader if row.get(id_col)]
-    with out.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["id", "name"])
-        writer.writerows(rows)
-    print(f"wrote {len(rows)} cars to {out}")
+    print(f"fetching {car_source.PAGE}")
+    try:
+        inventory = await car_refresh.fetch_and_store(cars, destination)
+    except Exception as exc:
+        print(f"update failed: {exc}", file=sys.stderr)
+        return 1
+    print(f"wrote {len(inventory.cars)} cars to {destination} ({before} before)")
+    return 0
+
+
+def main() -> int:
+    out = Path(sys.argv[1]) if len(sys.argv) > 1 else None
+    return asyncio.run(run(out))
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

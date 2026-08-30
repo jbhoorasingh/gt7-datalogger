@@ -247,7 +247,7 @@ class TelemetryService:
     async def _on_session(self, info: SessionInfo) -> None:
         self.event_watcher.reset()
         await self._close_previous_session()
-        self.session_id = await self.repo.create_session(info, self.cars.name(info.car_id))
+        self.session_id = await self.repo.create_session(info, self.cars.get(info.car_id))
         # A survey spanning a restart keeps labeling its records with the
         # session its transitions actually belong to. An auto-filled track
         # label goes back to unknown too — the new session may be a

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import datetime
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -15,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from app import logbuffer
 from app.api import admin, layouts, routes, tracks, ws
 from app.config import Settings, get_settings
-from app.processing import track_seed
+from app.processing import car_refresh, track_seed
 from app.processing.cars import CarDatabase
 from app.race_engineer import VERBOSITY_MODES
 from app.service import TelemetryService
@@ -36,6 +39,11 @@ def configure_logging(level: str) -> None:
 # Settings key holding the digest of the seed file the tracks table was last
 # built from. Same persisted key-value pattern the rest of lifespan uses.
 SEED_DIGEST_KEY = "track_seed_digest"
+
+# Which inventory the denormalised car columns on the session rows were last
+# built from ("<schema>:<generated>"). Same pattern, same reason: the work is
+# skipped on every start where the answer would not change.
+GENERATED_KEY = car_refresh.GENERATED_KEY
 
 
 async def sync_track_seed(
@@ -83,6 +91,70 @@ async def sync_track_seed(
     )
 
 
+async def sync_car_inventory(
+    settings: Settings,
+    repo: Repository,
+    cars: CarDatabase,
+    stored: dict[str, str],
+    log: logging.Logger,
+) -> None:
+    """Load the shipped inventory and fill it in on the session rows.
+
+    Layer 1 of #57: this is the floor, and it involves no network at all. The
+    backfill re-runs only when the loaded inventory is not the one the rows
+    were last built from, so a normal start does nothing but the load.
+    """
+    cars.load(settings.car_inventory())
+    if not cars.count:
+        return
+    marker = car_refresh.stamp(cars)
+    if stored.get(GENERATED_KEY) == marker:
+        return
+    try:
+        filled = await repo.backfill_session_cars(cars.all())
+        await repo.set_setting(GENERATED_KEY, marker)
+    except Exception:  # pragma: no cover - car details must never fail a start
+        log.exception("car details could not be backfilled; continuing without them")
+        return
+    if filled:
+        log.info("car details filled in on %d existing session(s)", filled)
+
+
+async def refresh_cars_if_stale(
+    settings: Settings,
+    repo: Repository,
+    cars: CarDatabase,
+    stored: dict[str, str],
+    log: logging.Logger,
+) -> None:
+    """Layer 2 of #57: bring in cars added since the release was cut.
+
+    Runs in a background task, so a slow or hanging site delays nothing, and
+    swallows everything it can raise: an install with no internet, or one
+    running the day gran-turismo.com changes its page layout, is left with the
+    inventory from layer 1 — which is every car we shipped knowing about.
+    """
+    # One clock read for the whole run: the date that decided the refresh is
+    # the date recorded as its result, even for a task that spans midnight.
+    today = datetime.date.today()
+    if not car_refresh.is_stale(stored, today):
+        return
+    try:
+        await car_refresh.fetch_and_store(cars, settings.refreshed_car_inventory())
+    except Exception as exc:
+        # Info, not error: being offline is a normal state for a datalogger on
+        # a LAN with a games console, and nothing is broken when it happens.
+        log.info("car inventory not refreshed (%s); using the bundled one", exc)
+        return
+    try:
+        filled = await car_refresh.record(repo, cars, today)
+    except Exception:
+        log.exception("refreshed car inventory could not be recorded")
+        return
+    if filled:
+        log.info("car details updated on %d existing session(s)", filled)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
@@ -119,11 +191,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await sync_track_seed(settings, repo, stored, log)
 
     cars = CarDatabase()
-    cars.load(settings.cars_csv)
+    await sync_car_inventory(settings, repo, cars, stored, log)
 
     service = TelemetryService(settings, repo, cars)
     app.state.service = service
     await service.start()
+
+    # Deliberately not awaited: startup must not wait on gran-turismo.com, and
+    # must not fail if it never answers. The task is kept so it can be
+    # cancelled at shutdown rather than outliving the app it belongs to.
+    refresh = asyncio.create_task(refresh_cars_if_stale(settings, repo, cars, stored, log))
 
     if settings.source == "udp" and not settings.ps_ip:
         log.info(
@@ -132,6 +209,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             settings.telemetry_port,
         )
     yield
+    # Cancelled AND awaited: a task dropped while still pending logs a
+    # "Task was destroyed but it is pending" warning on the way out, which
+    # looks like a fault in a shutdown that is working correctly.
+    refresh.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await refresh
     await service.stop()
     await engine.dispose()
 

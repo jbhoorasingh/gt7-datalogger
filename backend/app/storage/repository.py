@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
-from sqlalchemy import Row, case, delete, func, select, text, update
+from sqlalchemy import CursorResult, Row, case, delete, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.processing import tracks as tracks_module
+from app.processing.cars import Car
 from app.processing.laps import CompletedLap, SessionInfo
 from app.processing.track_seed import SeedRow
 from app.processing.tracks import IDENTIFY_MIN_TICKS, TrackSignature, matches
@@ -117,19 +118,122 @@ def _event_counts(events_json: str) -> dict[str, int]:
     return counts
 
 
+# What a lap query takes from the session it is already joined to (#57).
+#
+# These are properties of the CAR, not of the lap: they cannot differ between
+# two laps of one session, so they live on the session row and are read across
+# the join every lap query already makes (for track_name and bests_excluded).
+# That is the whole reason laps carry no copy of them. car_category is the
+# exception that stays on the lap — it is per-lap telemetry from packet C, and
+# a session's laps can legitimately disagree with the session row.
+LAP_CAR_COLUMNS = (
+    SessionRow.car_manufacturer,
+    SessionRow.car_year,
+    SessionRow.car_drivetrain,
+    SessionRow.car_aspiration,
+)
+LAP_CAR_FIELDS = ("car_manufacturer", "car_year", "car_drivetrain", "car_aspiration")
+
+
+def lap_car_fields(row: Any) -> dict[str, Any]:
+    """The borrowed car columns off a projected row, as a dict."""
+    return {name: getattr(row, name) for name in LAP_CAR_FIELDS}
+
+
+# Car -> session columns. One definition because two callers write these: a
+# session opening with the car in hand, and the backfill re-deriving them for
+# sessions recorded before the inventory could describe their car (#57).
+# car_name and car_category are NOT here — both have precedence rules of their
+# own (a name the user is looking at is not rewritten; the packet's category
+# beats the inventory's), so they are set explicitly at each call site.
+def car_figures(car: Car | None) -> dict[str, Any]:
+    """The denormalised car columns for `car`, or their empty values for None."""
+    blank = Car(id=0, name="")
+    c = car or blank
+    return {
+        "car_manufacturer": c.manufacturer,
+        "car_year": c.year,
+        "car_drivetrain": c.drivetrain,
+        "car_aspiration": c.aspiration,
+        "car_full_name": c.full_name,
+        "car_displacement_cc": c.displacement_cc,
+        "car_power_bhp": c.power_bhp,
+        "car_torque_kgfm": c.torque_kgfm,
+        "car_weight_kg": c.weight_kg,
+        "car_length_mm": c.length_mm,
+        "car_width_mm": c.width_mm,
+        "car_height_mm": c.height_mm,
+        "car_performance_points": c.performance_points,
+    }
+
+
 class Repository:
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._sf = session_factory
 
-    async def create_session(self, info: SessionInfo, car_name: str) -> int:
+    async def create_session(self, info: SessionInfo, car: Car | None) -> int:
+        """Open a session, denormalising what the inventory knows about the car.
+
+        `car` is None for an id the inventory has never heard of — a car added
+        by a GT7 update we have not refreshed for yet. The row then carries the
+        `Car #{id}` placeholder, and the startup backfill fills the rest in
+        once a refresh brings the car in.
+        """
         async with self._sf() as db:
             row = SessionRow(
-                started_at=info.started_at, car_id=info.car_id, car_name=car_name,
-                car_category=info.car_category,
+                started_at=info.started_at, car_id=info.car_id,
+                car_name=car.name if car else f"Car #{info.car_id}",
+                # The packet's category wins over the inventory's: it is what
+                # the car was actually racing as, and packet C sends it live.
+                car_category=info.car_category or (car.category if car else ""),
+                **car_figures(car),
             )
             db.add(row)
             await db.commit()
             return row.id
+
+    async def backfill_session_cars(self, cars: Mapping[int, Car]) -> int:
+        """Re-derive the denormalised car columns on existing sessions.
+
+        Run when the inventory changes (first start, a release with a new
+        bundled file, a background refresh). Only sessions whose car the
+        inventory knows are touched, and only one UPDATE per distinct car —
+        a user has driven tens of cars, not thousands.
+
+        car_name and car_category are filled only where they are empty or still
+        the `Car #{id}` placeholder: a name the user has been looking at should
+        not change under them for a diacritic, and a category from packet C
+        describes the actual race, not the car's showroom class.
+        """
+        async with self._sf() as db:
+            driven = set((await db.execute(select(SessionRow.car_id).distinct())).scalars())
+            updated = 0
+            for car_id in sorted(driven & set(cars)):
+                car = cars[car_id]
+                result = await db.execute(
+                    update(SessionRow)
+                    .where(SessionRow.car_id == car_id)
+                    .values(
+                        car_name=case(
+                            (
+                                or_(
+                                    SessionRow.car_name == "",
+                                    SessionRow.car_name == f"Car #{car_id}",
+                                ),
+                                car.name,
+                            ),
+                            else_=SessionRow.car_name,
+                        ),
+                        car_category=case(
+                            (SessionRow.car_category == "", car.category),
+                            else_=SessionRow.car_category,
+                        ),
+                        **car_figures(car),
+                    )
+                )
+                updated += cast(CursorResult[Any], result).rowcount or 0
+            await db.commit()
+            return updated
 
     async def save_lap(self, session_id: int, lap: CompletedLap) -> int:
         async with self._sf() as db:
@@ -203,6 +307,22 @@ class Repository:
                     "car_id": s.car_id,
                     "car_name": s.car_name,
                     "car_category": s.car_category or lap_category or "",
+                    # Denormalised on the row since #57; empty/0 where the
+                    # inventory has no answer for this car, which for the
+                    # figures is normal (an EV publishes no displacement).
+                    "car_manufacturer": s.car_manufacturer,
+                    "car_year": s.car_year,
+                    "car_drivetrain": s.car_drivetrain,
+                    "car_aspiration": s.car_aspiration,
+                    "car_full_name": s.car_full_name,
+                    "car_displacement_cc": s.car_displacement_cc,
+                    "car_power_bhp": s.car_power_bhp,
+                    "car_torque_kgfm": s.car_torque_kgfm,
+                    "car_weight_kg": s.car_weight_kg,
+                    "car_length_mm": s.car_length_mm,
+                    "car_width_mm": s.car_width_mm,
+                    "car_height_mm": s.car_height_mm,
+                    "car_performance_points": s.car_performance_points,
                     "note": s.note,
                     "tags": [t for t in s.tags.split(",") if t],
                     "track_name": s.track_name,
@@ -260,7 +380,9 @@ class Repository:
         async with self._sf() as db:
             row = (
                 await db.execute(
-                    select(LapRow, SessionRow.car_name, SessionRow.started_at)
+                    select(
+                        LapRow, SessionRow.car_name, SessionRow.started_at, *LAP_CAR_COLUMNS
+                    )
                     .join(SessionRow, SessionRow.id == LapRow.session_id)
                     .where(
                         SessionRow.track_name == track,
@@ -277,7 +399,7 @@ class Repository:
             ).first()
             if row is None:
                 return None
-            lap, car_name, started_at = row
+            lap, car_name, started_at = row[0], row[1], row[2]
             return {
                 "lap_id": lap.id,
                 "session_id": lap.session_id,
@@ -286,6 +408,7 @@ class Repository:
                 "car_id": lap.car_id,
                 "car_name": car_name,
                 "car_category": lap.car_category,
+                **lap_car_fields(row),
                 "track_name": track,
                 "clean_lap": lap.clean_lap,
                 "off_survey_count": lap.off_survey_count,
@@ -323,6 +446,7 @@ class Repository:
                     LapRow.clean_lap,
                     LapRow.off_survey_count,
                     LapRow.salvaged,
+                    *LAP_CAR_COLUMNS,
                     func.row_number()
                     .over(partition_by=partition, order_by=(LapRow.time_ms, LapRow.id))
                     .label("rn"),
@@ -365,6 +489,7 @@ class Repository:
                     "off_survey_count": r.off_survey_count,
                     "salvaged": bool(r.salvaged),
                     "lap_count": r.lap_count,
+                    **lap_car_fields(r),
                 }
                 for r in rows
             ]
@@ -464,9 +589,14 @@ class Repository:
         session_id: int | None = None,
         track: str | None = None,
         category: str | None = None,
+        manufacturer: str | None = None,
+        drivetrain: str | None = None,
     ) -> list[dict[str, Any]]:
         """Lap summaries, newest first, optionally scoped to a session, a
-        circuit, or a car category.
+        circuit, a car category, a manufacturer or a drivetrain.
+
+        The last two filter on the session's denormalised car columns across
+        the join below, which is why laps need no copy of them (#57).
 
         Projects exactly the columns lap_summary reads instead of loading
         LapRow objects: each row would otherwise drag samples_json along —
@@ -510,6 +640,7 @@ class Repository:
                     LapRow.race_position,
                     LapRow.events_json,
                     SessionRow.track_name,
+                    *LAP_CAR_COLUMNS,
                 )
                 .join(SessionRow, SessionRow.id == LapRow.session_id)
                 .order_by(LapRow.id.desc())
@@ -520,6 +651,10 @@ class Repository:
                 q = q.where(SessionRow.track_name == track)
             if category is not None:
                 q = q.where(LapRow.car_category == category)
+            if manufacturer is not None:
+                q = q.where(SessionRow.car_manufacturer == manufacturer)
+            if drivetrain is not None:
+                q = q.where(SessionRow.car_drivetrain == drivetrain)
             rows = (await db.execute(q)).all()
             laps = []
             for r in rows:
@@ -527,15 +662,29 @@ class Repository:
                 # just as an ORM object would.
                 lap = lap_summary(r)
                 lap["track_name"] = r.track_name
+                lap.update(lap_car_fields(r))
                 laps.append(lap)
             return laps
 
     async def get_lap(self, lap_id: int, with_samples: bool = True) -> dict[str, Any] | None:
+        """One lap in full.
+
+        Joined to its session for the car columns (#57) — the only lap query
+        that had no reason to join before, and a single row either way.
+        """
         async with self._sf() as db:
-            row = (await db.execute(select(LapRow).where(LapRow.id == lap_id))).scalar_one_or_none()
-            if row is None:
+            result = (
+                await db.execute(
+                    select(LapRow, *LAP_CAR_COLUMNS)
+                    .join(SessionRow, SessionRow.id == LapRow.session_id)
+                    .where(LapRow.id == lap_id)
+                )
+            ).first()
+            if result is None:
                 return None
+            row = result[0]
             data = lap_summary(row)
+            data.update(lap_car_fields(result))
             data["events"] = json.loads(row.events_json or "[]")
             data["gearing"] = json.loads(row.gearing_json) if row.gearing_json else None
             if with_samples:

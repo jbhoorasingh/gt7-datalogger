@@ -6,7 +6,7 @@ Three of them exist and nothing showed them together (#46):
 |-----------------|---------------------------|-------------------------------------|
 | named tracks    | DB `tracks` table         | geometry signature -> auto-identify |
 | survey bundles  | `data/track-bundles/*`    | borders, finish line, elevation     |
-| official catalog| `backend/data/tracks.json`| length, turns, elevation, layouts   |
+| official catalog| `app/data/tracks.json`    | length, turns, elevation, layouts   |
 
 Being able to name a track, having surveyed it, and knowing which official
 layout it is are three separate facts, and until this endpoint existed
@@ -72,11 +72,9 @@ def data_dir(request: Request) -> Path:
 
 
 def _catalog_path(request: Request) -> Path | None:
+    # Package-relative since #57, so it resolves the same from any working
+    # directory and needs no repo-root fallback.
     path = svc(request).settings.tracks_json
-    if not path.exists():
-        # The default is relative to backend/; dev servers often run from the
-        # repo root (cars.csv papers over this with GT7_CARS_CSV in .env).
-        path = Path(__file__).resolve().parents[2] / "data" / "tracks.json"
     return path if path.exists() else None
 
 
@@ -87,7 +85,7 @@ def _catalog(request: Request) -> dict[str, Any] | None:
 
 @router.get("/track-catalog")
 async def catalog(request: Request) -> dict[str, Any]:
-    """Official GT7 track/layout metadata (bundled data/tracks.json)."""
+    """Official GT7 track/layout metadata (bundled app/data/tracks.json)."""
     doc = _catalog(request)
     if doc is None:
         raise HTTPException(404, "track catalog not bundled")

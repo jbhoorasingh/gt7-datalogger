@@ -340,6 +340,10 @@ export const api = {
     restartSource: () => send<ConnectionStatus>("/api/admin/restart-source", "POST"),
     clearData: () => send<{ status: string }>("/api/admin/clear-data", "POST"),
     vacuum: () => send<{ status: string }>("/api/admin/vacuum", "POST"),
-    updateCars: () => send<{ cars: number }>("/api/admin/update-cars", "POST"),
+    updateCars: () =>
+      send<{ cars: number; generated: string; sessions_updated: number }>(
+        "/api/admin/update-cars",
+        "POST",
+      ),
   },
 };

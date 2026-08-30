@@ -80,7 +80,7 @@ Every packet decodes to a typed structure with ~50 fields. The important ones:
 | 0xC4 | suspension travel FL/FR/RL/RR | m |
 | 0xF4 | clutch, clutch engagement, RPM after clutch | |
 | 0x104 | gear ratios (8) + transmission top speed | |
-| 0x124 | car ID | maps to `cars.csv` |
+| 0x124 | car ID | maps to the car inventory (`app/data/cars.json`) |
 
 **Flags bitmask** — `CAR_ON_TRACK` (bit 0), `PAUSED` (1), `LOADING` (2), `IN_GEAR` (3),
 `HAS_TURBO` (4), `REV_LIMITER` (5), `HANDBRAKE` (6), lights (7–9), `ASM_ACTIVE` (10),

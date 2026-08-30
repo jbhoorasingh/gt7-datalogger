@@ -168,3 +168,79 @@ async def test_spoken_units_apply_live(client) -> None:
     assert service.engineer.ctx.units == "imperial"
     stored = await service.repo.get_settings()
     assert stored["race_engineer_units"] == "imperial"
+
+
+# --- car inventory (#57) ------------------------------------------------------
+
+
+async def test_update_cars_refreshes_the_inventory_and_the_session_rows(client, monkeypatch):
+    """The manual escape hatch runs the same code as the background refresh,
+    so a user who does not want to wait gets exactly the same result."""
+    from app.processing import car_refresh, car_source
+    from app.processing.cars import Car, Inventory
+    from app.processing.laps import SessionInfo
+
+    c, service = client
+    session_id = await service.repo.create_session(
+        SessionInfo(car_id=102, started_at="2026-08-30T00:00:00Z"), None
+    )
+
+    fetched = Inventory(
+        cars={102: Car(id=102, name="Skyline GTS-R (R31) '87", manufacturer="Nissan", year=1987)},
+        generated="2026-08-30",
+    )
+
+    async def fake_fetch(_client):
+        return fetched
+
+    monkeypatch.setattr(car_source, "fetch", fake_fetch)
+    monkeypatch.setattr(
+        service.settings.__class__, "refreshed_car_inventory",
+        lambda self: service.settings.db_path.parent / "cars.json",
+    )
+
+    resp = await c.post("/api/admin/update-cars")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["cars"] == 1
+    assert body["sessions_updated"] == 1
+
+    # The lookup, the file and the existing session row all moved together.
+    assert service.cars.name(102) == "Skyline GTS-R (R31) '87"
+    assert (service.settings.db_path.parent / "cars.json").exists()
+    row = next(s for s in await service.repo.list_sessions() if s["id"] == session_id)
+    assert row["car_manufacturer"] == "Nissan"
+
+    stored = await service.repo.get_settings()
+    assert stored[car_refresh.VERSION_KEY]
+    assert stored[car_refresh.UPDATED_AT_KEY]
+
+
+async def test_update_cars_reports_a_failed_download_as_a_bad_gateway(client, monkeypatch):
+    """The bundled inventory is untouched and the caller is told why."""
+    import httpx
+
+    from app.processing import car_source
+    from app.processing.cars import Car, Inventory
+
+    c, service = client
+    service.cars.replace(Inventory(cars={1: Car(id=1, name="Kept")}))
+
+    async def explode(_client):
+        raise httpx.ConnectError("no route to host")
+
+    monkeypatch.setattr(car_source, "fetch", explode)
+    resp = await c.post("/api/admin/update-cars")
+    assert resp.status_code == 502
+    assert "download failed" in resp.json()["detail"]
+    assert service.cars.name(1) == "Kept"
+
+
+async def test_stats_reports_what_inventory_is_loaded(client) -> None:
+    c, service = client
+    from app.config import Settings
+
+    service.cars.load(Settings().cars_json)
+    data = (await c.get("/api/admin/stats")).json()
+    assert data["cars_loaded"] > 500
+    assert data["cars_generated"]  # the shipped file records when it was built

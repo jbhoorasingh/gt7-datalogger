@@ -279,7 +279,6 @@ the directory you launch from, or as environment variables:
 GT7_SOURCE=udp
 GT7_PS_IP=192.168.1.50        # your PlayStation's IP
 GT7_DB_PATH=/home/pi/gt7-data/gt7.db
-GT7_CARS_CSV=data/cars.csv
 ```
 
 ### 5. Run it
@@ -290,8 +289,9 @@ source .venv/bin/activate
 python -m app.main            # listens on 0.0.0.0:8000
 ```
 
-Open `http://<pi-ip>:8000` from any device on the LAN. Fetch the full car list once with
-`python scripts/update_cars.py` (or from **Admin → Update car database**).
+Open `http://<pi-ip>:8000` from any device on the LAN. Car names work immediately — the
+inventory ships with the app — and refresh themselves in the background after a GT7
+content update.
 
 ### 6. Start automatically with systemd
 
@@ -384,18 +384,29 @@ working directory):
 | `GT7_SOURCE` | `udp` | `udp` (PlayStation) or `sim` (simulated laps) |
 | `GT7_PS_IP` | *(empty)* | Console IP; empty = broadcast auto-discovery |
 | `GT7_DB_PATH` | `data/gt7.db` | SQLite database path |
-| `GT7_CARS_CSV` | `data/cars.csv` | Car ID → name lookup table |
+| `GT7_CARS_JSON` | *(bundled)* | Car inventory: id → name, manufacturer, year, category, drivetrain, aspiration and the published figures. Resolves from the package, so it works whatever directory you start from |
+| `GT7_CARS_CSV` | *(empty)* | Deprecated pre-0.6 `id,name` CSV. Set = read cars from here instead, names only. Kept for one release |
 | `GT7_TRACK_SIGNATURES_JSON` | *(bundled)* | Shipped track signatures, synced into the `tracks` table at startup so a fresh install recognises circuits it has never seen driven. Resolves from the package, so it works whatever directory you start from. Blank turns seeding off |
 | `GT7_WS_RATE` | `30` | Live stream rate to the browser (Hz) |
 | `GT7_WEBHOOK_URL` | *(empty)* | Webhook for PB / session notifications (also settable in Admin) |
 | `GT7_HTTP_PORT` | `8000` | HTTP port |
 
-The bundled `cars.csv` only contains a sample entry. Fetch the full community-maintained
-list with **Admin → Update car database**, or from the command line:
+### Car data
+
+Every car GT7 publishes ships with the app, so a fresh install with no internet names cars
+on its first packet. On top of that the app checks GT7's own car list in the background —
+on first run, then weekly — and picks up cars added since the release was cut. Both are
+best-effort: if the check fails, the bundled inventory is what you keep.
+
+To refresh right now rather than waiting for the weekly check, use
+**Admin → Update car database**, or from the command line:
 
 ```bash
 python backend/scripts/update_cars.py
 ```
+
+That writes next to your database. To regenerate the copy committed to the repository (for
+a release), use `python backend/scripts/build_car_metadata.py`.
 
 ## Lap files
 
