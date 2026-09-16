@@ -19,6 +19,11 @@
 //   the map into the corner rather than the two disagreeing.
 // * **A maximized view.** A 4.5 km circuit in a 360 px rail is a squiggle;
 //   the same map at full screen is a track.
+//
+// The cursor dots are distance-locked by default, like every other panel.
+// Time sync (#75) moves the non-reference dots to where each lap was at the
+// reference's elapsed time instead, which turns a time gap into a visible
+// gap on track while a lap plays back.
 
 import type * as echarts from "echarts";
 import type { EChartsOption, SeriesOption } from "echarts";
@@ -26,6 +31,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CHART_COLORS, EChart } from "@/components/EChart";
 import { LargeDialog } from "@/components/ui/Dialog";
 import { Tip } from "@/components/ui/Tooltip";
+import { positionAtDist, positionAtTime, timeAtDist } from "@/lib/playback";
 import {
   type CompareLapEntry,
   type Corner,
@@ -109,7 +115,6 @@ export interface MapLap {
 interface MapProps {
   laps: MapLap[];
   cursorDist: number | null;
-  step: number;
   zoomRange?: [number, number] | null;
   // The circuit's surveyed road, when it has been surveyed. Null/empty draws
   // exactly what this map drew before it existed.
@@ -127,25 +132,27 @@ interface MapProps {
   follow?: boolean;
   /** Width of that window, in metres of track across the longer axis. */
   followSpanM?: number;
+  // "position" (default): every dot at the cursor's distance. "time": the
+  // reference dot at the cursor, the others where their lap was at the
+  // reference's lap time there.
+  sync?: "position" | "time";
 }
 
 // The follow camera's window: a fixed span of metres centred on the reference
 // car. Uses the same pixel-aspect rule as the full view, so a metre across
-// stays a metre down and corner shapes survive the zoom.
+// stays a metre down and corner shapes survive the zoom. Centred on the
+// interpolated position, exactly where the reference dot is drawn — the
+// nearest 5 m step would hop the whole view along every few frames.
 function followWindow(
   ref: MapLap | undefined,
   cursorDist: number | null,
-  step: number,
   aspect: number,
   spanM: number,
 ): { xMin: number; xMax: number; zMin: number; zMax: number } | null {
-  if (!ref || cursorDist == null || step <= 0) return null;
-  const s = ref.entry.series;
-  if (s.dist.length === 0) return null;
-  const i = Math.min(s.dist.length - 1, Math.max(0, Math.round(cursorDist / step)));
-  const x = s.pos_x[i];
-  const z = s.pos_z[i];
-  if (x == null || z == null || !isFinite(x) || !isFinite(z)) return null;
+  if (!ref || cursorDist == null) return null;
+  const at = positionAtDist(ref.entry.series, cursorDist);
+  if (!at) return null;
+  const [x, z] = at;
   const spanX = spanM * Math.max(1, aspect);
   const spanZ = spanM * Math.max(1, 1 / aspect);
   return {
@@ -183,7 +190,6 @@ export function RaceLineMap(props: MapProps) {
 function MapBody({
   laps,
   cursorDist,
-  step,
   zoomRange,
   outline,
   onZoomChange,
@@ -191,6 +197,7 @@ function MapBody({
   hero = false,
   follow = false,
   followSpanM = FOLLOW_SPAN_M,
+  sync = "position",
   maximized = false,
 }: MapProps & { onMaximize?: () => void; maximized?: boolean }) {
   const chartRef = useRef<echarts.ECharts | null>(null);
@@ -645,20 +652,24 @@ function MapBody({
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
+    // The reference lap's clock at the cursor, for time sync.
+    const tRef =
+      sync === "time" && ref && cursorDist != null
+        ? timeAtDist(ref.entry.series, cursorDist)
+        : null;
+    // Every dot is interpolated, the reference's included: in time sync the
+    // gap between them is the reading, and a reference dot snapped to its
+    // nearest step would add up to half a step of false gap.
     const updates: SeriesOption[] = laps.map((lap) => {
       const s = lap.entry.series;
-      let data: number[][] = [];
-      if (cursorDist != null && s.dist.length > 0 && step > 0) {
-        const i = Math.min(s.dist.length - 1, Math.max(0, Math.round(cursorDist / step)));
-        if (Number.isFinite(i) && s.pos_x[i] != null && s.pos_z[i] != null) {
-          data = [[s.pos_x[i], s.pos_z[i]]];
-        }
-      }
-      return { id: `cursor-${lap.id}`, data } as SeriesOption;
+      let at: [number, number] | null = null;
+      if (tRef != null && !lap.isRef) at = positionAtTime(lap.entry.track ?? s, tRef);
+      else if (cursorDist != null) at = positionAtDist(s, cursorDist);
+      return { id: `cursor-${lap.id}`, data: at ? [at] : [] } as SeriesOption;
     });
 
     const patch: Record<string, unknown> = { series: updates };
-    const window = follow ? followWindow(ref, cursorDist, step, aspect, followSpanM) : null;
+    const window = follow ? followWindow(ref, cursorDist, aspect, followSpanM) : null;
     if (window) {
       patch.xAxis = { min: window.xMin, max: window.xMax };
       patch.yAxis = { min: window.zMin, max: window.zMax };
@@ -669,7 +680,7 @@ function MapBody({
       following.current = false;
     }
     chart.setOption(patch, { notMerge: false, lazyUpdate: true });
-  }, [laps, cursorDist, step, follow, followSpanM, ref, aspect, baseAxis]);
+  }, [laps, cursorDist, follow, followSpanM, ref, aspect, baseAxis, sync]);
 
   const others = laps.filter((lap) => !lap.isRef);
   const hasSurface = !!ref?.entry.series.surface?.some((v) => v > 0);
@@ -784,6 +795,11 @@ function MapBody({
               style={{ borderColor: GAP_COLOR }}
             />
             unsurveyed gap
+          </span>
+        )}
+        {sync === "time" && others.length > 0 && (
+          <span title="Each lap's dot sits where that lap was at the reference lap's elapsed time">
+            dots synced on lap time
           </span>
         )}
         {maximized && <span className="ml-auto">scroll to zoom · drag to pan</span>}

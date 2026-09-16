@@ -24,8 +24,17 @@ Rows are grouped by circuit and sorted fastest-first inside each group.
 by the same [span guard](../internals/lap-detection.md#best-lap-tracking) that keeps
 them from owning a session best: a partial lap's reported time is *shorter* than any
 real lap's, so without the rule the board would fill with laps that never happened.
-Sessions whose circuit was never [named](sessions-view.md) can't be grouped and don't
-appear — name the track once and every session there joins the board.
+Laps you [excluded by hand](sessions-view.md#excluding-a-lap-from-bests) are left out
+too. Sessions whose circuit was never [named](sessions-view.md) can't be grouped and
+don't appear — name the track once and every session there joins the board.
+
+## Why a quicker time is missing
+
+When a lap *quicker* than a row's best was excluded by hand, the row says so:
+**⊘ 1:28.422 off-track** — the fastest excluded time and the reason it was given, with
+`+N` when there are more. Hover it for the full list. Slower excluded laps change
+nothing on the board, so they aren't mentioned; a circuit and car whose every lap is
+excluded has no row at all.
 
 ## Category filter
 

@@ -135,6 +135,21 @@ async def test_export_import_roundtrip(client) -> None:
     assert len((await c.get("/api/laps")).json()) == 2
 
 
+async def test_import_keeps_the_salvage_marker(client) -> None:
+    """A replay-salvaged lap must stay traceable after changing machines —
+    the importer used to validate the flag away."""
+    c, service = client
+    await drive_laps(service, laps=1)
+    lap_id = (await c.get("/api/laps")).json()[0]["id"]
+    doc = (await c.get(f"/api/laps/{lap_id}/export")).json()
+    doc["lap"]["salvaged"] = True
+
+    resp = await c.post("/api/laps/import", json=doc)
+    assert resp.status_code == 200
+    imported = (await c.get(f"/api/laps/{resp.json()['id']}?samples=false")).json()
+    assert imported["salvaged"] is True
+
+
 async def test_import_rejects_bad_format(client) -> None:
     c, _ = client
     resp = await c.post(

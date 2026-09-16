@@ -7,6 +7,71 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Added
 
+- **An in-app guide to the Analysis view.** The view had grown to thirty chart
+  channels and a dozen features, and none of them said what they were: a panel
+  called "Tire spd / car spd" or a switch called "sync" was left to be
+  guessed at. A **?** button in the toolbar now opens a short guide — a
+  Features tab and a Channels tab, a sentence or two each on what it shows and
+  how to read it, what a recording needs to have a channel, which channels are
+  on the chart now, a search across both, and a link from every entry to its
+  section of the documentation, which stays the long form. The channel picker
+  shows the same description on hover and links to the list. The descriptions
+  live beside each channel's definition and are required there, and a test
+  fails if any documentation link stops landing on a real heading, so the guide
+  can't quietly fall behind the app.
+- **Laps can be excluded from bests by hand.** (#74) Only the partial-lap guard
+  could keep a lap off the bests, and it only ever asks one question — did the
+  lap cover the whole track? An off-track lap, a lap with contact, or an out-lap
+  the guard accepted all went on owning the session best and the Bests board.
+  The Sessions lap table now has a **Counts** checkbox per lap, with a reason
+  picker (off-track, contact, restart, dirty, pit-out) beside an excluded one,
+  and `PATCH /api/laps/{id}` behind it. The ruling works both ways — a lap the
+  guard wrongly called partial can be counted — and it sits beside the guard's
+  verdict rather than over it: the guard keeps re-judging the session as laps
+  arrive and can never overwrite a ruling, and clearing one hands the lap back
+  to whatever the guard said last. Every consumer of "does this lap count"
+  already filtered on one flag, which is now computed from both in SQL, so the
+  session best, the Bests board, the class benchmark, the session-summary
+  webhook and the Race Engineer's pace and coaching all follow a ruling without
+  a change of their own. On the session being driven, the live session best, the
+  Δ-best reference and the engineer's coaching reference move on the spot. The
+  Bests board says why a quicker time is missing (**⊘ 1:28.422 off-track**).
+  Rulings travel with exported lap files, and so does the guard's verdict: an
+  imported pit out-lap stays partial instead of becoming a best on the machine
+  it lands on.
+- **Time-synced ghosts on the race line.** (#75) Every dot on the Analysis map
+  sat at the reference car's distance — right for reading the chart delta under
+  the cursor, but it never showed where the other car physically was at the same
+  moment, which is what makes a gap legible while a lap plays back. The map now
+  syncs on **time** by default: the reference dot stays at the playhead and
+  every other lap's dot is drawn where that lap had got to after the same
+  elapsed time, interpolated between samples so it glides rather than hops. A
+  slower lap trails, a quicker one leads, and the distance between them is the
+  gap. **sync: Time | Position** in the map header switches back to dots level
+  with the reference — which, now that compared laps are lined up by place (see
+  Fixed), sit on top of it apart from the line each lap took. The choice is
+  remembered per device, like Follow; the charts and the other cursor-synced
+  panels stay on distance.
+  Checked against the raw 60 Hz positions of 1,215 recorded laps (27.7 h), a
+  time-synced dot sits a median 7 mm and a p99 25 cm from where the car
+  actually was. Where GT7 reset a car mid-lap — a jump of up to 4 km in one
+  tick, which the 5 m distance grid cannot represent — the dot holds and then
+  jumps, at a moment estimated from the step's speeds, instead of sliding
+  across the infield. Every map dot is now placed at the exact cursor rather
+  than the nearest 5 m step (that was up to 2.5 m of false gap between the
+  reference and a time-synced dot), which also stops the Follow camera
+  hopping 5 m at a time during playback.
+- **Export a whole session as a ZIP.** (#76) Backing up or handing over a
+  session meant clicking **json** on every lap. **Export session** (and
+  `GET /api/sessions/{id}/export.zip`) now packs every lap's export file and a
+  `session.json` — the session row as the sessions list gives it: car, circuit,
+  tags, note, bests exclusion and race result — into one archive. The lap files
+  are the single-lap exports unchanged, so each one imports today. Laps are
+  read, compressed and written one at a time, off the event loop, and the
+  archive spools to disk past 16 MB, so a long endurance stint doesn't have to
+  fit in a Raspberry Pi's memory. Importing the archive back as a session is
+  the follow-up.
+
 - **Cars describe themselves, and keep themselves current.** (#57) The bundled
   car data was 575 rows of `id,name` — the app could print a name and answer
   nothing else — and it only ever changed when somebody found the admin button,
@@ -122,6 +187,66 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Fixed
 
+- **Compared laps are lined up by where they were, not how far they had
+  gone.** A lap's distance is integrated from its own speed, so two laps reach
+  the same metre mark at different places — a wider line is a longer lap, and
+  a slide or a run of dropped frames moves the car further than its speed says.
+  Every Analysis comparison was made at equal distance: measured over 141 real
+  lap pairs, "the same distance" was a median 2.9 m and a p99 64 m apart on
+  track, so the time diff compared the laps at different points of a corner,
+  and the race line's position-synced dots sat apart when the cars had been side
+  by side. Every lap is now walked along the reference lap's driven path and
+  put on its distance axis by place — searched locally so a circuit that
+  crosses itself can't capture it on the wrong branch, re-found when GT7 resets
+  the car, and never allowed to run backwards. The same 141 pairs now agree to a
+  median 0.00 m and a p99 0.15 m, and the time diff, charts, event bands, corner
+  report and consistency chart all compare the same places. A lap that can't be
+  followed keeps its own distance and says so (`aligned: false`). The live Δ
+  widget had the same fault while driving — replayed through it, real laps read a
+  median 100 ms and a p99 2.8 s away from the place-aligned delta — and now
+  tracks the lap in progress the same way, to within a centimetre of the full
+  alignment. Time sync on the map reads a new per-lap clock track instead of the
+  distance series, so a spin or a rewind can't fold its ghost onto one point.
+- **Lap 1 of a race no longer counts as a lap time.** GT7 steps the lap counter
+  when the race starts, wherever the grid is — 120 m past the line at Red Bull
+  Ring, 125 m at Spa, 68 m to the side at Daytona's road course — so lap 1 was
+  timed grid-to-line. At under 3 % of the lap the span guard couldn't see it,
+  and it could be the fastest lap of the session (session 224's was). A lap now
+  counts only if it began at the line, judged against the first sample of the
+  lap after it: along the track to within the frames dropped at each boundary
+  plus 3 m, across it to within 25 m. Stored laps are checked once, in the
+  background, on the first start with this release; on the author's history
+  that marked 30 grid starts and three laps from sessions where GT7 moved the
+  car kilometres at the line, and left every ruling a user had made alone.
+- **A lap's clock and distance start from the same instant.** A lap's first
+  sample lands somewhere inside the gap since the previous one, but the clock
+  started at 0 while the distance started a whole gap in — so a lap whose line
+  crossing fell across dropped frames ran its clock up to ~0.07 s late against
+  its own distance (about 5 m at 290 km/h in a time comparison, and a constant
+  offset in the live delta). Both now start half the gap in. Laps recorded
+  before are recognisable and converted when read, so nothing stored is
+  rewritten; imported files are converted the same way.
+- **Every chart, playback and map dot now reaches the line.** Series were
+  resampled on whole 5 m steps and stopped up to 5 m (a median 2.4 m) short of
+  the lap's end. They now end on the lap's exact length; Corner Detail and the
+  traction circle read the nearest point rather than index × step, which the
+  shorter last step would have thrown off.
+- **The consistency chart ignored whether a lap counted.** It took the
+  session's quickest laps by time, so a pit out-lap's short time ranked first.
+  It now takes the quickest counting laps, lined up like a comparison.
+- **Imported laps kept losing their salvage marker.** The importer validates a
+  file into a fixed model before storing it, and `salvaged` was never part of
+  that model, so a replay-salvaged lap arrived as an ordinary lap however the
+  file described it — the opposite of what the import code's own comment
+  promised. It is carried now, along with the lap-count verdicts from #74.
+- **Analysis no longer defaults to a lap that doesn't count as the reference.**
+  "Latest vs best" picked the quickest lap of the session outright, so a pit
+  out-lap's short reported time — or, now, a lap excluded by hand — could
+  become the yardstick everything else was measured against. It picks the
+  quickest *counting* lap, and so does the Sessions lap table's **compare**.
+- **The lap table's Δ best could read "+-43.000".** A partial lap can be
+  quicker than the session best, and the gap was printed with a hard-coded
+  plus sign. It is signed properly now, and dimmed for laps that don't count.
 - **Identify sessions now uses the shipped signatures.** (#58) It only ever
   matched against survey bundles, which was right when a signature existed
   only because somebody had typed a name — there was nothing to backfill from.

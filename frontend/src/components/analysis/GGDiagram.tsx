@@ -18,6 +18,7 @@ import type { EChartsOption, SeriesOption } from "echarts";
 import { useEffect, useMemo, useRef } from "react";
 import type { MapLap } from "@/components/analysis/RaceLineMap";
 import { CHART_COLORS, EChart } from "@/components/EChart";
+import { nearestIndex } from "@/lib/playback";
 import type { AccelCalibration } from "@/lib/types";
 
 const ZONE_COLORS = [CHART_COLORS.brake, CHART_COLORS.coast, CHART_COLORS.throttle];
@@ -65,12 +66,10 @@ export function GGDiagram({
   laps,
   accel,
   cursorDist,
-  step,
 }: {
   laps: GGLap[];
   accel: AccelCalibration;
   cursorDist: number | null;
-  step: number;
 }) {
   const chartRef = useRef<echarts.ECharts | null>(null);
   const ref = laps.find((lap) => lap.isRef) ?? laps[0];
@@ -193,14 +192,14 @@ export function GGDiagram({
   useEffect(() => {
     const updates: SeriesOption[] = laps.map((lap) => {
       let data: number[][] = [];
-      if (cursorDist != null && step > 0 && lap.lat.length > 0) {
-        const i = Math.min(lap.lat.length - 1, Math.max(0, Math.round(cursorDist / step)));
-        if (Number.isFinite(i)) data = [[lap.lat[i], lap.long[i]]];
+      if (cursorDist != null && lap.lat.length > 0) {
+        const i = Math.min(lap.lat.length - 1, nearestIndex(lap.entry.series.dist, cursorDist));
+        data = [[lap.lat[i], lap.long[i]]];
       }
       return { id: `gg-cursor-${lap.id}`, data } as SeriesOption;
     });
     chartRef.current?.setOption({ series: updates }, { notMerge: false, lazyUpdate: true });
-  }, [laps, cursorDist, step]);
+  }, [laps, cursorDist]);
 
   const peaks = ref?.entry.gg;
   const lat = accel.lateral;

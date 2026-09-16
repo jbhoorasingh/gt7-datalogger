@@ -9,6 +9,7 @@ import type {
   CompareResult,
   ConnectionStatus,
   DeviationResult,
+  ExcludeReason,
   FuelMapResult,
   LapSummary,
   LogRecord,
@@ -154,6 +155,9 @@ export const api = {
     patch: { note?: string; tags?: string[]; bests_excluded?: boolean },
   ) => send<{ status: string }>(`/api/sessions/${id}`, "PATCH", patch),
   sessionLaps: (id: number) => get<LapSummary[]>(`/api/sessions/${id}/laps`),
+  // Every lap of a session as its per-lap export files, plus session.json,
+  // in one ZIP (#76). A plain link, like the CSV export.
+  sessionZipUrl: (id: number) => `/api/sessions/${id}/export.zip`,
   // `track` narrows to one circuit's laps across every session — what the
   // Analysis "+ Add lap" picker feeds on (#26).
   laps: (track = "", category = "") => {
@@ -167,6 +171,13 @@ export const api = {
     get<LapSummary & Record<string, unknown>>(`/api/laps/${id}${withSamples ? "" : "?samples=0"}`),
   deleteSession: (id: number) => send<{ status: string }>(`/api/sessions/${id}`, "DELETE"),
   deleteLap: (id: number) => send<{ status: string }>(`/api/laps/${id}`, "DELETE"),
+  // Rule a lap in (true) or out (false) of the bests, or hand it back to the
+  // span heuristic (null) — #74. A patch with only exclude_reason re-words an
+  // existing exclusion. Answers with the updated summary.
+  updateLap: (
+    id: number,
+    patch: { best_override?: boolean | null; exclude_reason?: ExcludeReason },
+  ) => send<LapSummary>(`/api/laps/${id}`, "PATCH", patch),
   exportLap: (id: number) => get<Record<string, unknown>>(`/api/laps/${id}/export`),
   importLap: (payload: unknown) => send<{ id: number }>("/api/laps/import", "POST", payload),
   compare: (lapIds: number[], ref: number, channels?: string[]) =>

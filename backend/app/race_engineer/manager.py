@@ -157,16 +157,10 @@ class RaceEngineerManager:
         # Which laps covered the whole track is re-judged as laps arrive, so
         # the history is re-flagged too — a lap that turns out partial must
         # leave the fuel model and the coaching comparisons, not just the
-        # session best.
+        # session best. By the processor's full answer, not the heuristic's:
+        # a lap the user ruled in or out keeps that ruling here too (#74).
         if lap.invalidated_best:
-            partial = set(lap.partial_lap_numbers)
-            for rec in self.ctx.laps:
-                if rec.session_seq == self.ctx.session_seq:
-                    rec.counts_for_best = rec.number not in partial
-            if self._reference_lap in partial:
-                self.ctx.reference = None
-                self.ctx.corners = []
-                self._reference_lap = None
+            self._reflag(set(lap.excluded_lap_numbers))
 
         # Detectors compare against the best BEFORE this lap; a best that
         # already includes it can never show an improvement.
@@ -186,6 +180,43 @@ class RaceEngineerManager:
             self._pending_reference = record.samples
             self._reference_lap = record.number
         return out
+
+    def apply_best_override(self, excluded: set[int], best_ms: int | None) -> None:
+        """A lap of the current session was ruled in or out by hand (#74).
+
+        `excluded` is every lap number of the session that no longer counts
+        and `best_ms` the session best that leaves — both the processor's,
+        which sees the whole session where this history is capped. The
+        coaching reference follows the best: an excluded reference gives way
+        to the fastest lap still counting, and a lap ruled back in takes over
+        if it is quicker. Call refresh_reference afterwards to adopt it.
+        """
+        self._reflag(excluded)
+        self.ctx.best_lap_ms = best_ms
+        best = min(
+            (
+                rec
+                for rec in self.ctx.laps
+                if rec.session_seq == self.ctx.session_seq
+                and rec.counts_for_best
+                and rec.samples.get("dist")
+            ),
+            key=lambda rec: rec.time_ms,
+            default=None,
+        )
+        if best is not None and best.number != self._reference_lap:
+            self._pending_reference = best.samples
+            self._reference_lap = best.number
+
+    def _reflag(self, excluded: set[int]) -> None:
+        """Bring this session's lap history in line with which laps count."""
+        for rec in self.ctx.laps:
+            if rec.session_seq == self.ctx.session_seq:
+                rec.counts_for_best = rec.number not in excluded
+        if self._reference_lap in excluded:
+            self.ctx.reference = None
+            self.ctx.corners = []
+            self._reference_lap = None
 
     def _best_before(self, lap: CompletedLap) -> int | None:
         """Best of the session's full laps, excluding the one just finished.

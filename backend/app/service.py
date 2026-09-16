@@ -15,10 +15,16 @@ from fastapi import WebSocket
 from app.config import Settings
 from app.models import TelemetryPacket
 from app.notify import Notifier
-from app.processing import track_bundle, track_limits, tracks
+from app.processing import alignment, track_bundle, track_limits, tracks
 from app.processing.analysis import Samples, time_delta_at
 from app.processing.cars import CarDatabase
-from app.processing.laps import CompletedLap, LapProcessor, RaceResult, SessionInfo
+from app.processing.laps import (
+    CompletedLap,
+    LapProcessor,
+    RaceResult,
+    SessionInfo,
+    decode_samples,
+)
 from app.processing.live_events import LiveEvent, LiveEventWatcher
 from app.processing.surface import encode_surface
 from app.processing.survey import SurfaceSurvey
@@ -126,10 +132,22 @@ class TelemetryService:
         # Lap number the delta reference came from, so a later partial lap
         # doesn't discard a perfectly good reference.
         self._best_ref_lap: int | None = None
-        # (dist, t) trace of the session-best lap — the reference for the
-        # live delta. Safe to hold by reference: the processor allocates a
-        # fresh sample store at every lap boundary.
+        # (dist, t, pos_x, pos_z) trace of the session-best lap — the
+        # reference for the live delta. Safe to hold by reference: the
+        # processor allocates a fresh sample store at every lap boundary.
+        # Always set through _set_best_ref, which keeps the tracker below in
+        # step with it.
         self._best_ref: Samples | None = None
+        # Follows the lap in progress along the reference's path, so the live
+        # delta compares the two laps at the same PLACE (alignment.py) — the
+        # lap's own distance drifts from the reference's by metres a lap.
+        self._ref_tracker: alignment.PathTracker | None = None
+        # The live sample store the tracker is following (a new lap is a new
+        # store), the furthest point it has reached on the reference, and
+        # whether this lap could not be placed on the path at all.
+        self._tracked_store: dict[str, list[float]] | None = None
+        self._tracked_furthest = 0.0
+        self._tracked_lost = False
         self._clients: dict[WebSocket, _ClientStream] = {}
         self._last_ws_send = 0.0
         self._ws_interval = 1.0 / settings.ws_rate
@@ -260,8 +278,7 @@ class TelemetryService:
         self.track_name = ""
         self._session_best_ms = None
         self._prev_best_ms = None
-        self._best_ref = None
-        self._best_ref_lap = None
+        self._set_best_ref(None)
         log.info("new session %s (car %s)", self.session_id, self.cars.name(info.car_id))
         self._publish({"type": "session", "data": await self.status()})
 
@@ -308,11 +325,11 @@ class TelemetryService:
                 self.session_id, lap.partial_lap_numbers
             )
             # Only drop the delta reference when the lap that PROVIDED it
-            # turned out partial. A pit out-lap later in the stint says
-            # nothing about the good lap the reference came from.
-            if self._best_ref_lap in lap.partial_lap_numbers:
-                self._best_ref = None
-                self._best_ref_lap = None
+            # stopped counting. A pit out-lap later in the stint says nothing
+            # about the good lap the reference came from — and a lap the user
+            # ruled in stays the reference whatever the span now says (#74).
+            if self._best_ref_lap in lap.excluded_lap_numbers:
+                self._set_best_ref(None)
 
         # The best BEFORE this lap: the live "Δ best" and the personal-best
         # check both compare against it (a best that already includes this lap
@@ -327,8 +344,7 @@ class TelemetryService:
                     self.track_name,
                 )
             if before <= 0 or lap.time_ms < before:
-                self._best_ref = {"dist": lap.samples["dist"], "t": lap.samples["t"]}
-                self._best_ref_lap = lap.number
+                self._set_best_ref(lap.samples, lap.number)
         # The processor owns the session best: dropping a partial lap promotes
         # the fastest remaining real lap rather than blanking it.
         session = self.processor.session
@@ -372,6 +388,99 @@ class TelemetryService:
             "event_counts": _count_events(lap.events),
         }
         self._publish({"type": "lap", "data": summary})
+
+    async def apply_best_override(self, lap: dict[str, Any]) -> None:
+        """A stored lap was ruled in or out of the bests by hand (#74).
+
+        Stored rows need nothing more — every query reads the override — but
+        a lap of the session being driven right now also lives in memory: the
+        processor's session best, the delta reference, the engineer's lap
+        history and coaching reference. `lap` is the updated summary.
+        """
+        if self.session_id is None or lap["session_id"] != self.session_id:
+            return
+        self.processor.set_best_override(lap["number"], lap["best_override"])
+        session = self.processor.session
+        best = session.best_lap_time_ms if session else -1
+        self._session_best_ms = best if best > 0 else None
+        await self._reload_best_ref()
+        # The engineer's history outlives a voice toggle, so it follows the
+        # ruling either way; only adopting a new reference waits for voice.
+        self.engineer.apply_best_override(
+            self.processor.excluded_lap_numbers(), self._session_best_ms
+        )
+        if self.engineer_active:
+            await self.engineer.refresh_reference()
+
+    async def _reload_best_ref(self) -> None:
+        """Point the live delta at the session's fastest counting lap.
+
+        The reference normally changes only when a lap beats it, from samples
+        already in hand. A ruling can move the best BACKWARDS in time, to a
+        lap whose samples went to the database long ago, so they are read
+        back from there — rarely, on a user's click, never per packet.
+        """
+        assert self.session_id is not None
+        counting = [
+            row for row in await self.repo.list_laps(self.session_id)
+            if row["counts_for_best"]
+        ]
+        best = min(counting, key=lambda row: row["time_ms"], default=None)
+        if best is None:
+            self._set_best_ref(None)
+            return
+        if best["number"] == self._best_ref_lap and self._best_ref is not None:
+            return
+        raw = await self.repo.lap_samples_json(best["id"])
+        if raw is None:
+            return
+        samples = await asyncio.to_thread(decode_samples, raw)
+        if not samples.get("dist"):
+            return
+        self._set_best_ref(samples, best["number"])
+
+    def _set_best_ref(
+        self, samples: dict[str, list[float]] | None, lap_number: int | None = None
+    ) -> None:
+        """Adopt a lap as the live delta's reference, or drop it (None)."""
+        if samples is None or not samples.get("dist"):
+            self._best_ref = None
+            self._best_ref_lap = None
+            self._ref_tracker = None
+        else:
+            self._best_ref = {
+                key: samples[key] for key in ("dist", "t", "pos_x", "pos_z") if key in samples
+            }
+            self._best_ref_lap = lap_number
+            path = alignment.ReferencePath(self._best_ref)
+            self._ref_tracker = alignment.PathTracker(path) if path.segments else None
+        self._tracked_store = None
+
+    def _live_ref_dist(self, live: dict[str, list[float]]) -> float:
+        """Where the lap in progress is on the reference's distance axis.
+
+        The tracker is fed the latest sample at the live-frame rate; a lap it
+        cannot place (it began off the reference's path) falls back to its
+        own distance, which is what the delta always used. Never runs
+        backwards within a lap, like the aligned axis in a comparison.
+        """
+        own = live["dist"][-1]
+        tracker = self._ref_tracker
+        if tracker is None or not live.get("pos_x") or not live.get("pos_z"):
+            return own
+        if live is not self._tracked_store:
+            tracker.reset()
+            self._tracked_store = live
+            self._tracked_furthest = -float("inf")
+            self._tracked_lost = False
+        if self._tracked_lost:
+            return own
+        found = tracker.locate(live["pos_x"][-1], live["pos_z"][-1], own)
+        if found is None:
+            self._tracked_lost = True
+            return own
+        self._tracked_furthest = max(self._tracked_furthest, found[0])
+        return self._tracked_furthest
 
     async def _on_race_result(self, result: RaceResult) -> None:
         """The checkered flag fell (#60): persist the finish on the session.
@@ -490,7 +599,7 @@ class TelemetryService:
         elapsed_ms = round(live["t"][-1] * 1000) if live["t"] else -1
         delta_ms: float | None = None
         if self._best_ref is not None and live["t"] and p.is_on_track and not p.is_paused:
-            delta_ms = time_delta_at(live["dist"][-1], live["t"][-1], self._best_ref)
+            delta_ms = time_delta_at(self._live_ref_dist(live), live["t"][-1], self._best_ref)
             if delta_ms is not None:
                 delta_ms = round(delta_ms)
         return {

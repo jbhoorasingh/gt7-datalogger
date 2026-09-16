@@ -10,8 +10,8 @@ One value per column per tick (~60/s):
 
 | Column | Formula | Unit |
 | --- | --- | --- |
-| `t` | `tick_index × 1/60` | s |
-| `dist` | running `Σ speed_mps × 1/60` | m |
+| `t` | `tick_index × 1/60`, from half the boundary gap ([why](lap-detection.md#where-a-lap-begins)) | s |
+| `dist` | running `Σ speed_mps × 1/60`, from half the boundary gap | m |
 | `speed` | `speed_mps × 3.6` | km/h |
 | `throttle` | `raw_byte ÷ 2.55` | % (0–100) |
 | `brake` | `raw_byte ÷ 2.55` | % |
@@ -47,6 +47,7 @@ mid-lap.
 | `acc_vert` | packet B | `heave`, raw | see below |
 | `throttle_f` | packet ~ | `throttle_filtered ÷ 2.55` | % |
 | `brake_f` | packet ~ | `brake_filtered ÷ 2.55` | % |
+| `race_pos` | a race (any format) | `race_position`, only while GT7 reports one — it sends −1 outside races | position |
 
 **Filtered pedals** are the pedal position *after* the aids acted on it. The gap to the
 raw `throttle` / `brake` column is the intervention itself — TCS trimming throttle, ABS

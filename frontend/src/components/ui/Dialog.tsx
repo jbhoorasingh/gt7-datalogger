@@ -30,18 +30,28 @@ function Dialog({
   );
 }
 
-/** A dialog sized for looking at something rather than answering a question:
- *  as much of the viewport as it can take, with the content free to fill it. */
+const FRAMED_SIZES = {
+  // As much of the viewport as it can take — a map, a list of every lap.
+  large: "h-[calc(100vh-2rem)] w-[calc(100vw-2rem)]",
+  // Reading-sized: a reference card over the page rather than instead of it.
+  medium: "h-[calc(100vh-2rem)] max-h-[760px] w-[calc(100vw-2rem)] max-w-2xl",
+} as const;
+
+/** A dialog sized for looking at something rather than answering a question,
+ *  with the content free to fill it. `size="medium"` keeps the page in view
+ *  around it. */
 export function LargeDialog({
   open,
   title,
   onClose,
   children,
+  size = "large",
 }: {
   open: boolean;
   title: string;
   onClose: () => void;
   children: React.ReactNode;
+  size?: keyof typeof FRAMED_SIZES;
 }) {
   return (
     <DialogPrimitive.Root open={open} onOpenChange={(o) => !o && onClose()}>
@@ -49,7 +59,7 @@ export function LargeDialog({
         <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-black/75" />
         <DialogPrimitive.Content
           aria-describedby={undefined}
-          className="fixed left-1/2 top-1/2 z-40 flex h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-edge bg-panel shadow-xl shadow-black/50"
+          className={`fixed left-1/2 top-1/2 z-40 flex ${FRAMED_SIZES[size]} -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-edge bg-panel shadow-xl shadow-black/50`}
         >
           <div className="flex shrink-0 items-center gap-2 border-b border-edge px-3 py-2">
             <DialogPrimitive.Title className="text-[10px] font-semibold uppercase tracking-widest text-ink-dim">

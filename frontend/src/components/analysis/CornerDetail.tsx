@@ -5,6 +5,7 @@
 // numbers + hollow bars), so focus-vs-ref stays visible without switching.
 
 import { useMemo, useState } from "react";
+import { nearestIndex } from "@/lib/playback";
 import type { Corner as TrackCorner, Samples } from "@/lib/types";
 
 export interface CornerLap {
@@ -35,12 +36,10 @@ function at(series: Samples & { dist: number[] }, col: string, i: number): numbe
 export function CornerDetail({
   laps,
   cursorDist,
-  step,
   trackCorners,
 }: {
   laps: CornerLap[];
   cursorDist: number | null;
-  step: number;
   trackCorners?: TrackCorner[];
 }) {
   const candidates = laps.filter((l) => !l.isRef);
@@ -75,7 +74,10 @@ export function CornerDetail({
     );
   }
 
-  const i = cursorDist != null ? Math.max(0, Math.round(cursorDist / step)) : 0;
+  // Each lap read at its own sample nearest the cursor: the laps share the
+  // reference's distance axis, but not necessarily its length.
+  const i = cursorDist != null ? nearestIndex(focus.series.dist, cursorDist) : 0;
+  const gi = ghost && cursorDist != null ? nearestIndex(ghost.series.dist, cursorDist) : 0;
 
   const cell = (w: Corner) => {
     const temp = at(focus.series, `tt_${w}`, i);
@@ -83,8 +85,8 @@ export function CornerDetail({
     const slip = at(focus.series, `slip_${w}`, i);
     const throttle = at(focus.series, "throttle", i) ?? 0;
     const brake = at(focus.series, "brake", i) ?? 0;
-    const gTemp = ghost ? at(ghost.series, `tt_${w}`, i) : null;
-    const gSus = ghost ? at(ghost.series, `sus_${w}`, i) : null;
+    const gTemp = ghost ? at(ghost.series, `tt_${w}`, gi) : null;
+    const gSus = ghost ? at(ghost.series, `sus_${w}`, gi) : null;
     const [lo, hi] = susRange[w];
     const susPct = sus != null && hi > lo ? ((sus - lo) / (hi - lo)) * 100 : 0;
     const gSusPct = gSus != null && hi > lo ? Math.min(100, ((gSus - lo) / (hi - lo)) * 100) : null;

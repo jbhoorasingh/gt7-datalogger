@@ -4,9 +4,8 @@
 // same panel set.
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { CHANNELS, DEFAULT_CHANNEL_KEYS, type ChannelGroup } from "@/lib/channels";
-
-const GROUPS: ChannelGroup[] = ["Driving", "Engine", "Chassis", "Tires & wheels", "Race"];
+import { Tip } from "@/components/ui/Tooltip";
+import { CHANNEL_GROUPS, CHANNELS, DEFAULT_CHANNEL_KEYS } from "@/lib/channels";
 
 // Breathing room kept between the popover and the viewport edge.
 const MARGIN = 16;
@@ -14,9 +13,12 @@ const MARGIN = 16;
 export function ChannelPicker({
   selected,
   onChange,
+  onHelp,
 }: {
   selected: string[];
   onChange: (keys: string[]) => void;
+  /** Opens the Analysis guide at its channel list. */
+  onHelp?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -83,7 +85,7 @@ export function ChannelPicker({
           {/* Only the group columns scroll — the footer's presets and Done
               stay reachable however long the channel list gets. */}
           <div className="grid min-h-0 flex-1 grid-cols-2 gap-3.5 overflow-y-auto px-4 pb-2 pt-3.5 sm:grid-cols-3">
-            {GROUPS.map((group) => {
+            {CHANNEL_GROUPS.map((group) => {
               const items = CHANNELS.filter((c) => c.group === group);
               if (items.length === 0) return null;
               return (
@@ -95,21 +97,32 @@ export function ChannelPicker({
                     {items.map((c) => {
                       const on = selected.includes(c.key);
                       return (
-                        <button
+                        <Tip
                           key={c.key}
-                          onClick={() => toggle(c.key)}
-                          aria-pressed={on}
-                          className={`flex items-center py-0.5 text-left text-[11.5px] transition-colors ${
-                            on ? "text-ink" : "text-ink-faint hover:text-ink"
-                          }`}
+                          content={
+                            <>
+                              {c.description}
+                              {c.needs && (
+                                <span className="mt-1 block text-ink-faint">Needs: {c.needs}</span>
+                              )}
+                            </>
+                          }
                         >
-                          <span
-                            className={`mr-2 inline-block h-[11px] w-[11px] shrink-0 rounded-[3px] border ${
-                              on ? "border-accent bg-accent/30" : "border-ink-ghost"
+                          <button
+                            onClick={() => toggle(c.key)}
+                            aria-pressed={on}
+                            className={`flex items-center py-0.5 text-left text-[11.5px] transition-colors ${
+                              on ? "text-ink" : "text-ink-faint hover:text-ink"
                             }`}
-                          />
-                          {c.title}
-                        </button>
+                          >
+                            <span
+                              className={`mr-2 inline-block h-[11px] w-[11px] shrink-0 rounded-[3px] border ${
+                                on ? "border-accent bg-accent/30" : "border-ink-ghost"
+                              }`}
+                            />
+                            {c.title}
+                          </button>
+                        </Tip>
                       );
                     })}
                   </div>
@@ -133,6 +146,17 @@ export function ChannelPicker({
             <span className="text-[10px] text-ink-faint">
               persists to the URL — a shared link reproduces the exact view
             </span>
+            {onHelp && (
+              <button
+                className="text-[10.5px] text-ink-dim transition-colors hover:text-accent"
+                onClick={() => {
+                  setOpen(false);
+                  onHelp();
+                }}
+              >
+                What are these?
+              </button>
+            )}
             <button
               className="btn btn-primary ml-auto px-3 py-[3px]"
               onClick={() => setOpen(false)}

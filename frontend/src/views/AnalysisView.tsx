@@ -7,6 +7,7 @@
 // last week's — or against the class benchmark — on one set of charts.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AnalysisGuide, type GuideTab } from "@/components/analysis/AnalysisGuide";
 import { ChannelPicker } from "@/components/analysis/ChannelPicker";
 import { CoachingPanel } from "@/components/analysis/CoachingPanel";
 import { CornerDetail, type CornerLap } from "@/components/analysis/CornerDetail";
@@ -19,6 +20,7 @@ import { PlaybackBar } from "@/components/analysis/PlaybackBar";
 import { RaceLineMap, type MapLap } from "@/components/analysis/RaceLineMap";
 import { StackedCharts } from "@/components/analysis/StackedCharts";
 import { LargeDialog } from "@/components/ui/Dialog";
+import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Select } from "@/components/ui/Select";
 import { Tip } from "@/components/ui/Tooltip";
 import { api } from "@/lib/api";
@@ -36,14 +38,15 @@ import {
   reflectAnalysisSelection,
   type AnalysisRequest,
 } from "@/lib/router";
-import type {
-  CategoryBest,
-  CoachingNotes,
-  CompareResult,
-  DeviationResult,
-  LapSummary,
-  SessionSummary,
-  TrackOutline,
+import {
+  notCountingLabel,
+  type CategoryBest,
+  type CoachingNotes,
+  type CompareResult,
+  type DeviationResult,
+  type LapSummary,
+  type SessionSummary,
+  type TrackOutline,
 } from "@/lib/types";
 import { useAnalysisSelection } from "@/store/analysis";
 import { useSettings } from "@/store/settings";
@@ -79,10 +82,20 @@ const PLAYBACK_COLUMNS = [
   "steer", "race_pos",
 ];
 
+/** The session's default reference: its quickest lap that counts. A pit
+ *  out-lap's short "time", or a lap the driver excluded (#74), is no
+ *  yardstick — unless nothing else is left. */
+function quickestCounting(laps: LapSummary[]): LapSummary | undefined {
+  const counting = laps.filter((l) => l.counts_for_best !== false);
+  return [...(counting.length > 0 ? counting : laps)].sort((a, b) => a.time_ms - b.time_ms)[0];
+}
+
 export function AnalysisView({ request }: { request: AnalysisRequest }) {
   const units = useSettings((s) => s.units);
   const mapFollow = useSettings((s) => s.mapFollow);
   const setMapFollow = useSettings((s) => s.setMapFollow);
+  const mapSync = useSettings((s) => s.mapSync);
+  const setMapSync = useSettings((s) => s.setMapSync);
   const lapEpoch = useTelemetry((s) => s.lapEpoch);
 
   // Seed from the shared selection so switching tabs doesn't reset the view.
@@ -198,7 +211,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
       setLaps(ls);
       setLapsFor(sessionId);
       if (ls.length === 0) return;
-      const best = [...ls].sort((a, b) => a.time_ms - b.time_ms)[0];
+      const best = quickestCounting(ls)!;
       const latest = ls[0]; // list is newest-first
       // A selected id missing from this session's laps is not necessarily
       // stale: it may be a guest from another session, or a cross-session
@@ -253,11 +266,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
           setSelected((cur) => cur.filter((x) => x !== id));
           // A dead reference falls back to the session's best rather than
           // leaving the whole comparison blank.
-          setRefLap((cur) =>
-            cur === id
-              ? [...laps].sort((a, b) => a.time_ms - b.time_ms)[0]?.id ?? null
-              : cur,
-          );
+          setRefLap((cur) => (cur === id ? (quickestCounting(laps)?.id ?? null) : cur));
         });
     }
   }, [selected, refLap, laps, lapsFor, sessionId]);
@@ -452,6 +461,8 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
   // track_name there is no "same circuit" to list laps from. Fetched per
   // open so the list sees laps recorded while the view was already mounted.
   const [addOpen, setAddOpen] = useState(false);
+  // The in-app guide, and the section it is showing (null = closed).
+  const [guide, setGuide] = useState<GuideTab | null>(null);
   const [showAllLaps, setShowAllLaps] = useState(false);
   const [addChoices, setAddChoices] = useState<LapSummary[] | null>(null);
   useEffect(() => {
@@ -491,8 +502,9 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
     let bestMs = Infinity;
     for (const lap of [...laps, ...guests]) {
       if (!selected.includes(lap.id) && lap.id !== refLap) continue;
-      // A partial lap's time is not a lap time (pit out-lap), so it cannot be
-      // the fastest — it would otherwise win every comparison it appears in.
+      // A partial lap's time is not a lap time (pit out-lap), and an excluded
+      // one is not a time the driver stands behind (#74), so neither can be
+      // the fastest — a pit out-lap would otherwise win every comparison.
       if (lap.counts_for_best === false) continue;
       if (lap.time_ms > 0 && lap.time_ms < bestMs) {
         bestMs = lap.time_ms;
@@ -688,7 +700,9 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
               s.car_name
             } · ${s.lap_count} laps`,
           }))}
-          className="px-2.5 py-[5px] text-xs"
+          // Capped at the toolbar's width: a long circuit and car name
+          // truncates instead of pushing the page sideways on a phone.
+          className="max-w-full px-2.5 py-[5px] text-xs"
         />
 
         <div className="h-[18px] w-px shrink-0 bg-divider" />
@@ -728,7 +742,20 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
         )}
 
         {/* 2 — channel picker popover hangs off this button */}
-        <ChannelPicker selected={channelKeys} onChange={setChannelKeys} />
+        <ChannelPicker
+          selected={channelKeys}
+          onChange={setChannelKeys}
+          onHelp={() => setGuide("channels")}
+        />
+        <Tip content="What each chart channel and feature of this view shows">
+          <button
+            onClick={() => setGuide("features")}
+            aria-label="Open the Analysis guide"
+            className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full border border-edge text-[11.5px] text-ink-dim transition-colors hover:border-accent hover:text-accent"
+          >
+            ?
+          </button>
+        </Tip>
 
         {refLap != null && (
           <div className="ml-auto flex items-center gap-1.5 text-[11.5px] text-ink-dim">
@@ -796,7 +823,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
                 </span>
               )}
             </span>
-            <div className="ml-auto flex items-center gap-1">
+            <div className="ml-auto flex flex-wrap items-center justify-end gap-1">
               <Tip content="Drag across a chart to zoom · double-click to reset">
                 <span className="mr-1.5 font-tabular text-[10.5px] text-ink-faint">
                   {zoomRange
@@ -806,6 +833,24 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
                       : "full lap"}
                 </span>
               </Tip>
+              {/* Only meaningful with something to sync against. */}
+              {mapLaps.length > 1 && (
+                <Tip content="Where the other laps' cars are drawn: where each was after the same lap time as the reference (time — the gap, as distance on track), or level with the reference car (position — where the charts compare them)">
+                  <span className="mr-1 inline-flex items-center gap-1.5 text-[10.5px] text-ink-faint">
+                    sync
+                    <SegmentedControl
+                      ariaLabel="Race line sync"
+                      size="sm"
+                      value={mapSync}
+                      onValueChange={setMapSync}
+                      options={[
+                        { value: "time", label: "Time" },
+                        { value: "position", label: "Position" },
+                      ]}
+                    />
+                  </span>
+                </Tip>
+              )}
               <Tip content="While playback runs, zoom the map in and pan with the car instead of framing the whole circuit">
                 <button
                   onClick={() => setMapFollow(!mapFollow)}
@@ -850,9 +895,9 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
           <RaceLineMap
             hero
             follow={mapFollow}
+            sync={mapSync}
             laps={mapLaps}
             cursorDist={cursorDist}
-            step={compare!.step}
             zoomRange={zoomRange}
             outline={outline}
             onZoomChange={setZoomRange}
@@ -900,7 +945,6 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
             <CornerDetail
               laps={cornerLaps}
               cursorDist={cursorDist}
-              step={compare!.step}
               trackCorners={refEntry?.corners}
             />
           </Panel>
@@ -948,7 +992,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
                 <CategoryBestRow
                   best={categoryBest}
                   refTimeMs={refSummary.time_ms}
-                  refIsFullLap={refSummary.counts_for_best !== false}
+                  refNotCounting={notCountingLabel(refSummary)}
                   onOpen={() =>
                     openInAnalysis({
                       session: categoryBest.session_id,
@@ -987,7 +1031,6 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
               laps={ggLaps}
               accel={compare!.accel}
               cursorDist={cursorDist}
-              step={compare!.step}
             />
           </Panel>
         )}
@@ -1026,6 +1069,14 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
           />
         </Panel>
       )}
+
+      <AnalysisGuide
+        open={guide != null}
+        tab={guide ?? "features"}
+        onTabChange={setGuide}
+        charted={channelKeys}
+        onClose={() => setGuide(null)}
+      />
 
       <LargeDialog
         open={addOpen}
@@ -1080,9 +1131,13 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
                     {lap.counts_for_best === false && (
                       <span
                         className={`shrink-0 text-warn ${lap.salvaged ? "" : "ml-auto"}`}
-                        title="Partial lap (pit out-lap) — its time is not a lap time"
+                        title={
+                          lap.best_override === false
+                            ? "Excluded from bests by hand"
+                            : "Partial lap (a pit out-lap, or a race's lap 1 from the grid) — its time is not a lap time"
+                        }
                       >
-                        partial
+                        {notCountingLabel(lap)}
                       </span>
                     )}
                     {added && <span className="ml-auto shrink-0">already selected</span>}
@@ -1103,16 +1158,17 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
 function CategoryBestRow({
   best,
   refTimeMs,
-  refIsFullLap,
+  refNotCounting,
   onOpen,
   onCompare,
 }: {
   best: CategoryBest;
   refTimeMs: number;
-  /** Partial laps (pit out-laps) are excluded from the benchmark itself, so
-   *  their GT7-reported time — short precisely because it is not a lap — must
-   *  not be measured against it, let alone allowed to beat it. */
-  refIsFullLap: boolean;
+  /** Why the reference lap does not count, or null when it does. Laps that
+   *  do not count are excluded from the benchmark itself, so their time — a
+   *  pit out-lap's is short precisely because it is not a lap — must not be
+   *  measured against it, let alone allowed to beat it. */
+  refNotCounting: string | null;
   onOpen: () => void;
   /** Adds the benchmark to the CURRENT selection as a guest (#26) — the
    *  alternative to `open`, which switches to the benchmark's own session.
@@ -1120,7 +1176,7 @@ function CategoryBestRow({
   onCompare: (() => void) | null;
 }) {
   const gap = refTimeMs - best.time_ms;
-  const isBest = refIsFullLap && gap <= 0;
+  const isBest = refNotCounting == null && gap <= 0;
   return (
     <div className="border-t border-edge px-3 py-2 text-xs">
       <div className="mb-1 flex items-baseline gap-2">
@@ -1132,9 +1188,9 @@ function CategoryBestRow({
       <div className="flex items-baseline gap-2 text-ink-dim">
         <span className="truncate">{best.car_name}</span>
         <span className="ml-auto shrink-0 font-tabular">
-          {!refIsFullLap ? (
-            <span title="This reference lap is a partial lap, so its time is not a lap time">
-              partial lap — no comparison
+          {refNotCounting != null ? (
+            <span title="This reference lap does not count toward bests, so its time is not compared">
+              {refNotCounting} — no comparison
             </span>
           ) : isBest ? (
             <span className="text-throttle">this lap is the best</span>

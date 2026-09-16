@@ -88,6 +88,7 @@ function CircuitBests({ track, rows }: { track: string; rows: PersonalBest[] }) 
                   </span>
                 )}
                 <CleanHint row={row} />
+                <ExcludedHint row={row} />
                 <span className="text-ink-faint">
                   of {row.lap_count} laps
                   <span className="hidden sm:inline" title={formatTime(row.finished_at)}>
@@ -121,6 +122,35 @@ function CircuitBests({ track, rows }: { track: string; rows: PersonalBest[] }) 
         })}
       </div>
     </div>
+  );
+}
+
+// Why a quicker time is not the best (#74): the fastest lap of this circuit
+// and car that was excluded by hand, with the reason given, and the rest in
+// the tooltip. Silent when nothing quicker was excluded — a slower excluded
+// lap changes nothing on the board.
+function ExcludedHint({ row }: { row: PersonalBest }) {
+  const excluded = row.excluded_faster ?? [];
+  if (excluded.length === 0) return null;
+  const [first] = excluded;
+  return (
+    <Tip
+      content={
+        <div className="flex flex-col gap-0.5">
+          <span>Quicker laps excluded from bests (Sessions → lap table):</span>
+          {excluded.map((lap) => (
+            <span key={lap.lap_id} className="font-tabular">
+              {formatLapTime(lap.time_ms)} — {lap.reason || "no reason given"}
+            </span>
+          ))}
+        </div>
+      }
+    >
+      <span tabIndex={0} className="text-ink-faint">
+        ⊘ {formatLapTime(first.time_ms)} {first.reason || "excluded"}
+        {excluded.length > 1 && ` +${excluded.length - 1}`}
+      </span>
+    </Tip>
   );
 }
 

@@ -24,8 +24,8 @@ SUMMARY_KEYS = {
     "fuel_start", "fuel_end", "fuel_consumed", "full_throttle_pct", "full_brake_pct",
     "coasting_pct", "tire_spin_pct", "max_speed", "min_body_height", "total_ticks",
     "tod_ms", "tcs_active_pct", "asm_active_pct", "max_water_temp", "max_oil_temp",
-    "min_oil_pressure", "counts_for_best", "off_track_count", "off_survey_count",
-    "clean_lap", "salvaged", "event_counts",
+    "min_oil_pressure", "counts_for_best", "full_lap", "best_override", "exclude_reason",
+    "off_track_count", "off_survey_count", "clean_lap", "salvaged", "event_counts",
 }
 
 
