@@ -329,3 +329,19 @@ Alembic-managed store, and no answer the ordering doesn't already give. The
 compiled geometry is derived data (`data/track-bundles/compiled/`, format in
 [the bundle reference](../reference/track-bundle-format.md)) and is
 recompiled whenever the bundle changes.
+
+**Road levels (#96, 2026-09).** The 1 m dedup cell is a *plan* cell, and a
+circuit that crosses over itself puts two roads in one — Suzuka's bridge and
+the road under it were one metre of road, the second level's geometry
+discarded and its votes counted against the first. Records more than 3 m
+apart in elevation within one cell are now different levels of the road
+(`track_bundle.EdgeIndex`, format v5); the ordering pass refuses a next cell
+the road could not have climbed to, the across-the-road pairing prefers its
+own level, every road quad carries its elevation envelope (`road_y`,
+compiled v2), and the judge places a lap by its `pos_y`. The 3 m came from
+the bundles collected so far: 0.72 m is the largest elevation spread between
+same-side neighbours within 2 m, 0.18 m between raw marks that landed in one
+cell, and 5.5 m the banking across Daytona's road — which is why the level
+test is within a cell and never across one. None of the ten surveyed circuits
+crosses itself, so the upper bound is physical: a car has to fit under the
+deck.

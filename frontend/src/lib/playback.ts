@@ -30,6 +30,7 @@ export type TimedPositions = {
   t?: number[];
   pos_x?: number[];
   pos_z?: number[];
+  pos_y?: number[]; // elevation; absent on laps recorded before it was stored
   dist?: number[];
   speed?: number[];
 };

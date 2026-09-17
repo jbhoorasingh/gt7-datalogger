@@ -22,6 +22,7 @@ One value per column per tick (~60/s):
 | `tire_slip` | mean of the four wheel slips | ratio |
 | `yaw_rate` | `abs(angular_velocity_y)` | rad/s |
 | `pos_x`, `pos_z` | raw world coordinates | m |
+| `pos_y` | raw world elevation. Laps stored before it existed have no such column; the survey judge then places them on plan alone, which where the road crosses over itself means against both levels at once | m |
 | `body_height` | `raw × 1000` | mm |
 | `fuel` | raw fuel level | L |
 | `slip_fl/fr/rl/rr` | `abs(wheel_rad_per_s) × tire_radius ÷ speed_mps` | ratio |

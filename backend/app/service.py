@@ -578,7 +578,7 @@ class TelemetryService:
             return
         s = lap.samples
         count = await asyncio.to_thread(
-            judge.excursions, s.get("pos_x") or [], s.get("pos_z") or []
+            judge.excursions, s.get("pos_x") or [], s.get("pos_z") or [], s.get("pos_y")
         )
         lap.apply_survey_verdict(count)
 

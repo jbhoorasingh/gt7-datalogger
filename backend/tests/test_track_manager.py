@@ -118,7 +118,7 @@ async def test_import_accepts_an_older_bundle_without_claiming_it(client) -> Non
 
     stored = track_bundle.load(tmp, "Ring")
     assert stored is not None
-    assert stored["version"] == 4
+    assert stored["version"] == track_bundle.BUNDLE_VERSION
     sources = set(stored["edges"][0]["votes"]["edge"])
     assert sources and track_bundle.source_id(tmp) not in sources
     # Re-importing the same anonymous file is still idempotent: the synthetic

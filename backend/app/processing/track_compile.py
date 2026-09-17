@@ -14,6 +14,12 @@ end-to-end where their endpoints face each other. On real bundles this pulls
 that closes into a loop (measured on the author's four surveyed circuits; the
 stitch gates were calibrated there too).
 
+Where a circuit crosses over itself the two levels' cells interleave in
+plan (#96). Every step here is gated on elevation where it is known: the walk
+and the stitch refuse a next cell the road could not have climbed to, and the
+across-the-road pairing prefers the sample's own level. A bundle without
+elevation compiles exactly as it did before.
+
 Honesty rule, inherited from track_outline: never draw a confident wrong
 loop. A stitch across more than SURVEYED_MAX_SPACING_M is kept as ordering
 information but flagged as a GAP span: it is excluded from the drawn borders,
@@ -28,7 +34,9 @@ What comes out per bundle:
     cells almost never sit directly opposite each other, so it paired 1-4% of
     points; pairing against the interpolated curve instead reaches whatever
     the sparser side covers), each sample carrying road width and elevation
-  - the road surface as a quad strip between consecutive paired samples
+  - the road surface as a quad strip between consecutive paired samples, each
+    quad with its elevation envelope, so a judge can tell a bridge deck from
+    the road beneath it (#96)
   - per-side coverage measured against the boundary itself: surveyed metres
     over total boundary metres, the denominator including every flagged gap
     and, on a closed loop, the closure. This is #38's metric — the driven
@@ -55,7 +63,11 @@ from app.processing import track_bundle
 log = logging.getLogger(__name__)
 
 COMPILED_FORMAT = "gt7-datalogger-track-compiled"
-COMPILED_VERSION = 1
+# 2: per-quad elevation envelopes (`road_y`) and level-gated ordering (#96).
+# Bumping it is what recompiles every stored document once — the bundle files
+# themselves did not change, so the identity check alone would keep serving
+# geometry that walks across levels.
+COMPILED_VERSION = 2
 COMPILED_DIR = "compiled"  # under track-bundles/
 
 # --- chain walking ------------------------------------------------------------
@@ -95,6 +107,27 @@ _GRID_CELL_M = ROAD_WIDTH_MAX_M
 # collinear points.
 SIMPLIFY_TOL_M = 0.5
 
+# --- road levels (#96) --------------------------------------------------------
+# Two cells are on the same road when their elevations agree to within what
+# the road could climb between them: the bundle's own level rule outright
+# (LEVEL_SEP_M, which covers every step of the walk), or noise plus a grade
+# over the distance for the longer stitches, so a steep hill still joins
+# across a survey hole. The steepest surveyed border (Mount Panorama) climbs
+# 0.33 m/m at the 99th percentile between neighbouring cells, lateral scatter
+# included; 0.35 keeps every real stretch and still refuses a deck 5 m up at
+# any distance under ~11 m.
+MAX_GRADE = 0.35
+LEVEL_NOISE_M = 1.0
+# Pairing the left border across to the right tries the nearest point on the
+# sample's own level first and the nearest regardless of level second: a
+# preference with a fallback rather than a gate, because banking puts the
+# two borders of ONE road 5.5 m apart at Daytona, where the far border is on
+# "another level" by the bundle's rule and must still be found. Measured on
+# the collected bundles this reproduces the previous pairing to within two
+# quads (a stretch of Lago Maggiore Centre where the nearest border point
+# fails the width gate and the nearest same-level one passes); what the
+# preference changes is what happens at a crossover.
+
 _CACHE: dict[tuple[str, int, int], dict[str, Any]] = {}
 _CACHE_MAX = 8
 
@@ -102,6 +135,17 @@ _CACHE_MAX = 8
 def _norm(x: float, z: float) -> tuple[float, float]:
     d = math.hypot(x, z) or 1.0
     return x / d, z / d
+
+
+def _same_level(a: dict[str, Any], b: dict[str, Any], d: float) -> bool:
+    """Could the road run from cell `a` to cell `b`, `d` metres apart, without
+    leaving its level? True whenever either elevation is unknown."""
+    ya, yb = a.get("y"), b.get("y")
+    if ya is None or yb is None:
+        return True
+    return abs(float(ya) - float(yb)) <= max(
+        track_bundle.LEVEL_SEP_M, LEVEL_NOISE_M + MAX_GRADE * d
+    )
 
 
 class _Grid:
@@ -159,6 +203,8 @@ def chain_side(pts: list[dict[str, Any]]) -> list[list[int]]:
                     continue
                 if abs(pts[j]["hx"] * cdx + pts[j]["hz"] * cdz) < TANGENT_MIN_DOT:
                     continue
+                if not _same_level(pts[cur], pts[j], d):
+                    continue  # the other level of a crossover, not the next metre
                 score = d / max(fwd, 0.05)
                 if score < best_score:
                     best, best_score = j, score
@@ -216,7 +262,7 @@ def stitch(chains: list[list[int]], pts: list[dict[str, Any]]) -> list[list[int]
                     b = list(reversed(chains[j])) if rev else chains[j]
                     pa, pb = pts[a[-1]], pts[b[0]]
                     d = math.hypot(pb["x"] - pa["x"], pb["z"] - pa["z"])
-                    if d > GAP_JOIN_M:
+                    if d > GAP_JOIN_M or not _same_level(pa, pb, d):
                         continue
                     da = _endpoint_dir(a, pts, at_start=False)
                     db = _endpoint_dir(b, pts, at_start=True)
@@ -286,7 +332,7 @@ class SideAssembly:
             main = self.chains[0]
             a, b = pts[main[0]], pts[main[-1]]
             gap = _seg_len(a, b)
-            if gap <= GAP_JOIN_M and len(main) >= 20:
+            if gap <= GAP_JOIN_M and len(main) >= 20 and _same_level(a, b, gap):
                 da = _endpoint_dir(main, pts, at_start=False)
                 db = _endpoint_dir(main, pts, at_start=True)
                 if da is not None and db is not None and -(
@@ -466,10 +512,22 @@ class _SegmentIndex:
                 key = (math.floor(mx / _GRID_CELL_M), math.floor(mz / _GRID_CELL_M))
                 self.map.setdefault(key, []).append(idx)
 
-    def nearest(self, x: float, z: float) -> tuple[float, dict[str, Any]] | None:
-        """(distance, interpolated point) of the closest segment point."""
+    def nearest(
+        self, x: float, z: float, y: float | None = None
+    ) -> list[tuple[float, dict[str, Any]]]:
+        """(distance, interpolated point) of the closest segment points, in
+        the order the caller should try them: first the closest on the
+        query's own road level — when its elevation is known and any segment
+        shares it — then the closest regardless of level (#96). Under a
+        crossover the other level's border can be the nearest thing in plan,
+        and the road across from a sample is the one at its own height; on a
+        banked road the far border may sit further up than the level rule
+        allows, and the second candidate is what still finds it.
+        """
         cx, cz = math.floor(x / _GRID_CELL_M), math.floor(z / _GRID_CELL_M)
         best: tuple[float, dict[str, Any]] | None = None
+        level: tuple[float, dict[str, Any]] | None = None
+        best_d = level_d = math.inf
         for gx in (cx - 1, cx, cx + 1):
             for gz in (cz - 1, cz, cz + 1):
                 for idx in self.map.get((gx, gz), ()):
@@ -481,18 +539,31 @@ class _SegmentIndex:
                     )
                     px, pz = pa["x"] + dx * t, pa["z"] + dz * t
                     d = math.hypot(px - x, pz - z)
-                    if best is None or d < best[0]:
-                        ya, yb = pa.get("y"), pb.get("y")
-                        y = ya + (yb - ya) * t if ya is not None and yb is not None else (
-                            ya if ya is not None else yb
-                        )
-                        best = (d, {"x": px, "z": pz, "y": y})
-        return best
+                    if d >= best_d and d >= level_d:
+                        continue
+                    ya, yb = pa.get("y"), pb.get("y")
+                    py = ya + (yb - ya) * t if ya is not None and yb is not None else (
+                        ya if ya is not None else yb
+                    )
+                    hit = (d, {"x": px, "z": pz, "y": py})
+                    if d < best_d:
+                        best, best_d = hit, d
+                    if (
+                        d < level_d and y is not None and py is not None
+                        and abs(py - y) <= track_bundle.LEVEL_SEP_M
+                    ):
+                        level, level_d = hit, d
+        out = [level] if level is not None else []
+        if best is not None and best is not level:
+            out.append(best)
+        return out
 
 
 def centerline_and_road(
     left: SideAssembly, right: SideAssembly
-) -> tuple[list[list[list[float | None]]], list[list[float]], float]:
+) -> tuple[
+    list[list[list[float | None]]], list[list[float]], list[list[float] | None], float
+]:
     """The centerline and the road surface between the two border curves.
 
     Left border samples are paired ACROSS to the nearest point on the right
@@ -501,16 +572,21 @@ def centerline_and_road(
     curve is missing (or implausibly far/near, or not actually across the
     road) the centerline simply breaks: unpaired stretches produce nothing.
 
-    Returns (centerline_runs, road_quads, paired_ratio). Centerline runs are
-    polylines of [x, z, y, w] — w the measured road width there; y null when
-    neither border knows its elevation. Quads are [8 floats], the same
-    drawing shape track_outline emits, spanning border to border. The ratio
-    is the share of left-border samples that found the road across from them.
+    Returns (centerline_runs, road_quads, road_levels, paired_ratio).
+    Centerline runs are polylines of [x, z, y, w] — w the measured road width
+    there; y null when neither border knows its elevation. Quads are
+    [8 floats], the same drawing shape track_outline emits, spanning border
+    to border; road_levels holds, per quad, [lowest, highest] corner
+    elevation, or None where a corner has no elevation (#96) — banking puts
+    the two borders at different heights, so a quad's level is an envelope,
+    not a number. The ratio is the share of left-border samples that found
+    the road across from them.
     """
     samples = _resample(left, CL_STEP_M)
     index = _SegmentIndex(right)
     runs: list[list[list[float | None]]] = []
     quads: list[list[float]] = []
+    levels: list[list[float] | None] = []
     run: list[list[float | None]] = []
     prev: dict[str, Any] | None = None
     paired = 0
@@ -529,14 +605,13 @@ def centerline_and_road(
         judged += 1
         # The road lies to the LEFT border's right-normal.
         rnx, rnz = s["tz"], -s["tx"]
-        hit = index.nearest(s["x"], s["z"])
         pair = None
-        if hit is not None:
-            d, p = hit
+        for d, p in index.nearest(s["x"], s["z"], s["y"]):
             if ROAD_WIDTH_MIN_M <= d <= ROAD_WIDTH_MAX_M:
                 ux, uz = _norm(p["x"] - s["x"], p["z"] - s["z"])
                 if abs(ux * rnx + uz * rnz) >= ACROSS_MIN_DOT:
                     pair = (d, p)
+                    break
         if pair is None:
             if len(run) >= 2:
                 runs.append(run)
@@ -560,10 +635,16 @@ def centerline_and_road(
                 round(p["x"], 1), round(p["z"], 1),
                 round(prev["px"], 1), round(prev["pz"], 1),
             ])
-        prev = {"sx": s["x"], "sz": s["z"], "px": p["x"], "pz": p["z"]}
+            corners = [prev["sy"], s["y"], p["y"], prev["py"]]
+            levels.append(
+                [round(min(corners), 2), round(max(corners), 2)]
+                if all(v is not None for v in corners) else None
+            )
+        prev = {"sx": s["x"], "sz": s["z"], "px": p["x"], "pz": p["z"],
+                "sy": s["y"], "py": p["y"]}
     if len(run) >= 2:
         runs.append(run)
-    return runs, quads, (paired / judged if judged else 0.0)
+    return runs, quads, levels, (paired / judged if judged else 0.0)
 
 
 def compile_bundle(doc: dict[str, Any]) -> dict[str, Any]:
@@ -577,7 +658,7 @@ def compile_bundle(doc: dict[str, Any]) -> dict[str, Any]:
     # exactly as track_outline separates them.
     left = SideAssembly([e for e in edges if e["side"] == "L"])
     right = SideAssembly([e for e in edges if e["side"] == "R"])
-    centerline, road, paired = centerline_and_road(left, right)
+    centerline, road, road_y, paired = centerline_and_road(left, right)
     coverage = {
         "L": left.coverage(),
         "R": right.coverage(),
@@ -611,6 +692,7 @@ def compile_bundle(doc: dict[str, Any]) -> dict[str, Any]:
         ],
         "centerline": centerline,
         "road": road,
+        "road_y": road_y,
         "finish": track_outline.finish_line(doc["finish_crossings"]),
         "coverage": coverage,
     }

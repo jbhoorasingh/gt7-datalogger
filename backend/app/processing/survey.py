@@ -216,7 +216,10 @@ class SurfaceSurvey:
         # it, so the map can change its mind (see track_bundle).
         self.edges: list[dict[str, Any]] = []
         self.edges_epoch = 0
-        self._edge_index: dict[tuple[int, int, str], dict[str, Any]] = {}
+        # Which record a new sample belongs to: plan cell and road level
+        # (#96), so a run over Suzuka's bridge does not vote on the road
+        # beneath it.
+        self._edge_index = track_bundle.EdgeIndex()
         # Ordinal of this run in its circuit's bundle: votes are counted once
         # per run, so every vote cast this run carries it — alongside this
         # installation's source id, without which the ordinal means nothing
@@ -281,7 +284,7 @@ class SurfaceSurvey:
         self._trail_step = TRAIL_MIN_STEP_M
         self.edges = []
         self.edges_epoch += 1
-        self._edge_index = {}
+        self._edge_index = track_bundle.EdgeIndex()
         self._run_no = 1
         self._source = track_bundle.source_id(data_dir)
         self.mark_side = None
@@ -352,7 +355,7 @@ class SurfaceSurvey:
             self._save_bundle(count_run=False)
             self.edges = []
             self.edges_epoch += 1
-            self._edge_index = {}
+            self._edge_index = track_bundle.EdgeIndex()
             self._run_no = 1
             self.finish_crossings = []
             self.bundle_info = None
@@ -393,7 +396,7 @@ class SurfaceSurvey:
         # the list is replaced wholesale, so incremental readers must resync.
         self.edges = track_bundle.merge_edges(doc["edges"], self.edges)
         self.edges_epoch += 1
-        self._edge_index = {track_bundle.edge_key(e): e for e in self.edges}
+        self._edge_index = track_bundle.EdgeIndex(self.edges)
         self.finish_crossings = track_bundle.merge_finish(
             doc["finish_crossings"], self.finish_crossings
         )
@@ -719,8 +722,7 @@ class SurfaceSurvey:
         pid: int, y: float | None = None,
     ) -> None:
         x, z = round(x, 3), round(z, 3)
-        key = track_bundle.edge_key({"x": x, "z": z, "side": side})
-        known = self._edge_index.get(key)
+        known = self._edge_index.find({"x": x, "z": z, "y": y, "side": side})
         if known is not None:
             prior = known["votes"].get(kind, {}).get(self._source)
             if prior is not None and prior[1] >= self._run_no:
@@ -742,7 +744,7 @@ class SurfaceSurvey:
             x, z, hx, hz, side, kind, self._run_no, self._source,
             self.width_in_use_m, y,
         )
-        self._edge_index[key] = edge
+        self._edge_index.add(edge)
         self.edges.append(edge)
 
     def _log_mark(

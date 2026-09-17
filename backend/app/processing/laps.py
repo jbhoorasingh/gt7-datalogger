@@ -135,6 +135,13 @@ SAMPLE_COLUMNS = (
     "sus_fl", "sus_fr", "sus_rl", "sus_rr",  # suspension compression, mm
     "aids",  # AidsBits mask: TCS | ASM | handbrake | rev limiter
     "surface",  # packed per-wheel surface codes (see processing/surface.py)
+    # Elevation beside pos_x/pos_z (#96). Every packet format carries it, so
+    # it is not optional in the prune_optional sense — but laps stored before
+    # it existed have no such column, and consumers read it with .get. The
+    # survey judge is the consumer that cares: without it a lap is judged on
+    # plan position alone, which where the road crosses over itself means
+    # against both levels at once.
+    "pos_y",
     *OPTIONAL_COLUMNS,
 )
 
@@ -1151,6 +1158,7 @@ class LapProcessor:
         s["yaw_rate"].append(round(abs(p.angular_velocity_y), 4))
         s["pos_x"].append(round(p.position_x, 2))
         s["pos_z"].append(round(p.position_z, 2))
+        s["pos_y"].append(round(p.position_y, 2))
         s["body_height"].append(round(p.body_height * 1000, 1))  # mm
         s["fuel"].append(round(p.fuel_level, 3))
         slips = p.wheel_slips
