@@ -71,11 +71,17 @@ def data_dir(request: Request) -> Path:
     return svc(request).settings.db_path.parent
 
 
-def _bundle_changed(request: Request, track: str) -> None:
-    """A bundle was rewritten by hand: drop cached corners, queue a sync."""
+def _bundle_changed(request: Request, track: str, road: bool = True) -> None:
+    """A bundle was rewritten by hand: drop cached corners, queue a sync,
+    and — unless only the authored labels moved — re-judge every lap driven
+    on the circuit against the road as it now is (#91). Right away rather
+    than after the settle time: one explicit edit is one change, not a
+    survey in progress."""
     service = svc(request)
     service.invalidate_authored_corners(track)
     service.sync.tracks.changed(track)
+    if road:
+        service.rejudge.changed(track, settle_s=0.0)
 
 
 def _catalog_path(request: Request) -> Path | None:
@@ -359,6 +365,10 @@ async def identify_sessions(request: Request) -> dict[str, Any]:
             sum(named.values()), by_source["signature"], by_source["survey bundle"],
             named,
         )
+        # Their laps were saved unjudged — there was no circuit to judge
+        # against — and now there is one (#91).
+        for track in named:
+            service.rejudge.changed(track, settle_s=0.0)
     return {
         "checked": len(candidates),
         "identified": sum(named.values()),
@@ -711,6 +721,10 @@ async def patch_bundle(
                 svc(request).invalidate_authored_corners(was["meta"]["track"])
                 if track_bundle.slugify(payload.track) != slug:
                     svc(request).sync.tracks.forget(slug)
+                    # Sessions still labelled the old way now have no bundle
+                    # under them: their verdicts go back to unknown, exactly
+                    # as a deleted bundle's would (#91).
+                    svc(request).rejudge.changed(was["meta"]["track"], settle_s=0.0)
             _bundle_changed(request, payload.track)
     except track_bundle.BundleError as exc:
         raise HTTPException(400, str(exc)) from exc
@@ -743,6 +757,9 @@ async def delete_bundle(request: Request, slug: str) -> dict[str, str]:
         raise HTTPException(404, "no bundle for this track")
     if doc is not None:
         svc(request).invalidate_authored_corners(doc["meta"]["track"])
+        # Laps judged against it must not keep a verdict from geometry that
+        # no longer exists: back to unknown (#91).
+        svc(request).rejudge.changed(doc["meta"]["track"], settle_s=0.0)
     svc(request).sync.tracks.forget(slug)
     return {"status": "deleted"}
 
@@ -806,6 +823,19 @@ async def put_corners(
     )
     if doc is None:  # pragma: no cover - load succeeded a line ago
         raise HTTPException(404, "no bundle for this track")
-    _bundle_changed(request, existing["meta"]["track"])
+    _bundle_changed(request, existing["meta"]["track"], road=False)
     return {"track": doc["meta"]["track"], "corners": doc["corners"],
             "sections": doc["sections"]}
+
+
+@router.post("/track-bundles/{slug}/rejudge", dependencies=[Depends(require_admin)])
+async def rejudge_laps(request: Request, slug: str) -> dict[str, Any]:
+    """Re-judge every lap driven on this circuit against its survey, now (#91).
+
+    The automatic pass after a bundle write does the same; this is for forcing
+    it, and it waits for the pass so the answer can say how many verdicts
+    changed. Works with or without a bundle: with none, verdicts judged
+    against a survey that no longer exists go back to unknown, so the
+    circuit is the slug rather than a bundle that must exist.
+    """
+    return await svc(request).rejudge.run_now(_slug(slug))

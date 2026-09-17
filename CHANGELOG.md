@@ -5,6 +5,34 @@ Notable changes to GT7 Datalogger. The format follows
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-09-17
+
+### Fixed
+
+- **Laps are re-judged when a track's survey changes.** (#91) A lap's
+  verdict against the surveyed edges — `off_survey_count`, and the
+  `clean_lap` it feeds — was decided once, when the lap was saved, against
+  the bundle as it was then. Fixing a bad survey afterwards changed nothing:
+  the only re-judge covered the live session, and only at the moment its
+  circuit was identified. Every bundle write now queues a pass over every
+  lap ever driven on the circuit, across sessions and across spellings of
+  its name: a survey run's saves (two minutes after the last one, so a
+  running survey's autosave never triggers a pass over the whole history),
+  a log assigned, a shared bundle pulled, an import, a rename (the label
+  left behind too), a delete — after which the verdicts go back to unknown
+  rather than keeping a judgement from geometry that no longer exists.
+  Identifying old sessions judges their laps too. The pass runs in the
+  background; **Re-check laps** on a Tracks row forces it and says how many
+  verdicts changed. New endpoint `POST /api/track-bundles/{slug}/rejudge`.
+- **A survey-caused "not clean" flag can be cleared again.** (#92)
+  `clean_lap` was folded one-way: an excursion past the surveyed edge set it
+  false, and a re-judge that found none carried the stored value forward, so
+  a lap a bad survey spoiled stayed spoiled whatever was corrected later. It
+  is now derived from both counts every time — clean when GT7's surface
+  flags saw nothing and nothing ran past the surveyed edge — by one function
+  the live lap and the re-judge share. A lap the old flag left behind (count
+  zero, clean false) is repaired by the next pass.
+
 ## [0.6.0] - 2026-09-16
 
 ### Added

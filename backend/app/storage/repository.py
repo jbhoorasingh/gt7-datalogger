@@ -745,10 +745,12 @@ class Repository:
     async def set_lap_survey_verdict(
         self, lap_id: int, off_survey_count: int, clean_lap: bool | None
     ) -> None:
-        """Re-judge a stored lap against the surveyed road (#41).
+        """Store a lap's re-judged verdict against the surveyed road (#41).
 
-        Backfill path: laps saved before the session's circuit was identified
-        went to the DB unjudged, and identification lands one lap late.
+        Two callers: the backfill when a session's circuit is identified one
+        lap late, and the per-circuit re-judge when a bundle changes (#91).
+        clean_lap arrives derived from both counts (laps.clean_verdict),
+        never carried forward from the row.
         """
         async with self._sf() as db:
             await db.execute(
@@ -1103,6 +1105,18 @@ class Repository:
                     select(LapRow.samples_json).where(LapRow.id == lap_id)
                 )
             ).scalar_one_or_none()
+
+    async def session_track_labels(self) -> list[str]:
+        """Every distinct circuit label a session carries.
+
+        Labels, not slugs: two spellings of one circuit are two labels here
+        and one bundle on disk, and the caller decides which it wants.
+        """
+        async with self._sf() as db:
+            rows = await db.execute(
+                select(SessionRow.track_name).where(SessionRow.track_name != "").distinct()
+            )
+            return [str(r[0]) for r in rows]
 
     async def track_for_lap(self, lap_id: int) -> str:
         """The circuit label of the session a lap belongs to, if it has one."""

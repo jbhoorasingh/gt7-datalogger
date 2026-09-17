@@ -31,6 +31,7 @@ from app.processing.survey import SurfaceSurvey
 from app.processing.tracks import signature_from_samples
 from app.race_engineer import CATEGORIES, VoiceCallout
 from app.race_engineer.manager import RaceEngineerManager
+from app.rejudge import SurveyRejudge
 from app.storage.repository import Repository, lap_summary  # noqa: F401  (re-export)
 from app.sync import SyncClient
 from app.telemetry.listener import UdpTelemetrySource
@@ -69,14 +70,6 @@ async def _close_ws(ws: WebSocket) -> None:
         await ws.close(code=1013)  # 1013 = try again later (server overloaded)
     except Exception:  # noqa: BLE001
         pass
-
-
-def _judge_samples_json(judge: track_limits.RoadJudge, raw: str) -> int:
-    """Decode + judge a stored lap's blob in one worker-thread hop: the
-    samples_json of a real lap is hundreds of kilobytes, and parsing it on
-    the event loop is the cost the repository API exists to avoid."""
-    samples = json.loads(raw)
-    return judge.excursions(samples.get("pos_x") or [], samples.get("pos_z") or [])
 
 
 def _count_events(events: list[dict[str, Any]]) -> dict[str, int]:
@@ -121,7 +114,12 @@ class TelemetryService:
         # toggle — the server said "type_disabled" — is persisted through
         # the repo like any other admin setting.
         self.sync = SyncClient(settings, settings.db_path.parent, persist=repo.set_setting)
-        self.survey.on_bundle_saved = self.sync.tracks.changed
+        # Re-judges a circuit's stored laps after its bundle changes (#91),
+        # on its own task, once the writes have settled. Told about the
+        # survey's writes here; the API tells it about the rest.
+        self.rejudge = SurveyRejudge(repo, settings.db_path.parent)
+        self.rejudge.on_changed = self._laps_rejudged
+        self.survey.on_bundle_saved = self._bundle_saved
         self.engineer = RaceEngineerManager(
             enabled=settings.race_engineer,
             verbosity=settings.race_engineer_verbosity,
@@ -182,6 +180,17 @@ class TelemetryService:
     def invalidate_authored_corners(self, track: str) -> None:
         self._authored.pop(track_bundle.slugify(track), None)
 
+    def _bundle_saved(self, track: str) -> None:
+        """The survey wrote its bundle: queue the upload (#79) and the
+        re-judge of the circuit's laps (#91), both once the run settles."""
+        self.sync.tracks.changed(track)
+        self.rejudge.changed(track)
+
+    async def _laps_rejudged(self, slug: str, changed: int) -> None:
+        # Verdicts in the DB moved under open Sessions/Analysis views; a
+        # session event is what makes them refetch.
+        self._publish({"type": "session", "data": await self.status()})
+
     async def start(self) -> None:
         await self.source.start()
         await self.sync.start()
@@ -190,6 +199,7 @@ class TelemetryService:
         await self.source.stop()
         self.survey.stop()
         await self.sync.stop()
+        await self.rejudge.stop()
         tasks = [c.task for c in self._clients.values() if c.task]
         for t in tasks:
             t.cancel()
@@ -573,32 +583,26 @@ class TelemetryService:
         lap.apply_survey_verdict(count)
 
     async def _backfill_survey_verdicts(self, current: CompletedLap | None = None) -> None:
+        """The live session's laps, judged now: identification landed and
+        the rows saved before it carry no verdict. Per-session and immediate,
+        unlike the per-circuit pass (app.rejudge) a bundle write queues."""
         if self.session_id is None:
             return
         judge = await self._survey_judge()
         if judge is None:
             return
         for row in await self.repo.list_laps(self.session_id):
-            raw = await self.repo.lap_samples_json(row["id"])
-            if not raw:
-                continue
-            count = await asyncio.to_thread(_judge_samples_json, judge, raw)
+            count, changed = await self.rejudge.judge_row(judge, row)
             # The lap still in memory — the one whose WS event has not been
             # emitted yet — must carry the same verdict as its row: a client
             # hears one event per lap, ever, and it has to match the DB.
             if current is not None and row["number"] == current.number:
                 current.apply_survey_verdict(count)
-            if count == row["off_survey_count"]:
-                continue
-            # Same broadening as CompletedLap.apply_survey_verdict: an
-            # excursion past the surveyed edge spoils cleanliness, unknown
-            # leaves the surface-flag verdict alone.
-            clean = False if count > 0 else row["clean_lap"]
-            await self.repo.set_lap_survey_verdict(row["id"], count, clean)
-            log.info(
-                "lap %d re-judged against surveyed edges: %d excursion(s)",
-                row["number"], count,
-            )
+            if changed:
+                log.info(
+                    "lap %d re-judged against surveyed edges: %d excursion(s)",
+                    row["number"], count,
+                )
 
     # --- live stream --------------------------------------------------------
 

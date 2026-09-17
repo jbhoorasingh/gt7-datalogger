@@ -246,6 +246,35 @@ export function TracksView() {
     });
   };
 
+  // Not routed through `run` either: the count of verdicts that changed IS
+  // the result, and zero is the usual, reassuring answer rather than a
+  // failure. Nothing on the row itself changes, so no refresh.
+  const onRejudge = async (row: TrackOverviewRow) => {
+    setBusy(true);
+    try {
+      const r = await api.bundles.rejudge(row.slug);
+      const laps = `${r.laps} lap${r.laps === 1 ? "" : "s"}`;
+      const verdicts = `${r.changed} verdict${r.changed === 1 ? "" : "s"}`;
+      if (r.laps === 0) {
+        toast(`No laps recorded on ${row.name}`);
+      } else if (!r.judged) {
+        toast(
+          `${row.name} has no usable survey — ` +
+            (r.changed ? `${verdicts} set back to unknown` : `${laps} left unknown`),
+        );
+      } else {
+        toastSuccess(
+          `Re-checked ${laps} on ${row.name} — ` +
+            (r.changed ? `${verdicts} changed` : "every verdict stands"),
+        );
+      }
+    } catch (e) {
+      toastError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   // Uploading only lands the file; the run still gets merged the normal way —
   // by assigning it to a circuit, exactly as an orphaned local run would be.
   const onUploadLog = async (file: File) => {
@@ -574,6 +603,18 @@ export function TracksView() {
                   onClick={() => setRenaming(row)}
                 >
                   Rename…
+                </button>
+                <button
+                  className="btn"
+                  disabled={busy || row.sessions === 0}
+                  title={
+                    row.sessions > 0
+                      ? "Judge every lap driven here against the survey as it is now. This happens by itself after a survey stops or a bundle is merged, renamed or deleted; forcing it also says how many verdicts changed."
+                      : "No sessions recorded here — nothing to re-check"
+                  }
+                  onClick={() => void onRejudge(row)}
+                >
+                  Re-check laps
                 </button>
                 {b && (
                   <button

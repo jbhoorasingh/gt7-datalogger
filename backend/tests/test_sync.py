@@ -525,8 +525,10 @@ async def client(tmp_path, fake):
 
 async def test_survey_autosave_reaches_the_adapter(client, tmp_path) -> None:
     _c, service, tmp = client
-    # The hook is wired at construction, not discovered at save time.
-    assert service.survey.on_bundle_saved == service.sync.tracks.changed
+    # The hook is wired at construction, not discovered at save time — and
+    # it fans out: the upload (#79) and the re-judge of the circuit's laps
+    # (#91) both wait on the same bundle settling.
+    assert service.survey.on_bundle_saved == service._bundle_saved
     service.settings.sync_token = TOKEN
     service.settings.sync_enabled = True
     service.settings.sync_tracks = True
@@ -534,6 +536,7 @@ async def test_survey_autosave_reaches_the_adapter(client, tmp_path) -> None:
     service.survey.finish_crossings.append({"x": 0.0, "z": 0.0, "hx": 1.0, "hz": 0.0, "lap": 1})
     service.survey._save_bundle(count_run=False)
     assert "ring" in service.sync.tracks._dirty
+    assert "ring" in service.rejudge.pending()
     service.survey.stop()
 
 
