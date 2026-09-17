@@ -145,8 +145,10 @@ async def test_pre_alembic_database_is_caught_up_and_stamped(tmp_path) -> None:
     assert laps[0]["counts_for_best"] is True
     assert laps[0]["car_category"] == ""
     assert laps[0]["off_track_count"] == -1
-    # ...including columns added by post-baseline revisions (0002).
+    # ...including columns added by post-baseline revisions (0002, 0010).
     assert laps[0]["off_survey_count"] == -1
+    assert laps[0]["best_override"] is None
+    assert laps[0]["exclude_reason"] == ""
 
 
 async def test_legacy_catch_up_leaves_a_partly_upgraded_file_alone(tmp_path) -> None:

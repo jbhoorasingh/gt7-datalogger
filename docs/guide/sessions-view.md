@@ -81,10 +81,37 @@ replay — but it never owns a Bests row and never provides the
 [class benchmark](analysis-view.md#side-panels). The toggle is admin-gated when
 `GT7_ADMIN_TOKEN` is set, like every other mutation.
 
+## Excluding a lap from bests
+
+The session toggle is for laps that aren't yours. For your own laps that shouldn't
+stand — an off-track moment, contact, a restart, a lap you know was dirty — each row of
+the lap table has a **Counts** checkbox. Untick it and the lap leaves every best at
+once: the session best, the [Bests board](bests-view.md), the
+[class benchmark](analysis-view.md#side-panels), and the Race Engineer's pace and
+coaching comparisons. A **why?** picker appears beside it — *off-track*, *contact*,
+*restart*, *dirty* or *pit-out* — and the Bests board shows that reason next to the
+time it replaced.
+
+The checkbox works the other way too. The
+[partial-lap guard](../internals/lap-detection.md#best-lap-tracking) marks laps it
+thinks covered only part of the track as **partial** — and so is lap 1 of a race, which
+[starts from the grid](../internals/lap-detection.md#where-a-lap-begins), not the line,
+so its time is not a lap time. If the guard got one wrong, tick it and the lap counts
+(**kept**). Ticking or unticking a lap back to what the guard says hands
+it back to the guard, so a lap you excluded and then re-ticked follows the guard again
+rather than staying pinned.
+
+An excluded lap keeps its row, its telemetry and its place in Analysis, and its Δ
+column still shows how it compared (signed, because a lap that doesn't count can be
+quicker than the best). If the lap belongs to the session you are driving right now,
+the live session best and the Δ-best reference move with it immediately. The checkbox
+is admin-gated when `GT7_ADMIN_TOKEN` is set.
+
 ## Lap table
 
-Per lap: time (best in accent), Δ to session best, fuel used, full-throttle %,
-full-brake %, coasting %, tire-spin %, events, and max speed.
+Per lap: time (best in accent), Δ to session best, whether it **counts** toward bests
+(see above), fuel used, full-throttle %, full-brake %, coasting %, tire-spin %, events,
+and max speed.
 
 The **Events** column is a compact code — `2L·1S·3B·1K` means 2 lockups, 1 wheelspin,
 3 suspension bottomings, 1 kerb strike; `–` means a clean lap.
@@ -110,8 +137,12 @@ Row actions:
 | **csv** | downloads a **MoTeC-compatible CSV** for MoTeC i2 or Excel |
 | **delete** | removes the lap and its telemetry (confirmed, irreversible) |
 
-**Delete session** at the bottom of an expanded session removes the session and all its
-laps.
+**Export session** at the bottom of an expanded session downloads the whole session as
+`gt7-session-<id>.zip`: every lap's `.json` file plus a `session.json` with the car,
+circuit, tags, note and race result — a backup or a hand-off in one click. See
+[Session archive](../reference/lap-file-format.md#session-archive-zip).
+
+**Delete session** removes the session and all its laps.
 
 ## Header actions
 
@@ -121,9 +152,11 @@ laps.
   Older v1 files import cleanly; the newer per-corner channels are simply absent and
   the charts skip them. Events and aid metrics are recomputed from the samples on
   import. The lap lands in the **currently live session** when one is open (otherwise
-  a fresh "imported" session), and counts toward [bests](bests-view.md) like any lap —
-  someone else's lap belongs in a session you
-  [exclude from bests](#excluding-a-session-from-bests).
+  a fresh "imported" session), and keeps the verdicts it was exported with — a
+  partial or [excluded](#excluding-a-lap-from-bests) lap stays that way — so otherwise
+  it counts toward [bests](bests-view.md) like any lap. Someone else's lap belongs in a
+  session you [exclude from bests](#excluding-a-session-from-bests). A session
+  archive's lap files import one at a time the same way.
 
 ## Recording control
 

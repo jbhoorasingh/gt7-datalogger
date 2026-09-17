@@ -128,9 +128,13 @@ async def test_coasting_and_metrics(setup) -> None:
 
 async def test_distance_integration(setup) -> None:
     proc, _ = setup
-    # 60 ticks at 60 m/s = 1 second = 60 m
+    # 60 ticks at 60 m/s: the first sample sits half a tick past the line
+    # (0.5 m), each later one a whole tick on — and time says the same.
     await feed_lap(proc, 1, 60, speed_mps=60.0)
-    assert proc.live_lap_samples["dist"][-1] == pytest.approx(60.0, abs=0.1)
+    samples = proc.live_lap_samples
+    assert samples["dist"][0] == pytest.approx(0.5)
+    assert samples["dist"][-1] == pytest.approx(59.5, abs=0.1)
+    assert samples["dist"][-1] == pytest.approx(60.0 * samples["t"][-1], abs=0.01)
 
 
 async def test_no_duplicate_laps_while_save_is_slow() -> None:
@@ -217,7 +221,9 @@ async def test_non_monotonic_pid_falls_back(setup) -> None:
     await proc.feed(make_packet(current_lap=1, packet_id=100, speed_mps=60.0))
     await proc.feed(make_packet(current_lap=1, packet_id=40, speed_mps=60.0))
     t = proc.live_lap_samples["t"]
-    assert t == [0.0, pytest.approx(1 / 60, abs=1e-4)]
+    # The first sample sits half a tick in (the half-gap anchor); the
+    # discontinuity then counts as one frame, not a negative one.
+    assert t == [pytest.approx(1 / 120, abs=1e-4), pytest.approx(1 / 120 + 1 / 60, abs=1e-4)]
 
 
 async def test_pause_does_not_inflate_time(setup) -> None:

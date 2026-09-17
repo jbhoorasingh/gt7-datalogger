@@ -10,17 +10,27 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { BestsBoard } from "@/components/BestsBoard";
 import { LapSparkline } from "@/components/LapSparkline";
 import { ConfirmDialog, PromptDialog } from "@/components/ui/Dialog";
+import { Select } from "@/components/ui/Select";
 import { Tip } from "@/components/ui/Tooltip";
 import { api } from "@/lib/api";
 import { lapColorMap } from "@/lib/colors";
 import { formatLapTime, formatSpeed, formatTime, formatTimeShort } from "@/lib/format";
 import { openInAnalysis } from "@/lib/router";
-import type { LapSummary, PersonalBest, SessionSummary } from "@/lib/types";
+import {
+  EXCLUDE_REASONS,
+  type ExcludeReason,
+  type LapSummary,
+  type PersonalBest,
+  type SessionSummary,
+} from "@/lib/types";
 import { useSettings } from "@/store/settings";
 import { useTelemetry } from "@/store/telemetry";
 import { toast } from "@/store/toasts";
 
 type SubTab = "sessions" | "bests";
+
+// What the lap table may change about a lap: its ruling on the bests (#74).
+type LapRuling = { best_override: boolean | null; exclude_reason?: ExcludeReason };
 
 // Session row and its header share one template so the columns line up:
 // # · car/circuit · started · trend · laps · best · analyze · chevron.
@@ -135,6 +145,33 @@ export function SessionsView({ subTab = "sessions" }: { subTab?: SubTab }) {
       refresh();
     } catch {
       toast("No lap in progress", "error");
+    }
+  }
+
+  // Rule one lap in or out of the bests (#74). Optimistic like the session
+  // toggle below, then replaced by the server's summary — which carries the
+  // recomputed counts_for_best — and the sessions list is refreshed for the
+  // session best the ruling may have moved.
+  async function ruleLap(sessionId: number, lap: LapSummary, ruling: LapRuling) {
+    const put = (next: LapSummary) =>
+      setLaps((cur) => ({
+        ...cur,
+        [sessionId]: (cur[sessionId] ?? []).map((l) => (l.id === next.id ? next : l)),
+      }));
+    put({
+      ...lap,
+      best_override: ruling.best_override,
+      counts_for_best: ruling.best_override ?? lap.full_lap ?? true,
+      exclude_reason: ruling.best_override === false ? (ruling.exclude_reason ?? "") : "",
+    });
+    try {
+      // Merged over the listed summary, which carries fields (track_name)
+      // the single-lap answer does not.
+      put({ ...lap, ...(await api.updateLap(lap.id, ruling)) });
+      refresh();
+    } catch {
+      put(lap);
+      toast("Could not update lap", "error");
     }
   }
 
@@ -294,6 +331,7 @@ export function SessionsView({ subTab = "sessions" }: { subTab?: SubTab }) {
                   onNameTrack={() => setNaming(s.id)}
                   onExportLap={exportLap}
                   onDeleteLap={(lapId) => setDeletingLap({ sessionId: s.id, lapId })}
+                  onRuleLap={(lap, ruling) => ruleLap(s.id, lap, ruling)}
                   onDeleteSession={() => setDeletingSession(s.id)}
                   onToggleExcluded={() => toggleBestsExcluded(s)}
                   onSaved={refresh}
@@ -395,6 +433,7 @@ function SessionRow({
   onNameTrack,
   onExportLap,
   onDeleteLap,
+  onRuleLap,
   onDeleteSession,
   onToggleExcluded,
   onSaved,
@@ -407,6 +446,7 @@ function SessionRow({
   onNameTrack: () => void;
   onExportLap: (id: number) => void;
   onDeleteLap: (id: number) => void;
+  onRuleLap: (lap: LapSummary, ruling: LapRuling) => void;
   onDeleteSession: () => void;
   onToggleExcluded: () => void;
   onSaved: () => void;
@@ -550,6 +590,7 @@ function SessionRow({
               bestMs={s.best_lap_time_ms}
               onExport={onExportLap}
               onDelete={onDeleteLap}
+              onRule={onRuleLap}
               onCompare={(id, refId) =>
                 openInAnalysis({
                   session: s.id,
@@ -560,6 +601,17 @@ function SessionRow({
             />
             <NotesEditor key={s.id} session={s} onSaved={onSaved} />
             <div className="flex justify-end gap-2">
+              {s.lap_count > 0 && (
+                <Tip content="Download every lap of this session as lap files, with the session's details, in one ZIP">
+                  <a
+                    className="btn px-3 py-1 hover:border-accent hover:text-accent"
+                    href={api.sessionZipUrl(s.id)}
+                    download
+                  >
+                    Export session
+                  </a>
+                </Tip>
+              )}
               <Tip content="Replay recordings and other drivers' laps are indistinguishable from your own driving in telemetry — keeping them off the Bests board is a manual call.">
                 <button
                   className="btn px-3 py-1 hover:border-accent hover:text-accent"
@@ -684,12 +736,27 @@ function formatEventCounts(counts?: Record<string, number>): string {
   return parts.length > 0 ? parts.join("·") : "–";
 }
 
+/** Tooltip for a lap's "counts" checkbox: what decided it, in words. */
+function countsHint(lap: LapSummary): string {
+  if (lap.best_override === false) {
+    return "Excluded from bests by hand — tick to count it again";
+  }
+  if (lap.best_override === true && lap.full_lap === false) {
+    return "Counted by hand, although its distance says it is a partial lap — untick to leave it to the distance check";
+  }
+  if (lap.full_lap === false) {
+    return "Partial lap — a pit out-lap, or a race's first lap from the grid — so its time is not a lap time; tick to count it anyway";
+  }
+  return "Counts toward session and personal bests — untick to exclude it (off-track, contact…)";
+}
+
 function LapTable({
   laps,
   units,
   bestMs,
   onExport,
   onDelete,
+  onRule,
   onCompare,
 }: {
   laps: LapSummary[];
@@ -697,21 +764,34 @@ function LapTable({
   bestMs: number | null;
   onExport: (id: number) => void;
   onDelete: (id: number) => void;
+  onRule: (lap: LapSummary, ruling: LapRuling) => void;
   onCompare: (id: number, refId: number | null) => void;
 }) {
   if (laps.length === 0) return <div className="text-[11.5px] text-ink-faint">No laps.</div>;
-  const bestId = laps.reduce((a, b) => (b.time_ms < a.time_ms ? b : a)).id;
+  // The quickest lap that COUNTS: an excluded or partial lap is not the one
+  // to compare against, nor the one that takes purple.
+  const counting = laps.filter((l) => l.counts_for_best !== false);
+  const bestId = (counting.length > 0 ? counting : laps).reduce((a, b) =>
+    b.time_ms < a.time_ms ? b : a,
+  ).id;
   // The session's quickest lap takes purple, and no other lap in the table can
   // land on it — the same convention the Analysis charts and map use.
   const colors = lapColorMap(laps.map((l) => l.id), bestId);
   // Position per lap (#60): only worth a column when the session was a race
   // — a time trial would show a column of dashes.
   const hasPositions = laps.some((l) => (l.race_position ?? -1) >= 1);
-  const cols = `40px 84px 66px ${hasPositions ? "46px " : ""}60px 64px 64px 52px 46px 88px 66px 1fr`;
+  const cols = `40px 84px 66px 118px ${hasPositions ? "46px " : ""}60px 64px 64px 52px 46px 88px 66px 1fr`;
+
+  // Ticking a lap to match what the distance check already says clears the
+  // ruling instead of restating it, so the lap follows the check again.
+  const toggle = (lap: LapSummary) => {
+    const want = lap.counts_for_best === false;
+    onRule(lap, { best_override: want === (lap.full_lap ?? true) ? null : want });
+  };
 
   return (
     <div className="overflow-x-auto">
-      <div className="min-w-[900px]">
+      <div className="min-w-[1020px]">
         <div
           className="section-header grid gap-2 py-1 text-[9.5px] tracking-[0.1em] [&>span]:whitespace-nowrap"
           style={{ gridTemplateColumns: cols }}
@@ -719,6 +799,7 @@ function LapTable({
           <span>Lap</span>
           <span>Time</span>
           <span>Δ best</span>
+          <span>Counts</span>
           {hasPositions && <span>Pos</span>}
           <span>Fuel</span>
           <span>Full thr.</span>
@@ -731,7 +812,8 @@ function LapTable({
         </div>
 
         {laps.map((lap) => {
-          const isBest = bestMs != null && lap.time_ms === bestMs;
+          const counts = lap.counts_for_best !== false;
+          const isBest = counts && bestMs != null && lap.time_ms === bestMs;
           const diff = bestMs != null ? lap.time_ms - bestMs : null;
           const offTrack = lap.off_track_count ?? -1;
           const offSurvey = lap.off_survey_count ?? -1;
@@ -754,13 +836,52 @@ function LapTable({
                   </span>
                 )}
               </span>
-              <span className={isBest ? "text-accent" : ""}>{formatLapTime(lap.time_ms)}</span>
+              <span className={isBest ? "text-accent" : counts ? "" : "text-ink-faint"}>
+                {formatLapTime(lap.time_ms)}
+              </span>
+              {/* A lap that does not count can be quicker than the best — a
+                  cut chicane, a pit out-lap — so the gap is signed. */}
               <span
                 className={
-                  diff == null ? "text-ink-faint" : diff === 0 ? "text-throttle" : "text-brake"
+                  diff == null || !counts
+                    ? "text-ink-faint"
+                    : isBest
+                      ? "text-throttle"
+                      : "text-brake"
                 }
               >
-                {diff == null ? "–" : diff === 0 ? "best" : `+${(diff / 1000).toFixed(3)}`}
+                {diff == null
+                  ? "–"
+                  : isBest
+                    ? "best"
+                    : `${diff < 0 ? "−" : "+"}${(Math.abs(diff) / 1000).toFixed(3)}`}
+              </span>
+              <span className="flex min-w-0 items-center gap-1.5 self-center">
+                <Tip content={countsHint(lap)}>
+                  <input
+                    type="checkbox"
+                    checked={counts}
+                    onChange={() => toggle(lap)}
+                    aria-label={`Lap ${lap.number} counts toward bests`}
+                    className="h-3.5 w-3.5 shrink-0 cursor-pointer"
+                  />
+                </Tip>
+                {lap.best_override === false ? (
+                  <Select
+                    ariaLabel={`Why lap ${lap.number} is excluded`}
+                    value={lap.exclude_reason ?? ""}
+                    placeholder="why?"
+                    options={EXCLUDE_REASONS.map((r) => ({ value: r, label: r }))}
+                    onValueChange={(r) =>
+                      onRule(lap, { best_override: false, exclude_reason: r as ExcludeReason })
+                    }
+                    className="min-w-0 px-1.5 py-px font-sans text-[10.5px]"
+                  />
+                ) : lap.full_lap === false ? (
+                  <span className={`text-[10.5px] ${counts ? "text-ink-faint" : "text-warn"}`}>
+                    {counts ? "kept" : "partial"}
+                  </span>
+                ) : null}
               </span>
               {hasPositions && (
                 <span>{(lap.race_position ?? -1) >= 1 ? `P${lap.race_position}` : "–"}</span>

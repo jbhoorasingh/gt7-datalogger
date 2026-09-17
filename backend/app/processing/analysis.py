@@ -37,15 +37,29 @@ def _interp(xs: list[float], ys: list[float], x: float) -> float:
     return y0 + (y1 - y0) * (x - x0) / (x1 - x0)
 
 
+def axis_grid(total: float, step: float) -> list[float]:
+    """0, step, 2·step, … and then `total` itself.
+
+    A lap rarely ends on a whole step, and a grid of whole steps alone stops
+    up to one step short of the line — which is where playback, a finished
+    lap's map dot and the last point of every chart then stopped too. The
+    final interval is shorter than the rest; every consumer reads the grid's
+    own values (or the nearest point to a distance), never index × step.
+    """
+    grid = [i * step for i in range(int(total / step) + 1)]
+    if total - grid[-1] > 0.01:
+        grid.append(round(total, 2))
+    return grid
+
+
 def resample_by_distance(
     samples: Samples, step: float = DEFAULT_STEP_M, columns: tuple[str, ...] | None = None
 ) -> Samples:
-    """Resample tick-based series onto a uniform distance grid."""
+    """Resample tick-based series onto a distance grid (see distance_grid)."""
     dist = samples["dist"]
     if not dist:
         return {"dist": []}
-    total = dist[-1]
-    grid = [i * step for i in range(int(total / step) + 1)]
+    grid = axis_grid(dist[-1], step)
     out: Samples = {"dist": grid}
     cols = columns or tuple(k for k in samples if k != "dist")
     for col in cols:
@@ -54,6 +68,25 @@ def resample_by_distance(
             out[col] = [_nearest(dist, ys, d) for d in grid]
         else:
             out[col] = [round(_interp(dist, ys, d), 4) for d in grid]
+    return out
+
+
+def resample_by_time(samples: Samples, step_s: float, columns: tuple[str, ...]) -> Samples:
+    """Resample tick-based series onto the lap's own clock, every `step_s`.
+
+    The distance grid is the wrong axis for "where was this car after t
+    seconds": once a lap is lined up with a reference (alignment.py) its
+    distance never runs backwards, so a spin or a rewind folds a stretch of
+    driving onto one point. The clock never folds.
+    """
+    t = samples.get("t") or []
+    if not t:
+        return {"t": []}
+    grid = axis_grid(t[-1], step_s)
+    out: Samples = {"t": [round(v, 4) for v in grid]}
+    for col in columns:
+        if col in samples:
+            out[col] = [round(_interp(t, samples[col], v), 2) for v in grid]
     return out
 
 
@@ -87,8 +120,7 @@ def time_delta_series(
     """Time gained/lost vs the reference lap over distance (ms; positive = slower)."""
     if not lap["dist"] or not reference["dist"]:
         return {"dist": [], "delta_ms": []}
-    total = min(lap["dist"][-1], reference["dist"][-1])
-    grid = [i * step for i in range(int(total / step) + 1)]
+    grid = axis_grid(min(lap["dist"][-1], reference["dist"][-1]), step)
     deltas = [
         round(
             (_interp(lap["dist"], lap["t"], d) - _interp(reference["dist"], reference["t"], d))
@@ -108,8 +140,7 @@ def speed_deviation(laps: list[Samples], step: float = DEFAULT_STEP_M) -> dict[s
     usable = [lap for lap in laps if lap["dist"]]
     if len(usable) < 2:
         return {"dist": [], "median": [], "deviation": []}
-    total = min(lap["dist"][-1] for lap in usable)
-    grid = [i * step for i in range(int(total / step) + 1)]
+    grid = axis_grid(min(lap["dist"][-1] for lap in usable), step)
     median: list[float] = []
     deviation: list[float] = []
     for d in grid:

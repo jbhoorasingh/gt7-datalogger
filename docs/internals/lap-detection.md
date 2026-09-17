@@ -193,6 +193,20 @@ numbers:
 - **Dropping a lap promotes the fastest remaining full lap**, rather than blanking the
   best until the next one arrives.
 
+**Manual rulings sit on top** (#74). A user can exclude a lap the guard accepts
+(off-track, contact, a dirty lap) or count one it rejected. The ruling lives in its
+own column, `best_override`, beside the guard's verdict (`full_lap`, stored in the
+`counts_for_best` column it has always used); `counts_for_best` on the ORM is
+`coalesce(best_override, full_lap)`, computed in SQL, so every query and aggregate that
+filtered on it honours rulings without knowing they exist. `mark_session_laps_partial`
+writes `full_lap` alone and so can never overwrite a ruling, and clearing one hands the
+lap back to whatever the guard said last. For the session being driven the processor
+keeps the rulings too (`set_best_override`): its session best, `excluded_lap_numbers`
+and `session_best_before_ms` are computed from the guard's partial set *adjusted by*
+the rulings, and a lap number re-driven after a rewind drops the ruling made on the lap
+it replaced. Track identification still prefers `full_lap` — an excluded off-track lap
+covered the route.
+
 Calibrated against 850 recorded laps of real driving:
 
 | | Value | Why |
@@ -205,10 +219,55 @@ Calibrated against 850 recorded laps of real driving:
 that compare laps *by position*: the Race Engineer's coaching callouts stay silent
 until it is true (see [Race Engineer callouts](race-engineer.md)).
 
+## Where a lap begins
+
+**Grid starts.** Every lap but one begins at the start/finish line by construction: its
+first sample is the packet in which GT7 stepped the lap counter as the car crossed it.
+The exception is **lap 1 of a race** — the counter steps when the race starts, wherever
+the grid is. On real recordings that was 30–480 m from the line (120 m at Red Bull
+Ring, 125 m at Spa, 68 m to the side at Daytona's road course, whose grid sits on a
+parallel stretch). Timed grid-to-line, such a lap is a few seconds off a real lap in
+either direction, and at under 3 % of the lap the span guard can't see it: session
+224's lap 1 was its "fastest" lap.
+
+So when a lap completes, its first sample is compared with the packet that completed it
+— the first one past the line, and so the line itself to within the distance covered
+since the packet before. The comparison is made in the direction the lap arrived at the
+line (over its last 10 m):
+
+| | Limit | Why |
+| --- | --- | --- |
+| Along the track | both boundary gaps + **3 m** | two laps that both started at the line agree to within those gaps; over 996 consecutive real laps they agreed to 0.8 m beyond them |
+| Across the track | **25 m** | laps cross the line up to 6 m apart sideways, so this only catches a start off the circuit altogether |
+
+A lap outside either limit is **partial** whatever its span, and its span stays out of
+the yardstick. A lap with no positions to judge by (older recordings, a car that never
+moved) gets the benefit of the doubt. Salvaged laps are exempt — their stream broke
+off, so nothing marks the line.
+
+Laps recorded before the check are judged once, in the background, the first time the
+app starts with it: each lap against the next lap of its session, the last lap against
+another lap whose predecessor is stored too (a recording that began mid-session starts
+its first lap wherever the car was, so a lap number alone proves nothing). Only the
+span guard's column is written, so a lap you ruled on keeps your ruling. On the
+author's history it marked 33 laps: 30 lap 1s and three laps from sessions where GT7
+moved the car kilometres at the line.
+
+**The clock anchor.** The line is crossed somewhere inside the gap between the previous
+lap's last sample and this lap's first — one frame normally, more when packets were
+dropped. A lap's first sample therefore sits **half that gap** in, on both `t` and
+`dist`, so the two axes describe the same instant and dropped frames at the line can't
+offset one lap's clock against another's. Laps recorded before this started their clock
+at 0 but their distance a whole gap in (up to ~0.07 s of clock error at 290 km/h on
+real laps); they are recognisable — `t` starts at exactly 0, `dist` doesn't — and
+converted when read, so stored recordings are never rewritten. Laps cut out of a longer
+buffer by salvage start both axes at 0 and are left as they are.
+
 ## What "invalid lap" means here
 
 There is no track-limits detection (GT7 doesn't expose it). Laps are excluded only by
 the structural rules above: lap-0 out-laps (buffered, but only ever saved through
-[replay salvage](#replay-salvage)), laps under 600 ticks, post-finish laps, and
-paused/off-track ticks. The Analysis view additionally hides laps that ended up with no
+[replay salvage](#replay-salvage)), laps under 600 ticks, partial laps, laps that
+[began away from the line](#where-a-lap-begins), post-finish laps, and paused/off-track
+ticks. The Analysis view additionally hides laps that ended up with no
 samples.

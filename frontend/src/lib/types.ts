@@ -86,7 +86,14 @@ export interface LapSummary {
   max_water_temp?: number;
   max_oil_temp?: number;
   min_oil_pressure?: number; // -1 = unknown
-  counts_for_best?: boolean; // false = partial lap (pit out-lap)
+  // Whether the lap counts toward bests — the verdict everything acts on.
+  // full_lap and best_override say how it was reached (#74): the partial-lap
+  // guard (false = a pit out-lap, or a race's lap 1 from the grid), and the
+  // user's ruling on top of it (null = none made).
+  counts_for_best?: boolean;
+  full_lap?: boolean;
+  best_override?: boolean | null;
+  exclude_reason?: ExcludeReason | "";
   off_track_count?: number; // excursions past track limits; -1 = unknown
   off_survey_count?: number; // excursions beyond the SURVEYED road edge; -1 = unknown
   clean_lap?: boolean | null; // null = unknown (no surface data recorded)
@@ -97,6 +104,20 @@ export interface LapSummary {
   // Race position when the lap completed (#60); -1 = no position reporting.
   race_position?: number;
   event_counts?: Record<string, number>;
+}
+
+// Why a lap was ruled out of the bests by hand (#74). Mirrors backend
+// ExcludeReason.
+export const EXCLUDE_REASONS = ["off-track", "contact", "restart", "dirty", "pit-out"] as const;
+export type ExcludeReason = (typeof EXCLUDE_REASONS)[number];
+
+/** Why a lap does not count toward bests, in a word or two; null if it does. */
+export function notCountingLabel(lap: LapSummary): string | null {
+  if (lap.counts_for_best !== false) return null;
+  if (lap.best_override === false) {
+    return lap.exclude_reason ? `excluded · ${lap.exclude_reason}` : "excluded";
+  }
+  return "partial";
 }
 
 // Driver-aids bitmask stored per tick in the "aids" sample column and sent in
@@ -457,6 +478,9 @@ export interface PersonalBest {
   off_survey_count: number; // excursions beyond the SURVEYED road edge; -1 = unknown
   salvaged: boolean; // recovered from a replay-style stream ending (#26)
   lap_count: number; // counting laps recorded for this (circuit, car) pair
+  // Quicker laps of this circuit and car that were ruled out by hand (#74),
+  // fastest first — why a time the driver remembers is not the best.
+  excluded_faster: { lap_id: number; time_ms: number; reason: ExcludeReason | "" }[];
 }
 
 // Official GT7 track/layout metadata (bundled data/tracks.json — only the
@@ -540,7 +564,14 @@ export interface CornerReportRow {
 }
 
 export interface CompareLapEntry {
+  // Resampled every `step` metres of the REFERENCE lap's distance: every
+  // other lap is lined up with the reference by where it was on track, not
+  // by how far it had gone. `aligned` is false for a lap that could not be
+  // tracked along the reference's path and kept its own distance instead.
   series: Samples & { dist: number[] };
+  aligned?: boolean;
+  // Positions by the lap's own clock, every 1/20 s — what time sync reads.
+  track?: { t: number[]; pos_x: number[]; pos_z: number[] };
   peaks_valleys: { peaks: PeakValley[]; valleys: PeakValley[] };
   events?: LapEvent[];
   delta?: { dist: number[]; delta_ms: number[] };

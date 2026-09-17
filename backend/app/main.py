@@ -120,6 +120,33 @@ async def sync_car_inventory(
         log.info("car details filled in on %d existing session(s)", filled)
 
 
+# Settings key recording that stored laps have been re-checked for grid
+# starts (see Repository.recheck_lap_starts). Bump the value to run it again.
+LAP_START_CHECK_KEY = "lap_start_check"
+LAP_START_CHECK_VERSION = "1"
+
+
+async def recheck_lap_starts(
+    repo: Repository, stored: dict[str, str], log: logging.Logger
+) -> None:
+    """Judge laps recorded before the start-at-the-line check, once.
+
+    A background task: it decodes every stored lap, which on a Raspberry Pi
+    with a long history is minutes of work that startup must not wait for.
+    A failure leaves the marker unset, so the next start tries again.
+    """
+    if stored.get(LAP_START_CHECK_KEY) == LAP_START_CHECK_VERSION:
+        return
+    try:
+        marked = await repo.recheck_lap_starts()
+        await repo.set_setting(LAP_START_CHECK_KEY, LAP_START_CHECK_VERSION)
+    except Exception:
+        log.exception("stored laps could not be checked for grid starts; retrying next start")
+        return
+    if marked:
+        log.info("%d stored lap(s) began away from the start/finish line: now partial", marked)
+
+
 async def refresh_cars_if_stale(
     settings: Settings,
     repo: Repository,
@@ -201,6 +228,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # must not fail if it never answers. The task is kept so it can be
     # cancelled at shutdown rather than outliving the app it belongs to.
     refresh = asyncio.create_task(refresh_cars_if_stale(settings, repo, cars, stored, log))
+    recheck = asyncio.create_task(recheck_lap_starts(repo, stored, log))
 
     if settings.source == "udp" and not settings.ps_ip:
         log.info(
@@ -212,9 +240,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Cancelled AND awaited: a task dropped while still pending logs a
     # "Task was destroyed but it is pending" warning on the way out, which
     # looks like a fault in a shutdown that is working correctly.
-    refresh.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await refresh
+    for task in (refresh, recheck):
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
     await service.stop()
     await engine.dispose()
 

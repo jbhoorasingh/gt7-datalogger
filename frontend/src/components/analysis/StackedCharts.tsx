@@ -265,7 +265,13 @@ export function StackedCharts({
         max: "dataMax",
         axisLabel:
           gi === panels.length - 1
-            ? { color: CHART_COLORS.label, fontSize: 10, formatter: (v: number) => `${v} m` }
+            ? {
+                color: CHART_COLORS.label,
+                fontSize: 10,
+                // The last label is the lap's exact length (the series end
+                // on it), which needs no centimetres.
+                formatter: (v: number) => `${Math.round(v)} m`,
+              }
             : { show: false },
         axisLine: { lineStyle: { color: CHART_COLORS.axis } },
         splitLine: { show: false },

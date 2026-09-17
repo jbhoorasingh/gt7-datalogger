@@ -27,6 +27,7 @@ export function Select({
   className = "",
   ariaLabel,
   variant = "default",
+  placeholder,
 }: {
   value: string;
   onValueChange: (value: string) => void;
@@ -34,6 +35,8 @@ export function Select({
   className?: string; // sizing/typography for the trigger
   ariaLabel?: string;
   variant?: keyof typeof TRIGGER_VARIANTS;
+  /** Shown while `value` is "" — which no option may use as its value. */
+  placeholder?: string;
 }) {
   return (
     <SelectPrimitive.Root value={value} onValueChange={onValueChange}>
@@ -42,7 +45,7 @@ export function Select({
         className={`inline-flex items-center justify-between gap-2 transition-colors data-[placeholder]:text-ink-dim ${TRIGGER_VARIANTS[variant]} ${className}`}
       >
         <span className="truncate">
-          <SelectPrimitive.Value />
+          <SelectPrimitive.Value placeholder={placeholder} />
         </span>
         <SelectPrimitive.Icon className="text-[10px] text-ink-faint">▾</SelectPrimitive.Icon>
       </SelectPrimitive.Trigger>

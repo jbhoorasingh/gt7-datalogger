@@ -2,18 +2,36 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any, cast
 
-from sqlalchemy import CursorResult, Row, case, delete, func, or_, select, text, update
+from sqlalchemy import (
+    CursorResult,
+    Row,
+    Select,
+    case,
+    delete,
+    func,
+    or_,
+    select,
+    text,
+    update,
+)
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.processing import tracks as tracks_module
 from app.processing.cars import Car
-from app.processing.laps import CompletedLap, SessionInfo
+from app.processing.laps import (
+    CompletedLap,
+    LapEnds,
+    SessionInfo,
+    anchor_at_line,
+    decode_samples,
+)
 from app.processing.track_seed import SeedRow
 from app.processing.tracks import IDENTIFY_MIN_TICKS, TrackSignature, matches
 from app.storage.db import LapRow, LayoutRow, SessionRow, SettingRow, TrackRow
@@ -98,7 +116,13 @@ def lap_summary(row: LapRow | Row[Any]) -> dict[str, Any]:
         "max_water_temp": row.max_water_temp,
         "max_oil_temp": row.max_oil_temp,
         "min_oil_pressure": row.min_oil_pressure,
-        "counts_for_best": row.counts_for_best,
+        # counts_for_best is the verdict every consumer acts on; the other
+        # three say how it was reached (#74): full_lap is the span heuristic,
+        # best_override the user's call on top of it (None = none made).
+        "counts_for_best": bool(row.counts_for_best),
+        "full_lap": bool(row.full_lap),
+        "best_override": row.best_override,
+        "exclude_reason": row.exclude_reason,
         "off_track_count": row.off_track_count,
         "off_survey_count": row.off_survey_count,
         "clean_lap": row.clean_lap,
@@ -106,6 +130,11 @@ def lap_summary(row: LapRow | Row[Any]) -> dict[str, Any]:
         "race_position": row.race_position,
         "event_counts": _event_counts(row.events_json),
     }
+
+
+def _lap_ends(samples_json: str) -> LapEnds | None:
+    """Decode a stored lap and keep only what the start check needs."""
+    return LapEnds.of(decode_samples(samples_json))
 
 
 def _event_counts(events_json: str) -> dict[str, int]:
@@ -235,7 +264,15 @@ class Repository:
             await db.commit()
             return updated
 
-    async def save_lap(self, session_id: int, lap: CompletedLap) -> int:
+    async def save_lap(
+        self,
+        session_id: int,
+        lap: CompletedLap,
+        best_override: bool | None = None,
+        exclude_reason: str = "",
+    ) -> int:
+        """Store a completed lap. The override arguments exist for import,
+        which carries a verdict the user already made elsewhere (#74)."""
         async with self._sf() as db:
             row = LapRow(
                 session_id=session_id,
@@ -257,7 +294,13 @@ class Repository:
                 tod_ms=lap.tod_ms,
                 tcs_active_pct=lap.tcs_active_pct,
                 asm_active_pct=lap.asm_active_pct,
-                counts_for_best=lap.counts_for_best,
+                # A lap is saved the moment it completes, before anyone could
+                # have overridden it, so the processor's verdict IS the
+                # heuristic's here (the processor forgets an override when a
+                # lap number is re-driven).
+                full_lap=lap.counts_for_best,
+                best_override=best_override,
+                exclude_reason=exclude_reason if best_override is False else "",
                 off_track_count=lap.off_track_count,
                 off_survey_count=lap.off_survey_count,
                 clean_lap=lap.clean_lap,
@@ -274,71 +317,90 @@ class Repository:
             await db.commit()
             return row.id
 
+    @staticmethod
+    def _sessions_query() -> Select[tuple[SessionRow, int, Any, str]]:
+        """Sessions with their lap aggregates, newest first.
+
+        One aggregate query for all sessions; the outer join keeps lap-less
+        sessions and only touches LapRow ids/times (never samples_json).
+        """
+        # Best excludes laps that don't count (partial pit out-laps, and
+        # laps ruled out by hand): their times aren't full-lap times, or
+        # aren't ones the driver stands behind.
+        best_expr = func.min(case((LapRow.counts_for_best, LapRow.time_ms)))
+        # The session row's category comes from the FIRST packet of the
+        # session, which is packet A/B often enough — a heartbeat format
+        # that carries no category at all, or one sent before the console
+        # switched. The laps know better, and max() over them picks the
+        # non-empty value ('' sorts lowest). Without this, a session whose
+        # laps are all plainly Gr.3 sits outside the Gr.3 filter (#19).
+        return (
+            select(
+                SessionRow,
+                func.count(LapRow.id),
+                best_expr,
+                func.max(LapRow.car_category),
+            )
+            .outerjoin(LapRow, LapRow.session_id == SessionRow.id)
+            .group_by(SessionRow.id)
+            .order_by(SessionRow.id.desc())
+        )
+
+    @staticmethod
+    def _session_dict(
+        s: SessionRow, count: int, best: int | None, lap_category: str | None
+    ) -> dict[str, Any]:
+        return {
+            "id": s.id,
+            "started_at": s.started_at,
+            "car_id": s.car_id,
+            "car_name": s.car_name,
+            "car_category": s.car_category or lap_category or "",
+            # Denormalised on the row since #57; empty/0 where the
+            # inventory has no answer for this car, which for the
+            # figures is normal (an EV publishes no displacement).
+            "car_manufacturer": s.car_manufacturer,
+            "car_year": s.car_year,
+            "car_drivetrain": s.car_drivetrain,
+            "car_aspiration": s.car_aspiration,
+            "car_full_name": s.car_full_name,
+            "car_displacement_cc": s.car_displacement_cc,
+            "car_power_bhp": s.car_power_bhp,
+            "car_torque_kgfm": s.car_torque_kgfm,
+            "car_weight_kg": s.car_weight_kg,
+            "car_length_mm": s.car_length_mm,
+            "car_width_mm": s.car_width_mm,
+            "car_height_mm": s.car_height_mm,
+            "car_performance_points": s.car_performance_points,
+            "note": s.note,
+            "tags": [t for t in s.tags.split(",") if t],
+            "track_name": s.track_name,
+            "bests_excluded": bool(s.bests_excluded),
+            "lap_count": count,
+            "best_lap_time_ms": best,
+            "final_position": s.final_position,
+            "final_total_positions": s.final_total_positions,
+            "race_laps": s.race_laps,
+            "race_time_ms": s.race_time_ms,
+        }
+
     async def list_sessions(self, category: str | None = None) -> list[dict[str, Any]]:
-        # One aggregate query for all sessions; the outer join keeps lap-less
-        # sessions and only touches LapRow ids/times (never samples_json).
         async with self._sf() as db:
-            # Best excludes partial laps (pit out-laps, counts_for_best=0):
-            # their GT7-reported "times" aren't full-lap times.
-            best_expr = func.min(case((LapRow.counts_for_best, LapRow.time_ms)))
-            # The session row's category comes from the FIRST packet of the
-            # session, which is packet A/B often enough — a heartbeat format
-            # that carries no category at all, or one sent before the console
-            # switched. The laps know better, and max() over them picks the
-            # non-empty value ('' sorts lowest). Without this, a session whose
-            # laps are all plainly Gr.3 sits outside the Gr.3 filter (#19).
-            rows = (
-                await db.execute(
-                    select(
-                        SessionRow,
-                        func.count(LapRow.id),
-                        best_expr,
-                        func.max(LapRow.car_category),
-                    )
-                    .outerjoin(LapRow, LapRow.session_id == SessionRow.id)
-                    .group_by(SessionRow.id)
-                    .order_by(SessionRow.id.desc())
-                )
-            ).all()
-            sessions = [
-                {
-                    "id": s.id,
-                    "started_at": s.started_at,
-                    "car_id": s.car_id,
-                    "car_name": s.car_name,
-                    "car_category": s.car_category or lap_category or "",
-                    # Denormalised on the row since #57; empty/0 where the
-                    # inventory has no answer for this car, which for the
-                    # figures is normal (an EV publishes no displacement).
-                    "car_manufacturer": s.car_manufacturer,
-                    "car_year": s.car_year,
-                    "car_drivetrain": s.car_drivetrain,
-                    "car_aspiration": s.car_aspiration,
-                    "car_full_name": s.car_full_name,
-                    "car_displacement_cc": s.car_displacement_cc,
-                    "car_power_bhp": s.car_power_bhp,
-                    "car_torque_kgfm": s.car_torque_kgfm,
-                    "car_weight_kg": s.car_weight_kg,
-                    "car_length_mm": s.car_length_mm,
-                    "car_width_mm": s.car_width_mm,
-                    "car_height_mm": s.car_height_mm,
-                    "car_performance_points": s.car_performance_points,
-                    "note": s.note,
-                    "tags": [t for t in s.tags.split(",") if t],
-                    "track_name": s.track_name,
-                    "bests_excluded": bool(s.bests_excluded),
-                    "lap_count": count,
-                    "best_lap_time_ms": best,
-                    "final_position": s.final_position,
-                    "final_total_positions": s.final_total_positions,
-                    "race_laps": s.race_laps,
-                    "race_time_ms": s.race_time_ms,
-                }
-                for s, count, best, lap_category in rows
-            ]
+            rows = (await db.execute(self._sessions_query())).all()
+            sessions = [self._session_dict(*row) for row in rows]
             if category:
                 sessions = [s for s in sessions if s["car_category"] == category]
             return sessions
+
+    async def get_session(self, session_id: int) -> dict[str, Any] | None:
+        """One session, in exactly the shape list_sessions gives it."""
+        async with self._sf() as db:
+            row = (
+                await db.execute(
+                    self._sessions_query().where(SessionRow.id == session_id)
+                )
+            ).first()
+            return self._session_dict(*row) if row is not None else None
 
     async def update_session(
         self,
@@ -426,9 +488,11 @@ class Repository:
         lap apart from a best backed by fifty attempts.
 
         Excluded: partial laps (their GT7 "times" aren't full-lap times),
-        unlabeled sessions (no circuit, no board to be on), and sessions the
-        user flagged bests_excluded — recorded replays are indistinguishable
-        from driving in the telemetry, so that verdict is theirs to make.
+        laps the user ruled out by hand (#74), unlabeled sessions (no
+        circuit, no board to be on), and sessions the user flagged
+        bests_excluded — recorded replays are indistinguishable from driving
+        in the telemetry, so that verdict is theirs to make. A (circuit, car)
+        whose every lap is excluded has no row at all.
         """
         async with self._sf() as db:
             partition = (SessionRow.track_name, LapRow.car_id)
@@ -473,6 +537,33 @@ class Repository:
                 # shows.
                 q = q.where(ranked.c.car_category == category)
             rows = (await db.execute(q)).all()
+            # Laps the user ruled out by hand (#74), so a row can say why a
+            # faster time is missing from it. A separate query rather than a
+            # column on the window: exclusions are a handful of rows, and the
+            # board wants every faster one, not a count.
+            ruled_out = (
+                await db.execute(
+                    select(
+                        SessionRow.track_name,
+                        LapRow.car_id,
+                        LapRow.id,
+                        LapRow.time_ms,
+                        LapRow.exclude_reason,
+                    )
+                    .join(SessionRow, SessionRow.id == LapRow.session_id)
+                    .where(
+                        SessionRow.track_name != "",
+                        LapRow.best_override.is_(False),
+                        ~SessionRow.bests_excluded,
+                    )
+                    .order_by(LapRow.time_ms, LapRow.id)
+                )
+            ).all()
+            excluded: dict[tuple[str, int], list[dict[str, Any]]] = {}
+            for track, car_id, lap_id, time_ms, reason in ruled_out:
+                excluded.setdefault((track, car_id), []).append(
+                    {"lap_id": lap_id, "time_ms": time_ms, "reason": reason}
+                )
             return [
                 {
                     "track_name": r.track_name,
@@ -489,6 +580,13 @@ class Repository:
                     "off_survey_count": r.off_survey_count,
                     "salvaged": bool(r.salvaged),
                     "lap_count": r.lap_count,
+                    # Faster laps of this circuit and car that the user
+                    # excluded, fastest first, with the reason given.
+                    "excluded_faster": [
+                        lap
+                        for lap in excluded.get((r.track_name, r.car_id), [])
+                        if lap["time_ms"] < r.time_ms
+                    ],
                     **lap_car_fields(r),
                 }
                 for r in rows
@@ -559,14 +657,90 @@ class Repository:
         session is rewritten rather than only the newly-condemned laps, because
         the yardstick moves in both directions: the lap that looked short next
         to one wide lap is full again once a third lap settles the distance.
+
+        Only the heuristic's column is written. A lap the user ruled in or out
+        by hand keeps that ruling (#74) — it lives in best_override, which
+        this never touches — and gets this verdict back if the ruling is
+        ever cleared.
         """
         async with self._sf() as db:
             await db.execute(
                 update(LapRow)
                 .where(LapRow.session_id == session_id)
-                .values(counts_for_best=LapRow.number.notin_(numbers) if numbers else True)
+                .values(full_lap=LapRow.number.notin_(numbers) if numbers else True)
             )
             await db.commit()
+
+    async def recheck_lap_starts(self) -> int:
+        """Mark stored laps that did not begin at the start/finish line — a
+        race's grid start — as partial, as the live check now does. Returns
+        how many laps it marked.
+
+        One pass over every lap, one blob at a time and decoded off the event
+        loop; run once, in the background, when the check first ships. Each
+        lap is judged against the NEXT lap of its session, whose first sample
+        is the line exactly as the live check sees it; the last lap of a
+        session against another lap that began at the line. That is a lap
+        whose predecessor is stored too — only a completed lap ends in the
+        counter step that starts the next one at the line. A lap number alone
+        says nothing: a recording that began mid-session starts its first
+        lap wherever the car was. A session with nothing to compare against
+        is left alone.
+        Only the span guard's column is written, and only ever to False, so a
+        lap the user ruled on keeps its ruling (#74).
+        """
+        async with self._sf() as db:
+            rows = (
+                await db.execute(
+                    select(
+                        LapRow.id, LapRow.session_id, LapRow.number,
+                        LapRow.salvaged, LapRow.full_lap,
+                    ).order_by(LapRow.session_id, LapRow.number, LapRow.id)
+                )
+            ).all()
+        sessions: dict[int, list[Row[Any]]] = {}
+        for row in rows:
+            sessions.setdefault(row.session_id, []).append(row)
+
+        marked: list[int] = []
+        for laps in sessions.values():
+            if len(laps) < 2:
+                continue
+            ends: dict[int, LapEnds | None] = {}
+            for row in laps:
+                raw = await self.lap_samples_json(row.id)
+                ends[row.id] = (
+                    await asyncio.to_thread(_lap_ends, raw) if raw else None
+                )
+            for row in laps:
+                mine = ends[row.id]
+                if not row.full_lap or row.salvaged or mine is None:
+                    continue
+                # Salvaged laps were cut out of a buffer and end wherever the
+                # stream did, so they neither mark the line nor vouch for the
+                # lap after them.
+                completed = {o.number for o in laps if not o.salvaged}
+                at_line = [
+                    other for other in laps
+                    if other.id != row.id and not other.salvaged
+                    and other.number - 1 in completed
+                    and ends[other.id] is not None
+                ]
+                following = [o for o in at_line if o.number == row.number + 1]
+                candidates = following or at_line
+                if not candidates:
+                    continue
+                line = ends[candidates[0].id]
+                assert line is not None
+                if not mine.started_at_line(line.start_x, line.start_z, line.lead_m):
+                    marked.append(row.id)
+        if marked:
+            async with self._sf() as db:
+                await db.execute(
+                    update(LapRow).where(LapRow.id.in_(marked)).values(full_lap=False)
+                )
+                await db.commit()
+        return len(marked)
 
     async def set_lap_survey_verdict(
         self, lap_id: int, off_survey_count: int, clean_lap: bool | None
@@ -583,6 +757,34 @@ class Repository:
                 .values(off_survey_count=off_survey_count, clean_lap=clean_lap)
             )
             await db.commit()
+
+    async def set_lap_best_override(
+        self, lap_id: int, override: bool | None, reason: str = ""
+    ) -> dict[str, Any] | None:
+        """Rule a lap in or out of the bests by hand, or hand it back to the
+        span heuristic with None (#74). Returns the updated summary, or None
+        when there is no such lap.
+
+        The reason is kept only on an exclusion; ruling a lap in, or clearing
+        the ruling, clears it too, so a stale "contact" can never sit beside
+        a lap that counts.
+        """
+        async with self._sf() as db:
+            result = cast(
+                CursorResult[Any],
+                await db.execute(
+                    update(LapRow)
+                    .where(LapRow.id == lap_id)
+                    .values(
+                        best_override=override,
+                        exclude_reason=reason if override is False else "",
+                    )
+                ),
+            )
+            await db.commit()
+            if not result.rowcount:
+                return None
+        return await self.get_lap(lap_id, with_samples=False)
 
     async def list_laps(
         self,
@@ -633,6 +835,9 @@ class Repository:
                     LapRow.max_oil_temp,
                     LapRow.min_oil_pressure,
                     LapRow.counts_for_best,
+                    LapRow.full_lap,
+                    LapRow.best_override,
+                    LapRow.exclude_reason,
                     LapRow.off_track_count,
                     LapRow.off_survey_count,
                     LapRow.clean_lap,
@@ -688,13 +893,13 @@ class Repository:
             data["events"] = json.loads(row.events_json or "[]")
             data["gearing"] = json.loads(row.gearing_json) if row.gearing_json else None
             if with_samples:
-                data["samples"] = json.loads(row.samples_json)
+                data["samples"] = decode_samples(row.samples_json)
             return data
 
     async def get_laps_samples(self, lap_ids: list[int]) -> dict[int, dict[str, list[float]]]:
         async with self._sf() as db:
             rows = (await db.execute(select(LapRow).where(LapRow.id.in_(lap_ids)))).scalars()
-            return {r.id: json.loads(r.samples_json) for r in rows}
+            return {r.id: decode_samples(r.samples_json) for r in rows}
 
     async def get_laps_events(self, lap_ids: list[int]) -> dict[int, list[dict[str, Any]]]:
         async with self._sf() as db:
@@ -866,10 +1071,13 @@ class Repository:
                     LapRow.session_id == SessionRow.id,
                     LapRow.total_ticks >= IDENTIFY_MIN_TICKS,
                 )
+                # full_lap, not counts_for_best: an off-track lap the user
+                # excluded from bests still covered the whole route, which
+                # is all identification asks of it (#74).
                 .order_by(
-                    LapRow.counts_for_best.desc(),
+                    LapRow.full_lap.desc(),
                     case(
-                        (LapRow.counts_for_best, LapRow.total_ticks),
+                        (LapRow.full_lap, LapRow.total_ticks),
                         else_=-LapRow.total_ticks,
                     ),
                 )
@@ -1028,6 +1236,9 @@ class Repository:
         if payload.get("format") != "gt7-datalogger-lap":
             raise ValueError("unrecognized lap export format")
         lap = payload["lap"]
+        # Files exported before the half-gap anchor are stored on it, like
+        # everything recorded since.
+        anchor_at_line(lap["samples"])
         completed = CompletedLap(
             number=int(lap["number"]),
             time_ms=int(lap["time_ms"]),
@@ -1053,5 +1264,19 @@ class Repository:
         race_pos = lap["samples"].get("race_pos")
         if race_pos:
             completed.race_position = int(race_pos[-1])
+        # The verdict on whether the lap counts survives too (#74): a partial
+        # out-lap must not become a best by changing machines, nor an
+        # excluded dirty lap. Files written before the override existed
+        # carry only counts_for_best, which was the heuristic's verdict then.
+        full_lap = lap.get("full_lap")
+        completed.counts_for_best = bool(
+            full_lap if full_lap is not None else lap.get("counts_for_best", True)
+        )
+        override = lap.get("best_override")
         completed.compute_metrics()
-        return await self.save_lap(session_id, completed)
+        return await self.save_lap(
+            session_id,
+            completed,
+            best_override=override if isinstance(override, bool) else None,
+            exclude_reason=str(lap.get("exclude_reason", "")),
+        )

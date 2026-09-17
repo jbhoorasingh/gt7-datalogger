@@ -19,15 +19,19 @@ speeds line up corner-for-corner (see [Lap comparison math](../internals/analysi
    as a **guest chip** labelled `S12·L3` (session 12, lap 3). Guests behave exactly
    like local laps: time diff, corner report, map, reference — all of it.
 
-Until you pick manually, the view auto-selects *latest vs best* and keeps following as
+Until you pick manually, the view auto-selects *latest vs best* — best meaning the
+quickest lap that [counts](sessions-view.md#excluding-a-lap-from-bests), so a pit
+out-lap or an excluded lap is never the default reference — and keeps following as
 new laps arrive live — useful on a second screen while driving. Any manual change pins
 your selection.
 
 !!! note "Same circuit only"
-    Every chart's x-axis is distance from the start line, and that convention holds
-    across sessions **on the same circuit** — which is why cross-session comparison
-    works at all, and why the picker only ever offers laps from this session's own
-    circuit (it needs the session's track to be [named](sessions-view.md)).
+    Every chart's x-axis is the **reference lap's** distance from the start line, and
+    every other lap is placed on it by where it was on track — which works across
+    sessions **on the same circuit**, and is why the picker only ever offers laps from
+    this session's own circuit (it needs the session's track to be
+    [named](sessions-view.md)). A lap that can't be followed along the reference's path
+    keeps its own distance instead.
     Overlaying laps from different circuits would align nothing with nothing, so the
     UI doesn't offer it.
 
@@ -41,9 +45,10 @@ your selection.
 
 ## Stacked charts
 
-The first panel is always **Time diff (s)** — each lap's gap to the reference over
-distance (positive = slower; where the curve climbs is where you lose time). Below it,
-one panel per selected channel.
+The first panel is always **Time diff (s)** — each lap's gap to the reference at each
+point of the track (positive = slower; where the curve climbs is where you lose time).
+Below it, one panel per selected channel. Every panel runs to the end of the lap, the
+line itself, not the last whole 5 m before it.
 
 - **Synced cursors** — hover any panel and a crosshair appears at the same distance in
   every panel, on the race line map, and in the Corner Detail widget. The tooltip shows
@@ -64,10 +69,12 @@ speed** — that drives the same synced cursor the hover does. Press play and th
 *happens*: the dot runs around the race line, the traction-circle marker sweeps, and the
 Corner Detail widget follows, with no mouse involved.
 
-The playhead is **distance-locked** (every compared lap sits at the same metre mark, so
-the time diff under the cursor stays directly readable) but it advances on the
+The playhead is **distance-locked** (every compared lap sits at the same point of the
+track, so the time diff under the cursor stays directly readable) but it advances on the
 **reference lap's own clock** — it dwells through slow corners and sweeps down the
-straights, rather than gliding at constant metres per second.
+straights, rather than gliding at constant metres per second. The race line shows the
+other laps by [time](#position-or-time-sync) meanwhile, so the gap opens up as distance
+on track.
 
 Beside the transport, a strip of the live-dashboard widgets renders the reference lap at
 the playhead: the **steering wheel** turning (packet B+ recordings), the
@@ -99,9 +106,19 @@ row zooms every chart and the map to that corner. Corners come from the circuit'
 [authored set](tracks-view.md#labelling-corners) when it has one — stable numbers and
 names across sessions — otherwise from detection on the reference lap.
 
+## The guide
+
+**?** in the toolbar opens a short guide to the view: a **Features** tab with a sentence
+or two on each part of the page, and a **Channels** tab explaining every chart channel —
+what it shows, how to read it, and what a recording needs to have it (a wider packet
+format, a race). Channels already on the chart are marked **charted**. A search box
+filters both, so *understeer* or *lockup* finds the channels that show them, and every
+entry links to its section of this documentation. It never opens by itself.
+
 ## Channel picker
 
-The **Channels (n)** button opens a grouped picker with ~20 channels:
+The **Channels (n)** button opens a grouped picker with 30 channels. Hovering one shows
+what it is, and **What are these?** opens the guide's channel list:
 
 | Group | Channels |
 | --- | --- |
@@ -134,6 +151,40 @@ The axis ranges follow the plotting area's pixel aspect to keep it that way in a
 window; letting each axis fill the box independently stretches the map by whatever the
 circuit's aspect ratio happens to be — 8 % at Lago Maggiore Centre, nearly 3× at Deep
 Forest.
+
+### Position or time sync
+
+**sync: Time | Position** in the map header (shown once more than one lap is on the
+map) chooses where the other laps' dots go:
+
+- **Time** (the default) leaves the reference dot at the cursor and moves every other
+  dot to where *that* lap had got to after the same elapsed lap time. A slower lap's
+  dot trails the reference, a quicker one runs ahead, and the distance between them is
+  the gap — which is what makes a gap legible while a lap plays back. Hovering a chart,
+  the dots show where the other cars were when the reference reached that point. A dot
+  that has finished its lap waits at its last recorded point, a few metres short of the
+  line.
+- **Position** puts every dot level with the reference car — at the same point of the
+  track, as the charts and Corner Detail compare them. The dots then differ only by the
+  line each lap took there, which is worth seeing zoomed into a corner and very little
+  at circuit scale.
+
+The choice is remembered on this device, like **Follow**. Only the map changes; the
+charts, the traction circle and Corner Detail stay on distance.
+
+Both are exact about *where* a car was. Every compared lap is
+[lined up with the reference by place](../internals/analysis-math.md#lining-laps-up-by-place-on-track),
+not by how far it had gone — the two differ by metres a lap, because a wider line is a
+longer lap — so in Position mode "level" really means level, to within centimetres.
+Time mode draws each car from its own recorded positions against its own clock,
+likewise within centimetres; where GT7 **reset** a car onto the track, its dot jumps to
+the new spot instead of sliding across the infield. **Lap 1 of a race** starts from the
+grid rather than the line; it doesn't count as a lap time (see
+[Sessions](sessions-view.md#lap-table)), and time sync can't line it up with a lap
+that started at the line.
+
+Dots and the Follow camera are placed at the exact cursor position, between the
+recorded 5 m steps, so the camera pans smoothly during playback.
 
 ### Corners
 
@@ -230,7 +281,9 @@ laps, focus chips let you switch the focus lap.
   spin, fuel used, car category, aid usage (TCS/ASM %), engine health (max water/oil
   temp, min oil pressure), and the detected-event summary. When the circuit is named and
   the car's class is known, it also shows the **class benchmark** — the fastest full lap
-  ever recorded at this circuit in the same category, the gap to the reference lap, a
+  ever recorded at this circuit in the same category (laps excluded by hand never
+  set it, and a reference lap that doesn't count is not measured against it), the gap
+  to the reference lap, a
   link to open it, and **compare**, which pulls the benchmark lap straight into the
   current comparison as a guest chip — the question the benchmark raises ("where does
   it gain?") answered in the same view that raised it. Scoped by class on purpose: a

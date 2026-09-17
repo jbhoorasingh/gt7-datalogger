@@ -8,24 +8,36 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Literal
 
 from alembic import command
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
-from sqlalchemy import Connection, ForeignKey, Index, Text, inspect
+from sqlalchemy import Boolean, Connection, ForeignKey, Index, Text, func, inspect
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.orm import (
+    DeclarativeBase,
+    Mapped,
+    column_property,
+    mapped_column,
+    relationship,
+)
 
 log = logging.getLogger(__name__)
 
 # The revision every pre-Alembic database is stamped at once it has been
 # brought up to that shape (see _catch_up_legacy).
 BASELINE_REVISION = "0001_baseline"
+
+# Why a lap was excluded from bests by hand (#74). A closed list rather than
+# free text: the Bests board shows it beside a missing time, and five words
+# everyone reads the same way beat a note nobody wrote the same way twice.
+ExcludeReason = Literal["off-track", "contact", "restart", "dirty", "pit-out"]
 
 
 class Base(DeclarativeBase):
@@ -184,8 +196,30 @@ class LapRow(Base):
     max_water_temp: Mapped[float] = mapped_column(default=0.0)
     max_oil_temp: Mapped[float] = mapped_column(default=0.0)
     min_oil_pressure: Mapped[float] = mapped_column(default=-1.0)
-    # False for partial laps (pit out-laps): excluded from best-lap aggregates
-    counts_for_best: Mapped[bool] = mapped_column(default=True)
+    # The span heuristic's verdict: False for partial laps (pit out-laps).
+    # Stored in the column still named `counts_for_best` — it was the whole
+    # answer until laps could be excluded by hand (#74) — and written by the
+    # live pipeline alone, which re-judges it as laps arrive. Read it for "did
+    # this lap cover the track" (track identification wants exactly that);
+    # read `counts_for_best` below for "does this lap count".
+    full_lap: Mapped[bool] = mapped_column("counts_for_best", default=True)
+    # The user's call, which outranks the heuristic both ways (#74): False
+    # keeps an off-track or contact lap off every best, True keeps a lap the
+    # heuristic misjudged on them. NULL = defer to full_lap. A separate column
+    # rather than a write into full_lap, so the heuristic's re-flagging can
+    # never clobber it and clearing it restores exactly what the heuristic said.
+    best_override: Mapped[bool | None] = mapped_column(default=None)
+    # Why a lap was excluded — off-track / contact / restart / dirty / pit-out
+    # (ExcludeReason) — so the Bests board can say why a time is missing.
+    # Empty unless best_override is False.
+    exclude_reason: Mapped[str] = mapped_column(default="")
+    # Whether the lap counts toward best-lap aggregates: the override when one
+    # is set, the heuristic otherwise. Computed in SQL, so every query and
+    # aggregate that already filtered on counts_for_best honours overrides
+    # without knowing they exist. Read-only — write full_lap or best_override.
+    counts_for_best: Mapped[bool] = column_property(
+        func.coalesce(best_override, full_lap, type_=Boolean)
+    )
     # Track-limits verdict from per-tick surface data (packet C). Distinct
     # from counts_for_best: -1 / NULL = unknown (no surface data recorded).
     off_track_count: Mapped[int] = mapped_column(default=-1)

@@ -6,18 +6,22 @@ import asyncio
 import csv
 import io
 import math
+import tempfile
+from collections.abc import Iterator
 from dataclasses import asdict
-from typing import TYPE_CHECKING, Any, Literal
+from typing import IO, TYPE_CHECKING, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from app.api.auth import require_admin
-from app.processing import analysis
+from app.processing import alignment, analysis
 from app.processing.laps import SAMPLE_COLUMNS
 from app.processing.tracks import signature_from_samples
 from app.race_engineer import replay
+from app.storage import archive
+from app.storage.db import ExcludeReason
 
 if TYPE_CHECKING:
     from app.service import TelemetryService
@@ -118,6 +122,50 @@ async def update_session(
     return {"status": "updated"}
 
 
+# A session archive is held in memory up to this size, then spooled to a
+# temporary file — a long endurance stint compresses to tens of megabytes,
+# which is more than a Raspberry Pi should keep in RAM for one download.
+ARCHIVE_SPOOL_BYTES = 16 * 1024 * 1024
+ARCHIVE_CHUNK_BYTES = 256 * 1024
+
+
+def _drain(spool: IO[bytes]) -> Iterator[bytes]:
+    try:
+        while chunk := spool.read(ARCHIVE_CHUNK_BYTES):
+            yield chunk
+    finally:
+        spool.close()
+
+
+@router.get("/sessions/{session_id}/export.zip")
+async def export_session(request: Request, session_id: int) -> StreamingResponse:
+    """Every lap of a session in one ZIP, beside a session.json (#76).
+
+    The lap files are the per-lap export documents, unchanged — see
+    app.storage.archive for the layout. Written whole before the response
+    starts, so a failure is an error status rather than a truncated file.
+    """
+    spool = tempfile.SpooledTemporaryFile(max_size=ARCHIVE_SPOOL_BYTES)
+    try:
+        found = await archive.write_session_archive(svc(request).repo, session_id, spool)
+    except BaseException:
+        spool.close()
+        raise
+    if not found:
+        spool.close()
+        raise HTTPException(404, "session not found")
+    size = spool.tell()
+    spool.seek(0)
+    return StreamingResponse(
+        _drain(spool),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{archive.archive_name(session_id)}"',
+            "Content-Length": str(size),
+        },
+    )
+
+
 @router.get("/sessions/{session_id}/laps")
 async def session_laps(request: Request, session_id: int) -> list[dict[str, Any]]:
     laps = await svc(request).repo.list_laps(session_id)
@@ -210,6 +258,50 @@ async def lap_detail(
 async def delete_lap(request: Request, lap_id: int) -> dict[str, str]:
     await svc(request).repo.delete_lap(lap_id)
     return {"status": "deleted"}
+
+
+class LapPatch(BaseModel):
+    """The user's ruling on whether a lap counts toward bests (#74).
+
+    `best_override` true or false outranks the span heuristic; an explicit
+    null hands the lap back to it. Absent means leave the ruling alone, which
+    is how a patch carrying only `exclude_reason` re-words an exclusion.
+    Unknown fields are rejected for the reason SessionPatch rejects them.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    best_override: bool | None = None
+    # Why the lap is excluded — only meaningful beside best_override false.
+    exclude_reason: ExcludeReason | None = None
+
+
+@router.patch("/laps/{lap_id}", dependencies=[Depends(require_admin)])
+async def update_lap(request: Request, lap_id: int, payload: LapPatch) -> dict[str, Any]:
+    service = svc(request)
+    fields = payload.model_fields_set
+    if "best_override" in fields:
+        override = payload.best_override
+        if payload.exclude_reason is not None and override is not False:
+            raise HTTPException(400, "exclude_reason applies only to an excluded lap")
+        reason = payload.exclude_reason or ""
+    elif payload.exclude_reason is not None:
+        current = await service.repo.get_lap(lap_id, with_samples=False)
+        if current is None:
+            raise HTTPException(404, "lap not found")
+        if current["best_override"] is not False:
+            raise HTTPException(400, "exclude_reason applies only to an excluded lap")
+        override, reason = False, payload.exclude_reason
+    else:
+        # Same reasoning as the session PATCH: an empty patch answered
+        # "updated" is the silent no-op a typo'd field would otherwise be.
+        raise HTTPException(400, "nothing to update")
+    lap = await service.repo.set_lap_best_override(lap_id, override, reason)
+    if lap is None:
+        raise HTTPException(404, "lap not found")
+    await service.apply_best_override(lap)
+    lap["car_name"] = service.cars.name(lap["car_id"])
+    return lap
 
 
 @router.get("/laps/{lap_id}/export")
@@ -384,6 +476,14 @@ class LapImportModel(BaseModel):
     max_oil_temp: float = 0.0
     min_oil_pressure: float = -1.0
     gearing: dict[str, Any] | None = None
+    # Provenance and verdicts: what the recording machine (or its user)
+    # decided about the lap, carried rather than re-derived (#26, #74).
+    # Files that predate a field simply keep its default.
+    salvaged: bool = False
+    counts_for_best: bool = True
+    full_lap: bool | None = None
+    best_override: bool | None = None
+    exclude_reason: ExcludeReason | Literal[""] = ""
     samples: dict[str, list[float]]
 
 
@@ -443,6 +543,11 @@ COMPARE_COLUMNS = (
     "pos_x", "pos_z",
 )
 
+# Time sync on the race-line map (#75) places each lap's car by its own clock,
+# from this track rather than the distance series: 20 Hz is a car length at
+# racing speed, and a jump (GT7 resetting the car) blurs for 1/20 s at most.
+TRACK_STEP_S = 0.05
+
 # Columns the channels= param may request beyond the defaults.
 EXTRA_COMPARE_COLUMNS = tuple(
     c for c in SAMPLE_COLUMNS if c not in COMPARE_COLUMNS and c != "dist"
@@ -491,11 +596,33 @@ async def compare(
     # document — off the event loop.
     track = await svc(request).repo.track_for_lap(ref)
     authored = await asyncio.to_thread(svc(request).authored_corners, track)
+    # Resampling and lining laps up is a few hundred milliseconds of Python
+    # for a handful of laps — off the event loop too.
+    return await asyncio.to_thread(
+        _compare_laps, samples_by_id, events_by_id, ref, columns, step, authored
+    )
+
+
+def _compare_laps(
+    samples_by_id: dict[int, analysis.Samples],
+    events_by_id: dict[int, list[dict[str, Any]]],
+    ref: int,
+    columns: tuple[str, ...],
+    step: float,
+    authored: list[dict[str, Any]],
+) -> dict[str, Any]:
+    ref_samples = samples_by_id[ref]
     # Corner numbering comes from the reference lap only, so every overlaid
     # lap shares one consistent set of map markers — and from the circuit's
     # authored corners when it has them, so the numbering is the same in
     # every session too, not just within this one.
-    ref_corners = analysis.corners_for_lap(samples_by_id[ref], authored)
+    ref_corners = analysis.corners_for_lap(ref_samples, authored)
+    # Every other lap is put on the reference's distance axis by WHERE it
+    # was, not how far it had gone (app.processing.alignment): the delta, the
+    # charts, the corner report and the map's position sync then compare the
+    # laps at the same place on track. A lap that cannot be lined up keeps its
+    # own distance and says so (`aligned: false`).
+    path = alignment.ReferencePath(ref_samples)
 
     out: dict[str, Any] = {
         "ref": ref,
@@ -504,15 +631,26 @@ async def compare(
         # Unit + sign calibration for the broadcast accelerometer, fitted on
         # the REFERENCE lap and applied to every lap in the comparison, so the
         # g-g diagram plots them all on one axis (#16).
-        "accel": analysis.accel_calibration(samples_by_id[ref]),
+        "accel": analysis.accel_calibration(ref_samples),
         "laps": {},
     }
-    for lap_id, samples in samples_by_id.items():
+    for lap_id, raw in samples_by_id.items():
+        samples = raw
+        events = events_by_id.get(lap_id, [])
+        aligned = lap_id == ref
+        if not aligned:
+            moved = alignment.align_to_reference(raw, path)
+            if moved is not None:
+                events = alignment.remap_events(events, raw["dist"], moved["dist"])
+                samples, aligned = moved, True
         present = tuple(c for c in columns if c in samples)
         entry: dict[str, Any] = {
             "series": analysis.resample_by_distance(samples, step, present),
             "peaks_valleys": analysis.speed_peaks_valleys(samples),
-            "events": events_by_id.get(lap_id, []),
+            "events": events,
+            "aligned": aligned,
+            # By the lap's own clock, independent of any alignment.
+            "track": analysis.resample_by_time(raw, TRACK_STEP_S, ("pos_x", "pos_z")),
         }
         if out["accel"]["available"] and "acc_lat" in samples:
             # Peaks come from the RAW ticks, not the resampled series the
@@ -522,7 +660,7 @@ async def compare(
         if lap_id == ref:
             entry["corners"] = ref_corners
         else:
-            entry["delta"] = analysis.time_delta_series(samples, samples_by_id[ref], step)
+            entry["delta"] = analysis.time_delta_series(samples, ref_samples, step)
         if ref_corners:
             # Every lap measured through the SAME corner windows (the
             # reference's), which is what makes the per-corner report card's
@@ -569,11 +707,24 @@ async def deviation(
     session_id: int,
     count: int = Query(5, ge=2, le=20),
 ) -> dict[str, Any]:
-    """Speed deviation across the session's best `count` laps."""
+    """Speed deviation across the session's best `count` laps.
+
+    Best COUNTING laps: a pit out-lap's short time would otherwise rank it
+    first. All are lined up on the fastest one's path, like a comparison.
+    """
     lap_rows = await svc(request).repo.list_laps(session_id)
-    best = sorted(lap_rows, key=lambda r: r["time_ms"])[:count]
+    counting = [r for r in lap_rows if r["counts_for_best"] and (r["total_ticks"] or 0) > 0]
+    best = sorted(counting, key=lambda r: r["time_ms"])[:count]
     samples = await svc(request).repo.get_laps_samples([r["id"] for r in best])
-    result = analysis.speed_deviation(list(samples.values()))
+
+    def _deviation() -> dict[str, Any]:
+        laps = [samples[r["id"]] for r in best if r["id"] in samples]
+        if laps:
+            path = alignment.ReferencePath(laps[0])
+            laps = [laps[0], *(alignment.align_to_reference(lap, path) or lap for lap in laps[1:])]
+        return analysis.speed_deviation(laps)
+
+    result = await asyncio.to_thread(_deviation)
     result["lap_ids"] = [r["id"] for r in best]
     return result
 

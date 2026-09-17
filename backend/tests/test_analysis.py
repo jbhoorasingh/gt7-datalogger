@@ -37,6 +37,27 @@ def test_resample_by_distance() -> None:
     assert out["t"][5] == pytest.approx(500 / 50, abs=0.01)
 
 
+def test_resampled_series_reach_the_end_of_the_lap() -> None:
+    """A lap that doesn't end on a whole step still ends at the line: the grid
+    keeps its uniform steps and adds the exact end as a last, shorter one."""
+    lap = make_lap(1037.5, 50.0)
+    out = analysis.resample_by_distance(lap, step=100.0, columns=("t",))
+    assert out["dist"] == [*(i * 100.0 for i in range(11)), 1037.5]
+    assert out["t"][-1] == pytest.approx(1037.5 / 50)
+    delta = analysis.time_delta_series(lap, make_lap(1050.0, 50.0), step=100.0)
+    assert delta["dist"][-1] == 1037.5
+    assert analysis.axis_grid(1000.004, 100.0)[-1] == 1000.0  # no sliver
+
+
+def test_resample_by_time_follows_the_clock() -> None:
+    lap = make_lap(1000.0, 50.0)  # 20 s at 50 m/s along x
+    out = analysis.resample_by_time(lap, 0.5, ("pos_x", "pos_z"))
+    assert out["t"][:3] == [0.0, 0.5, 1.0]
+    assert out["t"][-1] == pytest.approx(20.0)
+    assert out["pos_x"][3] == pytest.approx(75.0)  # 1.5 s × 50 m/s
+    assert "speed" not in out
+
+
 def test_time_delta_series_slower_lap_positive() -> None:
     fast = make_lap(1000.0, 50.0)
     slow = make_lap(1000.0, 40.0)

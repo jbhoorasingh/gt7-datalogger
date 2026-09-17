@@ -3,27 +3,83 @@
 The Analysis view compares laps of different lengths and speeds on one set of axes.
 This page explains the alignment, delta, consistency, and map math behind it.
 
-## Distance resampling — how laps are aligned
+## Lining laps up — by place on track
 
-Laps are aligned **by distance traveled**, not by time. Every lap's sample series is
-resampled onto a uniform distance grid:
+Laps are compared **by where they were on track**, on one shared axis: the
+**reference lap's own distance**.
 
-- grid points at `0, step, 2×step, …` up to the lap's total distance (default **step =
-  5 m**; the API accepts 0.5–50 m);
+A lap's `dist` is integrated from its own speed, so two laps reach the same metre mark
+at different places — a wider line is a longer lap, and a slide or a run of dropped
+frames moves the car further than its speed says. Measured over 141 real lap pairs,
+"the same distance" was a median 2.9 m and a p99 64 m apart on track, so a delta taken
+at equal distance compared the laps at different points of a corner.
+
+So every other lap is walked along the reference lap's driven path
+(`app/processing/alignment.py`):
+
+1. The reference's positions are resampled every **2.5 m** of its distance into a
+   polyline (a chord that short is 8 cm off the arc in a 10 m-radius hairpin).
+2. Each sample of the other lap is projected onto that polyline — the perpendicular
+   foot, as a distance along the reference — searching only **5 m behind to 10 m ahead**
+   of the previous sample's answer (plus twice the lap's own advance since, which
+   covers dropped frames). A circuit that crosses itself, like Suzuka, can't capture the
+   car on the wrong branch.
+3. When the best answer in that window is more than **50 m** off the path, the car has
+   been moved (GT7 resetting it, sometimes kilometres in one tick) and the whole path
+   is searched; the result is taken only if it is at least twice as close, so a big
+   excursion into a run-off area keeps its place.
+4. The axis never runs backwards: a spin or a rewind holds it until the car is past
+   where it had been.
+5. The first sample is looked for within 60 m of the line and 25 m of the path; the
+   first and last segments extend up to 150 m, so a lap that began a little behind the
+   line starts at a negative distance.
+
+The lap's `dist` is replaced by that axis and everything downstream — resampling, the
+delta, the corner report, peak markers, event bands — lines the laps up by place with
+no further change. A lap that can't be placed (it began nowhere near the path, or more
+than **10 %** of its samples were over 50 m off it) keeps its own distance and is
+reported with `aligned: false`. Over those 141 pairs every lap aligned, and "the same
+distance" came out a median 0.00 m and a p99 0.15 m apart.
+
+## Distance resampling
+
+Every lap's (aligned) sample series is then resampled onto a distance grid:
+
+- grid points at `0, step, 2×step, …` and then the lap's **exact end** (default **step
+  = 5 m**; the API accepts 0.5–50 m) — a lap rarely ends on a whole step, and without
+  the last point every series stopped up to a step short of the line;
 - each channel is **linearly interpolated** onto the grid, with edge clamping (values
   before the first / after the last sample take the boundary value).
 
-Two laps resampled this way have directly comparable values at every grid index: "what
-was each lap doing 850 m into the lap?" This is also a read-time downsample — a 2-minute
-lap goes from ~7,200 ticks to a few hundred grid points per channel.
+Two laps resampled this way have directly comparable values at every grid distance:
+"what was each lap doing 850 m into the lap?" This is also a read-time downsample — a
+2-minute lap goes from ~7,200 ticks to a few hundred grid points per channel. Panels
+read a series at the grid point nearest the cursor, never at `index × step`, because
+the last step is shorter.
+
+Each lap also carries a **clock track**: its positions every **50 ms** of its own time,
+which is what the map's time sync reads — the aligned distance axis folds a spin onto
+one point, the clock never does.
 
 ## Time delta
 
-For each compared lap, at every grid distance `d` up to the shorter of the two laps:
+For each compared lap, at every grid distance `d` up to the shorter of the two laps
+(both on the reference's axis, see above):
 
 ```
 delta_ms(d) = t_lap(d) − t_ref(d)      # both via interpolation of dist → t
 ```
+
+Both clocks start at the same instant relative to the line: a lap's first sample sits
+**half its boundary gap** past it on both `t` and `dist` (see
+[lap detection](lap-detection.md#where-a-lap-begins)), so frames dropped at the line
+can't offset one lap's clock against another's.
+
+The **live Δ** widget is the same comparison made while driving: the lap in progress is
+tracked along the session-best lap's path with the same tracker, fed the latest sample
+at the live-frame rate. Replaying 80 real lap pairs through it at 20 Hz put it within
+1 cm of the full alignment; comparing by the laps' own distances had been a median
+100 ms and a p99 2.8 s away from the place-aligned delta.
 
 **Positive = slower than the reference** at that point. The curve's *slope* is the
 insight: rising = losing time right here, flat = holding the gap, falling = gaining.
@@ -31,8 +87,9 @@ The reference lap compared with itself is exactly zero, so it isn't drawn.
 
 ## Speed deviation (consistency chart)
 
-Across the session's best N laps (default 5), on the common distance grid (cut to the
-shortest lap):
+Across the session's best N **counting** laps (default 5 — a pit out-lap's short time
+would otherwise rank first), all lined up on the fastest one's path, on the common
+distance grid (cut to the shortest lap):
 
 - **median speed** at each grid point (middle value, or mean of the two middles);
 - **population standard deviation** `sqrt(Σ(v − mean)² ÷ n)` at each grid point.
@@ -53,8 +110,11 @@ classified into an input zone:
 | Coasting | otherwise | blue |
 
 Other selected laps overlay as solid lines in their chart colors, so line differences
-are visible spatially. The chart cursor maps distance → grid index → coordinates, which
-is how hovering a chart moves the dots on the map.
+are visible spatially. The chart cursor maps distance → coordinates (interpolated
+between grid points), which is how hovering a chart moves the dots on the map — and
+because the laps share the reference's axis, **position sync** puts every dot level
+with the reference car. **Time sync** places the other dots from their clock tracks
+instead, at the reference lap's elapsed time.
 
 ## Speed peaks & valleys
 

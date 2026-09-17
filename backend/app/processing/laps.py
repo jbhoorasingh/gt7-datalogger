@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import math
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -77,6 +79,28 @@ SPANS_FOR_MEDIAN = 3
 # and the real partials sat at 88 %, 88 %, 81 %, 65 % and 40 %.
 PROVISIONAL_SPAN_RATIO = 0.93
 
+# Start-at-the-line guard: a lap only times the circuit if it began at the
+# start/finish line. Every lap but one does by construction — its first
+# sample is the packet in which GT7 stepped the lap counter as the car
+# crossed the line. The exception is lap 1 of a race, where the counter steps
+# when the race starts, wherever the grid is. On real recordings that was
+# 30-480 m from the line (120 m at Red Bull Ring, 125 m at Spa), so lap 1
+# timed grid-to-line rather than line-to-line — and at under 3 % of the lap
+# the span guard above cannot see it. It won bests.
+#
+# The line is where the NEXT lap's first sample is, and both samples sit
+# somewhere inside their own boundary gap past it, so along the direction of
+# travel two laps that both started at the line agree to within those two
+# gaps. Measured over 996 consecutive real laps they agreed to 0.8 m beyond
+# them; the margin keeps an order of magnitude over that. Across the track
+# they differ by the line each car took over the line — up to 6 m on those
+# laps — so the lateral limit only catches a start somewhere else entirely
+# (Daytona's road-course grid sits on a parallel stretch, 68 m across).
+START_ALONG_MARGIN_M = 3.0
+START_LATERAL_M = 25.0
+# The direction of travel at the line, taken over the lap's final metres.
+START_HEADING_M = 10.0
+
 # Columns not every recording can fill. Unlike every other column these are
 # NOT appended on ticks that lack them, and a lap that did not carry one from
 # start to finish drops it entirely — see prune_optional for why zero-filling
@@ -150,6 +174,100 @@ def _time_weights(t: list[float]) -> list[float]:
         return [1.0] * len(t)
     w = [max(t[i] - t[i - 1], 0.0) for i in range(1, len(t))]
     return [w[0], *w]  # first sample inherits the first interval
+
+
+def anchor_at_line(samples: dict[str, list[float]]) -> dict[str, list[float]]:
+    """Put a lap recorded before the half-gap anchor onto it. In place.
+
+    The line is crossed somewhere inside the gap between the previous lap's
+    last sample and this lap's first, so a lap's first sample now sits half
+    that gap in on BOTH axes (see LapProcessor._append_sample). Laps recorded
+    earlier started their clock at 0 but their distance a whole gap in —
+    so a lap whose boundary fell across dropped frames ran its clock up to
+    a few hundredths of a second late against its own distance, which is
+    metres of error in any comparison by time. Those laps are recognisable
+    (t starts at exactly 0, distance does not) and converted on read, so
+    stored recordings need no rewrite. Laps cut out of a longer buffer
+    (salvage) start both axes at 0 and are left alone.
+    """
+    t = samples.get("t")
+    dist = samples.get("dist")
+    if not t or not dist or t[0] != 0 or dist[0] <= 0:
+        return samples
+    speed = samples.get("speed") or []
+    mps = speed[0] / 3.6 if speed else 0.0
+    # A car that barely moved covered too little to say how long the gap
+    # was; half a nominal tick keeps the result recognisably converted.
+    half_gap_s = dist[0] / mps / 2 if mps > 0.1 else TICK_SECONDS / 2
+    half_lead = dist[0] / 2
+    samples["t"] = [round(v + half_gap_s, 4) for v in t]
+    samples["dist"] = [round(v - half_lead, 2) for v in dist]
+    return samples
+
+
+def decode_samples(samples_json: str) -> dict[str, list[float]]:
+    """A stored sample blob, parsed and on the current anchor."""
+    samples: dict[str, list[float]] = json.loads(samples_json)
+    return anchor_at_line(samples)
+
+
+def boundary_lead_m(samples: dict[str, list[float]]) -> float:
+    """How far the car travelled across the gap before the lap's first
+    sample — the most by which that sample can be past the line."""
+    dist = samples.get("dist") or []
+    return 2 * dist[0] if dist else 0.0
+
+
+@dataclass(frozen=True, slots=True)
+class LapEnds:
+    """What judging where a lap began needs from it: its first sample, how
+    far that can be past the line, and the direction the lap arrived at the
+    line in. Small enough to keep for every lap of a session at once."""
+
+    start_x: float
+    start_z: float
+    lead_m: float
+    heading: tuple[float, float] | None
+
+    @classmethod
+    def of(cls, samples: dict[str, list[float]]) -> LapEnds | None:
+        xs = samples.get("pos_x") or []
+        zs = samples.get("pos_z") or []
+        dist = samples.get("dist") or []
+        n = min(len(xs), len(zs), len(dist))
+        if n == 0:
+            return None
+        end = n - 1
+        k = end
+        while k > 0 and dist[end] - dist[k] < START_HEADING_M:
+            k -= 1
+        dx, dz = xs[end] - xs[k], zs[end] - zs[k]
+        norm = math.hypot(dx, dz)
+        heading = (dx / norm, dz / norm) if norm > 1.0 else None
+        return cls(xs[0], zs[0], boundary_lead_m(samples), heading)
+
+    def offset_from(self, line_x: float, line_z: float) -> tuple[float, float] | None:
+        """(along, across) metres from the line — given as a sample just past
+        it — to this lap's first sample; None with no direction to judge by."""
+        if self.heading is None:
+            return None
+        hx, hz = self.heading
+        dx, dz = self.start_x - line_x, self.start_z - line_z
+        return dx * hx + dz * hz, abs(dx * hz - dz * hx)
+
+    def started_at_line(self, line_x: float, line_z: float, line_lead_m: float) -> bool:
+        """Whether the lap began at the start/finish line (START_ALONG_MARGIN_M).
+
+        `line_x`/`line_z` is a sample just past the line — the next lap's
+        first — and `line_lead_m` how far past it that can be. A lap with
+        nothing to judge by is given the benefit of the doubt.
+        """
+        offset = self.offset_from(line_x, line_z)
+        if offset is None:
+            return True
+        along, across = offset
+        tolerance = self.lead_m + line_lead_m + START_ALONG_MARGIN_M
+        return abs(along) <= tolerance and across <= START_LATERAL_M
 
 
 def _clock_segments(clock: list[int]) -> list[tuple[int, int]]:
@@ -255,8 +373,14 @@ class CompletedLap:
     invalidated_best: bool = False
     # Lap numbers in this session that now look partial — re-flagged in the DB
     # when `invalidated_best` fires. Only the short ones: a longer lap does not
-    # prove that every earlier lap was partial.
+    # prove that every earlier lap was partial. The heuristic's verdict alone;
+    # the stored rows keep any override apart from it (#74).
     partial_lap_numbers: list[int] = field(default_factory=list)
+    # Every lap number in this session that does not count toward the best as
+    # of this lap: the partial ones, adjusted by the user's overrides (#74).
+    # What in-memory consumers (the race engineer, the delta reference) re-flag
+    # their own copies of the session by when `invalidated_best` fires.
+    excluded_lap_numbers: list[int] = field(default_factory=list)
     car_category: str = ""  # packet C: "Gr.3", "Gr.4", "N300"...
     # True once enough full laps agree on the track's length for the span
     # check to be trustworthy. Coaching waits for this.
@@ -392,6 +516,15 @@ class LapProcessor:
     # the fastest remaining real lap, not blank the best until the next one.
     _laps: list[tuple[int, float, int]] = field(default_factory=list)
     _partial: set[int] = field(default_factory=set)
+    # The user's rulings on this session's laps, by lap number (#74): True
+    # counts whatever the span says, False never counts. Applied on top of
+    # _partial wherever the best is worked out, and never folded into it —
+    # the heuristic's own set is what the stored rows are re-flagged by.
+    _overrides: dict[int, bool] = field(default_factory=dict)
+    # Lap numbers that did not begin at the start/finish line (a race's grid
+    # start): partial whatever their span, and kept out of the span yardstick.
+    # Judged once, when the lap completes — see LapEnds.started_at_line.
+    _off_line: set[int] = field(default_factory=set)
     _fuel_start: float = 0.0
     _last_packet: TelemetryPacket | None = None
     # Lap-clock cross-check (#20): how far our packet-id-integrated t axis
@@ -509,6 +642,8 @@ class LapProcessor:
             self._current_lap = -1
             self._laps.clear()
             self._partial.clear()
+            self._overrides.clear()
+            self._off_line.clear()
             self._lap_clock_worst_ms = 0
             self._lap_clock_samples = 0
             self._session_position = -1
@@ -640,7 +775,10 @@ class LapProcessor:
             assert self._session is not None
             self._session.lap_count += 1
 
-            self._apply_span_guard(lap, finished_samples)
+            # `p` is the first packet past the line, and so the line itself to
+            # within the distance covered since the previous packet.
+            line = (p.position_x, p.position_z, p.speed_mps * self._pending_dt * TICK_SECONDS)
+            self._apply_span_guard(lap, finished_samples, line)
             await self.on_lap(lap)
         elif salvage is not None:
             await self._emit_salvaged(salvage, len(finished_samples["t"]))
@@ -802,7 +940,12 @@ class LapProcessor:
             self._salvage_candidates(p) or "none",
         )
 
-    def _apply_span_guard(self, lap: CompletedLap, samples: dict[str, list[float]]) -> None:
+    def _apply_span_guard(
+        self,
+        lap: CompletedLap,
+        samples: dict[str, list[float]],
+        line: tuple[float, float, float] | None = None,
+    ) -> None:
         """Judge which laps of this session covered the whole track.
 
         The yardstick is how far recent laps ran, so it needs no knowledge of
@@ -814,6 +957,11 @@ class LapProcessor:
 
         It only becomes trustworthy once several laps agree on the distance
         (`span_confirmed`) — which is what coaching waits for.
+
+        `line` — (x, z, lead) of the first sample past the line — also decides
+        whether the lap began there (LapEnds.started_at_line). A lap that did not is
+        partial outright, and its span stays out of the yardstick. Salvaged
+        laps pass None: their stream broke off, so nothing marks the line.
         """
         assert self._session is not None
         span = samples["dist"][-1] if samples["dist"] else 0.0
@@ -823,10 +971,26 @@ class LapProcessor:
         # condemn both — the later lap replaces the earlier one instead.
         self._laps = [entry for entry in self._laps if entry[0] != lap.number]
         self._laps.append((lap.number, span, lap.time_ms))
+        # ...and a ruling made on the lap it replaced was about that lap, not
+        # this one.
+        self._overrides.pop(lap.number, None)
+        self._off_line.discard(lap.number)
+        ends = LapEnds.of(samples)
+        if line is not None and ends is not None and not ends.started_at_line(*line):
+            self._off_line.add(lap.number)
+            along, across = ends.offset_from(line[0], line[1]) or (0.0, 0.0)
+            log.info(
+                "lap %d began %.0f m along / %.0f m across from the start/finish "
+                "line (a grid start?): not a lap time",
+                lap.number, along, across,
+            )
 
-        reference = self._reference_span()
+        # The yardstick is laps that timed the circuit line to line; one
+        # measured from the grid says nothing about the track's length.
+        timed = [entry for entry in self._laps if entry[0] not in self._off_line]
+        reference = self._reference_span(timed)
         ratio = (
-            FULL_LAP_SPAN_RATIO if len(self._laps) >= SPANS_FOR_MEDIAN
+            FULL_LAP_SPAN_RATIO if len(timed) >= SPANS_FOR_MEDIAN
             else PROVISIONAL_SPAN_RATIO
         )
         full_enough = reference * ratio
@@ -834,12 +998,12 @@ class LapProcessor:
         # second lap gives the comparison meaning.
         partial = (
             set()
-            if len(self._laps) == 1
-            else {number for number, value, _ in self._laps if value < full_enough}
-        )
+            if len(timed) <= 1
+            else {number for number, value, _ in timed if value < full_enough}
+        ) | self._off_line
 
         lap.counts_for_best = lap.number not in partial
-        lap.span_confirmed = self._span_confirmed(reference)
+        lap.span_confirmed = self._span_confirmed(timed, reference)
         # The set changing means an earlier verdict was wrong in one direction
         # or the other; the stored rows have to be brought back in line.
         if partial != self._partial:
@@ -847,18 +1011,48 @@ class LapProcessor:
             lap.partial_lap_numbers = sorted(partial)
             self._partial = partial
 
+        excluded = self.excluded_lap_numbers()
+        lap.excluded_lap_numbers = sorted(excluded)
         prior = [
             time
             for number, _, time in self._laps
-            if number not in partial and number != lap.number
+            if number not in excluded and number != lap.number
         ]
         lap.session_best_before_ms = min(prior) if prior else -1
-        valid = [time for number, _, time in self._laps if number not in partial]
+        self._recompute_best(excluded)
+
+    def excluded_lap_numbers(self) -> set[int]:
+        """Lap numbers of this session that do not count toward the best:
+        the span heuristic's partial laps, with the user's overrides applied
+        on top (#74)."""
+        return {
+            number
+            for number, _, _ in self._laps
+            if not self._overrides.get(number, number not in self._partial)
+        }
+
+    def set_best_override(self, number: int, override: bool | None) -> None:
+        """Apply the user's ruling on one of this session's laps (#74).
+
+        None hands the lap back to the span heuristic. The session best is
+        recomputed on the spot, so the live "session best" follows an
+        excluded lap off the board rather than waiting for the next one.
+        """
+        if override is None:
+            self._overrides.pop(number, None)
+        else:
+            self._overrides[number] = override
+        self._recompute_best(self.excluded_lap_numbers())
+
+    def _recompute_best(self, excluded: set[int]) -> None:
+        if self._session is None:
+            return
+        valid = [time for number, _, time in self._laps if number not in excluded]
         self._session.best_lap_time_ms = min(valid) if valid else -1
 
-    def _reference_span(self) -> float:
+    def _reference_span(self, laps: list[tuple[int, float, int]]) -> float:
         """How far a full lap of this circuit runs, as far as we can tell."""
-        spans = sorted(value for _, value, _ in self._laps[-SPAN_WINDOW:])
+        spans = sorted(value for _, value, _ in laps[-SPAN_WINDOW:])
         if len(spans) < SPANS_FOR_MEDIAN:
             # Two laps that disagree are ambiguous — one is short or the other
             # ran wide. The longer is the better guess at the track's length,
@@ -866,13 +1060,13 @@ class LapProcessor:
             return spans[-1] if spans else 0.0
         return median(spans)
 
-    def _span_confirmed(self, reference: float) -> bool:
+    def _span_confirmed(self, laps: list[tuple[int, float, int]], reference: float) -> bool:
         """True once several laps agree on the track length within tolerance."""
-        if len(self._laps) < SPANS_FOR_MEDIAN or reference <= 0:
+        if len(laps) < SPANS_FOR_MEDIAN or reference <= 0:
             return False
         agreeing = sum(
             1
-            for _, value, _ in self._laps[-SPAN_WINDOW:]
+            for _, value, _ in laps[-SPAN_WINDOW:]
             if value >= reference * FULL_LAP_SPAN_RATIO
         )
         return agreeing >= SPANS_FOR_MEDIAN - 1
@@ -909,9 +1103,17 @@ class LapProcessor:
     def _append_sample(self, p: TelemetryPacket) -> None:
         s = self._samples
         dt_s = self._pending_dt * TICK_SECONDS
-        if s["t"]:  # the lap's first sample anchors at t=0
+        if s["t"]:
             self._elapsed_s += dt_s
-        self._distance += p.speed_mps * dt_s
+            self._distance += p.speed_mps * dt_s
+        else:
+            # The lap's first sample. The line was crossed somewhere inside
+            # the gap since the previous sample, so half of it is the unbiased
+            # guess — and the SAME half on both axes keeps time and distance
+            # describing one instant, whatever frames were dropped at the
+            # boundary (anchor_at_line converts laps recorded before this).
+            self._elapsed_s = dt_s / 2
+            self._distance = p.speed_mps * dt_s / 2
         throttle = round(p.throttle_pct, 1)
         brake = round(p.brake_pct, 1)
         s["t"].append(round(self._elapsed_s, 4))

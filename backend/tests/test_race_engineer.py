@@ -195,11 +195,39 @@ def test_a_lap_re_flagged_partial_leaves_the_best_and_the_reference() -> None:
     mgr.ctx.reference = {"dist": [0.0], "t": [0.0]}
     # Lap 2 proves lap 1 only covered part of the track.
     mgr.on_lap(
-        completed_lap(number=2, time_ms=92_000, invalidated_best=True, partial_lap_numbers=[1])
+        completed_lap(
+            number=2,
+            time_ms=92_000,
+            invalidated_best=True,
+            partial_lap_numbers=[1],
+            excluded_lap_numbers=[1],
+        )
     )
     assert mgr.ctx.best_lap_ms == 92_000
     assert mgr.ctx.laps[-1].counts_for_best is False
     assert mgr.ctx.reference is None  # it came from the lap that was partial
+
+
+def test_a_lap_ruled_out_by_hand_hands_the_reference_on() -> None:
+    """#74: excluding the reference lap promotes the fastest lap still
+    counting, and ruling it back in restores it."""
+    mgr = manager()
+    trace = {"t": [0.0, 1.0], "dist": [0.0, 40.0]}
+    mgr.on_lap(completed_lap(number=1, time_ms=90_000, samples=dict(trace)))
+    mgr.on_lap(completed_lap(number=2, time_ms=88_000, samples=dict(trace)))
+    assert mgr._reference_lap == 2
+    mgr.ctx.reference = mgr.ctx.laps[0].samples
+
+    mgr.apply_best_override({2}, 90_000)
+    assert mgr.ctx.best_lap_ms == 90_000
+    assert [rec.counts_for_best for rec in mgr.ctx.laps] == [False, True]
+    assert mgr.ctx.reference is None
+    assert mgr._reference_lap == 1
+    assert mgr._pending_reference is mgr.ctx.laps[1].samples
+
+    mgr.apply_best_override(set(), 88_000)
+    assert [rec.counts_for_best for rec in mgr.ctx.laps] == [True, True]
+    assert mgr._reference_lap == 2
 
 
 # --- race state --------------------------------------------------------------
