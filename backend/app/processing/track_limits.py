@@ -15,6 +15,16 @@ Honesty rule, inherited from the survey: unsurveyed ground must NEVER read
 as an excursion. A point far from any quad is "unknown", a partially
 surveyed circuit judges only the stretches it knows, and a lap mostly over
 unsurveyed ground refuses a verdict (-1).
+
+Where the circuit crosses over itself the deck's quads and the road's quads
+share plan positions, and elevation is the only thing that says which one a
+car is on (#96). A sample with an elevation is judged against the quads on
+its own level; quads on another level are not evidence about it either way —
+a car on an unsurveyed road under a surveyed bridge is over ground the
+survey never saw, so it reads "unknown", never "off". A sample without one
+(every lap recorded before `pos_y` existed) is judged on plan alone, which
+under a bridge means against both levels at once: it cannot be told off the
+deck and onto the road beneath, and the verdict leans towards "on".
 """
 
 from __future__ import annotations
@@ -26,6 +36,7 @@ from typing import Any
 
 from app.processing import track_compile
 from app.processing.surface import OFF_TRACK_MIN_TICKS
+from app.processing.track_bundle import LEVEL_SEP_M
 
 # The judged point is the car's CENTRE; the border is the limit, and a centre
 # within a metre of it (half a car's width) still has wheels on the road.
@@ -83,6 +94,16 @@ class RoadJudge:
 
     def __init__(self, compiled: dict[str, Any]) -> None:
         self._quads: list[tuple[float, ...]] = [tuple(q) for q in compiled["road"]]
+        # Each quad's elevation envelope [lowest, highest corner], or None
+        # where the survey has no elevation there. A car is on a quad only
+        # when its own elevation falls inside the envelope, LEVEL_SEP_M of
+        # slack either way — the same figure that separates the levels in
+        # the bundle, so what merged as one road judges as one road.
+        levels = compiled.get("road_y") or []
+        self._levels: list[tuple[float, float] | None] = [
+            (float(lv[0]), float(lv[1])) if lv else None for lv in levels
+        ]
+        self._levels += [None] * (len(self._quads) - len(self._levels))
         self._bbox: list[tuple[float, float, float, float]] = []
         self._cells: dict[tuple[int, int], list[int]] = {}
         for i, q in enumerate(self._quads):
@@ -111,16 +132,27 @@ class RoadJudge:
             for k in (0, -1)
         ]
 
-    def classify(self, x: float, z: float) -> str:
+    def classify(self, x: float, z: float, y: float | None = None) -> str:
         """"on" | "off" | "unknown" for one point (see module docstring)."""
-        return self._classify(x, z, -1)[0]
+        return self._classify(x, z, y, -1)[0]
 
-    def _classify(self, x: float, z: float, hint: int) -> tuple[str, int]:
+    def _on_level(self, y: float | None, i: int) -> bool:
+        """Whether quad `i` is on the level of a car at elevation `y`. With
+        nothing to compare — no elevation on the sample, or none in the
+        survey — plan position decides, as it did before v5."""
+        level = self._levels[i]
+        if y is None or level is None:
+            return True
+        return level[0] - LEVEL_SEP_M <= y <= level[1] + LEVEL_SEP_M
+
+    def _classify(
+        self, x: float, z: float, y: float | None, hint: int
+    ) -> tuple[str, int]:
         """Verdict plus the quad that carried it, offered back as `hint`: at
         60 Hz consecutive samples almost always resolve to the same quad."""
         near = -1
         near_d = math.inf
-        if 0 <= hint < len(self._quads):
+        if 0 <= hint < len(self._quads) and self._on_level(y, hint):
             d = self._quad_distance(x, z, hint)
             if d <= EDGE_MARGIN_M:
                 return "on", hint
@@ -137,6 +169,8 @@ class RoadJudge:
                     if i == hint or i in seen:
                         continue
                     seen.add(i)
+                    if not self._on_level(y, i):
+                        continue  # another level of the road: no evidence about this one
                     # cheap bbox lower bound before the exact edge distances
                     bb = self._bbox[i]
                     dx = max(bb[0] - x, 0.0, x - bb[2])
@@ -180,7 +214,12 @@ class RoadJudge:
             for k in range(4)
         )
 
-    def excursions(self, pos_x: Sequence[float], pos_z: Sequence[float]) -> int:
+    def excursions(
+        self,
+        pos_x: Sequence[float],
+        pos_z: Sequence[float],
+        pos_y: Sequence[float] | None = None,
+    ) -> int:
         """Count sustained runs beyond the surveyed edge in one lap's trace.
 
         Same shape as surface.off_track_excursions: a run must hold for
@@ -188,16 +227,20 @@ class RoadJudge:
         it — leaving the surveyed map is not proof of leaving the road — and
         a lap where fewer than half the samples classify at all gets -1: not
         enough surveyed road under it to judge.
+
+        `pos_y` is the lap's elevation trace when it has one (#96); a lap
+        stored before the column existed passes None and is judged on plan.
         """
         n = len(pos_x)
         if n == 0:
             return -1
+        ys: Sequence[float | None] = pos_y if pos_y and len(pos_y) == n else [None] * n
         known = 0
         count = 0
         run = 0
         hint = -1
-        for x, z in zip(pos_x, pos_z, strict=True):
-            verdict, hint = self._classify(x, z, hint)
+        for x, z, y in zip(pos_x, pos_z, ys, strict=True):
+            verdict, hint = self._classify(x, z, y, hint)
             if verdict == "unknown":
                 run = 0
                 continue

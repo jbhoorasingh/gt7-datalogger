@@ -64,7 +64,9 @@ def judge_samples_json(judge: track_limits.RoadJudge, raw: str) -> int:
     samples_json of a real lap is hundreds of kilobytes, and parsing it on
     the event loop is the cost the repository API exists to avoid."""
     samples = json.loads(raw)
-    return judge.excursions(samples.get("pos_x") or [], samples.get("pos_z") or [])
+    return judge.excursions(
+        samples.get("pos_x") or [], samples.get("pos_z") or [], samples.get("pos_y")
+    )
 
 
 class SurveyRejudge:

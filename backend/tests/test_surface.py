@@ -620,11 +620,11 @@ SRC = "aaaaaaaaaaaa"  # this installation
 OTHER = "bbbbbbbbbbbb"  # somebody else's
 
 
-def _edge(x=10.0, z=5.0, side="L", kind="auto", run=1, source=SRC):
+def _edge(x=10.0, z=5.0, side="L", kind="auto", run=1, source=SRC, y=None):
     from app.processing.track_bundle import new_edge
 
     return new_edge(x=x, z=z, hx=1.0, hz=0.0, side=side, kind=kind, run=run,
-                    source=source, tw=1.6)
+                    source=source, tw=1.6, y=y)
 
 
 def test_track_bundle_merge_dedups_on_grid() -> None:
@@ -726,8 +726,8 @@ def test_track_bundle_upgrades_v1_in_place(tmp_path) -> None:
 
     doc = load(tmp_path, "Ring")
     assert doc is not None
-    # v1 -> votes -> elevation field -> attributed votes, in one read
-    assert doc["version"] == 4
+    # v1 -> votes -> elevation field -> attributed votes -> levels, in one read
+    assert doc["version"] == 5
     assert len(doc["edges"]) == 2  # the co-located pair collapsed to one cell
     contested = next(e for e in doc["edges"] if e["side"] == "L")
     assert contested["kind"] == "runoff"  # the mark wins, at last
@@ -1115,12 +1115,102 @@ def test_v2_bundle_upgrades_with_null_elevation_and_attributed_votes(tmp_path) -
     }), encoding="utf-8")
     doc = load(tmp_path, "Ring")
     assert doc is not None
-    assert doc["version"] == 4
+    assert doc["version"] == 5
     assert doc["edges"][0]["y"] is None  # honest about not knowing
     # v2 votes preserved, and now attributed to the only machine that could
     # have cast them.
     assert doc["edges"][0]["votes"] == {"auto": {source_id(tmp_path): [1, 1]}}
     assert doc["corners"] == [] and doc["sections"] == []
+
+
+# --- one record per road level where the circuit crosses itself (#96) ---------
+
+
+def test_a_crossover_keeps_one_record_per_level() -> None:
+    """Suzuka's bridge and the road beneath it share a plan cell. Before v5
+    the second level surveyed was thrown away and its votes counted against
+    the first; now each level is its own metre."""
+    from app.processing.track_bundle import EdgeIndex, merge_edges, vote_count
+
+    merged = merge_edges([_edge(y=0.0)], [_edge(y=8.0, run=2)])
+    assert len(merged) == 2
+    assert sorted(e["y"] for e in merged) == [0.0, 8.0]
+    assert EdgeIndex(merged).stacked() == 1
+    # Survey noise on the lower road is still the lower road...
+    merged = merge_edges(merged, [_edge(y=0.4, run=3)])
+    assert len(merged) == 2
+    lower = next(e for e in merged if e["y"] == 0.0)  # geometry stays first-seen
+    assert vote_count(lower["votes"], "auto") == 2
+    # ...and votes cast on one level never land on the other.
+    upper = next(e for e in merged if e["y"] == 8.0)
+    assert vote_count(upper["votes"], "auto") == 1
+
+
+def test_a_record_without_elevation_merges_as_it_always_did() -> None:
+    """Level unknown matches anything: pre-v3 evidence keeps merging into
+    whatever the cell holds instead of splitting it."""
+    from app.processing.track_bundle import merge_edges
+
+    merged = merge_edges([_edge(y=0.0), _edge(y=8.0, run=2)], [_edge(run=3)])
+    assert len(merged) == 2
+    # A cell mapped before elevation was captured absorbs the first level it
+    # meets and takes that level's elevation, exactly as before (v3 backfill).
+    merged = merge_edges([_edge()], [_edge(y=8.0, run=2)])
+    assert len(merged) == 1 and merged[0]["y"] == 8.0
+
+
+def test_v4_bundle_upgrades_to_v5_without_touching_a_record(tmp_path) -> None:
+    """v5 changed what a record is, not what one looks like: a v4 file loads
+    with every record, every vote and every coordinate exactly as stored."""
+    import json
+
+    from app.processing.track_bundle import BUNDLE_FORMAT, bundle_path, load, stats
+
+    edges = [
+        {"x": 1.0, "z": 0.0, "y": 12.5, "hx": 1.0, "hz": 0.0, "side": "L", "kind": "edge",
+         "votes": {"edge": {SRC: [2, 2]}}, "run": 1, "tw": 1.6},
+        {"x": 1.0, "z": 0.0, "y": None, "hx": 1.0, "hz": 0.0, "side": "R", "kind": "auto",
+         "votes": {"auto": {SRC: [1, 1]}, "wall": {OTHER: [1, 1]}}, "run": 1, "tw": None},
+    ]
+    path = bundle_path(tmp_path, "Ring")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({
+        "format": BUNDLE_FORMAT, "version": 4,
+        "meta": {"track": "Ring", "runs": 3, "source_runs": {SRC: 2, OTHER: 1},
+                 "updated_at": "2026-09-01T00:00:00+00:00", "official": None},
+        "edges": edges, "finish_crossings": [], "corners": [], "sections": [],
+    }), encoding="utf-8")
+    doc = load(tmp_path, "Ring")
+    assert doc is not None
+    assert doc["version"] == 5
+    assert doc["edges"] == edges
+    assert doc["meta"]["source_runs"] == {SRC: 2, OTHER: 1}
+    assert stats(doc)["stacked_cells"] == 0  # a v4 merge never kept a second level
+
+
+def test_survey_keeps_both_levels_of_a_crossover(tmp_path) -> None:
+    """Driving the bridge and then the road under it lays two borders on the
+    same plan cells, not one border with the second run's votes on it."""
+    from app.processing.survey import SurfaceSurvey
+    from app.processing.track_bundle import EdgeIndex, edge_key
+
+    common = dict(fmt="C", velocity=(30.0, 0.0, 0.0), speed_mps=30.0, wheelbase_m=2.6)
+    survey = SurfaceSurvey()
+    survey.start(tmp_path, track_width_m=1.6, track="Figure Eight", track_user_set=True)
+    for i in range(41):  # the road below, at y = 0
+        survey.feed(make_packet(surface_types="GTGT", packet_id=i, current_lap=1,
+                                position=(i * 0.5, 0.0, 0.0), **common))
+    below = len(survey.edges)
+    assert below > 0
+    for i in range(41):  # the deck, 8 m up, over exactly the same ground
+        survey.feed(make_packet(surface_types="GTGT", packet_id=100 + i, current_lap=2,
+                                position=(i * 0.5, 8.0, 0.0), **common))
+    assert len(survey.edges) == 2 * below
+    assert EdgeIndex(survey.edges).stacked() == below
+    for key in {edge_key(e) for e in survey.edges}:
+        levels = sorted(e["y"] for e in survey.edges if edge_key(e) == key)
+        assert levels == [0.0, 8.0], key
+    survey.stop()
 
 
 # --- per-car width memory ------------------------------------------------------

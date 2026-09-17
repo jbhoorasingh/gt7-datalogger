@@ -54,6 +54,15 @@ shared bundle worth pulling.
 Track width calibration is deliberately NOT in the bundle: it is a property
 of the car being driven, not of the circuit.
 
+Where a circuit crosses over itself (#96, v5) one plan cell holds one record
+PER ROAD LEVEL. Two records at the same (cell, side) are the same metre unless
+their elevations are more than LEVEL_SEP_M apart, in which case the road
+passes over itself there and each is one level's border. `EdgeIndex` is the
+one place that identity is decided; the survey, the merge and the upgrade all
+go through it. Before v5 the second level's geometry was silently discarded
+and its votes folded into the first's, so Suzuka's bridge and the road under
+it were one metre of road with contradictory evidence.
+
 The full format is documented in docs/reference/track-bundle-format.md.
 """
 
@@ -65,6 +74,7 @@ import logging
 import math
 import re
 import secrets
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -72,9 +82,21 @@ from typing import Any
 log = logging.getLogger(__name__)
 
 BUNDLE_FORMAT = "gt7-datalogger-track-bundle"
-BUNDLE_VERSION = 4
+BUNDLE_VERSION = 5
 BUNDLE_DIR = "track-bundles"
-GRID_M = 1.0  # dedup cell: one record per metre per side
+GRID_M = 1.0  # dedup cell: one record per metre per side, per road level
+# Two records in one plan cell describe the same metre of road unless their
+# elevations differ by more than this — then the circuit passes over itself
+# there and each record is one level's border (#96). Chosen from the collected
+# bundles: same-side records within 2 m of each other differ in elevation by
+# at most 0.72 m (Alsace), and raw survey marks that landed in one cell by at
+# most 0.18 m (Mount Panorama, 118 cells seen twice), steep ground included.
+# No surveyed circuit crosses itself yet, so the other bound is physical: a
+# car has to fit under the deck, which puts stacked road surfaces at least
+# ~4.5 m apart. 3 m clears the noise fourfold and the deck by a car's height.
+# Banking is another matter (5.5 m between the two borders of one road at
+# Daytona) and is never compared within a cell, only across one.
+LEVEL_SEP_M = 3.0
 MAX_POINTS = 50_000
 MAX_FINISH_CROSSINGS = 20
 MAX_CORNERS = 100  # Nordschleife is 73 named corners; 100 is head-room
@@ -149,8 +171,55 @@ def is_source_id(value: Any) -> bool:
 
 
 def edge_key(e: dict[str, Any]) -> tuple[int, int, str]:
-    """One record per metre per side — kind is voted on, not part of identity."""
+    """The plan cell a record occupies: one metre of one side.
+
+    Kind is voted on, not part of identity; elevation splits a cell into road
+    levels, which is `EdgeIndex`'s job rather than the key's.
+    """
     return (round(e["x"] / GRID_M), round(e["z"] / GRID_M), e["side"])
+
+
+def same_level(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    """Whether two records at one plan position are on the same road (#96).
+
+    A record with no elevation (mapped before v3) is "level unknown" and
+    matches anything, which is exactly how it merged before levels existed.
+    """
+    ya, yb = a.get("y"), b.get("y")
+    return ya is None or yb is None or abs(ya - yb) <= LEVEL_SEP_M
+
+
+class EdgeIndex:
+    """Border records by plan cell, resolved to a road level by elevation.
+
+    The one place a record's identity is decided (#96). A cell normally holds
+    one record; where the circuit crosses over itself it holds one per level,
+    and `find` answers with the record on the probe's own level — or None
+    when the probe is the first evidence of a level there. Levels are told
+    apart by `same_level`, a tolerance rather than a quantised band: a band
+    has boundaries, and a road climbing through one would split every metre
+    where two runs' readings happened to straddle it.
+    """
+
+    __slots__ = ("_cells",)
+
+    def __init__(self, edges: Iterable[dict[str, Any]] = ()) -> None:
+        self._cells: dict[tuple[int, int, str], list[dict[str, Any]]] = {}
+        for e in edges:
+            self.add(e)
+
+    def find(self, e: dict[str, Any]) -> dict[str, Any] | None:
+        for cur in self._cells.get(edge_key(e), ()):
+            if same_level(cur, e):
+                return cur
+        return None
+
+    def add(self, e: dict[str, Any]) -> None:
+        self._cells.setdefault(edge_key(e), []).append(e)
+
+    def stacked(self) -> int:
+        """Plan cells holding more than one level of road."""
+        return sum(1 for records in self._cells.values() if len(records) > 1)
 
 
 Votes = dict[str, dict[str, list[int]]]
@@ -264,15 +333,18 @@ def merge_edges(
 ) -> list[dict[str, Any]]:
     """Union on the dedup grid, combining votes; existing geometry wins.
 
+    Identity is a plan cell AND a road level (EdgeIndex): evidence for a level
+    the cell has not seen becomes a second record beside the first rather
+    than a vote on it, so the road under a bridge keeps its own border.
+
     Records in `existing` are mutated (callers pass a freshly loaded document
     or the run's own list); records copied out of `new` are never aliased, so
     a live run may keep mutating its own list after a save.
     """
     merged = list(existing)
-    index = {edge_key(e): e for e in existing}
+    index = EdgeIndex(existing)
     for e in new:
-        key = edge_key(e)
-        cur = index.get(key)
+        cur = index.find(e)
         if cur is None:
             if len(merged) >= MAX_POINTS:
                 continue
@@ -283,7 +355,7 @@ def merge_edges(
                     for kind, sources in e["votes"].items()
                 },
             }
-            index[key] = copy
+            index.add(copy)
             merged.append(copy)
             continue
         # Elevation backfill: a metre first mapped before v3 has no `y`, and
@@ -319,10 +391,9 @@ def _upgrade_v1(edges: list[dict[str, Any]], source: str) -> list[dict[str, Any]
     outranks it) with unknown width.
     """
     out: list[dict[str, Any]] = []
-    index: dict[tuple[int, int, str], dict[str, Any]] = {}
+    index = EdgeIndex()  # v1 has no elevation: every cell is one level
     for old in edges:
-        key = edge_key(old)
-        cur = index.get(key)
+        cur = index.find(old)
         if cur is None:
             cur = {
                 "x": old["x"], "z": old["z"], "y": None,
@@ -330,7 +401,7 @@ def _upgrade_v1(edges: list[dict[str, Any]], source: str) -> list[dict[str, Any]
                 "side": old["side"], "kind": old["kind"],
                 "votes": {}, "run": 0, "tw": None,
             }
-            index[key] = cur
+            index.add(cur)
             out.append(cur)
         cast_vote(cur, old["kind"], 0, source)
     return out
@@ -372,6 +443,12 @@ def _upgrade(doc: dict[str, Any], version: int, source: str, label: str) -> dict
             doc["edges"] = _attribute_votes(doc["edges"], source)
         meta = doc["meta"]
         meta["source_runs"] = {source: int(meta.get("runs", 0) or 0)}
+    # v4 -> v5 changed what a record IS — a metre of one road level, not a
+    # metre of plan — without changing what one looks like (#96). A v4 file
+    # holds one record per plan cell, because its merge collapsed every level
+    # onto the first surveyed, so there is nothing here to split: the level it
+    # discarded comes back only by driving it again, or by a replace import
+    # (#93). Every v4 record is a valid v5 record; only the stamp moves.
     doc.setdefault("corners", [])
     doc.setdefault("sections", [])
     doc["meta"].setdefault("official", None)
@@ -526,6 +603,11 @@ def stats(doc: dict[str, Any]) -> dict[str, Any]:
         "elevation_points": with_y,
         "elevation_pct": round(100 * with_y / len(edges), 1) if edges else 0.0,
         "manual_points": manual,
+        # Metres where the circuit passes over itself and both levels are
+        # surveyed (#96). Zero on a bundle merged before v5 even where the
+        # road crosses — the lower level was thrown away, and only a re-drive
+        # or a replace import brings it back.
+        "stacked_cells": EdgeIndex(edges).stacked(),
         "finish_crossings": len(doc["finish_crossings"]),
         "corners": len(doc["corners"]),
         "sections": len(doc["sections"]),

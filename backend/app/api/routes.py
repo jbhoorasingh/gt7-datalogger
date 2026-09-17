@@ -326,6 +326,7 @@ CSV_CHANNELS = (
     ("yaw_rate", "Yaw Rate", "rad/s"),
     ("pos_x", "Pos X", "m"),
     ("pos_z", "Pos Z", "m"),
+    ("pos_y", "Pos Y", "m"),
     ("body_height", "Ride Height", "mm"),
     ("fuel", "Fuel Level", "L"),
     ("slip_fl", "Tyre Slip FL", ""),

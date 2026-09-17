@@ -5,6 +5,35 @@ Notable changes to GT7 Datalogger. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Where a circuit crosses over itself, both levels are surveyed and
+  judged.** (#96) A border record was identified by its plan cell alone, so
+  Suzuka's bridge and the road beneath it were one metre of road: whichever
+  level was surveyed first kept the cell, the other's geometry was thrown
+  away, its votes were counted against the survivor, the compiled borders
+  zigzagged between the two, and a lap over the bridge was judged against
+  whichever level had won — flagged beyond the surveyed edge while on the
+  road. Bundle format **v5**: one record per metre per side *per road
+  level*, levels told apart by an elevation difference over 3 m. The figure
+  comes from the collected bundles — 0.72 m is the widest elevation spread
+  between same-side neighbours, 0.18 m between raw survey marks in one
+  cell; banking is 5.5 m across the road at Daytona but is never compared
+  within a cell. A record without elevation merges as it always did. The
+  border ordering refuses a next cell the road could not have climbed to,
+  the across-the-road pairing prefers its own level, each road quad carries
+  its elevation envelope (compiled geometry v2) and the survey judge places
+  a sample by its elevation: on the deck is on the deck, and a car on an
+  unsurveyed road under a surveyed bridge reads unknown, never off. Laps now
+  store `pos_y` beside `pos_x`/`pos_z`. **Laps recorded before this release
+  carry no elevation** and are judged on plan alone, which at a crossover
+  means against both levels at once — they get the benefit of the doubt
+  there and cannot be re-judged any tighter. A v4 bundle upgrades untouched;
+  a crossover it merged before v5 has already lost its second level, which
+  only re-driving or a replace import (#93) brings back. `stacked_cells` in
+  the bundle stats counts the metres where both levels are present. The
+  data repo's copy of the format moves to v5 alongside.
+
 ## [0.6.1] - 2026-09-17
 
 ### Fixed

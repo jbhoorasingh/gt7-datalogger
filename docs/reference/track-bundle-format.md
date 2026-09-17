@@ -12,14 +12,14 @@ travel. They can be exported, mailed to somebody, merged into their store, and
 merged back — and a shared repository of contributed bundles only works if
 other tools can read them without asking this app anything.
 
-Current version: **4**. Older documents are upgraded on read, and import
+Current version: **5**. Older documents are upgraded on read, and import
 accepts every version from 1 up.
 
-A machine-readable [JSON Schema for a v4 document](schemas/track-bundle.v4.schema.json)
+A machine-readable [JSON Schema for a v5 document](schemas/track-bundle.v5.schema.json)
 is published alongside this page (and one for the
-[compiled geometry](schemas/track-compiled.v1.schema.json) described at the
+[compiled geometry](schemas/track-compiled.v2.schema.json) described at the
 bottom). The schema describes a *current* document; the app's own import
-validation additionally accepts and upgrades v1–v3, which the schema does not
+validation additionally accepts and upgrades v1–v4, which the schema does not
 model. If schema and code ever disagree, the code is what the app does.
 
 Bundles contributed by other people live in
@@ -44,7 +44,7 @@ where".
 ```json
 {
   "format": "gt7-datalogger-track-bundle",
-  "version": 4,
+  "version": 5,
   "meta": {
     "track": "Lago Maggiore - Centre",
     "runs": 12,
@@ -97,8 +97,29 @@ per vote, each source's own highest run is what a merge advances.
 
 ## `edges` — border records
 
-One record per **metre per side**, on a 1 m grid. A metre of border is one
-fact; the kinds observed there are *votes* on what that fact is.
+One record per **metre per side per road level**, on a 1 m grid. A metre of
+border is one fact; the kinds observed there are *votes* on what that fact is.
+
+Where a circuit crosses over itself — Suzuka's bridge, and the road under it —
+one plan cell holds **one record per level** (v5). Two records at the same
+cell and side are the same metre unless their elevations differ by more than
+**3 m**, in which case each is one level's border. The figure comes from the
+collected bundles: same-side records within 2 m of each other differ in
+elevation by at most 0.72 m and raw survey marks landing in one cell by at
+most 0.18 m, while a road a car can drive under sits at least a car's height
+plus a deck above the one beneath. It is a tolerance, not a quantised band: a
+band has boundaries, and a road climbing through one would split every metre
+where two runs' readings happened to straddle it. A record with no elevation
+is "level unknown" and merges with whichever level it meets first — exactly
+how it merged before levels existed. Banking (the two borders of one road are
+5.5 m apart at Daytona) is never compared within a cell, only across one.
+
+A bundle merged before v5 holds one record per plan cell whatever the road
+does: the second level surveyed was discarded and its votes counted against
+the first. Upgrading cannot recover it — nothing was stored — so a crossover
+mapped before v5 needs those metres driven again, or a replace import of a
+corrected bundle. `stacked_cells` in the bundle's stats counts the cells
+where both levels are present.
 
 ```json
 {
@@ -116,7 +137,7 @@ fact; the kinds observed there are *votes* on what that fact is.
 | field | meaning |
 |---|---|
 | `x`, `z` | world position, metres. First-seen wins on merge, which keeps files stable |
-| `y` | elevation, or `null` for a metre first mapped before v3. Re-driving it fills it in |
+| `y` | elevation, or `null` for a metre first mapped before v3. Re-driving it fills it in. Part of the record's identity since v5: more than 3 m from another record in the same cell means another road level |
 | `hx`, `hz` | unit travel direction at the moment of evidence |
 | `side` | `"L"` / `"R"` — the border **relative to the direction of travel** |
 | `kind` | what the votes settled on. Derived; recompute rather than trust it |
@@ -212,6 +233,7 @@ Optional named stretches, the input real sectors need (GT7 broadcasts none).
 | 2 | one record per (cell, side); `votes`, `run`, `tw` added | — |
 | 3 | `y` (elevation) added | existing records get `y: null`; re-driving fills them |
 | 4 | votes attributed per source; `source_runs`, `official`, `corners`, `sections` | votes are attributed to the reading installation (a pre-v4 file could only have been written by it) |
+| 5 | one record per (cell, side, **road level**): records more than 3 m apart in elevation within one cell are different levels | nothing to convert — a v4 file already holds one record per cell, so only the stamp moves; a level it discarded is gone |
 
 An imported pre-v4 document is the exception: its votes are attributed to a
 **synthetic** source id derived from the document's own contents, not to the
@@ -259,8 +281,8 @@ polylines, a centerline with width and elevation, the road surface as quads,
 and per-side coverage measured against the boundary itself.
 
 It lives at `data/track-bundles/compiled/<slug>.json`
-([schema](schemas/track-compiled.v1.schema.json), format
-`gt7-datalogger-track-compiled`, version 1) and is **recompiled automatically
+([schema](schemas/track-compiled.v2.schema.json), format
+`gt7-datalogger-track-compiled`, version 2) and is **recompiled automatically
 whenever the bundle file changes** — a survey save, an import, a merge. It is
 never exported and never imported: an imported bundle brings evidence, and
 the receiving installation rebuilds the geometry from it. Delete the
@@ -277,3 +299,11 @@ Two properties worth knowing when reading one:
   closed loop the closure too. `closed` says whether that denominator is the
   whole lap. `road_pct` is the share of surveyed border with the opposite
   border found across from it: how much of the road *surface* is resolved.
+- **`road_y` places each quad on a level.** One entry per `road` quad:
+  `[lowest, highest]` corner elevation, or `null` where a corner has none.
+  An envelope rather than a number because banking puts a road's two borders
+  at different heights. Where the circuit crosses over itself it is what
+  keeps the deck's quads apart from the road's beneath them — the ordering
+  refuses a next cell the road could not have climbed to, the pairing across
+  the road prefers its own level, and the lap judge compares a sample's
+  elevation against the envelope, with the same 3 m of slack.

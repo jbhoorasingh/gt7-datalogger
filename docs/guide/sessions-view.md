@@ -124,8 +124,11 @@ appears once the circuit has been [surveyed](tracks-view.md) well enough
 (≥ 50 % of the road resolved): the lap's positions are judged against the
 **surveyed edges**, and sustained excursions beyond them count even on
 pavement. Unsurveyed stretches never count against a lap, and laps recorded
-before the session was identified are re-judged the moment it is. A lap is
-*clean* only when both judges agree.
+before the session was identified are re-judged the moment it is. Where the
+circuit crosses over itself, the lap's elevation says which level it was on;
+laps recorded before elevation was stored (0.6.1 and earlier) are judged
+against both levels there and get the benefit of the doubt. A lap is *clean*
+only when both judges agree.
 
 The survey's verdict follows the survey. Whenever a circuit's bundle changes —
 a survey run stops, a bundle is merged in, renamed or deleted — every lap ever

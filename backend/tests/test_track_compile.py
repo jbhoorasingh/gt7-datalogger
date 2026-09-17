@@ -16,13 +16,15 @@ def _edge(x, z, hx, hz, side, kind="auto", y=None):
     }
 
 
-def _ring(radius=100.0, width=10.0, skip=(), y_inner=5.0):
+def _ring(radius=100.0, width=10.0, skip=(), y_inner=5.0, y_outer=None):
     """A circular circuit, one border cell per metre on each side.
 
     Travel is counterclockwise: at angle a the heading is (-sin a, cos a),
     whose right-normal (hz, -hx) points outward — so the RIGHT border is the
     outer circle and the LEFT the inner one, `width` metres apart. `skip` is
-    a set of (side, step) pairs to leave unsurveyed.
+    a set of (side, step) pairs to leave unsurveyed. By default only the
+    inner border knows its elevation; `y_outer` raises the outer one, which
+    is what a banked oval looks like.
     """
     edges = []
     steps = int(2 * math.pi * radius)  # ~1 m along the centerline
@@ -35,8 +37,36 @@ def _ring(radius=100.0, width=10.0, skip=(), y_inner=5.0):
                                y=y_inner))
         if ("R", i) not in skip:
             r = radius + width / 2
-            edges.append(_edge(r * math.cos(a), r * math.sin(a), hx, hz, "R"))
+            edges.append(_edge(r * math.cos(a), r * math.sin(a), hx, hz, "R",
+                               y=y_outer))
     return edges
+
+
+def _straight(length=200.0, width=10.0, y=0.0, angle=0.0):
+    """A straight road through the origin, `length` m long, travelled at
+    `angle` radians from +x: one border cell per metre on each side, every
+    cell at elevation `y`. The right-normal is (hz, -hx), as the survey lays
+    it, so R sits on that side of the centreline and L on the other."""
+    hx, hz = math.cos(angle), math.sin(angle)
+    rx, rz = hz, -hx
+    edges = []
+    for i in range(int(length)):
+        t = i - length / 2
+        cx, cz = hx * t, hz * t
+        edges.append(_edge(cx - rx * width / 2, cz - rz * width / 2, hx, hz, "L", y=y))
+        edges.append(_edge(cx + rx * width / 2, cz + rz * width / 2, hx, hz, "R", y=y))
+    return edges
+
+
+SHALLOW_CROSSING = math.radians(20)
+
+
+def _crossover(angle=SHALLOW_CROSSING, deck=8.0):
+    """Two straight roads crossing at the origin: one at ground level, one
+    `deck` metres up, meeting at `angle`. Shallow by default so that, without
+    elevation, the walk would happily hop from one to the other (its heading
+    gate allows 60°) — which is exactly what #96 is about."""
+    return _straight(y=0.0) + _straight(y=deck, angle=angle)
 
 
 def _document(edges, finish=(), track="Test Circuit"):
@@ -115,7 +145,7 @@ def test_borders_a_road_apart_never_chain_together() -> None:
 
 def test_centerline_runs_midway_and_carries_width_and_elevation() -> None:
     left, right = _sides(_ring(radius=100.0, width=10.0, y_inner=5.0))
-    runs, quads, paired = track_compile.centerline_and_road(left, right)
+    runs, quads, _levels, paired = track_compile.centerline_and_road(left, right)
     assert len(runs) >= 1
     samples = [v for r in runs for v in r]
     assert len(samples) > 100
@@ -148,7 +178,7 @@ def test_a_flagged_gap_breaks_the_sample_stream() -> None:
     left, right = _sides(_ring(skip=holes))
     samples = track_compile._resample(left, track_compile.CL_STEP_M)
     assert sum(1 for s in samples if s is None) >= 2  # gap break + trailing
-    _, quads, _ = track_compile.centerline_and_road(left, right)
+    _, quads, _, _ = track_compile.centerline_and_road(left, right)
     # no quad spans a hole: every quad's left edge stays under 2×step
     for q in quads:
         assert math.hypot(q[2] - q[0], q[3] - q[1]) <= 2 * track_compile.CL_STEP_M
@@ -158,8 +188,9 @@ def test_unpaired_stretches_produce_no_centerline() -> None:
     # the right border is missing entirely: nothing to pair against
     steps = int(2 * math.pi * 100)
     left, right = _sides(_ring(skip={("R", i) for i in range(steps)}))
-    runs, quads, paired = track_compile.centerline_and_road(left, right)
+    runs, quads, levels, paired = track_compile.centerline_and_road(left, right)
     assert runs == []
+    assert levels == []
     assert quads == []
     assert paired == 0.0
 
@@ -234,3 +265,73 @@ def test_for_track_persists_and_recompiles_when_the_bundle_changes(tmp_path) -> 
 def test_a_circuit_without_a_bundle_compiles_to_none(tmp_path) -> None:
     assert track_compile.for_track(tmp_path, "Nowhere") is None
     assert track_compile.for_track(tmp_path, "") is None
+
+
+# --- a circuit that crosses over itself (#96) --------------------------------
+
+
+def _chain_levels(side: track_compile.SideAssembly) -> list[set[float]]:
+    return [{side.pts[i]["y"] for i in chain} for chain in side.chains]
+
+
+def test_a_crossover_keeps_each_level_on_its_own_chain() -> None:
+    """Under the bridge the two levels' cells interleave in plan; the walk
+    must not step from the deck onto the road beneath it."""
+    left, right = _sides(_crossover())
+    for side in (left, right):
+        assert len(side.chains) == 2
+        for levels in _chain_levels(side):
+            assert len(levels) == 1, "a chain that changes level walked across the crossover"
+        assert not side.closed
+
+
+def test_without_elevation_the_walk_cannot_tell_the_levels_apart() -> None:
+    """What the gate is for: the same crossing with pre-v3 records (no y)
+    walks as one road, because nothing says it is two."""
+    edges = _crossover()
+    for e in edges:
+        e["y"] = None
+    left, _ = _sides(edges)
+    assert len(left.chains) < 2 or any(len(c) > 200 for c in left.chains)
+
+
+def test_a_steep_hill_still_chains_and_stitches() -> None:
+    # 30 % grade along a straight — steeper than any surveyed circuit — with
+    # a 30 m survey hole in it: the level gate must not read the climb as a
+    # change of level, so the hole is still bridged as one chain.
+    edges = []
+    for i in range(200):
+        if 100 <= i < 130:
+            continue
+        edges.append(_edge(float(i), 5.0, 1.0, 0.0, "L", y=0.3 * i))
+        edges.append(_edge(float(i), -5.0, 1.0, 0.0, "R", y=0.3 * i))
+    left, right = _sides(edges)
+    assert len(left.chains) == 1 and len(right.chains) == 1
+    assert len(left.gap_spans()) == 1
+
+
+def test_crossover_quads_never_span_both_levels() -> None:
+    """Pairing the left border across to the right prefers its own level:
+    a quad whose corners sit on both roads would be a slice of nothing."""
+    compiled = track_compile.compile_bundle(_document(_crossover()))
+    levels = compiled["road_y"]
+    assert len(levels) == len(compiled["road"])
+    assert all(lv is not None for lv in levels)
+    assert all(hi - lo < 1.0 for lo, hi in levels)
+    assert {lo for lo, _ in levels} == {0.0, 8.0}  # both roads compiled
+    assert compiled["coverage"]["road_pct"] > 90.0
+
+
+def test_a_banked_road_is_one_level_with_an_envelope() -> None:
+    # Daytona: the outer border 5.5 m above the inner across an 8-12 m road.
+    # Still one road — the pairing must find the far border although it is
+    # further away in elevation than the levels of a crossover are.
+    compiled = track_compile.compile_bundle(_document(_ring(y_inner=0.0, y_outer=5.5)))
+    assert compiled["coverage"]["road_pct"] > 95.0
+    for lo, hi in compiled["road_y"]:
+        assert lo == 0.0 and hi == 5.5
+
+
+def test_quads_without_elevation_on_both_borders_have_no_level() -> None:
+    compiled = track_compile.compile_bundle(_document(_ring()))  # only L knows y
+    assert compiled["road_y"] and all(lv is None for lv in compiled["road_y"])

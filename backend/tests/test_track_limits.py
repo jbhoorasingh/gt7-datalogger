@@ -512,3 +512,93 @@ async def test_identifying_old_sessions_judges_their_laps(client) -> None:
     assert resp.json()["identified"] == 1
     await svc.rejudge.wait_idle()
     assert await _verdict(svc, sid) == (1, False)
+
+
+# --- the judge tells a bridge deck from the road beneath it (#96) -------------
+
+
+def _straight(length=200.0, width=10.0, y=0.0, angle=0.0):
+    """See test_track_compile._straight: a road through the origin at `angle`
+    from +x, every cell at elevation `y`."""
+    hx, hz = math.cos(angle), math.sin(angle)
+    rx, rz = hz, -hx
+    edges = []
+    for i in range(int(length)):
+        t = i - length / 2
+        cx, cz = hx * t, hz * t
+        edges.append(_edge(cx - rx * width / 2, cz - rz * width / 2, hx, hz, "L", y=y))
+        edges.append(_edge(cx + rx * width / 2, cz + rz * width / 2, hx, hz, "R", y=y))
+    return edges
+
+
+@pytest.fixture(scope="module")
+def crossover() -> track_limits.RoadJudge:
+    """A road along +x at ground level, crossed at right angles by a deck
+    8 m up along +z. At the origin both are road; at (0, 7.5) only the deck
+    is, and at (7.5, 0) only the ground road."""
+    edges = _straight(y=0.0) + _straight(y=8.0, angle=math.pi / 2)
+    compiled = track_compile.compile_bundle(_document(edges))
+    assert compiled["coverage"]["road_pct"] > 90.0
+    return track_limits.RoadJudge(compiled)
+
+
+def test_a_crossover_is_judged_on_the_sample_level(crossover) -> None:
+    assert crossover.classify(0.0, 0.0, 0.0) == "on"  # on the road, under the deck
+    assert crossover.classify(0.0, 0.0, 8.0) == "on"  # on the deck
+    # Beside the ground road in plan, under the deck: off at ground level,
+    # on at deck level. The same plan position, two verdicts.
+    assert crossover.classify(0.0, 7.5, 0.0) == "off"
+    assert crossover.classify(0.0, 7.5, 8.0) == "on"
+    assert crossover.classify(7.5, 0.0, 8.0) == "off"
+    assert crossover.classify(7.5, 0.0, 0.0) == "on"
+    # Survey noise and banking slack: a metre or two either way is the same level.
+    assert crossover.classify(0.0, 7.5, 6.5) == "on"
+    assert crossover.classify(0.0, 7.5, 2.0) == "off"
+
+
+def test_a_lap_without_elevation_is_judged_on_plan_alone(crossover) -> None:
+    """Laps stored before pos_y existed cannot be placed on a level, so under
+    a bridge they are on the road if they are on either road."""
+    assert crossover.classify(0.0, 7.5) == "on"
+    assert crossover.classify(7.5, 0.0) == "on"
+    assert crossover.classify(20.0, 20.0) == "off"
+
+
+def test_the_road_under_a_surveyed_bridge_is_unknown_not_off() -> None:
+    """Only the deck surveyed: a car on the road beneath it is over ground
+    the survey never saw. That is the honesty rule, and a level-mismatched
+    quad must not be allowed to break it by reading as nearby road."""
+    compiled = track_compile.compile_bundle(_document(_straight(y=8.0, angle=math.pi / 2)))
+    judge = track_limits.RoadJudge(compiled)
+    assert judge.classify(0.0, 0.0, 8.0) == "on"
+    assert judge.classify(0.0, 0.0, 0.0) == "unknown"
+    assert judge.classify(7.5, 0.0, 0.0) == "unknown"
+    assert judge.classify(7.5, 0.0, 8.0) == "off"
+
+
+def test_excursions_count_a_drop_off_the_deck_only_with_elevation(crossover) -> None:
+    n = 60
+    xs = [-30.0 + i for i in range(n)] + [0.0] * OFF_TRACK_MIN_TICKS + [i + 1.0 for i in range(n)]
+    zs = [0.0] * n + [7.5] * OFF_TRACK_MIN_TICKS + [0.0] * n
+    # Held at (0, 7.5): beside the ground road, inside the deck's footprint.
+    # At ground level that is off the road; without elevation it reads as
+    # the deck, and the lap is given the benefit of the doubt.
+    ground = [0.0] * len(xs)
+    assert crossover.excursions(xs, zs, ground) == 1
+    assert crossover.excursions(xs, zs) == 0
+    assert crossover.excursions(xs, zs, None) == 0
+    # A car that climbed onto the deck there really is on a road.
+    deck = [0.0] * n + [8.0] * OFF_TRACK_MIN_TICKS + [0.0] * n
+    assert crossover.excursions(xs, zs, deck) == 0
+    # A ragged elevation column is not trusted: back to plan-only judging.
+    assert crossover.excursions(xs, zs, ground[:-1]) == 0
+
+
+def test_stored_laps_are_judged_with_their_elevation(crossover) -> None:
+    n = 60
+    xs = [-30.0 + i for i in range(n)] + [0.0] * OFF_TRACK_MIN_TICKS
+    zs = [0.0] * n + [7.5] * OFF_TRACK_MIN_TICKS
+    with_y = json.dumps({"pos_x": xs, "pos_z": zs, "pos_y": [0.0] * len(xs)})
+    without = json.dumps({"pos_x": xs, "pos_z": zs})
+    assert rejudge.judge_samples_json(crossover, with_y) == 1
+    assert rejudge.judge_samples_json(crossover, without) == 0
