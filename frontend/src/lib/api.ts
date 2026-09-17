@@ -16,6 +16,7 @@ import type {
   OfficialMatch,
   PersonalBest,
   RaceEngineerDiagnostics,
+  RejudgeResult,
   SessionSummary,
   SurveyEdge,
   SurveyLog,
@@ -315,6 +316,10 @@ export const api = {
         set_official: true,
       }),
     remove: (slug: string) => send<{ status: string }>(`/api/track-bundles/${slug}`, "DELETE"),
+    // Re-judge every lap driven on the circuit against its survey as it is
+    // now (#91). Happens by itself after a bundle changes; this forces it and
+    // waits, so the answer can say how many verdicts moved.
+    rejudge: (slug: string) => send<RejudgeResult>(`/api/track-bundles/${slug}/rejudge`, "POST"),
     corners: (slug: string) =>
       get<{
         track: string;

@@ -114,6 +114,22 @@ East" and "Lago Maggiore - East End" become two bundles of the same tarmac,
 each with half the evidence. **Rename…** onto an existing name merges them:
 one circuit is one bundle.
 
+## Re-checking laps
+
+A lap's off-track verdict against the surveyed edges (see the
+[Sessions view](sessions-view.md#lap-table)) is decided against the
+survey as it was when the lap was saved. The survey keeps changing, so the
+app re-judges every lap on a circuit whenever its bundle does: two minutes
+after a survey run's last save, and at once after a merge, a rename or a
+delete. A corrected survey clears the flags a bad one caused; a deleted one
+takes its verdicts back to unknown.
+
+**Re-check laps** forces that pass for one row and says what it found —
+"Re-checked 143 laps on Deep Forest — 7 verdicts changed", or that every
+verdict stands. It reads every lap's telemetry, so on a circuit with hundreds
+of laps it takes a few seconds. It is there for when you do not want to wait,
+and for a survey deleted before the app did this by itself.
+
 ## Labelling corners
 
 **Corners…** opens the refine view: the circuit's surveyed map, with clicking

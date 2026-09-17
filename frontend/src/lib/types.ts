@@ -264,6 +264,18 @@ export interface TrackBundleInfo {
   compiled_at?: string;
 }
 
+// What POST /api/track-bundles/{slug}/rejudge did (#91): every lap on the
+// circuit — all session labels sharing the slug — judged against the survey
+// as it now is. `judged` false = no usable survey, so verdicts went back to
+// unknown rather than being decided.
+export interface RejudgeResult {
+  slug: string;
+  labels: string[];
+  laps: number;
+  changed: number;
+  judged: boolean;
+}
+
 // One hand-labelled corner. Anchored to a POSITION, not a lap distance —
 // distance depends on the racing line taken (#48).
 export interface AuthoredCorner {

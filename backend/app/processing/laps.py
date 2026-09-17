@@ -328,6 +328,29 @@ def _slice_lap_samples(
     return out
 
 
+def clean_verdict(off_track_count: int, off_survey_count: int) -> bool | None:
+    """Whether a lap is clean, from both judges' counts (#92).
+
+    Clean means GT7's surface flags saw no excursion AND nothing ran past
+    the surveyed edge; either judge finding one spoils it. The surface judge
+    not knowing (-1: no surface data) leaves the lap unknown — a survey that
+    found nothing cannot vouch for what the flags never saw. The survey judge
+    not knowing (-1: unsurveyed circuit, or too little surveyed road under
+    the lap) spoils nothing.
+
+    Pure, and the only place the answer is derived: the live lap and the
+    re-judge of a stored one both come here, so a stored False can be undone.
+    It used to be folded in one-way (an excursion set clean_lap False, a
+    re-judge with none carried the stored value forward), which meant a bad
+    survey spoiled a lap for good, whatever was corrected afterwards.
+    """
+    if off_track_count > 0 or off_survey_count > 0:
+        return False
+    if off_track_count < 0:
+        return None
+    return True
+
+
 @dataclass(slots=True)
 class CompletedLap:
     number: int
@@ -436,19 +459,18 @@ class CompletedLap:
         surface = s.get("surface") or []
         if len(surface) == n:
             self.off_track_count = off_track_excursions(surface)
-            self.clean_lap = self.off_track_count == 0 if self.off_track_count >= 0 else None
+            self.clean_lap = clean_verdict(self.off_track_count, self.off_survey_count)
         self.events = detect_events(s)
 
     def apply_survey_verdict(self, count: int) -> None:
-        """Record the surveyed-edge verdict (#41) and let it spoil cleanliness.
+        """Record the surveyed-edge verdict (#41) and re-derive cleanliness.
 
-        Clean now means: surface flags clean AND no excursion past the
-        surveyed border. Unknown (-1) spoils nothing — a lap on an unsurveyed
-        circuit keeps whatever the surface flags said.
+        Derived, not accumulated: a lap judged wide against one survey and
+        judged again against a corrected one reads clean again (#92), and a
+        surface-flag excursion keeps it dirty whatever the survey says.
         """
         self.off_survey_count = count
-        if count > 0:
-            self.clean_lap = False
+        self.clean_lap = clean_verdict(self.off_track_count, count)
 
 
 @dataclass(slots=True)

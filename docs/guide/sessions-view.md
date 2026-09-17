@@ -127,6 +127,15 @@ pavement. Unsurveyed stretches never count against a lap, and laps recorded
 before the session was identified are re-judged the moment it is. A lap is
 *clean* only when both judges agree.
 
+The survey's verdict follows the survey. Whenever a circuit's bundle changes —
+a survey run stops, a bundle is merged in, renamed or deleted — every lap ever
+driven there is judged again against the road as it now is, so a lap a bad
+survey flagged reads clean again once the survey is corrected, and a lap
+judged against a bundle since deleted goes back to *unknown* on that count.
+The surface-flag verdict is GT7's own and never moves. **Re-check laps** on
+the [Tracks view](tracks-view.md) forces the pass and says how many verdicts
+changed.
+
 Row actions:
 
 | Action | What it does |

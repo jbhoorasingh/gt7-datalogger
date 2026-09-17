@@ -36,7 +36,7 @@ script can too. All REST routes live under `/api`; responses are JSON.
 | GET | `/api/tracks` | stored track signatures |
 | POST | `/api/tracks` | `{name, lap_id}` — name a circuit from a lap's geometry |
 | DELETE | `/api/tracks/{id}` | remove a signature (session data untouched) |
-| POST | `/api/tracks/identify` | name every unlabelled session that was driven on a [surveyed circuit](../internals/track-identification.md#matching-against-a-survey-bundle) → `{checked, identified, tracks}`. New sessions do this for themselves; this is for history recorded before the bundles existed. Sessions with no confident match are left alone. 409 when nothing has been surveyed |
+| POST | `/api/tracks/identify` | name every unlabelled session that was driven on a [surveyed circuit](../internals/track-identification.md#matching-against-a-survey-bundle) → `{checked, identified, tracks}`. New sessions do this for themselves; this is for history recorded before the bundles existed. Sessions with no confident match are left alone. The laps of every session named are then judged against the survey in the background — they were saved with no circuit to judge against. 409 when nothing has been surveyed |
 
 ## Overlay / dashboard layouts
 
@@ -110,9 +110,20 @@ import path for [track bundles](track-bundle-format.md). See the
 | GET | `/api/track-bundles/{slug}` | one bundle document — the export unit, and what import consumes |
 | POST | `/api/track-bundles/import` | merge a bundle document from elsewhere. `?track=` overrides the document's own label, which is how a near-miss name lands on the right circuit. Every field is validated and rebuilt before anything is merged; versions 1–4 are accepted and upgraded. Your own authored corners and confirmed layout match are never overwritten (`corners_kept` says when incoming ones were dropped). 400 on any malformed document; 413 over 64 MB, enforced while reading rather than after buffering |
 | PATCH | `/api/track-bundles/{slug}` | `{track?}` renames — **merging** when the new name is an existing bundle, which is the fix for one circuit living under two spellings. `{official, set_official: true}` records the confirmed official layout (`official: null` clears it). 409 while a survey is running on that circuit: it holds the old name in memory, so its next save would recreate the bundle just moved |
-| DELETE | `/api/track-bundles/{slug}` | remove a bundle (the survey JSONL logs are untouched). 409 while a survey is running on that circuit |
+| DELETE | `/api/track-bundles/{slug}` | remove a bundle (the survey JSONL logs are untouched). Laps judged against it go back to unknown (see below). 409 while a survey is running on that circuit |
+| POST | `/api/track-bundles/{slug}/rejudge` | *(admin)* re-judge every lap driven on the circuit against its survey as it now is → `{slug, labels, laps, changed, judged}`: the session labels covered (every spelling that slugifies to this circuit), how many laps were read, how many verdicts moved, and whether there was a usable survey to judge by — with none, verdicts go back to unknown (`off_survey_count: -1`) and `clean_lap` falls back to the surface flags. Waits for the pass, which reads every lap's telemetry. Works without a bundle, so the circuit is the slug rather than a bundle that must exist; an unknown one answers with zero laps, not 404 |
 | GET | `/api/track-bundles/{slug}/corners` | the circuit's authored corners and sections |
 | PUT | `/api/track-bundles/{slug}/corners` | `{corners?, sections?}` — replace them; omitted lists are left alone. Renumbered from list order. 404 when the circuit has no bundle: corners are anchored to positions on a surveyed map |
+
+Every write that can move the surveyed road — a survey's save, a log assigned,
+a shared bundle pulled, an import, a rename (both the old label and the new),
+a delete — queues the same re-judge for the circuit in the background (#91).
+An explicit edit runs it at once; a survey's writes wait until the bundle has
+been left alone for two minutes, so a running survey's once-a-minute autosave
+never triggers a pass over the whole history. Corner edits do not queue one:
+the road did not move. `clean_lap` is re-derived from both counts each time,
+so a lap flagged by a survey that was later corrected reads clean again (#92);
+one flagged by GT7's own surface flags stays dirty whatever the survey says.
 
 ## Admin
 
