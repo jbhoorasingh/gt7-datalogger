@@ -21,7 +21,7 @@ import { ConfirmDialog, PromptDialog } from "@/components/ui/Dialog";
 import { Tip } from "@/components/ui/Tooltip";
 import { api } from "@/lib/api";
 import { getAdminToken, type SharedBundles } from "@/lib/api";
-import type { SurveyLog, TrackOverview, TrackOverviewRow } from "@/lib/types";
+import type { SurveyLog, TrackOverview, TrackOverviewRow, TrackSyncStatus } from "@/lib/types";
 import { toast } from "@/store/toasts";
 
 const toastSuccess = (text: string) => toast(text, "success");
@@ -52,6 +52,61 @@ function Flag({ ok, label, title }: { ok: boolean; label: string; title: string 
       >
         {ok ? label : `no ${label}`}
       </span>
+    </Tip>
+  );
+}
+
+/** Where a bundle stands with the sync service (#79). Only drawn when the
+ * tracks type is active; the row says nothing about sync otherwise. */
+function inWords(seconds: number): string {
+  return seconds < 90 ? `${seconds} s` : `${Math.round(seconds / 60)} min`;
+}
+
+function SyncChip({ sync }: { sync: TrackSyncStatus }) {
+  const due = sync.due_in_s != null && sync.due_in_s > 0 ? inWords(sync.due_in_s) : "";
+  let cls = "border border-dashed border-edge text-ink-faint";
+  let label: string;
+  let title: string;
+  switch (sync.status) {
+    case "unconfirmed":
+      label = "not synced — confirm layout";
+      title =
+        "Only bundles with a confirmed official layout are sent: the sync service files uploads by layout, and an unconfirmed one cannot be filed. Confirm the suggestion below to queue it.";
+      break;
+    case "queued":
+      label = due ? `sync in ${due}` : "sync queued";
+      title =
+        "Changed since the last upload. It goes once it has been left alone for ten minutes — a running survey keeps resetting that clock — or at once from Admin → Sync → Sync now.";
+      break;
+    case "uploading":
+      cls = "bg-accent/14 text-accent";
+      label = "syncing…";
+      title = "Uploading now";
+      break;
+    case "synced":
+      cls = "bg-throttle/14 text-throttle";
+      label = `synced ${when(sync.uploaded_at ?? "")}`;
+      if (sync.remote_status && sync.remote_status !== "pending") label += ` · ${sync.remote_status}`;
+      title =
+        `Accepted by the sync service${sync.upload_id ? ` as upload ${sync.upload_id}` : ""}` +
+        ` — ${sync.remote_status === "pending" || !sync.remote_status ? "waiting for the next merge run" : sync.remote_status}`;
+      break;
+    case "rejected":
+      cls = "bg-brake/14 text-brake";
+      label = "sync rejected";
+      title = `${sync.error || "refused by the server"} — not retried until the bundle changes`;
+      break;
+    case "error":
+      cls = "bg-warn/14 text-warn";
+      label = "sync error";
+      title = `${sync.error || "upload failed"}${due ? ` — retrying in ${due}` : ""}`;
+      break;
+    default:
+      return null;
+  }
+  return (
+    <Tip content={title}>
+      <span className={`rounded-[9px] px-2 py-px text-[10px] ${cls}`}>{label}</span>
     </Tip>
   );
 }
@@ -288,6 +343,13 @@ export function TracksView() {
 
       {error && <div className="panel p-3 text-sm text-brake">{error}</div>}
 
+      {data?.sync_tracks.active && data.sync_tracks.state === "error" && (
+        <div className="panel border border-warn/40 px-3 py-2 text-xs text-warn">
+          Track sync is not reaching the server: {data.sync_tracks.error || "unknown error"}.
+          Uploads are retried with backoff; check Admin → Sync.
+        </div>
+      )}
+
       {orphans.length > 0 && (
         <div className="panel border border-warn/40 p-3">
           <h3 className="text-sm font-semibold text-warn">
@@ -385,6 +447,7 @@ export function TracksView() {
                       : "Not matched to an official GT7 layout — GT7 broadcasts no track id, so this is a human decision"
                   }
                 />
+                {b && data?.sync_tracks.active && row.sync && <SyncChip sync={row.sync} />}
                 {row.sessions > 0 && (
                   <span className="text-[10.5px] text-ink-faint">
                     {row.sessions} session{row.sessions === 1 ? "" : "s"}

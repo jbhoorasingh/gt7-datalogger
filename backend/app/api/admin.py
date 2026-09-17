@@ -16,6 +16,15 @@ from app.api.auth import require_admin
 from app.notify import ALL_EVENTS
 from app.processing import car_refresh
 from app.race_engineer import CATEGORIES
+from app.sync import (
+    BadConnectionString,
+    SyncError,
+    check_token,
+    mask_token,
+    normalise_server,
+    parse_connection_string,
+)
+from app.sync.connection import DEFAULT_URL as SYNC_DEFAULT_URL
 
 if TYPE_CHECKING:
     from app.service import TelemetryService
@@ -55,6 +64,13 @@ async def get_settings(request: Request) -> dict[str, Any]:
             c for c in CATEGORIES if c in s.enabled_callout_categories()
         ],
         "race_engineer_units": s.race_engineer_units,
+        # The sync service (#79). The token itself never leaves the server:
+        # a hint says which one is stored, `sync_token_set` whether any is.
+        "sync_url": s.sync_url,
+        "sync_token_set": bool(s.sync_token),
+        "sync_token_hint": mask_token(s.sync_token),
+        "sync_enabled": s.sync_enabled,
+        "sync_tracks": s.sync_tracks,
     }
 
 
@@ -74,6 +90,15 @@ class SettingsPayload(BaseModel):
     # Literal, so the category list has exactly one definition.
     race_engineer_categories: list[str] | None = None
     race_engineer_units: Literal["metric", "imperial"] | None = None
+    # Where sync goes: the two fields typed by hand. A bare host is read as
+    # https; an empty url means the default server; an empty token forgets
+    # it. The one-paste form the service issues — a `gt7sync://…?token=…`
+    # connection string — goes in sync_url too and sets both: it is parsed
+    # into the two settings here and never stored as-is.
+    sync_url: str | None = Field(default=None, max_length=2048)
+    sync_token: str | None = Field(default=None, max_length=512)
+    sync_enabled: bool | None = None
+    sync_tracks: bool | None = None
 
 
 @router.put("/settings")
@@ -115,7 +140,53 @@ async def put_settings(request: Request, payload: SettingsPayload) -> dict[str, 
         await service.repo.set_setting("webhook_events", spec)
         log.info("webhook events: %s", spec or "none")
     await _apply_race_engineer(service, payload)
+    await _apply_sync(service, payload)
     return await get_settings(request)
+
+
+async def _apply_sync(service: TelemetryService, payload: SettingsPayload) -> None:
+    """Sync settings: parsed once, stored apart, applied to the client live."""
+    changed = False
+    url, token = service.settings.sync_url, service.settings.sync_token
+    try:
+        if payload.sync_url is not None:
+            typed = payload.sync_url.strip()
+            if not typed:
+                url = SYNC_DEFAULT_URL
+            elif "?" in typed:
+                # A whole connection string in the address field: both
+                # halves are wanted, and the token never touches the log.
+                conn = parse_connection_string(typed)
+                url, token = conn.url, conn.token
+            else:
+                url = normalise_server(typed)
+            changed = True
+        if payload.sync_token is not None:
+            token = check_token(payload.sync_token) if payload.sync_token.strip() else ""
+            changed = True
+    except BadConnectionString as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if (url, token) != (service.settings.sync_url, service.settings.sync_token):
+        service.settings.sync_url = url
+        service.settings.sync_token = token
+        await service.repo.set_setting("sync_url", url)
+        await service.repo.set_setting("sync_token", token)
+        # A new server or token: what the old one accepted no longer counts,
+        # and its capabilities say nothing about this one.
+        service.sync.reset_connection()
+        log.info("sync: server %s, token %s", url, "set" if token else "cleared")
+    if payload.sync_enabled is not None:
+        service.settings.sync_enabled = payload.sync_enabled
+        await service.repo.set_setting("sync_enabled", str(payload.sync_enabled).lower())
+        log.info("sync: %s", "enabled" if payload.sync_enabled else "disabled")
+        changed = True
+    if payload.sync_tracks is not None:
+        service.settings.sync_tracks = payload.sync_tracks
+        await service.repo.set_setting("sync_tracks", str(payload.sync_tracks).lower())
+        log.info("sync: track uploads %s", "on" if payload.sync_tracks else "off")
+        changed = True
+    if changed:
+        service.sync.apply()
 
 
 async def _apply_race_engineer(service: TelemetryService, payload: SettingsPayload) -> None:
@@ -157,6 +228,47 @@ async def _apply_race_engineer(service: TelemetryService, payload: SettingsPaylo
         "enabled" if service.settings.race_engineer else "disabled",
         service.settings.race_engineer_verbosity,
     )
+
+
+# --- sync -------------------------------------------------------------------
+
+
+@router.get("/sync")
+async def sync_status(request: Request) -> dict[str, Any]:
+    """Where sync stands: connection, what the server offers, each type."""
+    return svc(request).sync.status()
+
+
+@router.post("/sync/test")
+async def sync_test(request: Request) -> dict[str, Any]:
+    """Ask the server what it accepts, now — the Test connection button.
+
+    The answer is the status document, with the fresh capabilities in it;
+    a server that cannot be reached, or rejects the request, is a 502 whose
+    detail is the reason, and the status document keeps that reason too.
+    """
+    service = svc(request)
+    try:
+        await service.sync.check()
+    except SyncError as exc:
+        raise HTTPException(502, f"sync service: {exc.message}") from exc
+    return service.sync.status()
+
+
+@router.post("/sync/push")
+async def sync_push(request: Request) -> dict[str, Any]:
+    """Queue every eligible bundle now, rather than at the next autosave.
+
+    Nothing is re-sent that the server has already accepted unchanged; this
+    is for "I just enabled it, send what I have" and for a retry that should
+    not wait out a backoff.
+    """
+    service = svc(request)
+    if not service.sync.active("tracks"):
+        raise HTTPException(400, "track sync is not active — enable it first")
+    service.sync.tracks.clear_backoff()
+    await service.sync.tracks.sweep()
+    return service.sync.status()
 
 
 # --- race engineer diagnostics ----------------------------------------------

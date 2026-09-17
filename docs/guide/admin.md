@@ -71,6 +71,56 @@ Trust model: the webhook URL may deliberately point at LAN services (Home
 Assistant, n8n) — private addresses are not blocked. Redirects are never followed,
 and setting `GT7_ADMIN_TOKEN` ensures only you can change the URL.
 
+## Sync
+
+Contribute your surveys to a **sync service** — the hosted one at
+`sync.gt7-datalogger.com`, or one you run yourself. Pulling shared bundles
+(Tracks → Shared bundles) needs no account and is unchanged; this is the other
+direction: the bundles you survey go up, a job in the track-data repo merges what
+everybody sent and opens the pull requests, and GitHub stays the source of truth.
+
+- **Server address** — the service to contribute to. A bare host name
+  (`sync.example.com`) is read as `https://`; write `http://` or `gt7sync+http://` for
+  a server of your own on the LAN, and leave it empty for the hosted service. Changing
+  it forgets what the previous server had accepted and re-asks the new one what it
+  offers; the token stays. The field also takes the whole `gt7sync://…?token=…`
+  connection string the portal shows when it creates a token: that is split into the
+  address and the token below, and the string itself is not kept.
+- **Token** — from the service's portal; identifies your account. Stored apart from the
+  address, masked from then on (`…a1b2`), sent only as a `Bearer` header, never in a
+  URL and never to the logs. **Save** stores it and tests the connection; **Forget it**
+  drops it. **Test connection** re-asks the server at any time.
+- **Enable sync** — the master switch. On its own it sends nothing.
+- **What to send** — one toggle per data type, each with a one-line description of what
+  leaves the machine and a status line: `off`, `idle`, `syncing…`, or `error: <reason>`.
+  A toggle is only enabled when the server advertises that type *and* this build can
+  send it; a type the server offers that this release cannot send yet says so. All
+  toggles default off, and enabling one never enables another.
+    - **tracks** — the survey bundle of every circuit whose official layout you have
+      confirmed, exactly as **Export** writes it: border evidence, finish crossings,
+      corner labels and sections. A bundle is uploaded once it has been **left alone
+      for ten minutes**. Every write restarts that clock — the survey's once-a-minute
+      autosave, the save when it stops, an import, a pull, a rename, a layout
+      confirmation, a corner edit — so a running survey never uploads mid-run: the run
+      goes up once, after it has stopped and the corner labelling that usually follows
+      is done, and one upload carries all of it. Nothing is sent when the evidence has
+      not changed since the server last accepted it, and never more than once a minute
+      per bundle. Bundles with no confirmed layout are never sent — the Tracks view
+      marks them *not synced — confirm layout*. Nothing else is uploaded: not your
+      laps, not your settings, not the installation id file.
+- **Sync now** — send every eligible bundle immediately rather than waiting for it to
+  settle. Unchanged bundles are still skipped.
+
+Uploads run in the background with retry and exponential backoff and never block
+recording or the UI. A document the server refuses (with its reason) is not retried
+until the bundle changes. If the server answers `403 type_disabled`, that type's toggle
+is switched off here and the status line says *server no longer accepts this*. What
+was uploaded is remembered in `data/sync-state.json`, so a restart does not re-send
+unchanged bundles; a different server starts from nothing.
+
+Per-track status — *synced*, *queued*, *rejected*, *error* — is on each row of the
+[Tracks view](tracks-view.md#sync-status).
+
 ## Race Engineer
 
 Server-side control of the spoken callouts: the feature switch, the **maximum

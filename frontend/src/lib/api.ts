@@ -20,6 +20,7 @@ import type {
   SurveyEdge,
   SurveyLog,
   SurveyStatus,
+  SyncStatus,
   Track,
   TrackBundleInfo,
   TrackCatalog,
@@ -84,6 +85,28 @@ export interface SharedBundles {
   url?: string;
   bundles: SharedBundleEntry[];
 }
+
+// What PUT /api/admin/settings accepts: the editable settings, plus the sync
+// token, which the server stores but never echoes back. A whole connection
+// string (gt7sync://…?token=…) may go in sync_url; the server splits it.
+export type AdminSettingsPatch = Partial<
+  Pick<
+    AdminSettings,
+    | "ps_ip"
+    | "source"
+    | "log_level"
+    | "webhook_url"
+    | "webhook_events"
+    | "packet_format"
+    | "race_engineer"
+    | "race_engineer_verbosity"
+    | "race_engineer_categories"
+    | "race_engineer_units"
+    | "sync_url"
+    | "sync_enabled"
+    | "sync_tracks"
+  >
+> & { sync_token?: string };
 
 // Error carrying the HTTP status, so callers can distinguish auth failures
 // (401/403 — a token problem) from an unreachable backend (502 from the proxy).
@@ -323,23 +346,13 @@ export const api = {
 
   admin: {
     settings: () => get<AdminSettings>("/api/admin/settings"),
-    updateSettings: (
-      patch: Partial<
-        Pick<
-          AdminSettings,
-          | "ps_ip"
-          | "source"
-          | "log_level"
-          | "webhook_url"
-          | "webhook_events"
-          | "packet_format"
-          | "race_engineer"
-          | "race_engineer_verbosity"
-          | "race_engineer_categories"
-          | "race_engineer_units"
-        >
-      >,
-    ) => send<AdminSettings>("/api/admin/settings", "PUT", patch),
+    updateSettings: (patch: AdminSettingsPatch) =>
+      send<AdminSettings>("/api/admin/settings", "PUT", patch),
+    // The sync service (#79): where it stands, ask the server what it
+    // accepts (the Test button), and queue every eligible bundle now.
+    sync: () => get<SyncStatus>("/api/admin/sync"),
+    syncTest: () => send<SyncStatus>("/api/admin/sync/test", "POST"),
+    syncPush: () => send<SyncStatus>("/api/admin/sync/push", "POST"),
     testWebhook: () => send<{ status: string }>("/api/admin/test-webhook", "POST"),
     raceEngineer: () => get<RaceEngineerDiagnostics>("/api/admin/race-engineer"),
     testCallout: (text: string) =>

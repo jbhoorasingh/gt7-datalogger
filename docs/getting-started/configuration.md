@@ -1,7 +1,7 @@
 # Configuration
 
-Most day-to-day settings — the console IP, telemetry source, log level, and webhook URL —
-can be changed **at runtime from the Admin view** with no restart. Those values persist
+Most day-to-day settings — the console IP, telemetry source, log level, webhook URL and
+sync connection — can be changed **at runtime from the Admin view** with no restart. Those values persist
 in the database and override the environment on the next start.
 
 Everything else is configured with environment variables, or a `.env` file in the
@@ -27,6 +27,10 @@ working directory.
 | `GT7_RACE_ENGINEER_UNITS` | `metric` | Units spoken inside callouts (`metric` = meters and km/h, `imperial` = feet and mph) |
 | `GT7_SIM_SCENARIO` | `practice` | With `GT7_SOURCE=sim`: `practice`, `race`, `fuel_shortage`, `overheating`, `oil_pressure` — staged situations for testing callouts — and `leader_replay`: pre-roll, one flying lap streamed as lap 0 with a running packet-C lap clock, then `LOADING`, which exercises the [replay-salvage path](../internals/lap-detection.md#replay-salvage) without a console |
 | `GT7_SHARED_BUNDLES_URL` | *(the project's [track-data repo](https://jbhoorasingh.github.io/gt7-datalogger-track-data/))* | Shared repository of contributed track bundles: the URL of its `index.json`, or of the directory holding one. The Tracks view lists what it offers and can pull a bundle straight in (same validation and voting merge as a file import). Empty hides the feature; nothing is fetched until the Tracks view is opened |
+| `GT7_SYNC_URL` | `https://sync.gt7-datalogger.com` | The [sync service](../guide/admin.md#sync) this installation contributes to (also settable in Admin → Sync, as a server address or by pasting a connection string) |
+| `GT7_SYNC_TOKEN` | *(empty)* | The account token for the sync service. A secret: masked in the UI, sent only as a `Bearer` header, never logged (also settable in Admin → Sync) |
+| `GT7_SYNC_ENABLED` | `false` | The master switch for sync. On its own it sends nothing — each data type has its own toggle below |
+| `GT7_SYNC_TRACKS` | `false` | Upload survey bundles of circuits with a confirmed official layout, once a changed bundle has been left alone for ten minutes. The one data type this release can send; `sessions` and `live` get a toggle each when their adapters land. Flipped off automatically if the server stops accepting tracks |
 | `GT7_LOG_LEVEL` | `INFO` | Root log level (also settable in Admin) |
 | `GT7_ADMIN_TOKEN` | *(empty)* | When set, the Admin pages and all destructive/mutating API calls require this token via the `X-API-Key` header; overlay/dash/read endpoints stay open. Empty = fully open (LAN-trusted) |
 | `GT7_CORS_ORIGINS` | *(empty)* | Comma-separated origins allowed for cross-origin API use. Empty (default) sends no CORS headers — the bundled UI is same-origin and needs none |

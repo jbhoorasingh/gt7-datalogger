@@ -13,6 +13,11 @@ concurrency:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  # The build record (importable into Docker Desktop's build view) is the
+  # one thing worth keeping from a publish run, and only for as long as a
+  # bad image is likely to be noticed — not the repository default of 90
+  # days per run.
+  DOCKER_BUILD_RECORD_RETENTION_DAYS: 7
 
 jobs:
   docker:

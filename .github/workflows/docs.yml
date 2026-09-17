@@ -40,6 +40,11 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           path: site
+          # The site is deployed by the next job or, on a PR, only built to
+          # prove it can be; either way the artifact has no use after today.
+          # Also the action's own default — stated so a bump cannot quietly
+          # change it.
+          retention-days: 1
 
   deploy:
     # PRs only build-check the docs; the github-pages environment only

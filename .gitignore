@@ -25,6 +25,8 @@ data/car-widths.json
 # This installation's identity, stamped on the votes it casts. Committing it
 # would hand every clone the same id and merge their evidence as one source's.
 data/source-id.json
+# What the sync client has uploaded (#79): per-installation state, not content.
+data/sync-state.json
 
 # Docs
 site/

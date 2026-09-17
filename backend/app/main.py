@@ -214,6 +214,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         settings.race_engineer_categories = stored["race_engineer_categories"]
     if stored.get("race_engineer_units") in ("metric", "imperial"):
         settings.race_engineer_units = stored["race_engineer_units"]
+    if stored.get("sync_url"):
+        settings.sync_url = stored["sync_url"]
+    if "sync_token" in stored:
+        settings.sync_token = stored["sync_token"]
+    if "sync_enabled" in stored:
+        settings.sync_enabled = stored["sync_enabled"] == "true"
+    if "sync_tracks" in stored:
+        settings.sync_tracks = stored["sync_tracks"] == "true"
 
     await sync_track_seed(settings, repo, stored, log)
 

@@ -162,6 +162,27 @@ The data is separate from the app on purpose: it changes every time somebody
 drives, and a corrected corner label should not have to wait for a software
 release.
 
+### Sync status
+
+With a sync service connected and **tracks** switched on
+([Admin → Sync](admin.md#sync)), your surveys go the other way without a
+manual step: every bundle with a confirmed official layout is uploaded once
+it has settled after a change, corner labels included, and each row here
+carries a chip saying where it stands.
+
+| chip | meaning |
+| --- | --- |
+| **not synced — confirm layout** | the bundle has no confirmed official layout, so it cannot be filed. Confirm the *Looks like…* suggestion (or set the layout) and it queues itself |
+| **sync in *N* min** | changed since the last upload; it goes once it has been left alone for ten minutes. A running survey keeps resetting that clock, so a run uploads once, after it stops. Admin → Sync → **Sync now** sends it at once |
+| **syncing…** | uploading now |
+| **synced *time*** | accepted by the service; hovering shows the upload id and whether it is still waiting for the next merge run. A word after the time (`held`, `merged`) is the service's own status |
+| **sync rejected** | the service refused this document; the reason is in the tooltip. Not retried until the bundle changes |
+| **sync error** | the service could not be reached or failed; retried with backoff |
+
+A banner above the table appears when the service cannot be reached at all.
+Nothing here is required: the shared repo can still be contributed to by
+exporting a bundle and opening a pull request.
+
 **Export** downloads the bundle document (see the
 [format reference](../reference/track-bundle-format.md)) — that file is what
 you contribute. **Import bundle…** merges one in; **Merge into…** on a row

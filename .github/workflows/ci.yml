@@ -51,6 +51,12 @@ jobs:
     # thrash the buildx cache that main writes.
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    env:
+      # build-push-action uploads a build record as a workflow artifact on
+      # every run, kept for the repository default of 90 days. On a PR check
+      # the record is worthless once the job is green — the log is the
+      # result — and they were most of the artifacts the repo held.
+      DOCKER_BUILD_RECORD_UPLOAD: false
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3

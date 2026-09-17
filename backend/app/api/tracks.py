@@ -71,6 +71,13 @@ def data_dir(request: Request) -> Path:
     return svc(request).settings.db_path.parent
 
 
+def _bundle_changed(request: Request, track: str) -> None:
+    """A bundle was rewritten by hand: drop cached corners, queue a sync."""
+    service = svc(request)
+    service.invalidate_authored_corners(track)
+    service.sync.tracks.changed(track)
+
+
 def _catalog_path(request: Request) -> Path | None:
     # Package-relative since #57, so it resolves the same from any working
     # directory and needs no repo-root fallback.
@@ -137,6 +144,7 @@ async def overview(request: Request) -> dict[str, Any]:
                 "sessions": 0,
                 "official": None,
                 "suggestion": None,
+                "sync": None,
             }
             rows[slug] = row
         return row
@@ -152,10 +160,14 @@ async def overview(request: Request) -> dict[str, Any]:
         row["track_id"] = track["id"]
         row["length_m"] = track["length_m"]
 
+    tracks_sync = service.sync.tracks
     for bundle in bundles:
         row = row_for(bundle["track"])
         row["bundle"] = bundle
         row["official"] = bundle.get("official")
+        # Where this bundle stands with the sync service (#79); null when
+        # track sync is off, so the view draws nothing rather than "unknown".
+        row["sync"] = tracks_sync.track_status(bundle["slug"])
 
     for label, count in session_counts.items():
         row_for(label)["sessions"] = count
@@ -199,6 +211,13 @@ async def overview(request: Request) -> dict[str, Any]:
         # Counting every seeded row instead would make the footer claim a
         # circuit is still waiting while its row sits directly above.
         "seeded_signatures": unlisted,
+        # The tracks sync type as a whole — whether the rows above carry a
+        # sync status at all, and the connection-level error if there is one.
+        "sync_tracks": {
+            "active": service.sync.active("tracks"),
+            "state": tracks_sync.state(),
+            "error": tracks_sync.status()["error"],
+        },
     }
 
 
@@ -388,7 +407,7 @@ async def assign_log(
         result = survey_log.assign(directory, path, target)
     except track_bundle.BundleError as exc:
         raise HTTPException(400, str(exc)) from exc
-    svc(request).invalidate_authored_corners(result["track"])
+    _bundle_changed(request, result["track"])
     return result
 
 
@@ -590,7 +609,7 @@ async def pull_shared_bundle(
     except httpx.HTTPError as exc:
         raise HTTPException(502, f"shared bundle repo unreachable: {exc}") from exc
     # A pull can give a circuit its first authored corners, same as import.
-    svc(request).invalidate_authored_corners(result["track"])
+    _bundle_changed(request, result["track"])
     return result
 
 
@@ -647,7 +666,7 @@ async def import_bundle(request: Request) -> dict[str, Any]:
     except track_bundle.BundleError as exc:
         raise HTTPException(400, f"invalid bundle: {exc}") from exc
     # An import can give a circuit its first authored corners.
-    svc(request).invalidate_authored_corners(result["track"])
+    _bundle_changed(request, result["track"])
     return result
 
 
@@ -679,6 +698,8 @@ async def patch_bundle(
                 raise HTTPException(404, "no bundle for this track")
             track_bundle.set_official(directory, doc["meta"]["track"], official)
             result["official"] = official
+            # Confirming the layout is what makes a bundle eligible to sync.
+            svc(request).sync.tracks.changed(doc["meta"]["track"])
         if payload.track is not None:
             _refuse_if_surveying(request, slug, "renamed")
             # Renaming onto an existing bundle MERGES: two near-miss spellings
@@ -688,7 +709,9 @@ async def patch_bundle(
             result.update(track_bundle.rename(directory, slug, payload.track))
             if was is not None:
                 svc(request).invalidate_authored_corners(was["meta"]["track"])
-            svc(request).invalidate_authored_corners(payload.track)
+                if track_bundle.slugify(payload.track) != slug:
+                    svc(request).sync.tracks.forget(slug)
+            _bundle_changed(request, payload.track)
     except track_bundle.BundleError as exc:
         raise HTTPException(400, str(exc)) from exc
     return result
@@ -720,6 +743,7 @@ async def delete_bundle(request: Request, slug: str) -> dict[str, str]:
         raise HTTPException(404, "no bundle for this track")
     if doc is not None:
         svc(request).invalidate_authored_corners(doc["meta"]["track"])
+    svc(request).sync.tracks.forget(slug)
     return {"status": "deleted"}
 
 
@@ -782,6 +806,6 @@ async def put_corners(
     )
     if doc is None:  # pragma: no cover - load succeeded a line ago
         raise HTTPException(404, "no bundle for this track")
-    svc(request).invalidate_authored_corners(existing["meta"]["track"])
+    _bundle_changed(request, existing["meta"]["track"])
     return {"track": doc["meta"]["track"], "corners": doc["corners"],
             "sections": doc["sections"]}
