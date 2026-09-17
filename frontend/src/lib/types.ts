@@ -315,6 +315,7 @@ export interface TrackOverviewRow {
   sessions: number;
   official: OfficialMatch | null;
   suggestion: OfficialSuggestion | null;
+  sync: TrackSyncStatus | null;
 }
 
 export interface TrackOverview {
@@ -322,6 +323,9 @@ export interface TrackOverview {
   tracks: TrackOverviewRow[];
   logs: SurveyLog[];
   catalog_configs: number;
+  // The tracks sync type as a whole (#79): whether rows carry a status, and
+  // the connection-level error if there is one.
+  sync_tracks: { active: boolean; state: SyncState; error: string };
   // Shipped signatures held but not listed in `tracks` — circuits that will
   // name themselves the first time they are driven (#58). They are kept out
   // of the table so 77 undriven rows cannot bury the ones that mean
@@ -680,6 +684,62 @@ export interface AdminSettings {
   race_engineer_verbosity: Verbosity;
   race_engineer_categories: CalloutCategory[];
   race_engineer_units: SpokenUnits;
+  // The sync service (#79). The token never comes back from the server:
+  // `sync_token_set` says whether one is stored, the hint which one.
+  sync_url: string;
+  sync_token_set: boolean;
+  sync_token_hint: string;
+  sync_enabled: boolean;
+  sync_tracks: boolean;
+}
+
+// --- Sync (mirrors backend app/sync) ----------------------------------------
+
+export type SyncState = "off" | "idle" | "syncing" | "connected" | "error" | "unsupported";
+
+// One data type's standing with the sync service.
+export interface SyncTypeStatus {
+  description: string;
+  enabled: boolean; // this type's own toggle
+  offered: boolean | null; // whether the server lists it; null until checked
+  supported: boolean; // whether this build has an adapter for it
+  active: boolean; // all four facts agree: it is being sent
+  state: SyncState;
+  error: string;
+  last_ok_at?: string | null;
+  last_attempt_at?: string | null;
+  uploads?: number;
+  queued?: number;
+  tracks?: Record<string, number>; // per-status counts of the bundles
+}
+
+export interface SyncStatus {
+  configured: boolean;
+  url: string;
+  token_hint: string;
+  enabled: boolean;
+  capabilities: {
+    server: string;
+    version: string;
+    types: Record<string, Record<string, unknown>>;
+  } | null;
+  capabilities_error: string;
+  checked_at: string | null;
+  types: Record<string, SyncTypeStatus>;
+}
+
+// A bundle's standing with the sync service, on its Tracks row. Absent
+// (null) whenever track sync is off.
+export interface TrackSyncStatus {
+  status: "queued" | "uploading" | "synced" | "rejected" | "error" | "unconfirmed" | "unknown";
+  remote_status?: string; // the server's word: pending, merged, held…
+  upload_id?: string;
+  uploaded_at?: string;
+  error?: string;
+  attempts?: number;
+  // Seconds until the next attempt: the rest of the settle window after a
+  // change, or of the backoff after a failure. Null when nothing is due.
+  due_in_s?: number | null;
 }
 
 // Units spoken inside callout text ("eighteen meters" / "fifty-nine feet").

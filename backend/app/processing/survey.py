@@ -35,6 +35,7 @@ import json
 import logging
 import math
 from collections import Counter, deque
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -233,6 +234,10 @@ class SurfaceSurvey:
         self._since_autosave = 0
         # Meta of the bundle this run resumed from (None = fresh circuit).
         self.bundle_info: dict[str, Any] | None = None
+        # Told the circuit's name after every bundle write — the autosaves
+        # and the save on stop. The sync client hangs off it (#79); the
+        # survey itself knows nothing about where a bundle goes next.
+        self.on_bundle_saved: Callable[[str], None] | None = None
         self._crossings: deque[_Crossing] = deque(maxlen=64)
         self._width_estimates: list[float] = []
         # Per-tick yaw-rate width samples (see YAW_* above), and how many
@@ -405,6 +410,8 @@ class SurfaceSurvey:
         self.bundle_info = track_bundle.save(
             self._data_dir, self.track, self.edges, self.finish_crossings, count_run
         )
+        if self.on_bundle_saved is not None:
+            self.on_bundle_saved(self.track)
 
     def stop(self) -> None:
         if self.active:

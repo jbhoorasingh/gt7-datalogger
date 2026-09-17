@@ -32,6 +32,7 @@ from app.processing.tracks import signature_from_samples
 from app.race_engineer import CATEGORIES, VoiceCallout
 from app.race_engineer.manager import RaceEngineerManager
 from app.storage.repository import Repository, lap_summary  # noqa: F401  (re-export)
+from app.sync import SyncClient
 from app.telemetry.listener import UdpTelemetrySource
 from app.telemetry.simulator import SimTelemetrySource, scenario_for
 
@@ -114,6 +115,13 @@ class TelemetryService:
         self.notifier.enabled = settings.enabled_webhook_events()
         self.event_watcher = LiveEventWatcher()
         self.survey = SurfaceSurvey()
+        # Pushes bundles to the sync service (#79) on its own tasks. Told
+        # about every bundle the survey writes; the API tells it about the
+        # rest (imports, pulls, renames, layout confirmations). A flipped
+        # toggle — the server said "type_disabled" — is persisted through
+        # the repo like any other admin setting.
+        self.sync = SyncClient(settings, settings.db_path.parent, persist=repo.set_setting)
+        self.survey.on_bundle_saved = self.sync.tracks.changed
         self.engineer = RaceEngineerManager(
             enabled=settings.race_engineer,
             verbosity=settings.race_engineer_verbosity,
@@ -176,10 +184,12 @@ class TelemetryService:
 
     async def start(self) -> None:
         await self.source.start()
+        await self.sync.start()
 
     async def stop(self) -> None:
         await self.source.stop()
         self.survey.stop()
+        await self.sync.stop()
         tasks = [c.task for c in self._clients.values() if c.task]
         for t in tasks:
             t.cancel()

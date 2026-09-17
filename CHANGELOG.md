@@ -7,6 +7,30 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Added
 
+- **A sync client for contributing surveys.** (#79) Pulling shared bundles
+  has worked since #47, but sending a survey back was a clone-the-repo-and-
+  open-a-PR job. **Admin → Sync** now takes a server address and a token
+  (the address field also accepts the `gt7sync://…?token=…` connection
+  string the service issues, split into the two), keeps the token on its
+  own, masked in the UI, sent only as a `Bearer` header and never logged,
+  asks the server what data types it accepts, and shows a toggle per type
+  under a master switch, all off by default. The one type this release sends
+  is **tracks**: every survey bundle whose official layout has been
+  confirmed — corner labels included — uploaded once it has been left alone
+  for ten minutes after a change. A running survey's once-a-minute autosave
+  keeps resetting that clock, so a run goes up once, after it stops and the
+  labelling that follows it; Sync now skips the wait. Nothing is re-sent
+  when the evidence has not changed since the server last accepted it. Uploads run in the background with retry and exponential
+  backoff; a refused document is remembered with its reason and not retried
+  until the bundle changes; a server that stops accepting tracks flips the
+  toggle off and says so. Each row of the Tracks view carries a chip — *not
+  synced — confirm layout*, *queued*, *syncing*, *synced* with the upload id,
+  *rejected*, *error*. The client is one transport plus one adapter per data
+  type, so `sessions` and `live` reuse the plumbing when their server halves
+  land. New settings `GT7_SYNC_URL`, `GT7_SYNC_TOKEN`, `GT7_SYNC_ENABLED`,
+  `GT7_SYNC_TRACKS`; new endpoints `GET /api/admin/sync`, `POST
+  /api/admin/sync/test`, `POST /api/admin/sync/push`; `/api/track-overview`
+  rows gain a `sync` field.
 - **An in-app guide to the Analysis view.** The view had grown to thirty chart
   channels and a dozen features, and none of them said what they were: a panel
   called "Tire spd / car spd" or a switch called "sync" was left to be

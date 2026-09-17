@@ -82,6 +82,22 @@ class Settings(BaseSettings):
     # exactly the same validation and voting merge as a hand-imported file.
     shared_bundles_url: str = "https://jbhoorasingh.github.io/gt7-datalogger-track-data"
 
+    # The sync service (#79): where this installation pushes its data, and
+    # the token that identifies its account there. Both come out of ONE
+    # connection string pasted into Admin -> Sync (gt7sync://host/?token=…),
+    # split so the secret is stored and sent on its own and never rebuilt
+    # into a URL. Pulling shared bundles (GT7_SHARED_BUNDLES_URL) is the
+    # other direction and needs no account; this is contributing back.
+    sync_url: str = "https://sync.gt7-datalogger.com"
+    sync_token: str = ""  # secret: masked in the UI, never logged
+    # The master switch, and one toggle per data type under it. All default
+    # off: enabling sync does not enable anything, and enabling `tracks`
+    # does not enable a type added later. Only `tracks` (survey bundles)
+    # has an adapter so far; sessions and live arrive with their server
+    # halves and get a toggle each here.
+    sync_enabled: bool = False
+    sync_tracks: bool = False
+
     # Webhook for race notifications
     # (Discord webhook URLs get a rich embed; other URLs get plain JSON).
     webhook_url: str = ""

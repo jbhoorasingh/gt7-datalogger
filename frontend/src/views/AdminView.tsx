@@ -16,6 +16,8 @@ import {
   type LogRecord,
   type RaceEngineerDiagnostics,
   type SpokenUnits,
+  type SyncStatus,
+  type SyncTypeStatus,
   type Verbosity,
   type WebhookEvent,
 } from "@/lib/types";
@@ -194,6 +196,22 @@ export function AdminView() {
           )}
         </Panel>
       </div>
+
+      {/* Sync service (#79) */}
+      <Panel title="Sync" subtitle="contribute surveys to a sync service">
+        {settings ? (
+          <SyncForm
+            settings={settings}
+            busy={busy}
+            onApply={apply}
+            onSettings={setSettings}
+            flash={flash}
+            setBusy={setBusy}
+          />
+        ) : (
+          <div className="p-4 text-sm text-ink-dim">Loading…</div>
+        )}
+      </Panel>
 
       {/* Overlay & dashboard layout builder */}
       <Panel
@@ -692,6 +710,369 @@ function RaceEngineerForm({
         </a>{" "}
         page.
       </p>
+    </div>
+  );
+}
+
+// The connection string is the one thing pasted; the server splits it into
+// URL + token and only ever hands back a hint of the token. Each data type
+// the server advertises gets a toggle, all off by default — enabling sync
+// enables nothing by itself.
+const SYNC_STATE_LABEL: Record<SyncTypeStatus["state"], string> = {
+  off: "off",
+  idle: "idle",
+  syncing: "syncing…",
+  connected: "connected",
+  error: "error",
+  unsupported: "not in this logger version",
+};
+
+const SYNC_STATE_COLOR: Record<SyncTypeStatus["state"], string> = {
+  off: "text-ink-faint",
+  idle: "text-ink-dim",
+  syncing: "text-accent",
+  connected: "text-throttle",
+  error: "text-brake",
+  unsupported: "text-ink-faint",
+};
+
+// Which settings key carries a type's toggle. Only types this build can
+// send have one; the rest render disabled with a note.
+const SYNC_TOGGLE: Partial<Record<string, "sync_tracks">> = { tracks: "sync_tracks" };
+
+function whenShort(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleString();
+}
+
+function SyncForm({
+  settings,
+  busy,
+  onApply,
+  onSettings,
+  flash,
+  setBusy,
+}: {
+  settings: AdminSettings;
+  busy: string | null;
+  onApply: (
+    patch: Parameters<typeof api.admin.updateSettings>[0],
+    label: string,
+  ) => void | Promise<void>;
+  onSettings: (s: AdminSettings) => void;
+  flash: (text: string, error?: boolean) => void;
+  setBusy: (b: string | null) => void;
+}) {
+  const [server, setServer] = useState(settings.sync_url);
+  const [token, setToken] = useState("");
+  const [status, setStatus] = useState<SyncStatus | null>(null);
+  const [forgetting, setForgetting] = useState(false);
+  useEffect(() => setServer(settings.sync_url), [settings.sync_url]);
+
+  const load = useCallback(() => {
+    api.admin.sync().then(setStatus).catch(() => {});
+  }, []);
+
+  // The toggles read the polled status, not the settings snapshot: the
+  // server flips a type off by itself on a 403, and a checkbox that stayed
+  // ticked next to "off: server no longer accepts this" would be a lie.
+  async function toggle(patch: Parameters<typeof api.admin.updateSettings>[0], label: string) {
+    await onApply(patch, label);
+    load();
+  }
+
+  useEffect(() => {
+    load();
+    const t = window.setInterval(load, 5000);
+    return () => window.clearInterval(t);
+  }, [load]);
+
+  async function test(label = "Test connection") {
+    setBusy(label);
+    try {
+      const st = await api.admin.syncTest();
+      setStatus(st);
+      const offered = Object.keys(st.capabilities?.types ?? {});
+      flash(
+        `Connected to ${st.capabilities?.server || st.url}` +
+          (offered.length ? ` — accepts ${offered.join(", ")}` : " — accepts no data types"),
+      );
+    } catch (e) {
+      load();
+      flash(e instanceof Error ? e.message : "Sync test failed", true);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  // The address field also takes a whole connection string (the one-paste
+  // form the portal shows): the server splits it into address and token.
+  async function saveServer() {
+    const text = server.trim();
+    const withToken = text.includes("?");
+    setBusy("Sync server");
+    try {
+      const s = await api.admin.updateSettings({ sync_url: text });
+      onSettings(s);
+      if (!withToken) {
+        flash(`Sync server set to ${s.sync_url}`);
+        load();
+        setBusy(null);
+        return;
+      }
+      flash(`Sync server set to ${s.sync_url} and token stored`);
+    } catch (e) {
+      flash(e instanceof Error ? e.message : "Server address rejected", true);
+      setBusy(null);
+      return;
+    }
+    await test("Sync server");
+  }
+
+  async function saveToken() {
+    const text = token.trim();
+    if (!text) return;
+    setBusy("Sync token");
+    try {
+      onSettings(await api.admin.updateSettings({ sync_token: text }));
+      setToken("");
+    } catch (e) {
+      flash(e instanceof Error ? e.message : "Token rejected", true);
+      setBusy(null);
+      return;
+    }
+    await test("Sync token");
+  }
+
+  async function push() {
+    setBusy("Sync now");
+    try {
+      setStatus(await api.admin.syncPush());
+      flash("Every eligible bundle queued");
+    } catch (e) {
+      flash(e instanceof Error ? e.message : "Sync push failed", true);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const types = status ? Object.entries(status.types) : [];
+  const checked = status?.capabilities != null;
+
+  return (
+    <div className="space-y-4 p-4">
+      <div>
+        <label className="mb-1 block text-xs text-ink-dim" htmlFor="sync-server">
+          Server address — the sync service this installation contributes to
+        </label>
+        <div className="flex gap-2">
+          <input
+            id="sync-server"
+            autoComplete="off"
+            value={server}
+            onChange={(e) => setServer(e.target.value)}
+            placeholder="sync.gt7-datalogger.com"
+            className="w-full rounded-md border border-edge bg-panel-2 px-3 py-1.5 font-tabular text-sm placeholder:text-ink-ghost focus:border-accent focus:outline-none"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && server.trim() !== settings.sync_url) void saveServer();
+            }}
+          />
+          <button
+            className="btn shrink-0"
+            disabled={busy !== null || server.trim() === settings.sync_url}
+            onClick={() => void saveServer()}
+          >
+            Apply
+          </button>
+        </div>
+        <p className="mt-1 text-[11px] text-ink-dim">
+          A host name is read as https. Use <span className="font-tabular">http://</span> (or{" "}
+          <span className="font-tabular">gt7sync+http://</span>) for a server of your own on
+          the LAN; empty = the hosted service. Pasting the{" "}
+          <span className="font-tabular">gt7sync://…?token=…</span> string the portal shows
+          fills in the token below too. Pulling shared bundles (Tracks view) needs none of
+          this — the sync service is for contributing your own surveys back.
+        </p>
+      </div>
+
+      <div>
+        <label className="mb-1 block text-xs text-ink-dim" htmlFor="sync-token">
+          Token — from the sync service&apos;s portal; identifies your account
+        </label>
+        <div className="flex gap-2">
+          <input
+            id="sync-token"
+            type="password"
+            autoComplete="off"
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+            placeholder={
+              settings.sync_token_set
+                ? `stored (${settings.sync_token_hint}) — paste a new one to replace it`
+                : "paste the token here"
+            }
+            className="w-full rounded-md border border-edge bg-panel-2 px-3 py-1.5 font-tabular text-sm placeholder:text-ink-ghost focus:border-accent focus:outline-none"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void saveToken();
+            }}
+          />
+          <button
+            className="btn shrink-0"
+            disabled={busy !== null || !token.trim()}
+            onClick={() => void saveToken()}
+          >
+            Save
+          </button>
+          <button
+            className="btn shrink-0"
+            disabled={busy !== null || !settings.sync_token_set}
+            onClick={() => void test()}
+          >
+            Test connection
+          </button>
+        </div>
+        <p className="mt-1 text-[11px] text-ink-dim">
+          {settings.sync_token_set ? (
+            <>
+              Stored as <span className="font-tabular text-ink">{settings.sync_token_hint}</span>{" "}
+              and sent only as a header — it is never shown again.{" "}
+              <button
+                className="text-accent hover:underline"
+                disabled={busy !== null}
+                onClick={() => setForgetting(true)}
+              >
+                Forget it
+              </button>
+            </>
+          ) : (
+            <>Kept apart from the address, masked here, never in a URL and never in the logs.</>
+          )}
+        </p>
+      </div>
+
+      <div>
+        {status?.capabilities_error && (
+          <p className="mt-1 text-[11px] text-brake">
+            Last check{status.checked_at ? ` at ${whenShort(status.checked_at)}` : ""}:{" "}
+            {status.capabilities_error}
+          </p>
+        )}
+        {checked && status?.capabilities && (
+          <p className="mt-1 text-[11px] text-ink-dim">
+            Server {status.capabilities.server || status.url}
+            {status.capabilities.version && ` v${status.capabilities.version}`} · checked{" "}
+            {whenShort(status.checked_at)} · accepts{" "}
+            {Object.keys(status.capabilities.types).join(", ") || "no data types"}
+          </p>
+        )}
+      </div>
+
+      <label className="flex cursor-pointer items-baseline gap-2 text-sm">
+        <input
+          type="checkbox"
+          className="translate-y-px accent-accent"
+          checked={status?.enabled ?? settings.sync_enabled}
+          disabled={busy !== null || !settings.sync_token_set}
+          onChange={(e) => void toggle({ sync_enabled: e.target.checked }, "Sync")}
+        />
+        <span>Enable sync</span>
+        <span className="text-[11px] text-ink-dim">
+          — the master switch; each data type below is still off until you turn it on
+        </span>
+      </label>
+
+      <div>
+        <span className="mb-1 block text-xs text-ink-dim">
+          What to send{checked ? "" : " — test the connection to see what the server accepts"}
+        </span>
+        <div className="space-y-2">
+          {types.map(([name, t]) => {
+            const key = SYNC_TOGGLE[name];
+            const on = key ? t.enabled : false;
+            const disabled =
+              busy !== null || !settings.sync_enabled || !key || !t.supported ||
+              t.offered === false;
+            return (
+              <div key={name} className="rounded-lg border border-edge px-3 py-2">
+                <label className="flex cursor-pointer items-baseline gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="translate-y-px accent-accent"
+                    checked={on}
+                    disabled={disabled}
+                    onChange={(e) => {
+                      if (key) void toggle({ [key]: e.target.checked }, `Sync ${name}`);
+                    }}
+                  />
+                  <span className="capitalize">{name}</span>
+                  <span className={`text-[11px] ${t.error ? "text-brake" : SYNC_STATE_COLOR[t.state]}`}>
+                    — {SYNC_STATE_LABEL[t.state]}
+                    {t.error ? `: ${t.error}` : ""}
+                  </span>
+                  {t.offered === false && t.supported && (
+                    <span className="text-[11px] text-warn">· the server does not accept this</span>
+                  )}
+                  {t.offered === null && t.supported && (
+                    <span className="text-[11px] text-ink-faint">· server not checked yet</span>
+                  )}
+                </label>
+                <p className="mt-0.5 pl-5 text-[11px] text-ink-dim">{t.description}</p>
+                {t.active && (
+                  <div className="mt-1 flex flex-wrap items-center gap-x-3 pl-5 font-tabular text-[11px] text-ink-faint">
+                    {t.last_ok_at && <span>last upload {whenShort(t.last_ok_at)}</span>}
+                    <span>{t.uploads ?? 0} uploaded since start</span>
+                    {(t.queued ?? 0) > 0 && <span className="text-accent">{t.queued} queued</span>}
+                    {t.tracks?.synced != null && <span>{t.tracks.synced} synced</span>}
+                    {t.tracks?.rejected ? (
+                      <span className="text-brake">{t.tracks.rejected} rejected</span>
+                    ) : null}
+                    {t.tracks?.unconfirmed ? (
+                      <span className="text-warn">
+                        {t.tracks.unconfirmed} waiting for a confirmed layout
+                      </span>
+                    ) : null}
+                    {name === "tracks" && (
+                      <button
+                        className="btn ml-auto"
+                        disabled={busy !== null}
+                        onClick={() => void push()}
+                      >
+                        Sync now
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {status && types.length === 0 && (
+            <div className="text-xs text-ink-dim">
+              No data types to send. Test the connection to ask the server what it accepts.
+            </div>
+          )}
+        </div>
+        <p className="mt-1.5 text-[11px] text-ink-dim">
+          Nothing is sent for a type that is off. A changed bundle is uploaded once it has
+          been left alone for ten minutes — a running survey keeps resetting that clock, so
+          a run goes up once, after it stops and the corner labelling that follows it.
+          Uploads run in the background with retry and backoff and never block recording.
+          A type the server switches off is turned off here too, and says so.
+        </p>
+      </div>
+
+      <ConfirmDialog
+        open={forgetting}
+        title="Forget the sync token?"
+        body="Sync stops until a new connection string is pasted. The token cannot be shown again — the service only reveals it once, when it is created."
+        confirmLabel="Forget token"
+        danger
+        onConfirm={() => {
+          setForgetting(false);
+          onApply({ sync_token: "" }, "Sync token");
+        }}
+        onCancel={() => setForgetting(false)}
+      />
     </div>
   );
 }

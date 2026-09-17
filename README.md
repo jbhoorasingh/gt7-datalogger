@@ -130,6 +130,11 @@ per-feature guides, how every calculation works, and the API reference.
 - **Webhook / Discord notifications** — personal bests, session summaries, overtakes,
   positions lost, and off-road excursions posted to any webhook URL (Discord URLs get
   a rich embed, others plain JSON), each event individually toggleable.
+- **Sync client** — point the app at a sync service and the survey bundles of circuits
+  with a confirmed layout upload themselves once a run has settled, corner labels
+  included, in the background with retry and backoff. Per-type toggles, all off by default; the
+  token is stored apart, masked, and never logged. Only `tracks` is sent so far —
+  `sessions` and `live` reuse the same plumbing when their server halves land.
 - Configurable units (km/h / mph), persisted in the browser; dark-themed responsive UI
   built on accessible primitives with a colorblind-validated chart palette.
 
@@ -442,7 +447,8 @@ newer channels are simply absent and the charts skip them.
   — this project's own track data, kept separate because it changes every time somebody
   drives: surveyed border geometry for GT7 circuits, the catalog of all 121
   configurations, and the generated `signatures.json` this app vendors. The app can pull
-  contributed bundles from it directly (**Tracks → Shared bundles**).
+  contributed bundles from it directly (**Tracks → Shared bundles**) and, connected to a
+  sync service (**Admin → Sync**), push its own surveys back once a run has settled.
 
 ## Screenshots
 
