@@ -5,6 +5,8 @@ Notable changes to GT7 Datalogger. The format follows
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-16
+
 ### Added
 
 - **A sync client for contributing surveys.** (#79) Pulling shared bundles
