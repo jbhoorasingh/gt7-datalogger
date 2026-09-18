@@ -719,6 +719,8 @@ export interface AdminSettings {
   sync_token_hint: string;
   sync_enabled: boolean;
   sync_tracks: boolean;
+  sync_sessions: boolean;
+  sync_live: boolean;
 }
 
 // --- Sync (mirrors backend app/sync) ----------------------------------------
@@ -738,7 +740,41 @@ export interface SyncTypeStatus {
   last_attempt_at?: string | null;
   uploads?: number;
   queued?: number;
+  // Seconds until the next attempt while backing off; null otherwise.
+  due_in_s?: number | null;
   tracks?: Record<string, number>; // per-status counts of the bundles
+  sessions?: SyncSessionsDetail; // the sessions adapter's counters
+  live?: SyncLiveDetail; // the live stream's connection
+}
+
+// The sessions adapter: how many drives reached the service, what is still
+// queued, and the one being driven now.
+export interface SyncSessionsDetail {
+  synced: number; // sessions the server opened
+  pending: number; // sessions with laps or totals still to send
+  closed: number; // sessions the server no longer has
+  laps_rejected: number;
+  current: {
+    local_id: number;
+    remote_id: string;
+    laps_synced: number;
+    laps_queued: number;
+    closed: string;
+  } | null;
+}
+
+// The live adapter: one socket, held while the car is on track.
+export interface SyncLiveDetail {
+  connected: boolean;
+  streaming: boolean; // connected and the car is on track
+  hz: number; // frames per second, after the server's ceiling
+  spectators: number;
+  frames: number;
+  user_id: string;
+  spectate_url: string; // the service's page for this stream; empty until connected once
+  started_at: string;
+  recording: boolean;
+  last_frame_at: string | null;
 }
 
 export interface SyncStatus {

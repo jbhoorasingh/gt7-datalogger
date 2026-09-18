@@ -198,7 +198,7 @@ export function AdminView() {
       </div>
 
       {/* Sync service (#79) */}
-      <Panel title="Sync" subtitle="contribute surveys to a sync service">
+      <Panel title="Sync" subtitle="push surveys, laps and a live position stream to a sync service">
         {settings ? (
           <SyncForm
             settings={settings}
@@ -738,12 +738,136 @@ const SYNC_STATE_COLOR: Record<SyncTypeStatus["state"], string> = {
 
 // Which settings key carries a type's toggle. Only types this build can
 // send have one; the rest render disabled with a note.
-const SYNC_TOGGLE: Partial<Record<string, "sync_tracks">> = { tracks: "sync_tracks" };
+const SYNC_TOGGLE: Partial<Record<string, "sync_tracks" | "sync_sessions" | "sync_live">> = {
+  tracks: "sync_tracks",
+  sessions: "sync_sessions",
+  live: "sync_live",
+};
+
+// What the per-type "send it now" button is called, where one makes sense:
+// bundles skip the settle window, laps skip the backoff. The live stream
+// reconnects on its own the moment the car is on track; a held one is
+// released by the same button.
+const SYNC_PUSH_LABEL: Partial<Record<string, string>> = {
+  tracks: "Sync now",
+  sessions: "Flush now",
+  live: "Reconnect",
+};
+
+function inWords(seconds: number): string {
+  if (seconds < 90) return `${seconds} s`;
+  return `${Math.round(seconds / 60)} min`;
+}
 
 function whenShort(iso: string | null | undefined): string {
   if (!iso) return "";
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? "" : d.toLocaleString();
+}
+
+// The counters under a type's toggle, once it is active. Each type has its
+// own idea of "one upload": a bundle, a lap, a frame.
+function SyncTypeDetail({
+  name,
+  t,
+  busy,
+  push,
+}: {
+  name: string;
+  t: SyncTypeStatus;
+  busy: string | null;
+  push: (name: string) => void | Promise<void>;
+}) {
+  const due = t.due_in_s != null && t.due_in_s > 0 ? inWords(t.due_in_s) : "";
+  const live = t.live;
+  const sessions = t.sessions;
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 pl-5 font-tabular text-[11px] text-ink-faint">
+      {name === "tracks" && (
+        <>
+          {t.last_ok_at && <span>last upload {whenShort(t.last_ok_at)}</span>}
+          <span>{t.uploads ?? 0} uploaded since start</span>
+          {(t.queued ?? 0) > 0 && <span className="text-accent">{t.queued} queued</span>}
+          {t.tracks?.synced != null && <span>{t.tracks.synced} synced</span>}
+          {t.tracks?.rejected ? (
+            <span className="text-brake">{t.tracks.rejected} rejected</span>
+          ) : null}
+          {t.tracks?.unconfirmed ? (
+            <span className="text-warn">{t.tracks.unconfirmed} waiting for a confirmed layout</span>
+          ) : null}
+        </>
+      )}
+      {name === "sessions" && sessions && (
+        <>
+          {t.last_ok_at && <span>last lap {whenShort(t.last_ok_at)}</span>}
+          <span>{t.uploads ?? 0} laps sent since start</span>
+          {(t.queued ?? 0) > 0 && (
+            <span className="text-accent">
+              {t.queued} queued{due ? ` · retry in ${due}` : ""}
+            </span>
+          )}
+          <span>{sessions.synced} sessions on the server</span>
+          {sessions.laps_rejected ? (
+            <span className="text-brake">{sessions.laps_rejected} laps refused</span>
+          ) : null}
+          {sessions.closed ? (
+            <span className="text-warn">{sessions.closed} closed by the server</span>
+          ) : null}
+          {sessions.current && (
+            <span
+              title={
+                sessions.current.remote_id
+                  ? `Session ${sessions.current.local_id} is ${sessions.current.remote_id} on the server`
+                  : "The session is announced with its first lap"
+              }
+            >
+              this drive: {sessions.current.laps_synced} sent
+              {sessions.current.laps_queued ? `, ${sessions.current.laps_queued} waiting` : ""}
+              {sessions.current.closed ? ` · ${sessions.current.closed}` : ""}
+            </span>
+          )}
+        </>
+      )}
+      {name === "live" && live && (
+        <>
+          <span>
+            {live.streaming
+              ? `streaming at ${live.hz} Hz`
+              : live.connected
+                ? "connected, waiting for the car"
+                : t.error
+                  ? due
+                    ? `retry in ${due}`
+                    : "not connected"
+                  : "opens when the car is on track"}
+          </span>
+          {live.connected && (
+            <span>
+              {live.spectators} watching
+            </span>
+          )}
+          <span>{live.frames} frames since start</span>
+          {live.recording && <span className="text-warn">recording</span>}
+          {live.spectate_url && (
+            <a
+              className="text-accent hover:underline"
+              href={live.spectate_url}
+              target="_blank"
+              rel="noreferrer"
+              title="The service's spectate page for this stream. Whether others may watch is your account's setting in the portal."
+            >
+              spectate page
+            </a>
+          )}
+        </>
+      )}
+      {SYNC_PUSH_LABEL[name] && (name !== "live" || t.error) && (
+        <button className="btn ml-auto" disabled={busy !== null} onClick={() => void push(name)}>
+          {SYNC_PUSH_LABEL[name]}
+        </button>
+      )}
+    </div>
+  );
 }
 
 function SyncForm({
@@ -845,11 +969,18 @@ function SyncForm({
     await test("Sync token");
   }
 
-  async function push() {
-    setBusy("Sync now");
+  async function push(name: string) {
+    const label = SYNC_PUSH_LABEL[name] ?? "Sync now";
+    setBusy(label);
     try {
-      setStatus(await api.admin.syncPush());
-      flash("Every eligible bundle queued");
+      setStatus(await api.admin.syncPush(name));
+      flash(
+        name === "tracks"
+          ? "Every eligible bundle queued"
+          : name === "sessions"
+            ? "Queued laps sending now"
+            : "Live stream reconnecting on the next packet",
+      );
     } catch (e) {
       flash(e instanceof Error ? e.message : "Sync push failed", true);
     } finally {
@@ -1018,31 +1149,7 @@ function SyncForm({
                   )}
                 </label>
                 <p className="mt-0.5 pl-5 text-[11px] text-ink-dim">{t.description}</p>
-                {t.active && (
-                  <div className="mt-1 flex flex-wrap items-center gap-x-3 pl-5 font-tabular text-[11px] text-ink-faint">
-                    {t.last_ok_at && <span>last upload {whenShort(t.last_ok_at)}</span>}
-                    <span>{t.uploads ?? 0} uploaded since start</span>
-                    {(t.queued ?? 0) > 0 && <span className="text-accent">{t.queued} queued</span>}
-                    {t.tracks?.synced != null && <span>{t.tracks.synced} synced</span>}
-                    {t.tracks?.rejected ? (
-                      <span className="text-brake">{t.tracks.rejected} rejected</span>
-                    ) : null}
-                    {t.tracks?.unconfirmed ? (
-                      <span className="text-warn">
-                        {t.tracks.unconfirmed} waiting for a confirmed layout
-                      </span>
-                    ) : null}
-                    {name === "tracks" && (
-                      <button
-                        className="btn ml-auto"
-                        disabled={busy !== null}
-                        onClick={() => void push()}
-                      >
-                        Sync now
-                      </button>
-                    )}
-                  </div>
-                )}
+                {t.active && <SyncTypeDetail name={name} t={t} busy={busy} push={push} />}
               </div>
             );
           })}
@@ -1055,9 +1162,12 @@ function SyncForm({
         <p className="mt-1.5 text-[11px] text-ink-dim">
           Nothing is sent for a type that is off. A changed bundle is uploaded once it has
           been left alone for ten minutes — a running survey keeps resetting that clock, so
-          a run goes up once, after it stops and the corner labelling that follows it.
-          Uploads run in the background with retry and backoff and never block recording.
-          A type the server switches off is turned off here too, and says so.
+          a run goes up once, after it stops and the corner labelling that follows it. A
+          lap goes as soon as it is saved, the session with its first lap, and laps queue
+          while the service is away. The live stream holds one socket while the car is on
+          track and sends where it is a few times a second, never a backlog. Everything
+          runs in the background with retry and backoff and never blocks recording. A type
+          the server switches off is turned off here too, and says so.
         </p>
       </div>
 

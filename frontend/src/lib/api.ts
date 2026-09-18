@@ -107,6 +107,8 @@ export type AdminSettingsPatch = Partial<
     | "sync_url"
     | "sync_enabled"
     | "sync_tracks"
+    | "sync_sessions"
+    | "sync_live"
   >
 > & { sync_token?: string };
 
@@ -364,7 +366,12 @@ export const api = {
     // accepts (the Test button), and queue every eligible bundle now.
     sync: () => get<SyncStatus>("/api/admin/sync"),
     syncTest: () => send<SyncStatus>("/api/admin/sync/test", "POST"),
-    syncPush: () => send<SyncStatus>("/api/admin/sync/push", "POST"),
+    // Send what is waiting now: one data type, or every active one.
+    syncPush: (type?: string) =>
+      send<SyncStatus>(
+        `/api/admin/sync/push${type ? `?type=${encodeURIComponent(type)}` : ""}`,
+        "POST",
+      ),
     testWebhook: () => send<{ status: string }>("/api/admin/test-webhook", "POST"),
     raceEngineer: () => get<RaceEngineerDiagnostics>("/api/admin/race-engineer"),
     testCallout: (text: string) =>
