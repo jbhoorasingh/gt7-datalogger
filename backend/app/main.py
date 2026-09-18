@@ -220,8 +220,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         settings.sync_token = stored["sync_token"]
     if "sync_enabled" in stored:
         settings.sync_enabled = stored["sync_enabled"] == "true"
-    if "sync_tracks" in stored:
-        settings.sync_tracks = stored["sync_tracks"] == "true"
+    for name in ("sync_tracks", "sync_sessions", "sync_live"):
+        if name in stored:
+            setattr(settings, name, stored[name] == "true")
 
     await sync_track_seed(settings, repo, stored, log)
 
