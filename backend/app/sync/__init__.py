@@ -12,9 +12,11 @@ sends.
 
 The client is one **transport** (the connection string, bearer auth, the
 server's capabilities, error classification) plus one **adapter per data
-type**, each of which decides what to send and when. Only the `tracks`
-adapter exists so far; `sessions` and `live` arrive with their server halves
-and reuse everything under `SyncClient`. The rules every adapter lives by:
+type**, each of which decides what to send and when: `tracks` (survey
+bundles, once they settle), `sessions` (your own laps, one document per lap
+as it is saved, queued while the service is away) and `live` (a ~4 Hz
+position stream over a WebSocket while the car is on track). The rules
+every adapter lives by:
 
 - nothing is ever sent for a type whose toggle is off;
 - nothing blocks the recorder or the UI — every upload is a background task

@@ -92,11 +92,17 @@ class Settings(BaseSettings):
     sync_token: str = ""  # secret: masked in the UI, never logged
     # The master switch, and one toggle per data type under it. All default
     # off: enabling sync does not enable anything, and enabling `tracks`
-    # does not enable a type added later. Only `tracks` (survey bundles)
-    # has an adapter so far; sessions and live arrive with their server
-    # halves and get a toggle each here.
+    # does not enable another type. `tracks` sends survey bundles,
+    # `sessions` your own laps as a private cloud copy, `live` a low-rate
+    # position stream for the service's spectate page.
     sync_enabled: bool = False
     sync_tracks: bool = False
+    sync_sessions: bool = False
+    sync_live: bool = False
+    # Frames per second the live stream sends while the car is on track.
+    # Four is what a spectate page needs; the server states its own ceiling
+    # when the stream connects and the lower of the two wins.
+    sync_live_hz: float = 4.0
 
     # Webhook for race notifications
     # (Discord webhook URLs get a rich embed; other URLs get plain JSON).

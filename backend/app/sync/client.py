@@ -7,8 +7,8 @@ the adapters, and is the one place that decides whether a data type is
 
 1. the master switch is on and a server + token are configured;
 2. the type's own toggle is on (`GT7_SYNC_<TYPE>`);
-3. this build has an adapter for it (the server may offer `sessions`
-   before the logger can send them);
+3. this build has an adapter for it (a server may offer a type added
+   after this release);
 4. the server has not said no — either by leaving the type out of its
    capabilities, or with a `403 type_disabled` on an upload, which flips
    the toggle off and says so in the status line.
@@ -33,6 +33,8 @@ from app.sync.transport import SyncError, Transport
 
 if TYPE_CHECKING:
     from app.config import Settings
+    from app.sync.live import LiveAdapter
+    from app.sync.sessions import LapLoader, SessionsAdapter, StatsLoader
     from app.sync.tracks import TracksAdapter
 
 log = logging.getLogger(__name__)
@@ -50,8 +52,12 @@ class Adapter(Protocol):
     def reload_state(self) -> None:
         """The server changed: forget what the old one accepted."""
 
+    def clear_backoff(self) -> None:
+        """A person asked for it to go now: forget every retry delay."""
+
     def status(self) -> dict[str, Any]:
         """state, error, counters — merged into the type's status entry."""
+
 
 # The data types the spec defines, in display order, with what each sends.
 # Listed here rather than only in the UI so the status document can describe
@@ -63,10 +69,15 @@ TYPE_DESCRIPTIONS: dict[str, str] = {
         "bundle has settled after a change. Nothing about your laps."
     ),
     "sessions": (
-        "Your own sessions and laps — car, lap times, racing line — as a "
-        "private cloud copy."
+        "Your own sessions and laps — car, lap times, the full 60 Hz samples and "
+        "your racing line — as a private cloud copy, one lap at a time as you "
+        "drive. Private by default; you choose in the portal what to share."
     ),
-    "live": "A ~4 Hz position and lap-time stream for a spectate page or overlay.",
+    "live": (
+        "Where the car is, a few times a second — position, speed, gear, lap and "
+        "lap time — for the service's spectate page and overlays, while you are "
+        "on track. Nothing is stored unless your account asks for a recording."
+    ),
 }
 
 
@@ -80,7 +91,11 @@ class SyncClient:
         settings: Settings,
         data_dir: Path,
         persist: Callable[[str, str], Awaitable[None]] | None = None,
+        load_lap: LapLoader | None = None,
+        load_stats: StatsLoader | None = None,
     ) -> None:
+        from app.sync.live import LiveAdapter
+        from app.sync.sessions import SessionsAdapter
         from app.sync.tracks import TracksAdapter
 
         self.settings = settings
@@ -96,7 +111,17 @@ class SyncClient:
         self._tasks: set[asyncio.Task[Any]] = set()
         self._bring_up_task: asyncio.Task[Any] | None = None
         self.tracks: TracksAdapter = TracksAdapter(self, data_dir)
-        self.adapters: dict[str, Adapter] = {"tracks": self.tracks}
+        # The lap and session loaders are the repo's; None in unit tests
+        # that never get as far as sending a lap.
+        self.sessions: SessionsAdapter = SessionsAdapter(
+            self, data_dir, load_lap=load_lap, load_stats=load_stats
+        )
+        self.live: LiveAdapter = LiveAdapter(self)
+        self.adapters: dict[str, Adapter] = {
+            "tracks": self.tracks,
+            "sessions": self.sessions,
+            "live": self.live,
+        }
 
     # --- what is on ---------------------------------------------------------
 
@@ -123,6 +148,15 @@ class SyncClient:
 
     def transport(self) -> Transport:
         return Transport(self.settings.sync_url, self.settings.sync_token, http=self.http)
+
+    def hint(self, name: str, key: str, default: int) -> int:
+        """A limit the server stated for a type in its capabilities, or the
+        default when it has not been asked or said nothing."""
+        if self.capabilities is None:
+            return default
+        spec = self.capabilities["types"].get(name) or {}
+        value = spec.get(key)
+        return int(value) if isinstance(value, int | float) and value > 0 else default
 
     # --- lifecycle ----------------------------------------------------------
 

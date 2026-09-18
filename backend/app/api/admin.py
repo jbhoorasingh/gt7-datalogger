@@ -71,6 +71,8 @@ async def get_settings(request: Request) -> dict[str, Any]:
         "sync_token_hint": mask_token(s.sync_token),
         "sync_enabled": s.sync_enabled,
         "sync_tracks": s.sync_tracks,
+        "sync_sessions": s.sync_sessions,
+        "sync_live": s.sync_live,
     }
 
 
@@ -99,6 +101,12 @@ class SettingsPayload(BaseModel):
     sync_token: str | None = Field(default=None, max_length=512)
     sync_enabled: bool | None = None
     sync_tracks: bool | None = None
+    sync_sessions: bool | None = None
+    sync_live: bool | None = None
+
+
+# The per-type toggles, with what each switches on, for the log line.
+SYNC_TYPES = {"tracks": "track uploads", "sessions": "session uploads", "live": "live stream"}
 
 
 @router.put("/settings")
@@ -180,10 +188,13 @@ async def _apply_sync(service: TelemetryService, payload: SettingsPayload) -> No
         await service.repo.set_setting("sync_enabled", str(payload.sync_enabled).lower())
         log.info("sync: %s", "enabled" if payload.sync_enabled else "disabled")
         changed = True
-    if payload.sync_tracks is not None:
-        service.settings.sync_tracks = payload.sync_tracks
-        await service.repo.set_setting("sync_tracks", str(payload.sync_tracks).lower())
-        log.info("sync: track uploads %s", "on" if payload.sync_tracks else "off")
+    for name, what in SYNC_TYPES.items():
+        wanted = getattr(payload, f"sync_{name}")
+        if wanted is None:
+            continue
+        setattr(service.settings, f"sync_{name}", wanted)
+        await service.repo.set_setting(f"sync_{name}", str(wanted).lower())
+        log.info("sync: %s %s", what, "on" if wanted else "off")
         changed = True
     if changed:
         service.sync.apply()
@@ -256,18 +267,28 @@ async def sync_test(request: Request) -> dict[str, Any]:
 
 
 @router.post("/sync/push")
-async def sync_push(request: Request) -> dict[str, Any]:
-    """Queue every eligible bundle now, rather than at the next autosave.
+async def sync_push(
+    request: Request,
+    type: str = Query("", max_length=32, description="one data type; every active one when blank"),
+) -> dict[str, Any]:
+    """Send now what is waiting, rather than at the next autosave or after
+    the backoff: every eligible bundle, the queued laps, the live stream's
+    next connection attempt.
 
     Nothing is re-sent that the server has already accepted unchanged; this
     is for "I just enabled it, send what I have" and for a retry that should
     not wait out a backoff.
     """
     service = svc(request)
-    if not service.sync.active("tracks"):
-        raise HTTPException(400, "track sync is not active — enable it first")
-    service.sync.tracks.clear_backoff()
-    await service.sync.tracks.sweep()
+    names = [type] if type else list(service.sync.adapters)
+    active = [n for n in names if service.sync.active(n)]
+    if not active:
+        what = f"{type} sync" if type else "no sync type"
+        raise HTTPException(400, f"{what} is not active — enable it first")
+    for name in active:
+        adapter = service.sync.adapters[name]
+        adapter.clear_backoff()
+        await adapter.sweep()
     return service.sync.status()
 
 

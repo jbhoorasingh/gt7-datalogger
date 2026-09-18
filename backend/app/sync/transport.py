@@ -20,6 +20,12 @@ The token is sent as an `Authorization` header and appears in no log line,
 no exception message and no URL. Redirects are not followed: a redirecting
 response must not be able to re-aim a bearer token at a host the user never
 pasted (the same rule the webhook notifier lives by).
+
+The live stream is a WebSocket rather than a request, so its connection is
+made by the `live` adapter with the `websockets` library; what this module
+gives it is the address (`websocket_url`), the headers (`auth_headers`) and
+the same classification of a refused handshake (`classify_handshake`), so a
+`403 type_disabled` on an upgrade means what it means on an upload.
 """
 
 from __future__ import annotations
@@ -28,6 +34,7 @@ import json
 import logging
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any, Literal
+from urllib.parse import urlencode
 
 import httpx
 
@@ -130,6 +137,22 @@ def classify(resp: httpx.Response) -> SyncError:
     return SyncError("server", f"server error (HTTP {status})", status)
 
 
+def classify_handshake(status: int, body: bytes, headers: dict[str, str]) -> SyncError:
+    """A refused WebSocket upgrade, read the same way a refused upload is.
+
+    The server answers an upgrade it will not make with the ordinary error
+    document — `403 type_disabled` when live is off, `401` for a bad token,
+    `403 insufficient_scope` for one without `live:write` — so the same
+    table applies; `426` is a path that is not a WebSocket endpoint at all,
+    which no retry will fix.
+    """
+    if status == 426:
+        return SyncError("protocol", "the server does not offer a live stream at this address")
+    resp = httpx.Response(status, content=body, headers=headers)
+    resp.request = httpx.Request("GET", "ws://sync/v1/live")
+    return classify(resp)
+
+
 def validate_capabilities(raw: Any) -> dict[str, Any]:
     """The `/v1/capabilities` document, reduced to what the client uses.
 
@@ -181,6 +204,22 @@ class Transport:
     def _auth(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._token}"}
 
+    def auth_headers(self) -> dict[str, str]:
+        """The headers a WebSocket upgrade carries: the token and who we are."""
+        return {**self._auth(), "User-Agent": _user_agent()}
+
+    def websocket_url(self, path: str, query: dict[str, str] | None = None) -> str:
+        """`wss://…` (or `ws://` for an http server) for a path under the server.
+
+        The token is never in it: a WebSocket URL ends up in the same logs
+        and error messages any URL does.
+        """
+        scheme = "ws" if self.url.startswith("http://") else "wss"
+        url = scheme + self.url[self.url.index("://"):] + path
+        if query:
+            url += "?" + urlencode({k: v for k, v in query.items() if v})
+        return url
+
     async def capabilities(self) -> dict[str, Any]:
         """What the server accepts. Public: no token is sent."""
         try:
@@ -198,9 +237,23 @@ class Transport:
 
     async def post(self, path: str, body: bytes) -> dict[str, Any]:
         """POST a JSON document with the token; the parsed JSON reply."""
+        return await self.request("POST", path, body)
+
+    async def patch(self, path: str, body: bytes) -> dict[str, Any]:
+        """PATCH a JSON document with the token; the parsed JSON reply."""
+        return await self.request("PATCH", path, body)
+
+    async def request(self, method: str, path: str, body: bytes) -> dict[str, Any]:
+        """Send a JSON document with the token; the parsed JSON reply.
+
+        Any 2xx is success — the service answers 201 to a new session, 202
+        to an upload and 200 to a patch, and the adapters read the body,
+        not the code.
+        """
         try:
             async with self._client(UPLOAD_TIMEOUT_S) as client:
-                resp = await client.post(
+                resp = await client.request(
+                    method,
                     self.url + path,
                     content=body,
                     headers={**self._auth(), "Content-Type": "application/json"},

@@ -7,6 +7,30 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Added
 
+- **Sessions and live sync.** (#79) The sync client now sends the other two
+  data types the service takes, each behind its own toggle in Admin → Sync,
+  off by default and offered only when the server lists it. **Sessions**
+  sends your own laps as you drive — each lap as the `gt7-datalogger-lap`
+  document Export writes, against a session the service opens for the
+  drive — and the totals when the drive ends. The session is announced with
+  its first lap, not at its start, so a stint that never completes a lap
+  never reaches the server and the summary carries the circuit and its
+  layout id, which are only known one lap in. Laps queue in
+  `data/sync-sessions.json` while the service is away and flush in order
+  when it answers or at the next start; a lap ruled in or out of the bests
+  by hand is sent again with its new verdict; a session the service no
+  longer has (deleted in its portal, or expired) is closed here and said
+  so. **Live** holds one WebSocket to the service while the car is on track
+  and sends where it is about four times a second (`GT7_SYNC_LIVE_HZ`, no
+  faster than the server's ceiling): position, speed, gear, lap and lap
+  time, downsampled from the 60 Hz feed and never queued. The socket opens
+  on the first on-track packet and closes after five minutes without one;
+  the Sync panel shows the spectate URL and how many are watching. A
+  stream an administrator closes, or another logger on the account
+  replaces, is held for a quarter of an hour rather than fought over. The
+  Admin push now takes `?type=` and, blank, flushes every active type.
+  `GT7_SYNC_SESSIONS`, `GT7_SYNC_LIVE`, `GT7_SYNC_LIVE_HZ`.
+
 - **Discard a lap or the run while surveying.** (#98) A spin that laid
   border points across the gravel, or a boundary marked on the wrong side
   for half a lap, used to be in the bundle for good — the merge only adds,

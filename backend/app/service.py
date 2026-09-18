@@ -108,12 +108,23 @@ class TelemetryService:
         self.notifier.enabled = settings.enabled_webhook_events()
         self.event_watcher = LiveEventWatcher()
         self.survey = SurfaceSurvey()
-        # Pushes bundles to the sync service (#79) on its own tasks. Told
-        # about every bundle the survey writes; the API tells it about the
-        # rest (imports, pulls, renames, layout confirmations). A flipped
-        # toggle — the server said "type_disabled" — is persisted through
-        # the repo like any other admin setting.
-        self.sync = SyncClient(settings, settings.db_path.parent, persist=repo.set_setting)
+        # Pushes this installation's data to the sync service (#79) on its
+        # own tasks: bundles (told about every one the survey writes; the
+        # API tells it about the rest), laps as they are saved, and the
+        # live position stream from the packet path. A flipped toggle —
+        # the server said "type_disabled" — is persisted through the repo
+        # like any other admin setting.
+        self.sync = SyncClient(
+            settings,
+            settings.db_path.parent,
+            persist=repo.set_setting,
+            load_lap=repo.export_lap,
+            load_stats=repo.session_lap_stats,
+        )
+        # The official layout id per circuit name, for the sessions and
+        # live adapters; a lookup per lap is cheap but a lookup per packet
+        # is not, and the answer changes only when a layout is confirmed.
+        self._official_ids: dict[str, str] = {}
         # Re-judges a circuit's stored laps after its bundle changes (#91),
         # on its own task, once the writes have settled. Told about the
         # survey's writes here; the API tells it about the rest.
@@ -179,6 +190,29 @@ class TelemetryService:
 
     def invalidate_authored_corners(self, track: str) -> None:
         self._authored.pop(track_bundle.slugify(track), None)
+        self._official_ids.pop(track, None)
+
+    async def official_id_for(self, track: str) -> str:
+        """The GT7 layout id behind a circuit name, if anything knows it: a
+        seeded signature carries one, and so does a bundle whose layout a
+        person confirmed. Empty otherwise — the sync service files a
+        session under its name alone then."""
+        if not track:
+            return ""
+        cached = self._official_ids.get(track)
+        if cached is not None:
+            return cached
+        official_id = ""
+        for row in await self.repo.list_tracks():
+            if row["name"] == track and row["official_id"]:
+                official_id = str(row["official_id"])
+                break
+        if not official_id:
+            doc = await asyncio.to_thread(track_bundle.load, self.settings.db_path.parent, track)
+            official = (doc or {}).get("meta", {}).get("official") or {}
+            official_id = str(official.get("official_id") or "")
+        self._official_ids[track] = official_id
+        return official_id
 
     def _bundle_saved(self, track: str) -> None:
         """The survey wrote its bundle: queue the upload (#79) and the
@@ -198,6 +232,10 @@ class TelemetryService:
     async def stop(self) -> None:
         await self.source.stop()
         self.survey.stop()
+        # The drive is over as far as the service is concerned: its totals
+        # are queued now and go with the next start's flush.
+        if self.session_id is not None:
+            self.sync.sessions.session_ended(self.session_id)
         await self.sync.stop()
         await self.rejudge.stop()
         tasks = [c.task for c in self._clients.values() if c.task]
@@ -248,6 +286,9 @@ class TelemetryService:
         self.latest_packet = p
         if self.recording:
             await self.processor.feed(p)
+        # The live stream (#79) keeps the newest packet and sends it on its
+        # own clock; this is a field write unless a frame is due.
+        self.sync.live.on_packet(p, self._lap_elapsed_s)
         for event in self.event_watcher.feed(p):
             self._notify_live_event(event, p)
         if self.survey.active:
@@ -282,10 +323,23 @@ class TelemetryService:
         elif event.kind == "off_road":
             self.notifier.off_road(p.current_lap, car, self.track_name)
 
+    def _lap_elapsed_s(self) -> float:
+        live = self.processor.live_lap_samples
+        return live["t"][-1] if live["t"] else 0.0
+
     async def _on_session(self, info: SessionInfo) -> None:
         self.event_watcher.reset()
         await self._close_previous_session()
         self.session_id = await self.repo.create_session(info, self.cars.get(info.car_id))
+        car = self.cars.name(info.car_id)
+        self.sync.sessions.session_started(
+            self.session_id,
+            car=car,
+            car_id=info.car_id,
+            started_at=info.started_at,
+            source_id=track_bundle.source_id(self.settings.db_path.parent),
+        )
+        self.sync.live.set_meta(car=car, official_id="", track="")
         # A survey spanning a restart keeps labeling its records with the
         # session its transitions actually belong to. An auto-filled track
         # label goes back to unknown too — the new session may be a
@@ -315,8 +369,10 @@ class TelemetryService:
             # Menu visits and race restarts open sessions that never get a
             # lap; drop them so they don't pile up.
             await self.repo.delete_session(self.session_id)
+            self.sync.sessions.forget(self.session_id)
             log.info("dropped empty session %s", self.session_id)
             return
+        self.sync.sessions.session_ended(self.session_id)
         self.notifier.session_summary(
             car=self.cars.name(stats["car_id"]),
             track=self.track_name,
@@ -375,6 +431,17 @@ class TelemetryService:
         if not self.track_name:
             await self._identify_track(lap)
 
+        # The lap is in the database and the circuit is as known as it will
+        # be: queue the document for the sync service (#79). The summary
+        # goes with the first lap, so it carries the circuit.
+        self.sync.sessions.lap_saved(
+            self.session_id,
+            lap_id,
+            lap.number,
+            track_name=self.track_name,
+            official_id=await self.official_id_for(self.track_name),
+        )
+
         if self.engineer_active:
             self.engineer.ctx.track_name = self.track_name
             self._publish_callouts(self.engineer.on_lap(lap))
@@ -417,6 +484,9 @@ class TelemetryService:
         processor's session best, the delta reference, the engineer's lap
         history and coaching reference. `lap` is the updated summary.
         """
+        # The service holds a copy of the lap with its old verdict; the
+        # replacement goes whichever session it belongs to (#79).
+        self.sync.sessions.lap_changed(lap["session_id"], lap["id"], lap["number"])
         if self.session_id is None or lap["session_id"] != self.session_id:
             return
         self.processor.set_best_override(lap["number"], lap["best_override"])
@@ -547,6 +617,7 @@ class TelemetryService:
         if name:
             self.track_name = name
             await self.repo.set_session_track(self.session_id, name)
+            self.sync.live.set_meta(track=name, official_id=await self.official_id_for(name))
             # A survey started before the circuit was known picks the label
             # up now; an explicit user-picked label is never overwritten.
             if self.survey.active and not self.survey.track_locked:
