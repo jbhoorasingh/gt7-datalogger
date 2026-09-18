@@ -37,6 +37,7 @@ _META = '{"meta":'
 _TRACK = '{"track":'
 _MARK = '{"mark":'
 _FINISH = '{"finish":'
+_DISCARD = '{"discard":'
 
 
 def summarize(path: Path) -> dict[str, Any]:
@@ -46,7 +47,7 @@ def summarize(path: Path) -> dict[str, Any]:
     session_id: int | None = None
     width = None
     source = ""
-    marks = transitions = finish = 0
+    marks = transitions = finish = discards = 0
     try:
         with path.open("r", encoding="utf-8", errors="replace") as handle:
             for line in handle:
@@ -71,6 +72,8 @@ def summarize(path: Path) -> dict[str, Any]:
                     marks += 1
                 elif line.startswith(_FINISH):
                     finish += 1
+                elif line.startswith(_DISCARD):
+                    discards += 1
                 else:
                     transitions += 1
     except OSError as exc:
@@ -85,6 +88,7 @@ def summarize(path: Path) -> dict[str, Any]:
         "marks": marks,
         "transitions": transitions,
         "finish_crossings": finish,
+        "discards": discards,
         "bytes": path.stat().st_size if path.exists() else 0,
         # A log with evidence and no label is a run that went nowhere. That is
         # the failure this list exists to make visible; without it the only
@@ -150,6 +154,8 @@ def _record_ok(record: Any) -> bool:
         return True
     if "finish" in record:
         return True
+    if "discard" in record:
+        return isinstance(record["discard"], dict)
     mark = record.get("mark")
     if isinstance(mark, dict):
         return all(k in mark for k in _MARK_KEYS)
@@ -212,8 +218,12 @@ def validate_log(path: Path) -> None:
 def edges_from_log(
     path: Path, run: int, source: str
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], str]:
-    """Every border sample the log holds, as bundle records."""
-    edges: list[dict[str, Any]] = []
+    """Every border sample the log holds, as bundle records — minus what the
+    driver discarded while driving (#98): a `discard` line names a packet
+    range, and every mark and transition inside it is dropped, exactly as
+    the live run dropped them.
+    """
+    edges: list[tuple[int, dict[str, Any]]] = []  # (packet id, record)
     finish: list[dict[str, Any]] = []
     logged_track = ""
     for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
@@ -230,14 +240,20 @@ def edges_from_log(
         if "finish" in record:
             finish.append(record["finish"])
             continue
+        discard = record.get("discard")
+        if isinstance(discard, dict):
+            since = int(discard.get("since_pid") or 0)
+            upto = int(discard.get("pid") or 0)
+            edges = [(pid, e) for pid, e in edges if not since <= pid <= upto]
+            continue
         mark = record.get("mark")
         if isinstance(mark, dict):
             # Straddle and manual edges exist nowhere else — verbatim.
-            edges.append(track_bundle.new_edge(
+            edges.append((int(mark.get("pid") or 0), track_bundle.new_edge(
                 x=mark["x"], z=mark["z"], hx=mark["hx"], hz=mark["hz"],
                 side=mark["side"], kind=mark["kind"], run=run, source=source,
                 tw=mark.get("tw"), y=mark.get("y"),
-            ))
+            )))
             continue
         # Transition record: "auto" edges are the changed wheels' contact
         # points, kept only where the transition belongs to one border
@@ -256,12 +272,12 @@ def edges_from_log(
             point = contacts.get(wheel)
             if not point:
                 continue
-            edges.append(track_bundle.new_edge(
+            edges.append((int(record.get("pid") or 0), track_bundle.new_edge(
                 x=point[0], z=point[1], hx=vel[0] / norm, hz=vel[2] / norm,
                 side=border, kind="auto", run=run, source=source,
                 tw=record.get("tw_m"), y=pos_y,
-            ))
-    return edges, finish, logged_track
+            )))
+    return [e for _pid, e in edges], finish, logged_track
 
 
 def source_for(summary: dict[str, Any], path: Path) -> str:

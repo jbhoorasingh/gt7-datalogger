@@ -1213,6 +1213,191 @@ def test_survey_keeps_both_levels_of_a_crossover(tmp_path) -> None:
     survey.stop()
 
 
+# --- discarding a lap or a run mid-survey (#98) --------------------------------
+
+
+def _drive(survey, pids, lap, z=0.0, surface="GTGT", **overrides):
+    """Straddle-trace a stretch: one packet per pid at x = pid * 0.5."""
+    common = dict(fmt="C", velocity=(30.0, 0.0, 0.0), speed_mps=30.0, wheelbase_m=2.6)
+    common.update(overrides)
+    for pid in pids:
+        survey.feed(make_packet(surface_types=surface, packet_id=pid, current_lap=lap,
+                                position=(pid * 0.5, 0.0, z), **common))
+
+
+def test_retract_vote_is_the_inverse_of_cast_vote() -> None:
+    from app.processing.track_bundle import cast_vote, retract_vote
+
+    e = _edge(kind="auto", run=1)  # run 1 cast the auto vote
+    cast_vote(e, "auto", 2, SRC)
+    cast_vote(e, "wall", 2, SRC)
+    assert e["kind"] == "wall"
+    assert retract_vote(e, "wall", 2, SRC) is True
+    assert "wall" not in e["votes"]  # the only vote for that kind: gone
+    assert e["kind"] == "auto"
+    assert retract_vote(e, "auto", 2, SRC) is True
+    assert e["votes"]["auto"][SRC] == [1, 1]  # run 1's vote survives, watermark back
+    assert retract_vote(e, "auto", 2, SRC) is False  # nothing left of run 2
+    assert retract_vote(e, "auto", 1, OTHER) is False  # not theirs to take back
+
+
+def test_discarding_a_lap_drops_only_what_that_lap_laid(tmp_path) -> None:
+    """Lap 1 maps 20 m; lap 2 re-drives it and maps 20 m more. Discarding lap
+    2 must lose the new 20 m and nothing of lap 1 — including the metres lap
+    2 drove again, whose vote lap 1 had already cast."""
+    from app.processing.survey import SurfaceSurvey
+    from app.processing.track_bundle import load, vote_count
+
+    survey = SurfaceSurvey()
+    survey.start(tmp_path, track_width_m=1.6, track="Ring", track_user_set=True)
+    _drive(survey, range(0, 41), lap=1)
+    lap1 = {id(e) for e in survey.edges}
+    assert lap1
+    _drive(survey, range(0, 41), lap=2)  # the same ground again: no new votes
+    _drive(survey, range(60, 101), lap=2)  # new ground
+    new_ground = len(survey.edges) - len(lap1)
+    assert new_ground > 0
+    assert survey.status()["lap"] == 2
+    assert survey.status()["lap_votes"] == new_ground
+    epoch = survey.edges_epoch
+
+    result = survey.discard("lap")
+    assert result["scope"] == "lap" and result["lap"] == 2
+    assert result["records"] == result["votes"] == new_ground
+    assert {id(e) for e in survey.edges} == lap1
+    assert all(vote_count(e["votes"], "straddle") == 1 for e in survey.edges)
+    assert survey.edges_epoch == epoch + 1  # readers refetch the shorter list
+    assert survey.status()["lap_votes"] == 0
+    assert survey.status()["discards"] == [result]
+    # The lap goes on: what is laid after the discard is kept.
+    _drive(survey, range(120, 161), lap=2)
+    assert len(survey.edges) > len(lap1)
+    assert survey.status()["lap_votes"] == len(survey.edges) - len(lap1)
+    survey.stop()
+    doc = load(tmp_path, "Ring")
+    assert doc is not None
+    assert len(doc["edges"]) == len(survey.edges)
+    assert not any(30.0 <= e["x"] <= 50.0 for e in doc["edges"])  # the discarded stretch
+
+
+def test_discarding_backs_autosaved_evidence_out_of_the_bundle(tmp_path, monkeypatch) -> None:
+    """A merge only adds, so evidence the ~60 s autosave already wrote has to
+    be taken back by rewriting the bundle without this run."""
+    from app.processing import survey as survey_mod
+    from app.processing.track_bundle import load, save, source_id
+
+    monkeypatch.setattr(survey_mod, "AUTOSAVE_PACKETS", 10)
+    src = source_id(tmp_path)
+    # An earlier run mapped x = 0, 2, 4 on the left — the metres the straddle
+    # tracer lands on every 2 m — and cast one vote each.
+    save(tmp_path, "Ring", [_edge(x=float(i), z=0.8, kind="straddle", run=1, source=src)
+                            for i in (0, 2, 4)], [], count_run=True)
+    saved: list[str] = []
+    survey = survey_mod.SurfaceSurvey()
+    survey.on_bundle_saved = saved.append
+    survey.start(tmp_path, track_width_m=1.6, track="Ring", track_user_set=True)
+    assert survey._run_no == 2
+    _drive(survey, range(0, 41), lap=1)  # re-votes x = 0, 2, 4 and lays 6..20
+    doc = load(tmp_path, "Ring")
+    assert doc is not None and len(doc["edges"]) > 3  # autosaved along the way
+    assert saved  # the autosave told the service
+
+    result = survey.discard("run")
+    assert result["scope"] == "run" and result["records"] > 0
+    assert saved[-1] == "Ring"  # so did the rewrite: laps get re-judged, sync re-queued
+    doc = load(tmp_path, "Ring")
+    assert doc is not None
+    assert len(doc["edges"]) == 3  # run 1's metres, and only those
+    for e in doc["edges"]:
+        assert e["votes"] == {"straddle": {src: [1, 1]}}  # run 2's vote on them: gone
+    assert doc["meta"]["source_runs"] == {src: 1}
+    assert len(survey.edges) == 3 and survey.status()["run_votes"] == 0
+    survey.stop()
+    doc = load(tmp_path, "Ring")
+    assert doc is not None and len(doc["edges"]) == 3
+
+
+def test_a_discard_never_touches_another_installations_votes(tmp_path) -> None:
+    from app.processing.survey import SurfaceSurvey
+    from app.processing.track_bundle import load, save
+
+    save(tmp_path, "Ring", [_edge(x=float(i), z=0.8, kind="straddle", run=3, source=OTHER)
+                            for i in (0, 2, 4)], [], count_run=True, source=OTHER)
+    survey = SurfaceSurvey()
+    survey.start(tmp_path, track_width_m=1.6, track="Ring", track_user_set=True)
+    _drive(survey, range(0, 11), lap=1)  # straddles x = 0, 2, 4: their metres
+    theirs = [e for e in survey.edges if OTHER in e["votes"].get("straddle", {})]
+    assert theirs and all(len(e["votes"]["straddle"]) == 2 for e in theirs)
+    survey.discard("lap")
+    assert all(e["votes"]["straddle"] == {OTHER: [1, 3]} for e in theirs)
+    survey.stop()
+    doc = load(tmp_path, "Ring")
+    assert doc is not None
+    assert all(e["votes"] == {"straddle": {OTHER: [1, 3]}} for e in doc["edges"])
+
+
+def test_a_discard_before_the_track_is_known_survives_identification(tmp_path) -> None:
+    """The bundle loads mid-run and replaces the run's records with merged
+    copies; the segment tags must follow them or a later discard would
+    retract from records nobody holds any more."""
+    from app.processing.survey import SurfaceSurvey
+    from app.processing.track_bundle import load, save, source_id
+
+    src = source_id(tmp_path)
+    save(tmp_path, "Ring", [_edge(x=float(i), z=0.8, kind="straddle", run=1, source=src)
+                            for i in (0, 1, 2)], [], count_run=True)
+    survey = SurfaceSurvey()
+    survey.start(tmp_path, track_width_m=1.6)  # unidentified
+    _drive(survey, range(0, 21), lap=1)  # straddles x = 0, 2, 4, ..., 10
+    unnamed = len(survey.edges)
+    survey.set_track("Ring")  # loads the bundle: x = 0 and 2 merge, x = 1 joins
+    assert len(survey.edges) == unnamed + 1
+    result = survey.discard("run")
+    assert result["votes"] == unnamed  # every vote this run cast, found and retracted
+    assert len(survey.edges) == 3
+    survey.stop()
+    doc = load(tmp_path, "Ring")
+    assert doc is not None and len(doc["edges"]) == 3
+
+
+def test_nothing_to_discard_writes_nothing(tmp_path) -> None:
+    from app.processing.survey import SurfaceSurvey
+    from app.processing.track_bundle import load
+
+    survey = SurfaceSurvey()
+    survey.start(tmp_path, track_width_m=1.6, track="Ring", track_user_set=True)
+    result = survey.discard("lap")
+    assert result["votes"] == 0 and result["records"] == 0
+    assert survey.discards == []
+    assert load(tmp_path, "Ring") is None
+    assert survey.log_path is not None
+    assert "discard" not in survey.log_path.read_text()
+    survey.stop()
+
+
+def test_a_replayed_log_honours_the_discard(tmp_path) -> None:
+    """The JSONL always has everything — including, now, the fact that some
+    of it was thrown away. Assigning the log later must not bring it back."""
+    from app.processing import survey_log
+    from app.processing.survey import SurfaceSurvey
+
+    survey = SurfaceSurvey()
+    survey.start(tmp_path, track_width_m=1.6)  # no label: the run only exists as its log
+    _drive(survey, range(0, 21), lap=1)
+    _drive(survey, range(40, 61), lap=2)
+    survey.discard("lap")  # lap 2 so far
+    _drive(survey, range(80, 101), lap=2)  # lap 2 after the discard: kept
+    kept = sorted(round(e["x"], 1) for e in survey.edges)
+    assert survey.log_path is not None
+    survey.stop()
+
+    summary = survey_log.summarize(survey.log_path)
+    assert summary["discards"] == 1 and summary["orphaned"]
+    edges, _finish, _track = survey_log.edges_from_log(survey.log_path, run=1, source=SRC)
+    assert sorted(round(e["x"], 1) for e in edges) == kept
+    assert not any(20.0 <= e["x"] <= 30.0 for e in edges)
+
+
 # --- per-car width memory ------------------------------------------------------
 
 

@@ -19,6 +19,7 @@ import type {
   RejudgeResult,
   SessionSummary,
   SurveyEdge,
+  SurveyDiscard,
   SurveyLog,
   SurveyStatus,
   SyncStatus,
@@ -240,6 +241,12 @@ export const api = {
       ),
     mark: (side: "L" | "R" | null, kind: "edge" | "runoff" | "wall") =>
       send<SurveyStatus>("/api/survey/mark", "POST", { side, kind }),
+    // Void what this run has surveyed — the current lap so far, or all of it
+    // (#98). The run keeps going; the answer says what went.
+    discard: (scope: "lap" | "run") =>
+      send<SurveyStatus & { discarded: SurveyDiscard }>("/api/survey/discard", "POST", {
+        scope,
+      }),
     packet: () => get<{ packet: Record<string, unknown> | null }>("/api/survey/packet"),
     exportUrl: "/api/survey/export.jsonl",
     // Every run's JSONL, and whether it ever reached a circuit. A run that

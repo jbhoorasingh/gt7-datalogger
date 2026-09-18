@@ -306,6 +306,7 @@ export interface SurveyLog {
   marks: number;
   transitions: number;
   finish_crossings: number;
+  discards?: number; // laps/runs the driver voided while surveying
   bytes: number;
   orphaned: boolean;
 }
@@ -375,6 +376,12 @@ export interface SurveyStatus {
   bundle: { track: string; runs: number; updated_at: string; points: number } | null;
   mark_side: "L" | "R" | null; // manual boundary marking armed on this side
   mark_kind: "edge" | "runoff" | "wall";
+  // What a discard would take away (#98): GT7's lap counter, the votes this
+  // run cast in that lap so far, and in the whole run; what has gone already.
+  lap: number | null;
+  lap_votes: number;
+  run_votes: number;
+  discards: SurveyDiscard[];
   packets: number;
   no_surface_packets: number;
   transitions: number;
@@ -387,6 +394,15 @@ export interface SurveyStatus {
   unknown_flag_bits: Record<string, number>;
   recent: SurveyTransition[];
   log_path: string | null;
+}
+
+// One discard mid-survey: which lap, how many border records went with it
+// and how many votes on metres other runs had already mapped.
+export interface SurveyDiscard {
+  scope: "lap" | "run";
+  lap: number | null;
+  records: number;
+  votes: number;
 }
 
 export type EventType = "lockup" | "wheelspin" | "bottoming" | "kerb";
