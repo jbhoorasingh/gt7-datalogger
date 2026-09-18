@@ -73,9 +73,12 @@ and setting `GT7_ADMIN_TOKEN` ensures only you can change the URL.
 
 ## Sync
 
-Contribute your surveys to a **sync service** — the hosted one at
-`sync.gt7-datalogger.com`, or one you run yourself. Pulling shared bundles
-(Tracks → Shared bundles) needs no account and is unchanged; this is the other
+Push this installation's data to a **sync service** — the hosted one at
+`sync.gt7-datalogger.com`, or one you run yourself. Three data types, each with its
+own toggle: **tracks** (your surveys, contributed to the community outlines),
+**sessions** (your own laps, as a private cloud copy) and **live** (where the car is,
+a few times a second, for the service's spectate page). Pulling shared bundles
+(Tracks → Shared bundles) needs no account and is unchanged; tracks sync is the other
 direction: the bundles you survey go up, a job in the track-data repo merges what
 everybody sent and opens the pull requests, and GitHub stays the source of truth.
 
@@ -106,17 +109,47 @@ everybody sent and opens the pull requests, and GitHub stays the source of truth
       is done, and one upload carries all of it. Nothing is sent when the evidence has
       not changed since the server last accepted it, and never more than once a minute
       per bundle. Bundles with no confirmed layout are never sent — the Tracks view
-      marks them *not synced — confirm layout*. Nothing else is uploaded: not your
-      laps, not your settings, not the installation id file.
-- **Sync now** — send every eligible bundle immediately rather than waiting for it to
-  settle. Unchanged bundles are still skipped.
+      marks them *not synced — confirm layout*. Nothing else is uploaded under this
+      toggle: not your laps, not your settings, not the installation id file.
+    - **sessions** — your own driving, one lap at a time as you drive: each lap goes
+      as the same `gt7-datalogger-lap` document **Export** writes (lap time, the
+      full 60 Hz samples, your racing line, whether it counts toward bests), against
+      a session the service opens for the drive. The session is announced with its
+      **first lap**, not at the start — a stint that never completes a lap is dropped
+      here and never reaches the server, and the circuit is identified one lap in, so
+      the summary carries the track and its layout id. When the drive ends (the next
+      stint starts, or the logger stops) the totals go. Laps queue while the service
+      is away and flush in order when it answers again, or at the next start; the
+      queue is in `data/sync-sessions.json` and holds at most 500 laps (the local
+      database keeps every lap regardless). A lap you rule in or out of the bests by
+      hand is sent again with its new verdict. Sessions are **private by default**
+      on the service — visible to your account and its administrators — and the
+      service's portal is where you make one public or delete it; nothing from them
+      feeds a track outline.
+    - **live** — where the car is, `GT7_SYNC_LIVE_HZ` times a second (4 by default;
+      the server states its own ceiling and the lower wins): position, speed, gear,
+      lap and lap time, over one WebSocket to the service, while the car is **on
+      track**. The socket opens on the first on-track packet and closes after five
+      minutes without one; leaving the track or pausing sends one last frame saying
+      so and then nothing. Frames are downsampled from the 60 Hz feed, never queued
+      — a spectator wants to know where the car *is* — and are not stored by the
+      service beyond its 30 s replay buffer unless your account asks for a recording.
+      The status line shows the **spectate URL** once the stream has connected, and
+      how many people are watching; whether strangers may watch is your account's
+      setting in the service's portal, not one here. A stream an administrator
+      closes, or that another logger on the same account replaces, is held for
+      fifteen minutes and says why rather than reconnecting at once.
+- **Sync now** — send what is waiting immediately: every eligible bundle rather than
+  waiting for it to settle, the queued laps rather than waiting out a backoff.
+  Unchanged bundles and laps the server already holds are still skipped.
 
 Uploads run in the background with retry and exponential backoff and never block
 recording or the UI. A document the server refuses (with its reason) is not retried
-until the bundle changes. If the server answers `403 type_disabled`, that type's toggle
-is switched off here and the status line says *server no longer accepts this*. What
-was uploaded is remembered in `data/sync-state.json`, so a restart does not re-send
-unchanged bundles; a different server starts from nothing.
+until it changes. If the server answers `403 type_disabled`, that type's toggle is
+switched off here and the status line says *server no longer accepts this*. What was
+uploaded is remembered in `data/sync-state.json` (bundles) and
+`data/sync-sessions.json` (sessions), so a restart does not re-send what the server
+already has; a different server starts from nothing.
 
 Per-track status — *synced*, *queued*, *rejected*, *error* — is on each row of the
 [Tracks view](tracks-view.md#sync-status).
