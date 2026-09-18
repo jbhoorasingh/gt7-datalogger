@@ -14,6 +14,7 @@ import type * as echarts from "echarts";
 import type { EChartsOption, SeriesOption } from "echarts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EChart } from "@/components/EChart";
+import { ConfirmDialog } from "@/components/ui/Dialog";
 import { api } from "@/lib/api";
 import {
   borderCoverage,
@@ -308,6 +309,33 @@ export function SurveyView() {
       setStatus(await api.survey.mark(side, kind));
     } catch (e) {
       toast(e instanceof Error ? e.message : "Could not set marking", "error");
+    }
+  }
+
+  // Void what this run has surveyed (#98): the current lap so far after a
+  // spin laid points across the gravel, or the whole run when it was wrong
+  // from the start. The run keeps going. A lap is cheap to re-drive, so its
+  // button acts at once; the run's asks first.
+  const [confirmDiscardRun, setConfirmDiscardRun] = useState(false);
+  async function discard(scope: "lap" | "run") {
+    setBusy(true);
+    try {
+      const { discarded, ...st } = await api.survey.discard(scope);
+      applyStatus(st); // the edges epoch moved: the map refetches the shorter list
+      void api.trackBundles().then(setBundles).catch(() => {});
+      if (discarded.votes === 0) {
+        toast(scope === "lap" ? "Nothing surveyed this lap yet" : "Nothing surveyed yet", "info");
+      } else {
+        const what = scope === "lap" ? `Lap ${discarded.lap ?? "?"}` : "This run";
+        toast(
+          `${what} discarded — ${discarded.records} border points dropped, ${discarded.votes} votes retracted`,
+          "success",
+        );
+      }
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Could not discard", "error");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -1071,14 +1099,61 @@ export function SurveyView() {
               along the boundary
             </span>
           )}
-          <button
-            className="ml-auto min-h-[44px] rounded-lg border border-brake/50 bg-brake/10 px-5 text-[12.5px] font-semibold text-brake transition-colors hover:bg-brake/25"
-            onClick={stop}
-            disabled={busy}
-          >
-            End survey
-          </button>
+          <div className="ml-auto flex flex-wrap gap-2">
+            <button
+              className="min-h-[44px] rounded-lg border border-warn/50 bg-warn/10 px-3.5 text-[12.5px] font-semibold text-warn transition-colors hover:bg-warn/25 disabled:opacity-50"
+              onClick={() => discard("lap")}
+              disabled={busy}
+              title="Throw away what this lap has surveyed so far — after a spin across the gravel, or a boundary marked on the wrong side. Surveying carries on; the rest of the lap still counts."
+            >
+              Discard lap
+              {status.lap_votes > 0 && (
+                <span className="ml-1.5 font-tabular text-[11px] opacity-80">
+                  {status.lap_votes}
+                </span>
+              )}
+            </button>
+            <button
+              className="min-h-[44px] rounded-lg border border-edge px-3.5 text-[12.5px] font-semibold text-ink-dim transition-colors hover:text-ink disabled:opacity-50"
+              onClick={() => setConfirmDiscardRun(true)}
+              disabled={busy}
+              title="Throw away everything this run has surveyed, including what was already saved to the bundle. Other runs' evidence stays."
+            >
+              Discard run…
+            </button>
+            <button
+              className="min-h-[44px] rounded-lg border border-brake/50 bg-brake/10 px-5 text-[12.5px] font-semibold text-brake transition-colors hover:bg-brake/25"
+              onClick={stop}
+              disabled={busy}
+            >
+              End survey
+            </button>
+          </div>
             </div>
+          {status.discards.length > 0 && (
+            <div className="text-[10.5px] text-ink-faint">
+              Discarded this run:{" "}
+              {status.discards
+                .map((d) =>
+                  d.scope === "run"
+                    ? `the run so far (${d.records} points)`
+                    : `lap ${d.lap ?? "?"} (${d.records} points)`,
+                )
+                .join(", ")}
+            </div>
+          )}
+          <ConfirmDialog
+            open={confirmDiscardRun}
+            title="Discard this run?"
+            body={`Everything this run has surveyed — ${status.run_votes} votes on border metres, including what the autosave already wrote to the bundle — is thrown away. Other runs' evidence on the same metres stays. The survey keeps running.`}
+            confirmLabel="Discard run"
+            danger
+            onConfirm={() => {
+              setConfirmDiscardRun(false);
+              void discard("run");
+            }}
+            onCancel={() => setConfirmDiscardRun(false)}
+          />
 
           {/* Guidance for the selected tag. Always visible rather than a
               tooltip: the choice is made while driving, and the run-off vs

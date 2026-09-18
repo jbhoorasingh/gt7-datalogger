@@ -893,6 +893,27 @@ async def survey_mark(request: Request, payload: SurveyMarkPayload) -> dict[str,
     return survey.status()
 
 
+class SurveyDiscardPayload(BaseModel):
+    scope: Literal["lap", "run"]
+
+
+@router.post("/survey/discard", dependencies=[Depends(require_admin)])
+async def survey_discard(request: Request, payload: SurveyDiscardPayload) -> dict[str, Any]:
+    """Throw away border evidence the running survey gathered (#98): the
+    current lap's so far, or the whole run's. The survey keeps running.
+
+    Only this run's votes go; other runs' evidence on the same metres stays.
+    What an autosave already wrote is backed out of the bundle, the JSONL
+    records the discard so a later replay of the log skips the same records,
+    and the circuit's laps are re-judged as after any bundle write.
+    """
+    survey = svc(request).survey
+    if not survey.active:
+        raise HTTPException(409, "no survey running")
+    discarded = survey.discard(payload.scope)
+    return {**survey.status(), "discarded": discarded}
+
+
 @router.get("/survey/packet")
 async def survey_packet(request: Request) -> dict[str, Any]:
     """The latest raw telemetry packet, fully decoded — for eyeballing fields."""

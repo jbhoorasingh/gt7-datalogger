@@ -5,6 +5,23 @@ Notable changes to GT7 Datalogger. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Discard a lap or the run while surveying.** (#98) A spin that laid
+  border points across the gravel, or a boundary marked on the wrong side
+  for half a lap, used to be in the bundle for good — the merge only adds,
+  and the only way back was to out-vote the bad metres by re-driving them
+  twice. The Survey view has **Discard lap**, which throws away what this
+  run has surveyed in the current lap so far and carries on, and **Discard
+  run…**, which throws away everything the run has gathered; neither stops
+  the survey. Only this run's votes go: a metre another run or another
+  installation had mapped keeps that evidence and loses this run's vote on
+  it. Evidence the autosave already wrote is backed out of the bundle, the
+  circuit's laps are re-judged as after any bundle write, and the run's
+  JSONL records the discard so a log assigned later does not bring the lap
+  back. New endpoint `POST /api/survey/discard`; the survey status carries
+  `lap`, `lap_votes`, `run_votes` and `discards`.
+
 ### Fixed
 
 - **Where a circuit crosses over itself, both levels are surveyed and

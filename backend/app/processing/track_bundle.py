@@ -285,6 +285,59 @@ def cast_vote(e: dict[str, Any], kind: str, run: int, source: str) -> None:
     e["kind"] = resolve_kind(e["votes"])
 
 
+def retract_vote(e: dict[str, Any], kind: str, run: int, source: str) -> bool:
+    """Take back the vote `source` cast for `kind` on its run `run`, if it did.
+
+    The inverse of cast_vote for the run that cast last. A source casts at
+    most one vote per kind per run, so an entry whose last_run is `run` owes
+    exactly one vote to it: the count comes down by one and the watermark
+    steps back to run - 1. The run before is not recorded, but any ordinal
+    below `run` keeps the merge honest — this run may vote here again (it is
+    above the watermark once more) and count <= last_run still holds. A
+    record whose votes empty out is the caller's to drop. Returns whether
+    anything was retracted.
+    """
+    bucket = e["votes"].get(kind)
+    if not bucket:
+        return False
+    entry = bucket.get(source)
+    if entry is None or entry[1] != run:
+        return False
+    if entry[0] <= 1:
+        del bucket[source]
+        if not bucket:
+            del e["votes"][kind]
+    else:
+        bucket[source] = [entry[0] - 1, max(run - 1, 0)]
+    if e["votes"]:
+        e["kind"] = resolve_kind(e["votes"])
+    return True
+
+
+def retract_run(
+    edges: list[dict[str, Any]], source: str, run: int
+) -> tuple[list[dict[str, Any]], int, int]:
+    """Every vote `source` cast on its run `run`, taken back; records left
+    with no evidence at all are dropped. Returns (edges, dropped, retracted).
+
+    What a discard mid-survey needs (#98): the ~60 s autosave has already
+    merged the run's evidence into the bundle, and a union cannot take
+    anything away, so the bundle's copy of the run is removed wholesale and
+    whatever the run still holds is merged back in (save_replacing_run).
+    """
+    kept: list[dict[str, Any]] = []
+    dropped = retracted = 0
+    for e in edges:
+        for kind in list(e["votes"]):
+            if retract_vote(e, kind, run, source):
+                retracted += 1
+        if e["votes"]:
+            kept.append(e)
+        else:
+            dropped += 1
+    return kept, dropped, retracted
+
+
 def new_edge(
     x: float, z: float, hx: float, hz: float, side: str,
     kind: str, run: int, source: str, tw: float | None, y: float | None = None,
@@ -569,6 +622,46 @@ def save(
     meta = _write(data_dir, track, doc)
     log.info("track bundle saved: %s (%d points, %d runs)",
              bundle_path(data_dir, track).name, len(merged_edges), meta["runs"])
+    return meta
+
+
+def save_replacing_run(
+    data_dir: Path,
+    track: str,
+    edges: list[dict[str, Any]],
+    finish_crossings: list[dict[str, float]],
+    source: str,
+    run: int,
+) -> dict[str, Any]:
+    """Write the bundle with `source`'s run `run` replaced by `edges`.
+
+    The counterpart of save() for a run that has changed its mind: save()
+    merges, and a merge only adds, so evidence an autosave already wrote
+    cannot be taken back by saving less of it. Every vote the run cast in
+    the stored document is retracted first, then the run's evidence as it
+    now stands — the survey's own list, which since it resumed from the
+    bundle holds every other run's records untouched — is merged in. Other
+    sources, other runs, the run counters and the authored data are exactly
+    as they were.
+    """
+    existing = load(data_dir, track)
+    base = existing["edges"] if existing else []
+    base, dropped, retracted = retract_run(base, source, run)
+    merged_edges = merge_edges(base, edges)
+    merged_finish = merge_finish(
+        existing["finish_crossings"] if existing else [], finish_crossings
+    )
+    doc = _document(
+        track, merged_edges, merged_finish,
+        dict(existing["meta"]["source_runs"]) if existing else {},
+        corners=existing["corners"] if existing else [],
+        sections=existing["sections"] if existing else [],
+        official=existing["meta"]["official"] if existing else None,
+    )
+    meta = _write(data_dir, track, doc)
+    log.info("track bundle rewritten without run %d of %s: %s (%d votes retracted, "
+             "%d records dropped, %d points now)", run, source,
+             bundle_path(data_dir, track).name, retracted, dropped, len(merged_edges))
     return meta
 
 

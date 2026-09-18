@@ -374,6 +374,28 @@ async def test_survey_track_can_be_assigned_mid_run(client, tmp_path) -> None:
     service.survey.stop()
 
 
+async def test_discard_needs_a_running_survey_and_says_what_it_dropped(client, tmp_path) -> None:
+    """The Survey view's Discard buttons (#98): 409 with no run, otherwise
+    the status plus what went, so the toast can say it."""
+    c, service = client
+    assert (await c.post("/api/survey/discard", json={"scope": "lap"})).status_code == 409
+    service.survey.start(tmp_path, track_width_m=1.6, track="Ring", track_user_set=True)
+    common = dict(fmt="C", velocity=(30.0, 0.0, 0.0), speed_mps=30.0, wheelbase_m=2.6)
+    for pid in range(21):
+        service.survey.feed(parse_packet(build_packet(
+            surface_types="GTGT", packet_id=pid, current_lap=1, flags=ON_TRACK,
+            position=(pid * 0.5, 0.0, 0.0), **common,
+        )))
+    assert (await c.post("/api/survey/discard", json={"scope": "whole"})).status_code == 422
+    resp = await c.post("/api/survey/discard", json={"scope": "lap"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["discarded"]["scope"] == "lap" and body["discarded"]["records"] > 0
+    assert body["edge_points"] == 0 and body["lap_votes"] == 0
+    assert body["discards"] == [body["discarded"]]
+    service.survey.stop()
+
+
 async def test_assigning_a_track_needs_a_running_survey(client) -> None:
     c, _ = client
     resp = await c.post("/api/survey/track", json={"track": "Somewhere"})

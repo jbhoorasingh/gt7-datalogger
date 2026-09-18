@@ -233,6 +233,18 @@ class SurfaceSurvey:
         self._last_straddle: tuple[float, float] | None = None
         self._prev_lap: int | None = None
         self.finish_crossings: list[dict[str, float]] = []
+        # Which stretch of the run each vote was cast in, so a lap the driver
+        # declares bad can be taken back (#98). A "segment" is one lap of
+        # GT7's counter, cut again at every discard: what comes after a
+        # discard is not the discarded lap. Votes are per run, so a metre
+        # re-driven in a later lap casts nothing new and is tagged nowhere
+        # new — discarding that later lap leaves the earlier evidence alone.
+        self._lap: int | None = None
+        self._segment = 0
+        self._segment_pid = 0
+        self._segment_votes: dict[int, list[tuple[dict[str, Any], str]]] = {}
+        self._last_pid = 0
+        self.discards: list[dict[str, Any]] = []
         self._data_dir: Path | None = None
         self._since_autosave = 0
         # Meta of the bundle this run resumed from (None = fresh circuit).
@@ -292,6 +304,12 @@ class SurfaceSurvey:
         self._last_mark = None
         self._last_straddle = None
         self._prev_lap = None
+        self._lap = None
+        self._segment = 0
+        self._segment_pid = 0
+        self._segment_votes = {}
+        self._last_pid = 0
+        self.discards = []
         self.finish_crossings = []
         self._data_dir = data_dir
         self._since_autosave = 0
@@ -397,6 +415,12 @@ class SurfaceSurvey:
         self.edges = track_bundle.merge_edges(doc["edges"], self.edges)
         self.edges_epoch += 1
         self._edge_index = track_bundle.EdgeIndex(self.edges)
+        # The run's own records were copied, not kept, by the merge; the
+        # segment tags follow them to the records now holding their votes.
+        for segment, tagged in self._segment_votes.items():
+            self._segment_votes[segment] = [
+                (self._edge_index.find(record) or record, kind) for record, kind in tagged
+            ]
         self.finish_crossings = track_bundle.merge_finish(
             doc["finish_crossings"], self.finish_crossings
         )
@@ -415,6 +439,72 @@ class SurfaceSurvey:
         )
         if self.on_bundle_saved is not None:
             self.on_bundle_saved(self.track)
+
+    def discard(self, scope: str) -> dict[str, Any]:
+        """Throw away border evidence this run gathered (#98): the current
+        lap's so far (`scope="lap"`) or all of it (`"run"`). The survey keeps
+        going either way — a spin that laid points across the gravel is a
+        reason to void what was just recorded, not to stop driving.
+
+        Only what THIS run cast is touched: a metre another run (or another
+        installation) evidenced keeps that evidence, and loses only this
+        run's vote on it. Evidence an autosave already wrote is backed out of
+        the bundle by rewriting it without this run and merging back what
+        the run still holds. Finish-line crossings, the driven trail and the
+        width measurement stay: a bad lap still crossed the line where the
+        line is.
+
+        Returns what was discarded, which also goes to the JSONL so a replay
+        of the log (an orphaned run assigned later) skips the same records.
+        """
+        if scope == "lap":
+            segments = [self._segment]
+        else:
+            segments = sorted(self._segment_votes)
+        retracted = 0
+        for segment in segments:
+            for record, kind in self._segment_votes.pop(segment, []):
+                if track_bundle.retract_vote(record, kind, self._run_no, self._source):
+                    retracted += 1
+        dropped = 0
+        if retracted:
+            before = len(self.edges)
+            self.edges = [e for e in self.edges if e["votes"]]
+            dropped = before - len(self.edges)
+            self._edge_index = track_bundle.EdgeIndex(self.edges)
+            self.edges_epoch += 1  # the list shrank: readers must refetch
+            self._last_mark = None
+            self._last_straddle = None
+        result = {
+            "scope": scope,
+            "lap": self._lap,
+            "since_pid": self._segment_pid if scope == "lap" else 0,
+            "pid": self._last_pid,
+            "records": dropped,
+            "votes": retracted,
+        }
+        if retracted:
+            # The log line goes out BEFORE the bundle write, as marks do: the
+            # JSONL is the record, and a replay must not resurrect the lap.
+            if self._out is not None:
+                self._out.write(json.dumps({"discard": result}, separators=(",", ":")) + "\n")
+                self._out.flush()
+            self.discards.append(result)
+            if self._data_dir is not None and self.track:
+                self._since_autosave = 0
+                self.bundle_info = track_bundle.save_replacing_run(
+                    self._data_dir, self.track, self.edges, self.finish_crossings,
+                    self._source, self._run_no,
+                )
+                if self.on_bundle_saved is not None:
+                    self.on_bundle_saved(self.track)
+            log.info("survey discarded %s: %d votes retracted, %d records dropped",
+                     f"lap {self._lap}" if scope == "lap" else "the run",
+                     retracted, dropped)
+        # A fresh segment either way: what comes next is not the discarded lap.
+        self._segment += 1
+        self._segment_pid = self._last_pid + 1
+        return result
 
     def stop(self) -> None:
         if self.active:
@@ -552,6 +642,7 @@ class SurfaceSurvey:
         self._follow_car(p)
         self._measure_width_from_yaw(p)
         self._append_trail(p)
+        self._track_lap(p)
         self._watch_finish_line(p)
         if self.mark_side is not None:
             self._append_manual_edge(p)
@@ -581,6 +672,16 @@ class SurfaceSurvey:
                 self._out.flush()  # export must see it while the run is live
         self._prev = surface
         return record
+
+    def _track_lap(self, p: TelemetryPacket) -> None:
+        """Which lap the evidence about to be laid belongs to (#98). Any
+        change of GT7's counter starts a segment — a restart's fall-back
+        included, so a discard never reaches across one."""
+        self._last_pid = p.packet_id
+        if p.current_lap != self._lap:
+            self._lap = p.current_lap
+            self._segment += 1
+            self._segment_pid = p.packet_id
 
     def _watch_finish_line(self, p: TelemetryPacket) -> None:
         """Each lap rollover pins a point on the start/finish line.
@@ -731,6 +832,7 @@ class SurfaceSurvey:
             # over ground the straddle tracer had called plain road, or a
             # second run agreeing. Either way it is a vote, not a duplicate.
             track_bundle.cast_vote(known, kind, self._run_no, self._source)
+            self._segment_votes.setdefault(self._segment, []).append((known, kind))
             if known.get("y") is None and y is not None:
                 known["y"] = round(y, 3)  # metre mapped before v3: fill it in
             self._log_mark(x, z, hx, hz, side, kind, pid, y)
@@ -746,6 +848,7 @@ class SurfaceSurvey:
         )
         self._edge_index.add(edge)
         self.edges.append(edge)
+        self._segment_votes.setdefault(self._segment, []).append((edge, kind))
 
     def _log_mark(
         self, x: float, z: float, hx: float, hz: float, side: str, kind: str,
@@ -766,7 +869,7 @@ class SurfaceSurvey:
             "x": x, "z": z, "y": round(y, 3) if y is not None else None,
             "hx": round(hx, 5), "hz": round(hz, 5),
             "side": side, "kind": kind, "run": self._run_no,
-            "tw": round(self.width_in_use_m, 3), "pid": pid,
+            "tw": round(self.width_in_use_m, 3), "pid": pid, "lap": self._lap,
         }
         self._out.write(json.dumps({"mark": line}, separators=(",", ":")) + "\n")
 
@@ -1029,6 +1132,12 @@ class SurfaceSurvey:
             # This installation's id, stamped on every vote this run casts.
             "source": self._source,
             "run_no": self._run_no,
+            # What a discard would take away (#98): votes this run cast in
+            # the current lap so far, and in the whole run.
+            "lap": self._lap,
+            "lap_votes": len(self._segment_votes.get(self._segment, ())),
+            "run_votes": sum(len(v) for v in self._segment_votes.values()),
+            "discards": list(self.discards),
             "mark_side": self.mark_side,
             "mark_kind": self.mark_kind,
             "histogram": {

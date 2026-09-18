@@ -264,6 +264,26 @@ beats the `auto`/`straddle` points that were right. Recovering one: majority
 applies within the manual tier, so re-driving a metre and marking it
 correctly **twice** outvotes a stale mark.
 
+**Discarding a lap or the run** (#98): the other way back from a bad
+stretch — a spin that laid straddle points across the gravel, a boundary
+marked on the wrong side for half a lap — is to void it before it counts.
+**Discard lap** throws away what this run has surveyed in the current lap so
+far and carries on; **Discard run** throws away everything the run has
+gathered. Votes are per run, so the survey tags each vote it casts with the
+lap segment that cast it (a segment is one lap of GT7's counter, cut again at
+every discard) and a discard retracts exactly those: `retract_vote` is the
+inverse of `cast_vote` for the run that cast last, the count comes down by
+one and the watermark steps back, and a record left with no votes is dropped.
+A metre re-driven in a later lap cast nothing new, so discarding that later
+lap leaves the earlier evidence alone; a metre another run — or another
+installation — had already mapped keeps their evidence and loses only this
+run's vote. What the ~60 s autosave already wrote is backed out by rewriting
+the bundle without this run and merging back what the run still holds
+(`save_replacing_run`); a merge alone could not take anything away. The JSONL
+gets a `discard` line naming the packet range, and a replay of the log skips
+the same records. Finish-line crossings, the trail and the width measurement
+stay: a bad lap still crossed the line where the line is.
+
 **Raw packet inspector**: the collapsible panel at the bottom of the Survey
 view shows every decoded packet field live (2 Hz), highlighting values that
 changed between samples — drive over anything interesting and call out what
