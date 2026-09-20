@@ -16,6 +16,7 @@ import { DeviationChart } from "@/components/analysis/DeviationChart";
 import { FuelMapPanel } from "@/components/analysis/FuelMapPanel";
 import { GearingPanel } from "@/components/analysis/GearingPanel";
 import { GGDiagram, ggLap, type GGLap } from "@/components/analysis/GGDiagram";
+import { LapTimeChart } from "@/components/analysis/LapTimeChart";
 import { PlaybackBar } from "@/components/analysis/PlaybackBar";
 import { RaceLineMap, type MapLap } from "@/components/analysis/RaceLineMap";
 import { StackedCharts } from "@/components/analysis/StackedCharts";
@@ -1093,6 +1094,21 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
         {deviation && deviation.dist.length > 0 && (
           <Panel title={`Consistency — best ${deviation.lap_ids.length} laps`}>
             <DeviationChart data={deviation} units={units} zoomRange={zoomRange} />
+          </Panel>
+        )}
+        {laps.length > 1 && (
+          <Panel title="Lap times — this session">
+            <LapTimeChart
+              laps={laps}
+              selected={selected}
+              lapColors={lapColors}
+              onToggleLap={(id) => {
+                manualSelection.current = true;
+                setSelected((cur) =>
+                  cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id],
+                );
+              }}
+            />
           </Panel>
         )}
         {coaching && coaching.laps.length > 0 && (
