@@ -5,7 +5,38 @@ Notable changes to GT7 Datalogger. The format follows
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-09-19
+
 ### Added
+
+- **Events and driver aids on the race-line map.** (#103, #104) The map in
+  Analysis gains two layers, each with a toggle in its header that only
+  appears when the selected laps can fill it, remembered on the device.
+  **Events** marks where each detected lockup ◆, wheelspin ●, bottoming ✚
+  and kerb strike ✖ began, filled with the lap's colour so the same braking
+  zone going wrong on three laps is visible as three marks in one place.
+  Hovering a marker names the lap, the wheels and the severity in words
+  ("slowest wheel at 62% of road speed"); clicking one zooms every panel to
+  the event with 60 m either side. Suspension events are detected per wheel,
+  so same-type events beginning within 6 m of each other draw as one marker
+  that names all the wheels. **TCS** rings every sample where traction
+  control was cutting power, in the lap's colour and hollow so the input
+  zone underneath stays readable; **ASM** does the same with squares and
+  starts off. Both follow the zoom, draw in the full-screen map, and the
+  key under the map lists only what is drawn in the current window.
+- **Session consistency, as a figure and a chart.** (#112) Each session row
+  carries its consistency under the lap-time sparkline — `±0.42 s · 0.4%`,
+  the standard deviation of the lap times and that as a share of the median
+  lap, green under 0.5 % and amber from 1.5 %. Analysis gains a **Lap times
+  — this session** panel: every lap as a point against lap number, a line
+  through the laps that count, the median dashed and a one-sigma band
+  around it, with the spread, median and best beneath. Both are taken over
+  the laps that count toward bests and no others, the same verdict the bests
+  board acts on, and need three of them: a pit out-lap, a race's lap 1 and
+  laps excluded by hand are drawn hollow and left out of the figure, and a
+  lap too slow for the scale is pinned to the top edge so one out-lap cannot
+  flatten the rest. Points in the current comparison take their chart
+  colour, and clicking a point adds the lap to the comparison or removes it.
 
 - **Sessions and live sync.** (#79) The sync client now sends the other two
   data types the service takes, each behind its own toggle in Admin → Sync,
@@ -48,6 +79,16 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Fixed
 
+- **ASM coming on no longer reads as traction control.** The `aids` column
+  is a bitmask and was resampled onto the comparison's 5 m grid by linear
+  interpolation like every other channel, so ASM switching on (`0 → 2`)
+  passed through `1`, the TCS bit, and the Throttle panel shaded a sliver of
+  TCS at every ASM onset; TCS together with the rev limiter (`9`) falling
+  back to nothing could pass through the handbrake bit the same way. `aids`
+  now takes the nearest sample's value, as `surface` already did. Stored
+  laps are unaffected — the per-lap TCS and ASM percentages were always
+  computed from the raw ticks.
+
 - **Where a circuit crosses over itself, both levels are surveyed and
   judged.** (#96) A border record was identified by its plan cell alone, so
   Suzuka's bridge and the road beneath it were one metre of road: whichever
@@ -74,6 +115,13 @@ Notable changes to GT7 Datalogger. The format follows
   only re-driving or a replace import (#93) brings back. `stacked_cells` in
   the bundle stats counts the metres where both levels are present. The
   data repo's copy of the format moves to v5 alongside.
+
+### Changed
+
+- **`TODO.md` is gone.** The feature list the project started from had been
+  overtaken by the issue tracker: most of it shipped, and what had not is
+  now filed as issues (#22, #101–#112). The "tiers" note in the
+  derived-channels docs points there instead.
 
 ## [0.6.1] - 2026-09-17
 
