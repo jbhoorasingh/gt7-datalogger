@@ -186,6 +186,29 @@ that started at the line.
 Dots and the Follow camera are placed at the exact cursor position, between the
 recorded 5 m steps, so the camera pans smoothly during playback.
 
+### Events and driver aids
+
+Two layers sit on top of the lines, each with a toggle in the map header. A toggle only
+appears when the selected laps have something to put on it, and both choices are
+remembered on this device.
+
+- **Events** marks where each detected [chassis event](../internals/event-detection.md)
+  *began*: ◆ lockup, ● wheelspin, ✚ bottoming, ✖ kerb strike. Markers are filled with
+  the lap's color, so with several laps selected the pattern is the reading — three
+  diamonds in one braking zone is a lockup that happens there every lap. Hover a marker
+  for the lap, the wheels and how bad it was; **click** it to zoom every panel to the
+  event with 60 m of track either side. Suspension events are detected per wheel, so
+  same-type events that begin within 6 m of each other are drawn as one marker naming
+  all the wheels.
+- **TCS** draws a hollow ring, in the lap's color, on every sample where traction
+  control was cutting power. Traction control catching the car at the same exit every
+  lap says the car is over the limit there; rings that disappear from one lap to the
+  next without the lap getting slower say TCS can come down a step. **ASM** does the
+  same for stability management with hollow squares, and starts switched off.
+
+Both layers follow the zoom, and the key under the map lists only what is drawn in the
+current window. Laps recorded before per-corner channels existed have neither.
+
 ### Corners
 
 The corner strip under the map is the fast way around a lap: **click a number** — or the
@@ -274,6 +297,17 @@ laps, focus chips let you switch the focus lap.
   top speed, and redline RPM.
 - **Consistency — best 5 laps** — median speed plus a deviation band across the
   session's best laps; a wide band marks corners you drive differently every lap.
+- **Lap times — this session** — every lap as a point, lap number across and lap time
+  up, with a line through the laps that count, the **median** dashed and a band one
+  standard deviation either side of it. Under the chart: the **spread** (the standard
+  deviation of the counting laps' times, and that as a percentage of the median so
+  circuits of different lengths compare), the median and the best. The spread is taken
+  over the laps that count toward bests and no others — a pit out-lap, a race's lap 1
+  from the grid and laps [excluded by hand](sessions-view.md#excluding-a-lap-from-bests)
+  are drawn hollow and left out, and a lap too slow for the scale is pinned to the top
+  edge as a hollow △ so one out-lap can't flatten the rest. It needs three counting
+  laps. Laps in the current comparison take their chart color; click any point to add
+  that lap to the comparison or take it out.
 - **Fuel strategy** — the relative [fuel-map table](../internals/fuel-strategy.md):
   for each setting −5…+5 vs the reference lap's, projected fuel/lap, laps remaining,
   time remaining, and lap-time cost.

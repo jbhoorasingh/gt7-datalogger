@@ -77,6 +77,12 @@ export const GUIDE_FEATURES: GuideFeature[] = [
     docs: `${VIEW}#race-line-map`,
   },
   {
+    title: "Events and aids on the map",
+    body:
+      "Events marks where each lockup ◆, wheelspin ●, bottoming ✚ and kerb strike ✖ began, in the lap's colour — hover for the wheels, click to zoom there. TCS and ASM ring every sample the aid was working.",
+    docs: `${VIEW}#events-and-driver-aids`,
+  },
+  {
     title: "Corners",
     body:
       "Numbered circles on the map — the circuit's labelled corners, or corners found on the reference lap. Click one, or step through the strip under the map, to zoom everything to it.",
@@ -115,7 +121,7 @@ export const GUIDE_FEATURES: GuideFeature[] = [
   {
     title: "Side panels",
     body:
-      "Race engineer notes for the session, the reference lap's tuning figures and class benchmark, gearing, fuel strategy, and consistency across the best laps.",
+      "Race engineer notes for the session, the reference lap's tuning figures and class benchmark, gearing, fuel strategy, consistency across the best laps, and every lap's time against the session's median and spread.",
     docs: `${VIEW}#side-panels`,
   },
   {

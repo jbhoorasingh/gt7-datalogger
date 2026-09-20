@@ -63,6 +63,9 @@ compression:
   widened to a minimum of 2 m so they stay visible.
 - **Driver aids** — TCS-active stretches shade the Throttle panel and ASM-active
   stretches shade the Speed panel, using the same mechanism.
+- **Race line map** — a marker in the lap's color where each event began, and rings on
+  the samples where TCS or ASM was active; see
+  [Events and driver aids](../guide/analysis-view.md#events-and-driver-aids).
 - **Sessions table** — the compact per-lap code `2L·1S·3B·1K` = 2 lockups, 1 wheelspin,
   3 bottomings, 1 kerb strike.
 - **Corner Detail widget** — live `LOCK` / `SPIN` badges are re-derived per corner as
