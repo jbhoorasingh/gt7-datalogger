@@ -20,6 +20,10 @@
 // * **A maximized view.** A 4.5 km circuit in a 360 px rail is a squiggle;
 //   the same map at full screen is a track.
 //
+// On top of the laps sit two optional layers: a marker where each detected
+// event began (#103) and a ring on every sample a driver aid was intervening
+// (#104), both in the lap's own colour so several laps can be read at once.
+//
 // The cursor dots are distance-locked by default, like every other panel.
 // Time sync (#75) moves the non-reference dots to where each lap was at the
 // reference's elapsed time instead, which turns a time gap into a visible
@@ -31,10 +35,21 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CHART_COLORS, EChart } from "@/components/EChart";
 import { LargeDialog } from "@/components/ui/Dialog";
 import { Tip } from "@/components/ui/Tooltip";
+import {
+  aidPoints,
+  EVENT_LABELS,
+  eventMarkers,
+  type MapLayers,
+  severityText,
+  wheelsText,
+} from "@/lib/mapLayers";
 import { positionAtDist, positionAtTime, timeAtDist } from "@/lib/playback";
 import {
+  AIDS_ASM,
+  AIDS_TCS,
   type CompareLapEntry,
   type Corner,
+  type EventType,
   kerbWheelCount,
   looseWheelCount,
   type TrackOutline,
@@ -57,6 +72,37 @@ const WALL_COLOR = "#7f1d1d";
 // Dashed like the Survey view draws them, in the app's warn color, and dimmer
 // than the borders — a hole in the backdrop, not a feature of the lap.
 const GAP_COLOR = "#f59e0b";
+
+// One glyph per event type, filled with the lap's colour. Shapes rather than
+// colours carry the type because colour is already spoken for: it says which
+// lap. Triangles are taken by the speed peaks and valleys.
+// Arms a third of the glyph wide: any thinner and the dark outline that lifts
+// a marker off the line eats the cross at map sizes.
+const PLUS_PATH = "path://M3.3,0H6.7V3.3H10V6.7H6.7V10H3.3V6.7H0V3.3H3.3Z";
+const EVENT_GLYPHS: Record<EventType, { symbol: string; rotate: number; legend: string }> = {
+  lockup: { symbol: "diamond", rotate: 0, legend: "◆" },
+  wheelspin: { symbol: "circle", rotate: 0, legend: "●" },
+  bottoming: { symbol: PLUS_PATH, rotate: 0, legend: "✚" },
+  kerb: { symbol: PLUS_PATH, rotate: 45, legend: "✖" },
+};
+const EVENT_ORDER: EventType[] = ["lockup", "wheelspin", "bottoming", "kerb"];
+
+// Aid activity is a hollow ring around the line, so the input-zone colour of
+// the sample underneath stays readable through it.
+const AID_LAYERS = [
+  { key: "tcs", bit: AIDS_TCS, symbol: "circle", label: "TCS active", legend: "○" },
+  { key: "asm", bit: AIDS_ASM, symbol: "rect", label: "ASM active", legend: "□" },
+] as const;
+
+// Track either side of an event when a marker is clicked: enough to see the
+// approach that caused it.
+const EVENT_PAD_M = 60;
+
+const NO_LAYERS: MapLayers = { events: false, tcs: false, asm: false };
+
+function escapeHtml(text: string): string {
+  return text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+}
 
 // Numbered circles are readable up to about this many corners in view; beyond
 // that they collapse to dots. The maximized view has the room for far more.
@@ -136,6 +182,8 @@ interface MapProps {
   // reference dot at the cursor, the others where their lap was at the
   // reference's lap time there.
   sync?: "position" | "time";
+  // Event markers and aid rings. Omitted draws neither.
+  layers?: MapLayers;
 }
 
 // The follow camera's window: a fixed span of metres centred on the reference
@@ -198,6 +246,7 @@ function MapBody({
   follow = false,
   followSpanM = FOLLOW_SPAN_M,
   sync = "position",
+  layers = NO_LAYERS,
   maximized = false,
 }: MapProps & { onMaximize?: () => void; maximized?: boolean }) {
   const chartRef = useRef<echarts.ECharts | null>(null);
@@ -240,6 +289,8 @@ function MapBody({
   cornersRef.current = corners;
   const zoomRef = useRef(zoomToCorner);
   zoomRef.current = zoomToCorner;
+  const rangeRef = useRef(onZoomChange);
+  rangeRef.current = onZoomChange;
 
   // The framing of the whole view, kept OUT of the option memo: the follow
   // camera swaps the axes every animation frame and needs a value to restore
@@ -319,6 +370,9 @@ function MapBody({
 
   const option = useMemo<EChartsOption>(() => {
     const series: SeriesOption[] = [];
+    // Zoomed in there is room for the line to be a line rather than a dotted
+    // trail, and the input zones read better for it.
+    const dot = zoomRange ? (maximized ? 7 : 5) : maximized ? 4.5 : 3.5;
 
     // Surveyed road first, under every lap line: fill, then borders, then the
     // start/finish line. Segment endpoints are pre-computed server-side, so
@@ -431,9 +485,6 @@ function MapBody({
 
     if (ref) {
       const s = ref.entry.series;
-      // Zoomed in there is room for the line to be a line rather than a dotted
-      // trail, and the input zones read better for it.
-      const dot = zoomRange ? (maximized ? 7 : 5) : maximized ? 4.5 : 3.5;
 
       // The reference lap as a CONTINUOUS line, one series per input zone
       // with the other zones nulled out. Samples arrive on a 5 m grid, which
@@ -586,7 +637,57 @@ function MapBody({
             fontWeight: "bold",
           },
           cursor: "pointer",
+          tooltip: { show: false },
           z: 4, // above the race line dots, below peak/valley markers & cursors
+        });
+      }
+    }
+
+    // Aid rings, every selected lap. Above the line and its zone dots, below
+    // the corner numbers — they are context for the line, not a thing to aim
+    // the pointer at.
+    for (const lap of laps) {
+      for (const aid of AID_LAYERS) {
+        if (!layers[aid.key]) continue;
+        const data = aidPoints(lap.entry.series, aid.bit, zoomRange);
+        if (data.length === 0) continue;
+        series.push({
+          id: `aid-${aid.key}-${lap.id}`,
+          type: "scatter",
+          data,
+          symbol: aid.symbol,
+          symbolSize: dot * 2.4,
+          itemStyle: { color: "transparent", borderColor: lap.color, borderWidth: 1.5 },
+          silent: true,
+          z: 3.5,
+        });
+      }
+    }
+
+    // Event markers, every selected lap. The only series on the map with a
+    // tooltip, and clickable: a marker takes every panel to the event.
+    if (layers.events) {
+      for (const lap of laps) {
+        const markers = eventMarkers(lap.entry, zoomRange);
+        if (markers.length === 0) continue;
+        series.push({
+          id: `events-${lap.id}`,
+          type: "scatter",
+          data: markers.map(({ x, z, event }) => ({
+            value: [x, z],
+            symbol: EVENT_GLYPHS[event.type].symbol,
+            symbolRotate: EVENT_GLYPHS[event.type].rotate,
+            range: [Math.max(0, event.start_dist - EVENT_PAD_M), event.end_dist + EVENT_PAD_M],
+            tip:
+              `<b>${EVENT_LABELS[event.type]}</b> · ${escapeHtml(lap.label)}<br/>` +
+              `${escapeHtml(wheelsText(event.wheels))}<br/>` +
+              `${escapeHtml(severityText(event))}<br/>` +
+              `<span style="color:${CHART_COLORS.label}">at ${event.start_dist.toFixed(0)} m · click to zoom</span>`,
+          })),
+          symbolSize: maximized ? 14 : 11,
+          itemStyle: { color: lap.color, borderColor: "#0d0f13", borderWidth: 1.2 },
+          cursor: "pointer",
+          z: 6, // above the peak/valley triangles, below the cursors
         });
       }
     }
@@ -635,10 +736,23 @@ function MapBody({
             ],
           }
         : {}),
-      tooltip: { show: false },
+      // Item-triggered, and every series but the event markers is silent or
+      // opts out, so this is the markers' tooltip and nothing else's.
+      tooltip: {
+        trigger: "item",
+        confine: true,
+        backgroundColor: "#16191e",
+        borderColor: CHART_COLORS.axis,
+        padding: [6, 9],
+        textStyle: { color: "#e5e7eb", fontSize: 11 },
+        formatter: (params) => {
+          const item = Array.isArray(params) ? params[0] : params;
+          return (item?.data as { tip?: string } | undefined)?.tip ?? "";
+        },
+      },
       series,
     };
-  }, [laps, zoomRange, outline, corners, current, maximized, ref, baseAxis]);
+  }, [laps, zoomRange, outline, corners, current, maximized, ref, baseAxis, layers]);
 
   // Whether the axes are currently displaced by the follow camera, so the
   // full view is restored exactly once when it switches off — pushing the
@@ -684,6 +798,24 @@ function MapBody({
 
   const others = laps.filter((lap) => !lap.isRef);
   const hasSurface = !!ref?.entry.series.surface?.some((v) => v > 0);
+  // The key lists what is actually on the map, not what is switched on: a
+  // layer with nothing to draw in the current window adds no entry.
+  const drawn = useMemo(() => {
+    const eventTypes = new Set<EventType>();
+    const aids = new Set<string>();
+    if (layers.events) {
+      for (const lap of laps) {
+        for (const { event } of eventMarkers(lap.entry, zoomRange)) eventTypes.add(event.type);
+      }
+    }
+    for (const aid of AID_LAYERS) {
+      if (!layers[aid.key]) continue;
+      if (laps.some((lap) => aidPoints(lap.entry.series, aid.bit, zoomRange).length > 0)) {
+        aids.add(aid.key);
+      }
+    }
+    return { eventTypes, aids };
+  }, [laps, layers, zoomRange]);
 
   return (
     <div className={maximized ? "flex h-full flex-col" : undefined}>
@@ -696,6 +828,11 @@ function MapBody({
           onInit={(chart) => {
             chartRef.current = chart;
             chart.on("click", (e) => {
+              if (e.seriesId?.startsWith("events-")) {
+                const range = (e.data as { range?: [number, number] } | undefined)?.range;
+                if (range) rangeRef.current?.(range);
+                return;
+              }
               if (e.seriesId !== "corners") return;
               const corner = cornersRef.current.find((c) => String(c.n) === e.name);
               if (corner) zoomRef.current(corner);
@@ -762,6 +899,18 @@ function MapBody({
             </span>
           </>
         )}
+        {EVENT_ORDER.filter((type) => drawn.eventTypes.has(type)).map((type) => (
+          <span key={type} title="In the lap's colour · click a marker to zoom every panel to it">
+            <span className="mr-1 text-ink">{EVENT_GLYPHS[type].legend}</span>
+            {EVENT_LABELS[type].toLowerCase()}
+          </span>
+        ))}
+        {AID_LAYERS.filter((aid) => drawn.aids.has(aid.key)).map((aid) => (
+          <span key={aid.key} title="A ring on every sample the aid was intervening, in the lap's colour">
+            <span className="mr-1 text-ink">{aid.legend}</span>
+            {aid.label}
+          </span>
+        ))}
         {corners.length > 0 && (
           <span>
             <i className="mr-1 inline-block h-2.5 w-2.5 rounded-full border border-ink-dim text-center align-middle text-[7px] leading-[9px]">

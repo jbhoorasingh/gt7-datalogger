@@ -32,6 +32,7 @@ import {
   saveChannelKeys,
 } from "@/lib/channels";
 import { lapColor, lapColorMap } from "@/lib/colors";
+import { hasAid, type MapLayerKey } from "@/lib/mapLayers";
 import { formatLapTime, formatSpeed, formatTime } from "@/lib/format";
 import {
   openInAnalysis,
@@ -39,6 +40,8 @@ import {
   type AnalysisRequest,
 } from "@/lib/router";
 import {
+  AIDS_ASM,
+  AIDS_TCS,
   notCountingLabel,
   type CategoryBest,
   type CoachingNotes,
@@ -96,6 +99,8 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
   const setMapFollow = useSettings((s) => s.setMapFollow);
   const mapSync = useSettings((s) => s.mapSync);
   const setMapSync = useSettings((s) => s.setMapSync);
+  const mapLayers = useSettings((s) => s.mapLayers);
+  const setMapLayer = useSettings((s) => s.setMapLayer);
   const lapEpoch = useTelemetry((s) => s.lapEpoch);
 
   // Seed from the shared selection so switching tabs doesn't reset the view.
@@ -541,6 +546,35 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
     }));
   }, [compare, lapLabels, refLap, lapColors]);
 
+  // Which map layers have anything to show for this selection. A toggle for
+  // a layer the laps cannot fill (a recording from before the channel
+  // existed, a lap with no events) is a button that does nothing.
+  const mapLayerToggles = useMemo(() => {
+    const toggles: { key: MapLayerKey; label: string; tip: string }[] = [];
+    if (mapLaps.some((lap) => (lap.entry.events?.length ?? 0) > 0)) {
+      toggles.push({
+        key: "events",
+        label: "Events",
+        tip: "Mark where each lockup, wheelspin, bottoming and kerb strike began, in the lap's colour. Click a marker to zoom every panel to it",
+      });
+    }
+    if (mapLaps.some((lap) => hasAid(lap.entry.series, AIDS_TCS))) {
+      toggles.push({
+        key: "tcs",
+        label: "TCS",
+        tip: "Ring every stretch where traction control was cutting power. The same exit every lap means the car is over the limit there",
+      });
+    }
+    if (mapLaps.some((lap) => hasAid(lap.entry.series, AIDS_ASM))) {
+      toggles.push({
+        key: "asm",
+        label: "ASM",
+        tip: "Ring every stretch where stability management was intervening",
+      });
+    }
+    return toggles;
+  }, [mapLaps]);
+
   // Same laps again, converted to g for the traction circle. Empty whenever
   // the recording predates the accelerometer (packet A) — the panel then
   // never mounts rather than drawing an empty ring.
@@ -851,6 +885,22 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
                   </span>
                 </Tip>
               )}
+              {mapLayerToggles.map(({ key, label, tip }) => (
+                <Tip key={key} content={tip}>
+                  <button
+                    onClick={() => setMapLayer(key, !mapLayers[key])}
+                    aria-pressed={mapLayers[key]}
+                    className={`rounded border px-2.5 py-0.5 text-[10.5px] transition-colors ${
+                      mapLayers[key]
+                        ? "border-accent bg-accent/14 text-accent-300"
+                        : "border-edge text-ink-dim hover:border-accent hover:text-accent"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                </Tip>
+              ))}
+              {mapLayerToggles.length > 0 && <span className="mx-1 h-3.5 w-px bg-edge" />}
               <Tip content="While playback runs, zoom the map in and pan with the car instead of framing the whole circuit">
                 <button
                   onClick={() => setMapFollow(!mapFollow)}
@@ -896,6 +946,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
             hero
             follow={mapFollow}
             sync={mapSync}
+            layers={mapLayers}
             laps={mapLaps}
             cursorDist={cursorDist}
             zoomRange={zoomRange}
