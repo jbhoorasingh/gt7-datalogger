@@ -6,6 +6,7 @@ from httpx import ASGITransport, AsyncClient
 from app.config import Settings
 from app.main import create_app
 from app.models import AidsBits, SimulatorFlags
+from app.processing.analysis import resample_by_distance
 from app.processing.cars import CarDatabase
 from app.processing.events import detect_events
 from app.processing.laps import (
@@ -112,6 +113,17 @@ def test_aid_metrics() -> None:
     lap.compute_metrics()
     assert lap.tcs_active_pct == pytest.approx(50.0)
     assert lap.asm_active_pct == pytest.approx(25.0)
+
+
+def test_aids_resample_nearest_not_interpolated() -> None:
+    # ASM coming on is 0 -> 2. Interpolated onto the grid that passes through
+    # 1, the TCS bit, and the comparison view drew traction control where
+    # there was none.
+    asm = float(AidsBits.ASM)
+    samples = {"dist": [0.0, 10.0, 20.0, 30.0], "aids": [0.0, 0.0, asm, asm]}
+    out = resample_by_distance(samples, step=2.5, columns=("aids",))
+    assert set(out["aids"]) <= {0.0, asm}
+    assert not any(int(v) & AidsBits.TCS for v in out["aids"])
 
 
 # --- pipeline + API ----------------------------------------------------------
