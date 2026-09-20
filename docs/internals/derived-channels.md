@@ -141,8 +141,9 @@ speed_i = top_speed × (ratio_top ÷ ratio_i)
 
 ## A note on "tiers"
 
-If you browse the code or `TODO.md` you'll see channels grouped into tiers. That's a
-**roadmap grouping**, not a runtime concept: Tier 1 = surface data already in the packet
+If you browse the code or the commit history you'll see channels grouped into tiers.
+That's a **roadmap grouping** from the project's original feature list (what is left of
+it now lives in the GitHub issues), not a runtime concept: Tier 1 = surface data already in the packet
 (per-corner slip/temps/suspension, aids, engine health, gearing — all implemented),
 Tier 2 = derived analytics like sector splits (sectors still future work; the g-g
 diagram is implemented from the broadcast accelerometer rather than derived from speed

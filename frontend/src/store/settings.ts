@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { Units } from "@/lib/format";
+import type { MapLayerKey, MapLayers } from "@/lib/mapLayers";
 
 /** How the Analysis race line places the other laps' cars (#75). */
 export type MapSync = "position" | "time";
@@ -25,6 +26,14 @@ interface SettingsState {
    */
   mapSync: MapSync;
   setMapSync: (v: MapSync) => void;
+  /**
+   * What the race line draws on top of the laps: detected chassis events
+   * (#103) and where TCS / ASM were intervening (#104). Events and TCS start
+   * on because they are the coaching cues; ASM is the same kind of mark for
+   * a second aid and starts off, so the default map carries one set of them.
+   */
+  mapLayers: MapLayers;
+  setMapLayer: (key: MapLayerKey, on: boolean) => void;
 }
 
 export const useSettings = create<SettingsState>()(
@@ -36,6 +45,8 @@ export const useSettings = create<SettingsState>()(
       setMapFollow: (mapFollow) => set({ mapFollow }),
       mapSync: "time",
       setMapSync: (mapSync) => set({ mapSync }),
+      mapLayers: { events: true, tcs: true, asm: false },
+      setMapLayer: (key, on) => set((s) => ({ mapLayers: { ...s.mapLayers, [key]: on } })),
     }),
     { name: "gt7-settings" },
   ),

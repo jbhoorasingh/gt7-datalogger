@@ -49,7 +49,10 @@ Every lap's (aligned) sample series is then resampled onto a distance grid:
   = 5 m**; the API accepts 0.5–50 m) — a lap rarely ends on a whole step, and without
   the last point every series stopped up to a step short of the line;
 - each channel is **linearly interpolated** onto the grid, with edge clamping (values
-  before the first / after the last sample take the boundary value).
+  before the first / after the last sample take the boundary value);
+- except the two packed bitfields, `surface` and `aids`, which take the **nearest**
+  sample's value instead. Interpolating a bitmask invents values: ASM coming on is
+  `0 → 2`, and the midpoint `1` is the TCS bit.
 
 Two laps resampled this way have directly comparable values at every grid distance:
 "what was each lap doing 850 m into the lap?" This is also a read-time downsample — a

@@ -9,7 +9,14 @@ listed newest first.
 ## Session rows
 
 Each row shows the session id, car, start time, lap count, best lap, a **lap-time
-sparkline** (chronological lap times with the best lap dotted in accent), and the track:
+sparkline** (chronological lap times with the best lap dotted in accent), and the track.
+Under the sparkline is the session's **consistency**: `±0.42 s · 0.4%` is the standard
+deviation of the lap times and that as a percentage of the median lap. It is taken over
+the laps that [count toward bests](#excluding-a-lap-from-bests) only, needs three of
+them, and is green under 0.5 %, amber from 1.5 %. Analysis shows the same figure with
+the [lap-time chart](analysis-view.md#side-panels) behind it.
+
+The track is shown as:
 
 - a track **badge** when the track is known;
 - a dashed **name track…** button when it isn't. Naming it fingerprints the circuit from

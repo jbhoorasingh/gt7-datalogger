@@ -17,8 +17,10 @@ DEFAULT_STEP_M = 5.0
 
 # Discrete per-tick columns (packed bitfields) where linear interpolation
 # would fabricate values that decode to nonsense — resampled with
-# nearest-neighbor instead.
-NEAREST_COLUMNS = frozenset({"surface"})
+# nearest-neighbor instead. For `aids` the nonsense is quiet: ASM coming on
+# (0 → 2) interpolates through 1, which is the TCS bit, so every ASM onset
+# read as a moment of traction control.
+NEAREST_COLUMNS = frozenset({"surface", "aids"})
 
 
 def _interp(xs: list[float], ys: list[float], x: float) -> float:
