@@ -2,6 +2,7 @@
 
 import json
 import math
+from pathlib import Path
 
 from app.processing import track_bundle, track_compile
 
@@ -335,3 +336,202 @@ def test_a_banked_road_is_one_level_with_an_envelope() -> None:
 def test_quads_without_elevation_on_both_borders_have_no_level() -> None:
     compiled = track_compile.compile_bundle(_document(_ring()))  # only L knows y
     assert compiled["road_y"] and all(lv is None for lv in compiled["road_y"])
+
+
+# --- border smoothing ---------------------------------------------------------
+
+VECTORS = json.loads(
+    (Path(__file__).parent / "data" / "smooth_vectors.json").read_text(encoding="utf-8")
+)
+
+
+def _corner(radius, turn_deg, step, *, snap=True, straight=60.0):
+    """A straight, a corner of `radius` through `turn_deg`, a straight. With
+    `snap`, as a survey records it: on the 1 m grid, no cell twice."""
+    true = []
+    s = -straight
+    while s < 0:
+        true.append((s, 0.0))
+        s += step
+    turn = math.radians(turn_deg)
+    a = 0.0
+    while a < turn * radius:
+        true.append((radius * math.sin(a / radius), radius * (1 - math.cos(a / radius))))
+        a += step
+    ex, ez = radius * math.sin(turn), radius * (1 - math.cos(turn))
+    s = 0.0
+    while s < straight:
+        true.append((ex + s * math.cos(turn), ez + s * math.sin(turn)))
+        s += step
+    if not snap:
+        return true
+    cells = [(float(round(x)), float(round(z))) for x, z in true]
+    return [cells[0]] + [b for a, b in zip(cells, cells[1:], strict=False) if b != a]
+
+
+def _worst_error(truth, points):
+    return max(min(math.hypot(x - a, z - b) for a, b in truth) for x, z in points)
+
+
+def _kinks(points, degrees=35.0, leg=3.0):
+    """Turns sharper than `degrees` with a leg shorter than `leg` metres: a
+    nick in the border, which no road has."""
+    count = 0
+    for a, b, c in zip(points, points[1:], points[2:], strict=False):
+        v1, v2 = (b[0] - a[0], b[1] - a[1]), (c[0] - b[0], c[1] - b[1])
+        n1, n2 = math.hypot(*v1), math.hypot(*v2)
+        if n1 < 1e-6 or n2 < 1e-6:
+            continue
+        turn = math.degrees(math.atan2(
+            v1[0] * v2[1] - v1[1] * v2[0], v1[0] * v2[0] + v1[1] * v2[1]
+        ))
+        if abs(turn) > degrees and min(n1, n2) < leg:
+            count += 1
+    return count
+
+
+def test_smoothing_reproduces_the_vectors_the_editor_is_held_to() -> None:
+    # The track editor carries this routine in JavaScript and is tested
+    # against the same file. A change that moves these numbers is a change to
+    # both: regenerate with tests/data/make_smooth_vectors.py and take the
+    # file across.
+    params = VECTORS["parameters"]
+    assert params == {
+        "iterations": track_compile.SMOOTH_ITERATIONS,
+        "lambda": track_compile.SMOOTH_LAMBDA,
+        "mu": track_compile.SMOOTH_MU,
+        "cap_m": track_compile.SMOOTH_CAP_M,
+    }
+    for name, case in VECTORS["cases"].items():
+        got = track_compile.smooth_run(
+            [tuple(p) for p in case["points"]], closed=case["closed"]
+        )
+        for (x, z), (ex, ez) in zip(got, case["expected"], strict=True):
+            assert math.isclose(x, ex, abs_tol=1e-6), name
+            assert math.isclose(z, ez, abs_tol=1e-6), name
+
+
+def test_smoothing_does_not_cut_a_sharp_corner() -> None:
+    # The whole reason this is Taubin and not an average: measured against
+    # corners whose true border is known, a ±8 m moving average is 2.0 m
+    # inside a 3 m kerb and 1.4 m inside a 10 m hairpin. track_limits judges a
+    # car off the road a metre past the edge, so that is a wrong verdict on
+    # exactly the corners where verdicts matter.
+    for radius, turn in ((3, 90), (6, 70), (10, 180), (20, 180), (80, 60)):
+        truth = _corner(radius, turn, 0.1, snap=False)
+        for step in (1.0, 2.0):
+            recorded = _corner(radius, turn, step)
+            smoothed = track_compile.smooth_run(recorded)
+            error = _worst_error(truth, smoothed)
+            assert error <= 0.4, (radius, step, error)
+            # And never meaningfully worse than the grid it started from.
+            assert error <= _worst_error(truth, recorded) + 0.1, (radius, step)
+
+
+def test_smoothing_removes_the_step_where_the_record_kind_changes() -> None:
+    stepped = [(float(i), 0.0 if i < 30 else 1.0) for i in range(60)]
+    assert _kinks(stepped) == 2  # a metre sideways in a metre: 45° in, 45° out
+    smoothed = track_compile.smooth_run(stepped)
+    assert _kinks(smoothed) == 0
+    # The two kinds still disagree about where the edge is, and far from the
+    # step each stretch stays where its own records put it.
+    assert abs(smoothed[5][1]) < 0.01 and abs(smoothed[-6][1] - 1.0) < 0.01
+
+
+def test_smoothing_keeps_a_runs_ends_and_honours_the_cap() -> None:
+    spiked = [(float(i), 0.0) for i in range(20)]
+    spiked[10] = (10.0, 3.0)
+    smoothed = track_compile.smooth_run(spiked)
+    assert smoothed[0] == spiked[0] and smoothed[-1] == spiked[-1]
+    moves = [math.hypot(a[0] - b[0], a[1] - b[1])
+             for a, b in zip(spiked, smoothed, strict=True)]
+    assert max(moves) <= track_compile.SMOOTH_CAP_M + 1e-9
+    assert math.isclose(moves[10], track_compile.SMOOTH_CAP_M, abs_tol=1e-9)
+
+
+def test_smoothing_does_not_creep_records_along_an_unevenly_surveyed_straight() -> None:
+    # One record a metre, then one every five: an unweighted average would
+    # slide them towards even spacing and spend the cap on moving nothing.
+    straight = [(float(x), 2.0) for x in (0, 1, 2, 3, 8, 13, 14, 15, 20, 21)]
+    for before, after in zip(straight, track_compile.smooth_run(straight), strict=True):
+        assert math.isclose(before[0], after[0], abs_tol=1e-9)
+        assert math.isclose(before[1], after[1], abs_tol=1e-9)
+
+
+def test_smoothing_does_not_shrink_a_closed_loop() -> None:
+    n = 360
+    ring = [((100 + 0.5 * (-1) ** i) * math.cos(2 * math.pi * i / n),
+             (100 + 0.5 * (-1) ** i) * math.sin(2 * math.pi * i / n)) for i in range(n)]
+
+    def area(p):
+        return abs(sum(a[0] * b[1] - b[0] * a[1]
+                       for a, b in zip(p, p[1:] + p[:1], strict=True))) / 2
+
+    smoothed = track_compile.smooth_run(ring, closed=True)
+    assert abs(area(smoothed) - area(ring)) / area(ring) < 0.001
+    radii = [math.hypot(x, z) for x, z in smoothed]
+    assert max(radii) - min(radii) < 0.2  # the ±0.5 m zigzag is gone
+
+
+def test_switching_smoothing_off_compiles_the_evidence_exactly_as_recorded() -> None:
+    # The administrator's switch. Off must mean off: the same document the
+    # compiler produced before it could smooth at all.
+    doc = _document(_ring(skip={("R", i) for i in range(40, 70)}))
+    off = track_compile.compile_bundle(doc, smooth=False)
+    assert off["smoothing"] is None
+    raw = {(round(e["x"], 2), round(e["z"], 2)) for e in doc["edges"]}
+    for side in ("L", "R"):
+        for run in off["borders"][side]:
+            assert all((v[0], v[1]) in raw for v in run)
+
+    on = track_compile.compile_bundle(doc, smooth=True)
+    assert on["smoothing"] == {
+        "method": "taubin", "iterations": 10, "lambda": 0.5, "mu": -0.53, "cap_m": 0.75,
+    }
+    # And what is on when nobody says is what the constant says.
+    default = track_compile.compile_bundle(doc)
+    assert (default["smoothing"] is not None) == track_compile.SMOOTH_BORDERS
+
+
+def test_smoothing_never_reaches_across_a_gap_or_rewrites_the_bundle() -> None:
+    edges = _ring(skip={("R", i) for i in range(40, 70)})
+    doc = _document(edges)
+    before = json.dumps(doc, sort_keys=True)
+    off = track_compile.compile_bundle(doc, smooth=False)
+    on = track_compile.compile_bundle(doc, smooth=True)
+    # The records are evidence; smoothing is done to copies of them.
+    assert json.dumps(doc, sort_keys=True) == before
+    # Both ends of the hole are where the survey left them, so the gap is the
+    # same gap and the coverage it costs is the same coverage.
+    assert on["gaps"] == off["gaps"] and len(on["gaps"]["R"]) == 1
+    assert on["coverage"]["R"]["gap_m"] == off["coverage"]["R"]["gap_m"]
+    assert on["coverage"]["L"]["closed"] and on["coverage"]["L"]["pct"] == 100.0
+
+
+def test_a_stepped_border_compiles_without_its_nicks() -> None:
+    # A straight whose right-hand records sit a metre further out for a
+    # stretch, as `straddle` records do beside `edge` ones.
+    edges = _straight(length=200.0)
+    for e in edges:
+        if e["side"] == "R" and 80 <= e["x"] + 100 < 120:
+            e["z"] -= 1.0
+    doc = _document(edges)
+
+    def nicks(compiled):
+        return sum(_kinks([(v[0], v[1]) for v in run]) for run in compiled["borders"]["R"])
+
+    assert nicks(track_compile.compile_bundle(doc, smooth=False)) > 0
+    assert nicks(track_compile.compile_bundle(doc, smooth=True)) == 0
+
+
+def test_a_closed_loop_is_smoothed_round_its_seam() -> None:
+    left = track_compile.SideAssembly(
+        [e for e in _ring() if e["side"] == "L"], smooth=True
+    )
+    assert left.closed and left.smoothed
+    runs, ring = left._runs(0)
+    assert ring and len(runs) == 1
+    # Every vertex of a perfect circle is already where its neighbours say,
+    # the seed of the walk included: nothing has an end to be pinned at.
+    radii = [math.hypot(left.pts[i]["x"], left.pts[i]["z"]) for i in left.chains[0]]
+    assert max(radii) - min(radii) < 0.01
