@@ -5,6 +5,25 @@ Notable changes to GT7 Datalogger. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Compiled borders are smoothed.** A border record sits on a 1 m grid, and
+  an `edge` record and a `straddle` record of the same kerb disagree by up to
+  a metre about where it is, so an ordered border stepped sideways wherever
+  the kind changed — nicks in the drawn line, and a road whose edge moved a
+  metre in a metre. The compiler now smooths each surveyed run with Taubin's
+  λ|μ pass, which does not pull curves towards their inside the way an
+  average does: against corners whose true border is known it stays within
+  0.35 m on everything from a 3 m kerb to an 80 m sweeper, where a ±8 m
+  moving average cuts 2 m off the kerb. Ends of a run stay where the survey
+  stopped, nothing is smoothed across a gap, no vertex moves more than
+  0.75 m from its record (under `track_limits`' edge margin), and the bundle
+  itself is never rewritten. Over the 24 circuits in the shared map: 3 103
+  kinks to 19, every gap span unchanged, coverage within 0.3 of a point.
+  `compile_bundle(doc, smooth=False)` compiles the evidence exactly as
+  recorded, and the document's new `smoothing` key says which it got.
+  Compiled format 3, so every stored compile is rebuilt once.
+
 ## [0.6.2] - 2026-09-19
 
 ### Added

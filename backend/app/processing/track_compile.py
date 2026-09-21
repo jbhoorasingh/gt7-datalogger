@@ -64,10 +64,11 @@ log = logging.getLogger(__name__)
 
 COMPILED_FORMAT = "gt7-datalogger-track-compiled"
 # 2: per-quad elevation envelopes (`road_y`) and level-gated ordering (#96).
+# 3: smoothed borders, and the `smoothing` key that says whether they are.
 # Bumping it is what recompiles every stored document once — the bundle files
 # themselves did not change, so the identity check alone would keep serving
 # geometry that walks across levels.
-COMPILED_VERSION = 2
+COMPILED_VERSION = 3
 COMPILED_DIR = "compiled"  # under track-bundles/
 
 # --- chain walking ------------------------------------------------------------
@@ -106,6 +107,40 @@ _GRID_CELL_M = ROAD_WIDTH_MAX_M
 # grid pitch: below the noise floor of the evidence, so it only sheds
 # collinear points.
 SIMPLIFY_TOL_M = 0.5
+
+# --- border smoothing ---------------------------------------------------------
+# A record sits on a 1 m grid, and an `edge` record and a `straddle` record of
+# the same kerb disagree by up to a metre about where it is, so an ordered
+# border steps sideways wherever the kind changes: on Tsukuba, every one of
+# the fifteen lateral steps over 0.7 m is at a change of kind. Drawn as-is
+# that is a border with nicks in it, and a road whose edge moves a metre in a
+# metre.
+#
+# The obvious cure is the wrong one. A moving average pulls every curve
+# towards its inside: measured against corners whose true border is known, a
+# ±8 m window cuts 2.0 m off a 3 m kerb and 1.4 m off a 10 m hairpin — more
+# than track_limits' whole edge margin, on exactly the corners where laps are
+# judged. Taubin's λ|μ pass shrinks and then inflates by slightly more, which
+# cancels the pull: it stays within 0.35 m of the truth on all of those —
+# closer than the unsmoothed grid on every corner of 6 m radius and up, and
+# within 5 cm of it on the 3 m kerb — and moves the area Tsukuba's left border
+# encloses by 2 m² in 75 491. Over the 24 circuits published when this was
+# written it took 3 103 kinks to 19, changed no gap span, and moved coverage
+# by 0.3 of a point at most (a zigzag is longer than the line through it, so
+# surveyed metres fall a little against gaps that do not).
+#
+# These figures are the contract. `tools/track_editor/track-editor-core.mjs`
+# in the track-data repository carries the same routine for the editor, and
+# both are held to one set of vectors; change one, change both.
+SMOOTH_BORDERS = True  # what compile_bundle does when nobody says otherwise
+SMOOTH_ITERATIONS = 10
+SMOOTH_LAMBDA = 0.5
+SMOOTH_MU = -0.53
+# No vertex ends further than this from the evidence, whatever the passes
+# wanted. Under the bundle's grid pitch and under track_limits.EDGE_MARGIN_M,
+# so smoothing can never be the reason a lap reads as off the road.
+SMOOTH_CAP_M = 0.75
+_SMOOTH_MIN_SPACING_M = 1e-3  # two records on one spot must not own the average
 
 # --- road levels (#96) --------------------------------------------------------
 # Two cells are on the same road when their elevations agree to within what
@@ -320,11 +355,87 @@ def _simplify(vertices: list[list[float | None]], tol: float) -> list[list[float
     return left[:-1] + right
 
 
-class SideAssembly:
-    """One side's border, ordered: the main chain plus leftover fragments."""
+def smooth_run(
+    points: list[tuple[float, float]],
+    *,
+    closed: bool = False,
+    iterations: int = SMOOTH_ITERATIONS,
+    lam: float = SMOOTH_LAMBDA,
+    mu: float = SMOOTH_MU,
+    cap: float = SMOOTH_CAP_M,
+) -> list[tuple[float, float]]:
+    """One ORDERED run of border positions, smoothed without shrinking it.
 
-    def __init__(self, pts: list[dict[str, Any]]) -> None:
+    Taubin's λ|μ: each pass moves a vertex a fraction of the way to where its
+    two neighbours say it should be, first by λ (which smooths, and shrinks)
+    and then by μ < -λ (which undoes the shrinking). "Where the neighbours
+    say" is weighted by the inverse of each neighbour's original distance,
+    which on a straight line is the vertex's own position however unevenly the
+    records are spaced — so records do not creep along the border towards
+    even spacing and spend the cap on a movement that changes nothing.
+
+    An open run keeps both ends exactly where they were: an end is where the
+    survey stopped, and what lies beyond it is not this run's to guess at.
+    `closed` is a loop with no ends, smoothed round its seam.
+
+    A pure function of its arguments, and the whole of the smoothing: the
+    caller decides what a run is. It must never be handed positions from two
+    sides of unsurveyed ground — smoothing drags both ends of a gap into it.
+    """
+    n = len(points)
+    if n < 3 or iterations <= 0:
+        return [(float(x), float(z)) for x, z in points]
+    orig = [(float(x), float(z)) for x, z in points]
+
+    def spacing(a: int, b: int) -> float:
+        return max(
+            math.hypot(orig[b][0] - orig[a][0], orig[b][1] - orig[a][1]),
+            _SMOOTH_MIN_SPACING_M,
+        )
+
+    # (previous, next, weight of previous, weight of next) per moving vertex,
+    # from the evidence and fixed for every pass.
+    moving: list[tuple[int, int, int, float, float]] = []
+    for i in (range(n) if closed else range(1, n - 1)):
+        a, b = (i - 1) % n, (i + 1) % n
+        moving.append((i, a, b, 1.0 / spacing(a, i), 1.0 / spacing(i, b)))
+
+    cur = orig[:]
+    for _ in range(iterations):
+        for factor in (lam, mu):
+            nxt = cur[:]
+            for i, a, b, wa, wb in moving:
+                tx = (cur[a][0] * wa + cur[b][0] * wb) / (wa + wb)
+                tz = (cur[a][1] * wa + cur[b][1] * wb) / (wa + wb)
+                nxt[i] = (
+                    cur[i][0] + factor * (tx - cur[i][0]),
+                    cur[i][1] + factor * (tz - cur[i][1]),
+                )
+            cur = nxt
+
+    if cap >= 0:
+        for i, *_ in moving:
+            dx, dz = cur[i][0] - orig[i][0], cur[i][1] - orig[i][1]
+            moved = math.hypot(dx, dz)
+            if moved > cap:
+                scale = cap / moved
+                cur[i] = (orig[i][0] + dx * scale, orig[i][1] + dz * scale)
+    return cur
+
+
+class SideAssembly:
+    """One side's border, ordered: the main chain plus leftover fragments.
+
+    Ordering is always read off the evidence as recorded. With `smooth`, the
+    positions everything downstream reads — polylines, coverage, the samples
+    the centerline pairs from — are then the smoothed ones, so the drawn
+    border, the road between the borders and the metres counted are one
+    geometry and not two that nearly agree.
+    """
+
+    def __init__(self, pts: list[dict[str, Any]], *, smooth: bool = False) -> None:
         self.pts = pts
+        self.smoothed = False
         self.chains = stitch(chain_side(pts), pts) if pts else []
         self.chains.sort(key=lambda c: self._length(c), reverse=True)
         self.closed: bool = False
@@ -339,6 +450,61 @@ class SideAssembly:
                     da[0] * db[0] + da[1] * db[1]
                 ) >= 0.2:
                     self.closed = True
+        if smooth and self.chains:
+            self._smooth()
+
+    def _runs(self, ci: int) -> tuple[list[list[int]], bool]:
+        """A chain's surveyed runs — its indices split wherever a span is a
+        flagged gap — and whether the whole chain is one ring.
+
+        On a loop whose seam is real border the last run carries on into the
+        first, so they are returned joined, in driving order: the seam is a
+        span like any other and gets no kink of its own for being where the
+        walk happened to start.
+        """
+        chain = self.chains[ci]
+        runs: list[list[int]] = [[chain[0]]]
+        for a, b in zip(chain, chain[1:], strict=False):
+            if _seg_len(self.pts[a], self.pts[b]) > SURVEYED_MAX_SPACING_M:
+                runs.append([])
+            runs[-1].append(b)
+        if ci == 0 and self.closure_surveyed():
+            if len(runs) == 1:
+                return runs, True
+            runs[0] = runs.pop() + runs[0]
+        return runs, False
+
+    def _smooth(self) -> None:
+        """Replace `pts` with copies carrying smoothed plan positions.
+
+        Copies, because the records are the bundle's own and the bundle is
+        evidence: what was surveyed is not rewritten by what was drawn from
+        it. Run by run, never across a gap. A run is left exactly as recorded
+        if smoothing would stretch any of its spans past the gap threshold —
+        the cap makes that all but impossible, and a border that gained a gap
+        by being tidied would be reporting coverage the smoother invented.
+        """
+        pts = list(self.pts)
+        for ci in range(len(self.chains)):
+            runs, ring = self._runs(ci)
+            for run in runs:
+                if len(run) < 3:
+                    continue
+                new = smooth_run(
+                    [(self.pts[i]["x"], self.pts[i]["z"]) for i in run], closed=ring
+                )
+                spans = list(zip(new, new[1:], strict=False))
+                if ring:
+                    spans.append((new[-1], new[0]))
+                if any(
+                    math.hypot(b[0] - a[0], b[1] - a[1]) > SURVEYED_MAX_SPACING_M
+                    for a, b in spans
+                ):
+                    continue
+                for i, (x, z) in zip(run, new, strict=True):
+                    pts[i] = {**self.pts[i], "x": x, "z": z}
+        self.pts = pts
+        self.smoothed = True
 
     def _length(self, chain: list[int]) -> float:
         return sum(
@@ -647,17 +813,25 @@ def centerline_and_road(
     return runs, quads, levels, (paired / judged if judged else 0.0)
 
 
-def compile_bundle(doc: dict[str, Any]) -> dict[str, Any]:
-    """One bundle document -> its compiled vector geometry."""
+def compile_bundle(doc: dict[str, Any], *, smooth: bool | None = None) -> dict[str, Any]:
+    """One bundle document -> its compiled vector geometry.
+
+    `smooth` is whether the borders are smoothed (see SMOOTH_BORDERS, which is
+    what None means). It is an argument and not only a constant because the
+    sync service's administrator can switch it off for the shared map, and
+    the merge job passes their answer here; the document says which it got.
+    """
     from app.processing import track_outline  # finish_line; avoid cycle at import
+
+    smooth = SMOOTH_BORDERS if smooth is None else bool(smooth)
 
     edges = doc["edges"]
     # Every kind is a border record — "wall" or "runoff" says what lies BEYOND
     # the edge, not that the edge isn't one (#49) — so every kind takes part
     # in the ordering. Walls are additionally kept as their own drawing layer,
     # exactly as track_outline separates them.
-    left = SideAssembly([e for e in edges if e["side"] == "L"])
-    right = SideAssembly([e for e in edges if e["side"] == "R"])
+    left = SideAssembly([e for e in edges if e["side"] == "L"], smooth=smooth)
+    right = SideAssembly([e for e in edges if e["side"] == "R"], smooth=smooth)
     centerline, road, road_y, paired = centerline_and_road(left, right)
     coverage = {
         "L": left.coverage(),
@@ -695,6 +869,15 @@ def compile_bundle(doc: dict[str, Any]) -> dict[str, Any]:
         "road_y": road_y,
         "finish": track_outline.finish_line(doc["finish_crossings"]),
         "coverage": coverage,
+        # What was done to the recorded positions before any of the above was
+        # derived from them, or None for the evidence exactly as surveyed.
+        "smoothing": {
+            "method": "taubin",
+            "iterations": SMOOTH_ITERATIONS,
+            "lambda": SMOOTH_LAMBDA,
+            "mu": SMOOTH_MU,
+            "cap_m": SMOOTH_CAP_M,
+        } if smooth else None,
     }
 
 
