@@ -11,6 +11,8 @@ A telemetry datalogger and analysis dashboard for **Gran Turismo 7**. It capture
 PlayStation's live telemetry stream, records every lap, and serves a modern dark-themed
 web dashboard for live driving, lap comparison, and session management.
 
+Maintained by [u/Rfc6878](https://www.reddit.com/user/Rfc6878/) on Reddit.
+
 Full feature parity with [snipem/gt7dashboard](https://github.com/snipem/gt7dashboard) —
 plus additional features like the analysis channel picker, Corner Detail widget, chassis
 event detection, track auto-identification, the overlay builder, and webhook
