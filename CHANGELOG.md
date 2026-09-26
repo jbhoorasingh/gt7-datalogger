@@ -7,6 +7,10 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Changed
 
+- **SQLAlchemy 2.1 or newer is required.** The repository layer's `Select`
+  and `Row` annotations follow 2.1's variadic generics (a five-column
+  projection is `Row[int, int, int, bool, bool]`; a row of any shape is
+  `Row[*tuple[Any, ...]]`). No query changed.
 - **Compiled borders are smoothed.** A border record sits on a 1 m grid, and
   an `edge` record and a `straddle` record of the same kerb disagree by up to
   a metre about where it is, so an ordered border stepped sideways wherever
