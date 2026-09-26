@@ -36,6 +36,11 @@ from app.processing.track_seed import SeedRow
 from app.processing.tracks import IDENTIFY_MIN_TICKS, TrackSignature, matches
 from app.storage.db import LapRow, LayoutRow, SessionRow, SettingRow, TrackRow
 
+# A result row of any shape. Since SQLAlchemy 2.1 `Row` is variadic over its
+# columns — a projection of five columns is `Row[int, int, int, bool, bool]`
+# — and `Row[Any]` means a row of exactly one column, not any row.
+AnyRow = Row[*tuple[Any, ...]]
+
 log = logging.getLogger(__name__)
 
 
@@ -87,7 +92,7 @@ def _resolve_direction(
 EXPORT_VERSION = 2
 
 
-def lap_summary(row: LapRow | Row[Any]) -> dict[str, Any]:
+def lap_summary(row: LapRow | AnyRow) -> dict[str, Any]:
     """Summary dict from a lap row — the ORM object or a projected Row.
 
     list_laps hands in a column projection (the same attributes, minus the
@@ -318,7 +323,7 @@ class Repository:
             return row.id
 
     @staticmethod
-    def _sessions_query() -> Select[tuple[SessionRow, int, Any, str]]:
+    def _sessions_query() -> Select[SessionRow, int, Any, str]:
         """Sessions with their lap aggregates, newest first.
 
         One aggregate query for all sessions; the outer join keeps lap-less
@@ -698,7 +703,7 @@ class Repository:
                     ).order_by(LapRow.session_id, LapRow.number, LapRow.id)
                 )
             ).all()
-        sessions: dict[int, list[Row[Any]]] = {}
+        sessions: dict[int, list[Row[int, int, int, bool, bool]]] = {}
         for row in rows:
             sessions.setdefault(row.session_id, []).append(row)
 
