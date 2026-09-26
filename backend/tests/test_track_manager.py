@@ -935,3 +935,73 @@ async def test_a_user_named_circuit_outranks_a_seeded_one_in_the_overview(client
 
     rows = {r["name"]: r for r in (await c.get("/api/track-overview")).json()["tracks"]}
     assert rows["Deep Forest Raceway"]["provenance"] == "user"
+
+
+# --- what this installation can vouch for (the upload projection) ----------------
+
+
+def test_own_evidence_is_this_installations_votes_alone(tmp_path) -> None:
+    """A bundle holds everybody's evidence; the sync upload may carry only
+    what was recorded here. The projection keeps this installation's votes,
+    re-resolves each record's kind from those alone, drops the metres it
+    never drove, and counts only its own runs — and merging it back into the
+    bundle it came from changes nothing."""
+    mine = track_bundle.source_id(tmp_path)
+    track_bundle.merge_document(
+        tmp_path, track_bundle.validate_document(_foreign_bundle(n=4, runs=3))
+    )
+    track_bundle.merge_document(
+        tmp_path, track_bundle.validate_document(_foreign_bundle(n=2, runs=2, source=mine))
+    )
+    doc = track_bundle.load(tmp_path, "Ring")
+    assert doc is not None
+    # The stranger has marked a wall at the first metre often enough to
+    # outvote the edge we both saw: the bundle resolves to it, but it is not
+    # my evidence, and my record of that metre says edge.
+    doc["edges"][0]["votes"]["wall"] = {FOREIGN: [6, 6]}
+    doc["edges"][0]["kind"] = track_bundle.resolve_kind(doc["edges"][0]["votes"])
+    assert doc["edges"][0]["kind"] == "wall"
+    doc["corners"] = [track_bundle.validate_corner({"name": "T1", "apex": {"x": 1.0, "z": 0.0}}, 0)]
+
+    own = track_bundle.own_evidence(doc, mine)
+    assert own is not None
+    assert [e["x"] for e in own["edges"]] == [0.0, 1.0]
+    assert all(e["votes"] == {"edge": {mine: [2, 2]}} for e in own["edges"])
+    assert [e["kind"] for e in own["edges"]] == ["edge", "edge"]
+    assert own["meta"]["source_runs"] == {mine: 2}
+    assert own["meta"]["runs"] == 2
+    assert own["meta"]["track"] == "Ring"
+    assert own["corners"] == doc["corners"]
+    assert own["finish_crossings"] == doc["finish_crossings"]
+    assert FOREIGN not in json.dumps(own)
+    track_bundle.validate_document(own)
+    # The bundle itself is untouched.
+    assert len(doc["edges"]) == 4
+    assert set(doc["meta"]["source_runs"]) == {FOREIGN, mine}
+
+    assert track_bundle.own_evidence(doc, "nobody000000") is None
+
+    track_bundle.merge_document(tmp_path, track_bundle.validate_document(doc))
+    result = track_bundle.merge_document(tmp_path, track_bundle.validate_document(own))
+    assert result["added_points"] == 0
+    after = track_bundle.load(tmp_path, "Ring")
+    assert after is not None
+    assert after["meta"]["source_runs"] == {FOREIGN: 6, mine: 2}
+    assert [e["votes"] for e in after["edges"]] == [
+        {"edge": {FOREIGN: [3, 3], mine: [2, 2]}, "wall": {FOREIGN: [6, 6]}},
+        {"edge": {FOREIGN: [3, 3], mine: [2, 2]}},
+        {"edge": {FOREIGN: [3, 3]}},
+        {"edge": {FOREIGN: [3, 3]}},
+    ]
+
+
+def test_own_evidence_counts_runs_by_the_votes_not_the_counter(tmp_path) -> None:
+    """A run killed mid-way leaves votes stamped past the counter; the
+    projection's run count follows the votes, as the merge's does."""
+    mine = track_bundle.source_id(tmp_path)
+    doc = track_bundle.validate_document(_foreign_bundle(n=3, runs=2, source=mine))
+    doc["edges"][2]["votes"]["edge"][mine] = [3, 3]
+    own = track_bundle.own_evidence(doc, mine)
+    assert own is not None
+    assert own["meta"]["source_runs"] == {mine: 3}
+    assert own["meta"]["runs"] == 3

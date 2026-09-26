@@ -73,6 +73,11 @@ function SyncChip({ sync }: { sync: TrackSyncStatus }) {
       title =
         "Only bundles with a confirmed official layout are sent: the sync service files uploads by layout, and an unconfirmed one cannot be filed. Confirm the suggestion below to queue it.";
       break;
+    case "imported":
+      label = "not synced — nothing of yours";
+      title =
+        "Every metre in this bundle was pulled or imported from elsewhere. Only evidence this installation recorded is uploaded — the service files each installation under one account — so there is nothing to send until you survey the circuit here.";
+      break;
     case "queued":
       label = due ? `sync in ${due}` : "sync queued";
       title =
@@ -242,6 +247,15 @@ export function TracksView() {
       );
       if (result.corners_kept) {
         toastSuccess("Kept your own corner labels — the pulled ones were dropped");
+      }
+      if (result.corrections) {
+        const c = result.corrections;
+        const parts = [
+          c.areas > 0 && `${c.areas} area${c.areas === 1 ? "" : "s"} kept off the map`,
+          c.drawn > 0 && `${c.drawn} m drawn in`,
+          c.smooth_borders != null && `smoothing ${c.smooth_borders ? "on" : "off"}`,
+        ].filter(Boolean);
+        toastSuccess(`Applied the repo's corrections: ${parts.join(", ")}`);
       }
     });
   };
@@ -661,6 +675,13 @@ export function TracksView() {
                     {entry.runs != null && ` · ${entry.runs} run${entry.runs === 1 ? "" : "s"}`}
                     {entry.updated_at && ` · updated ${when(entry.updated_at)}`}
                   </span>
+                  {entry.corrections && (
+                    <Tip content="The repo keeps a corrections file for this circuit — areas kept off the map, borders drawn in. A pull brings it along and the map here is compiled the way the repo's is.">
+                      <span className="rounded-[9px] bg-accent/14 px-2 py-px text-[10px] text-accent">
+                        corrected
+                      </span>
+                    </Tip>
+                  )}
                   <span className="text-ink-dim">
                     {local
                       ? `· you have ${local.points.toLocaleString()} m locally`

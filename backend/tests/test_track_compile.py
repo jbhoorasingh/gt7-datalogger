@@ -535,3 +535,125 @@ def test_a_closed_loop_is_smoothed_round_its_seam() -> None:
     # the seed of the walk included: nothing has an end to be pinned at.
     radii = [math.hypot(left.pts[i]["x"], left.pts[i]["z"]) for i in left.chains[0]]
     assert max(radii) - min(radii) < 0.01
+
+
+# --- the shared repo's corrections (track_corrections) --------------------------
+
+
+def _corrections(*areas, draw=(), smooth=None):
+    from app.processing import track_corrections
+
+    return track_corrections.validate({
+        "format": track_corrections.FORMAT, "version": track_corrections.VERSION,
+        "official_id": "test01", "track": "Test Circuit",
+        "compile": {"smooth_borders": smooth},
+        "exclude": [
+            {"id": f"a{i}", "sides": ["R"], "polygon": polygon, "y": None,
+             "only_drawn": False, "reason": "pit wall", "by": "", "at": ""}
+            for i, polygon in enumerate(areas)
+        ],
+        "draw": list(draw),
+    })
+
+
+# The ring's right border is the outer circle, r = 105: this rectangle takes
+# in its cells from angle 0 up to about 11°, some twenty metres of border.
+OUTER_ARC = [[100.0, -1.0], [110.0, -1.0], [110.0, 20.0], [100.0, 20.0]]
+
+
+def test_an_excluded_area_is_a_hole_in_the_compiled_border_not_in_the_evidence() -> None:
+    doc = _document(_ring())
+    plain = track_compile.compile_bundle(doc)
+    assert plain["corrections"] is None
+    assert plain["gaps"]["R"] == []
+
+    compiled = track_compile.compile_bundle(doc, corrections=_corrections(OUTER_ARC))
+    assert compiled["corrections"]["drawn"] == 0
+    assert compiled["corrections"]["smooth_borders"] is None
+    assert 18 <= compiled["corrections"]["excluded"] <= 22
+    # The hole is honest — flagged as a gap and counted against coverage —
+    # and the evidence behind it is still every metre that was surveyed.
+    assert len(compiled["gaps"]["R"]) == 1
+    assert compiled["coverage"]["R"]["pct"] < plain["coverage"]["R"]["pct"]
+    assert compiled["coverage"]["L"] == plain["coverage"]["L"]
+    assert compiled["source"]["points"] == plain["source"]["points"] == len(doc["edges"])
+    assert len(doc["edges"]) == 2 * int(2 * math.pi * 100)
+
+
+def test_drawn_records_bridge_a_hole_unless_somebody_drove_it() -> None:
+    steps = int(2 * math.pi * 100)
+    hole = range(10, 31)
+    doc = _document(_ring(skip={("L", i) for i in hole}))
+    with_hole = track_compile.compile_bundle(doc)
+    assert len(with_hole["gaps"]["L"]) == 1
+
+    def drawn(i, source="drawn-0a1b2c3d"):
+        a = 2 * math.pi * i / steps
+        return {"x": 95 * math.cos(a), "z": 95 * math.sin(a), "y": 5.0,
+                "hx": -math.sin(a), "hz": math.cos(a), "side": "L", "kind": "edge",
+                "votes": {"edge": {source: [1, 1]}}, "run": 1, "tw": None}
+
+    # The bridge — one record per metre of border, as the editor draws it —
+    # and one record drawn over a metre that was surveyed.
+    bridge: dict = {}
+    for i in list(hole) + [5]:
+        bridge.setdefault(track_bundle.edge_key(drawn(i)), drawn(i))
+    surveyed = {track_bundle.edge_key(e) for e in doc["edges"]}
+    expected = len(set(bridge) - surveyed)
+    assert 15 <= expected < len(bridge)
+    bridged = track_compile.compile_bundle(
+        doc, corrections=_corrections(draw=list(bridge.values()))
+    )
+    assert bridged["gaps"]["L"] == []
+    assert bridged["corrections"] == {"excluded": 0, "drawn": expected, "smooth_borders": None}
+    assert bridged["coverage"]["L"]["pct"] == 100.0
+
+
+def test_the_circuits_own_smoothing_answer_stands_in_for_the_default() -> None:
+    doc = _document(_ring())
+    assert track_compile.compile_bundle(doc)["smoothing"] is not None
+    off = _corrections(smooth=False)
+    assert track_compile.compile_bundle(doc, corrections=off)["smoothing"] is None
+    quiet = track_compile.compile_bundle(doc, corrections=off)
+    assert quiet["corrections"]["smooth_borders"] is False
+    # An explicit answer from the caller — the merge job's — still wins.
+    assert track_compile.compile_bundle(doc, smooth=True, corrections=off)["smoothing"] is not None
+
+
+def test_for_track_recompiles_when_the_corrections_change(tmp_path) -> None:
+    from app.processing import track_corrections
+
+    track = "Test Circuit"
+    path = track_bundle.bundle_path(tmp_path, track)
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(_document(_ring())), encoding="utf-8")
+
+    track_compile._CACHE.clear()
+    plain = track_compile.for_track(tmp_path, track)
+    assert plain is not None and plain["corrections"] is None
+
+    # Corrections arrive (a pull): the stored compile is stale, nothing else moved.
+    track_corrections.write(tmp_path, "test-circuit", _corrections(OUTER_ARC))
+    track_compile._CACHE.clear()
+    corrected = track_compile.for_track(tmp_path, track)
+    assert corrected is not None
+    assert corrected["corrections"]["excluded"] > 0
+    assert corrected["_corrections_identity"] is not None
+    # Unchanged, the persisted compile is reused.
+    track_compile._CACHE.clear()
+    again = track_compile.for_track(tmp_path, track)
+    assert again is not None and again["compiled_at"] == corrected["compiled_at"]
+
+    # Taken away again: back to the evidence alone.
+    track_corrections.remove(tmp_path, "test-circuit")
+    track_compile._CACHE.clear()
+    restored = track_compile.for_track(tmp_path, track)
+    assert restored is not None and restored["corrections"] is None
+    assert restored["gaps"]["R"] == []
+
+    # A file that will not validate is a circuit with no corrections, not a
+    # circuit with no map.
+    track_corrections.path(tmp_path, "test-circuit").write_text("{", encoding="utf-8")
+    track_compile._CACHE.clear()
+    broken = track_compile.for_track(tmp_path, track)
+    assert broken is not None and broken["corrections"] is None

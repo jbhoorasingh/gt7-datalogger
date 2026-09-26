@@ -795,7 +795,15 @@ export interface SyncStatus {
 // A bundle's standing with the sync service, on its Tracks row. Absent
 // (null) whenever track sync is off.
 export interface TrackSyncStatus {
-  status: "queued" | "uploading" | "synced" | "rejected" | "error" | "unconfirmed" | "unknown";
+  status:
+    | "queued"
+    | "uploading"
+    | "synced"
+    | "rejected"
+    | "error"
+    | "unconfirmed"
+    | "imported"
+    | "unknown";
   remote_status?: string; // the server's word: pending, merged, held…
   upload_id?: string;
   uploaded_at?: string;

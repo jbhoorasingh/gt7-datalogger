@@ -5,6 +5,49 @@ Notable changes to GT7 Datalogger. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Pulling a shared bundle no longer breaks sync for that circuit.** A pull
+  merges every contributor's votes into your bundle, source ids and all, and
+  the tracks adapter then uploaded the whole document. The sync service binds
+  every source id an upload names to the uploading account and refuses one
+  bound elsewhere, all or nothing — so the next upload after a pull was a 409
+  `source_conflict`, the row read *sync rejected*, an error-severity issue
+  was raised in the service's admin panel and its alert webhook fired, and
+  the circuit stayed rejected until the bundle changed and failed again. An
+  upload now carries **this installation's own evidence** alone
+  (`track_bundle.own_evidence`): the votes cast under its source id, each
+  record's kind re-resolved from those, the metres it never drove dropped,
+  its own run count — with the corner labels, sections, finish crossings and
+  confirmed layout travelling whole. That is what the merge job wanted in the
+  first place (the metres you added), and it is smaller. The change digest is
+  taken on the same projection, so a pull that only adds other people's
+  evidence does not queue an upload, and a bundle you pulled but never
+  surveyed here reads *not synced — nothing of yours* rather than sending a
+  stranger's work. Every bundle is re-sent once after upgrading, since the
+  remembered digests were of whole documents.
+
+### Added
+
+- **The shared repo's corrections come with a pull, and the map is compiled
+  from them.** The repo's editor never deletes evidence; it keeps a
+  `corrections/<slug>.json` beside each corrected bundle — areas the map
+  should not draw (a pit wall recorded as the border), borders drawn in (a
+  bridge across a gap nobody has driven), the circuit's own smoothing answer
+  — and its merge job applies that file when it compiles the published map.
+  The app now reads the same format (`track_corrections`, held to the repo's
+  `tools/corrections.py`): a pull fetches and validates the file the index
+  names beside the bundle, before merging anything, and keeps it at
+  `data/track-bundles/corrections/<slug>.json`; the compiler applies it and
+  recompiles when it changes, exactly as when the bundle does; the lap judge
+  sees the corrected road. Replaced whole on every pull, never merged, removed
+  when the repo stops correcting the circuit, never uploaded and never
+  written into the bundle. `PUT` / `GET` / `DELETE
+  /api/track-bundles/{slug}/corrections` take a file that arrived another way
+  (the track-data pack's import script). The compiled document is version 4
+  and says what was done under `corrections`; the Shared bundles panel marks
+  a circuit the repo corrects, and the pull's toast says what was applied.
+
 ### Changed
 
 - **Compiled borders are smoothed.** A border record sits on a 1 m grid, and

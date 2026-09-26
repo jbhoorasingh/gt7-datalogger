@@ -34,12 +34,15 @@ The app can also **pull** straight from that repo (or any host laid out like
 it — `GT7_SHARED_BUNDLES_URL`): it reads the site's `index.json` (format
 `gt7-datalogger-track-index`, v1 — the shape the repo's builder publishes,
 with a `configurations` array whose surveyed rows carry a `bundle: {file,
-track, points, runs, updated_at, …}` object, plus `unmatched_bundles` for
-surveyed circuits tied to no official layout), resolves each `file` against
-the index's own URL, and merges the fetched document through exactly the
-import path described under [Validation](#validation). The index's counts are
-advisory display numbers; nothing in it is trusted past "what is on offer and
-where".
+track, points, runs, updated_at, corrections?, …}` object, plus
+`unmatched_bundles` for surveyed circuits tied to no official layout),
+resolves each `file` against the index's own URL, and merges the fetched
+document through exactly the import path described under
+[Validation](#validation). The index's counts are advisory display numbers;
+nothing in it is trusted past "what is on offer and where". `corrections`,
+when present, names the repo's corrections file for the circuit; a pull
+fetches and validates it alongside the bundle and keeps it as described
+under [Corrections](#corrections-the-repos-not-part-of-the-bundle).
 
 ```json
 {
@@ -282,11 +285,13 @@ and per-side coverage measured against the boundary itself.
 
 It lives at `data/track-bundles/compiled/<slug>.json`
 ([schema](schemas/track-compiled.v2.schema.json), format
-`gt7-datalogger-track-compiled`, version 2) and is **recompiled automatically
-whenever the bundle file changes** — a survey save, an import, a merge. It is
-never exported and never imported: an imported bundle brings evidence, and
-the receiving installation rebuilds the geometry from it. Delete the
-`compiled/` directory at any time; it is repopulated on next use.
+`gt7-datalogger-track-compiled`, version 4 — v3 added `smoothing`, v4
+`corrections`) and is **recompiled automatically whenever the bundle file
+changes** — a survey save, an import, a merge — or the circuit's corrections
+file does. It is never exported and never imported: an imported bundle
+brings evidence, and the receiving installation rebuilds the geometry from
+it. Delete the `compiled/` directory at any time; it is repopulated on next
+use.
 
 Two properties worth knowing when reading one:
 
@@ -307,3 +312,42 @@ Two properties worth knowing when reading one:
   refuses a next cell the road could not have climbed to, the pairing across
   the road prefers its own level, and the lap judge compares a sample's
   elevation against the envelope, with the same 3 m of slack.
+- **`corrections` says what the repo's corrections did**, or is `null` for a
+  circuit compiled from the evidence alone: `{excluded, drawn,
+  smooth_borders}` — records an area kept out, records drawn in, and the
+  circuit's own smoothing answer (`null` follows the default). `source.points`
+  stays the evidence count either way.
+
+## Corrections (the repo's, not part of the bundle)
+
+A bundle is evidence, and evidence only adds up: a merge removes nothing, so
+a pit wall recorded as the border is in the file for good. The shared repo
+answers that with a second document beside the bundle,
+`corrections/<slug>.json` (format `gt7-datalogger-track-corrections`, v1,
+defined by the repo's `tools/corrections.py` and read here by
+`app/processing/track_corrections.py`), applied to what is *compiled* from
+the evidence and never to the evidence itself:
+
+- **`exclude`** — areas of ground, each a polygon in world metres with the
+  sides it applies to and a reason, inside which border records are not
+  compiled. `y` bounds an area to one road level where a circuit crosses over
+  itself (a record with no elevation is on every level); `only_drawn` limits
+  it to records nobody drove, which is how a drawn bridge is taken back
+  without hiding the real border once somebody surveys it.
+- **`draw`** — border records somebody drew, a bridge across a gap or a kerb
+  nobody drove: the same shape as a bundle's records, every vote under a
+  `drawn-` source, compiled with the evidence as though they were in it. A
+  surveyed record in the same metre wins.
+- **`compile.smooth_borders`** — the circuit's own answer about smoothing;
+  `null` follows the compiler's default.
+
+The app keeps a circuit's file at `data/track-bundles/corrections/<slug>.json`.
+It arrives by **pull** (the index names it beside the bundle, and the pull
+fetches and validates it before merging anything — a bad file is a repo
+failure and the bundle is not merged without it), by the pack's import
+script, or through `PUT /api/track-bundles/{slug}/corrections`. It is
+replaced whole, never merged, and a pull of a circuit the repo no longer
+corrects removes it. It is never uploaded by sync, never written into the
+bundle, and never exported with one; `track_compile.for_track` applies it at
+compile time and recompiles when it changes. Delete it and the map goes back
+to the evidence alone.

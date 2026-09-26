@@ -28,7 +28,7 @@ from app.sync import (
 )
 from app.sync import tracks as tracks_sync
 from app.sync.transport import classify, validate_capabilities
-from tests.test_track_manager import _foreign_bundle
+from tests.test_track_manager import FOREIGN, _foreign_bundle
 
 SERVER = "https://sync.test"
 TOKEN = "gt7s_0123456789abcdefghijklmnop"
@@ -230,7 +230,9 @@ def sync(tmp_path, fake):
 
 
 def _bundle(tmp_path, track="Ring", confirmed=True, n=6) -> str:
-    doc = track_bundle.validate_document(_foreign_bundle(track=track, n=n))
+    """A bundle of this installation's own evidence, as a survey leaves one."""
+    own = track_bundle.source_id(tmp_path)
+    doc = track_bundle.validate_document(_foreign_bundle(track=track, n=n, source=own))
     track_bundle.merge_document(tmp_path, doc)
     if confirmed:
         track_bundle.set_official(tmp_path, track, OFFICIAL)
@@ -319,7 +321,9 @@ async def test_changed_evidence_is_sent_again_after_the_interval(sync, fake, tmp
     assert len(fake.uploads) == 1
 
     # More evidence, but within the minute: deferred, not dropped.
-    doc = track_bundle.validate_document(_foreign_bundle(n=12))
+    doc = track_bundle.validate_document(
+        _foreign_bundle(n=12, source=track_bundle.source_id(tmp_path))
+    )
     track_bundle.merge_document(tmp_path, doc)
     sync.clock.now += 10
     await sync.tracks._push("ring")
@@ -333,6 +337,73 @@ async def test_changed_evidence_is_sent_again_after_the_interval(sync, fake, tmp
     await sync.tracks._push("ring")
     assert len(fake.uploads) == 2
     assert len(json.loads(fake.uploads[1].content)["edges"]) == 12
+
+
+async def test_pulled_evidence_never_goes_back_up(sync, fake, tmp_path) -> None:
+    """A pull merges a stranger's votes into the bundle and they stay there;
+    the upload carries this installation's alone. The service binds every
+    source id an upload names to the uploading account, all or nothing, so
+    a bundle sent whole after a pull would be a 409 for the stranger's id —
+    and the merge job only ever wanted the metres added here anyway."""
+    own = track_bundle.source_id(tmp_path)
+    slug = _bundle(tmp_path, n=6)
+    track_bundle.merge_document(tmp_path, track_bundle.validate_document(_foreign_bundle(n=12)))
+    stored = track_bundle.load(tmp_path, "Ring")
+    assert stored is not None
+    assert set(stored["meta"]["source_runs"]) == {own, FOREIGN}
+
+    await sync.tracks._push(slug)
+    assert len(fake.uploads) == 1
+    body = json.loads(fake.uploads[0].content)
+    assert FOREIGN not in fake.uploads[0].content.decode()
+    assert body["meta"]["source_runs"] == {own: 4}
+    assert body["meta"]["runs"] == 4
+    assert body["meta"]["official"]["official_id"] == "ring-gp"
+    assert [e["x"] for e in body["edges"]] == [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]
+    assert all(e["votes"] == {"edge": {own: [4, 4]}} for e in body["edges"])
+    track_bundle.validate_document(body)  # what the server does with it first
+
+    # More of the stranger's evidence is not a change worth an upload...
+    sync.clock.now += 3600
+    track_bundle.merge_document(
+        tmp_path, track_bundle.validate_document(_foreign_bundle(n=20, runs=9))
+    )
+    await sync.tracks.sweep()
+    await sync.tracks.wait_idle()
+    assert len(fake.uploads) == 1
+    assert sync.tracks.track_status(slug)["status"] == "synced"
+    # ...more of ours is.
+    sync.clock.now += 3600
+    track_bundle.merge_document(
+        tmp_path, track_bundle.validate_document(_foreign_bundle(n=9, runs=5, source=own))
+    )
+    await sync.tracks.sweep()
+    await sync.tracks.wait_idle()
+    assert len(fake.uploads) == 2
+    again = json.loads(fake.uploads[1].content)
+    assert len(again["edges"]) == 9
+    assert again["meta"]["source_runs"] == {own: 5}
+
+
+async def test_a_bundle_with_nothing_of_your_own_is_not_sent(sync, fake, tmp_path) -> None:
+    """Pulled, never surveyed here: there is nothing of this installation's
+    to send, and the row says so rather than uploading a stranger's work."""
+    track_bundle.merge_document(tmp_path, track_bundle.validate_document(_foreign_bundle(n=6)))
+    track_bundle.set_official(tmp_path, "Ring", OFFICIAL)
+    await sync.tracks._push("ring")
+    assert fake.uploads == []
+    assert sync.tracks.track_status("ring")["status"] == "imported"
+    assert not (tmp_path / tracks_sync.STATE_FILE).exists()
+    # The first metre surveyed here is what queues it.
+    track_bundle.merge_document(
+        tmp_path,
+        track_bundle.validate_document(
+            _foreign_bundle(n=1, source=track_bundle.source_id(tmp_path))
+        ),
+    )
+    await sync.tracks._push("ring")
+    assert len(fake.uploads) == 1
+    assert len(json.loads(fake.uploads[0].content)["edges"]) == 1
 
 
 async def test_type_disabled_flips_the_toggle_off_and_persists_it(sync, fake, tmp_path) -> None:
@@ -372,8 +443,11 @@ async def test_rejected_document_is_not_retried_until_it_changes(sync, fake, tmp
     # A rejection is about the document, not the connection.
     assert sync.tracks.status()["state"] == "idle"
 
-    # New evidence: worth another try.
-    track_bundle.merge_document(tmp_path, track_bundle.validate_document(_foreign_bundle(n=9)))
+    # New evidence of our own: worth another try.
+    own = track_bundle.source_id(tmp_path)
+    track_bundle.merge_document(
+        tmp_path, track_bundle.validate_document(_foreign_bundle(n=9, source=own))
+    )
     fake.upload = lambda req: httpx.Response(202, json={"upload_id": "up-2", "status": "pending"})
     await sync.tracks._push("ring")
     assert len(fake.uploads) == 2

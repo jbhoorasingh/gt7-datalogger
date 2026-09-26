@@ -69,6 +69,18 @@ export interface BundleMergeResult {
   runs: number;
   sources: number;
   corners_kept?: boolean;
+  // What the repo's corrections for the circuit say, when a pull brought
+  // them along: null (or absent, from an import) for a circuit without any.
+  corrections?: CorrectionsSummary | null;
+}
+
+// The shared repo's corrections for a circuit, in three numbers: areas kept
+// off the map, border records drawn in, and the circuit's own smoothing
+// answer (null follows the default).
+export interface CorrectionsSummary {
+  areas: number;
+  drawn: number;
+  smooth_borders: boolean | null;
 }
 
 // One bundle a shared repo offers (#47). points/runs/updated_at are the
@@ -80,6 +92,8 @@ export interface SharedBundleEntry {
   points?: number;
   runs?: number;
   updated_at?: string;
+  // The repo's corrections file for the circuit, when it keeps one.
+  corrections?: string;
 }
 
 export interface SharedBundles {

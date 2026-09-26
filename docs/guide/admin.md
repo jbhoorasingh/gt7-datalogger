@@ -100,17 +100,24 @@ everybody sent and opens the pull requests, and GitHub stays the source of truth
   send it; a type the server offers that this release cannot send yet says so. All
   toggles default off, and enabling one never enables another.
     - **tracks** — the survey bundle of every circuit whose official layout you have
-      confirmed, exactly as **Export** writes it: border evidence, finish crossings,
-      corner labels and sections. A bundle is uploaded once it has been **left alone
-      for ten minutes**. Every write restarts that clock — the survey's once-a-minute
-      autosave, the save when it stops, an import, a pull, a rename, a layout
-      confirmation, a corner edit — so a running survey never uploads mid-run: the run
-      goes up once, after it has stopped and the corner labelling that usually follows
-      is done, and one upload carries all of it. Nothing is sent when the evidence has
-      not changed since the server last accepted it, and never more than once a minute
-      per bundle. Bundles with no confirmed layout are never sent — the Tracks view
-      marks them *not synced — confirm layout*. Nothing else is uploaded under this
-      toggle: not your laps, not your settings, not the installation id file.
+      confirmed, reduced to **this installation's own evidence**: the border votes it
+      cast, with the finish crossings, corner labels and sections. Evidence pulled
+      from the shared repo or imported from a friend's file stays here and never goes
+      up — the service files every installation under one account and refuses a
+      document naming somebody else's, so an upload carries only what was recorded
+      here. A bundle is uploaded once it has been **left alone for ten minutes**.
+      Every write restarts that clock — the survey's once-a-minute autosave, the save
+      when it stops, an import, a pull, a rename, a layout confirmation, a corner
+      edit — so a running survey never uploads mid-run: the run goes up once, after
+      it has stopped and the corner labelling that usually follows is done, and one
+      upload carries all of it. Nothing is sent when your own evidence has not changed
+      since the server last accepted it (a pull that only adds other people's is not
+      a change), and never more than once a minute per bundle. Bundles with no
+      confirmed layout are never sent — the Tracks view marks them *not synced —
+      confirm layout* — and neither is one you pulled but have not surveyed here
+      (*not synced — nothing of yours*). Nothing else is uploaded under this toggle:
+      not your laps, not your settings, not the installation id file, not the repo's
+      corrections.
     - **sessions** — your own driving, one lap at a time as you drive: each lap goes
       as the same `gt7-datalogger-lap` document **Export** writes (lap time, the
       full 60 Hz samples, your racing line, whether it counts toward bests), against

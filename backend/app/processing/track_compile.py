@@ -58,17 +58,19 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from app.processing import track_bundle
+from app.processing import track_bundle, track_corrections
 
 log = logging.getLogger(__name__)
 
 COMPILED_FORMAT = "gt7-datalogger-track-compiled"
 # 2: per-quad elevation envelopes (`road_y`) and level-gated ordering (#96).
 # 3: smoothed borders, and the `smoothing` key that says whether they are.
+# 4: the shared repo's corrections applied, and the `corrections` key that
+#    says what they took out and drew in.
 # Bumping it is what recompiles every stored document once — the bundle files
 # themselves did not change, so the identity check alone would keep serving
 # geometry that walks across levels.
-COMPILED_VERSION = 3
+COMPILED_VERSION = 4
 COMPILED_DIR = "compiled"  # under track-bundles/
 
 # --- chain walking ------------------------------------------------------------
@@ -163,7 +165,7 @@ LEVEL_NOISE_M = 1.0
 # fails the width gate and the nearest same-level one passes); what the
 # preference changes is what happens at a crossover.
 
-_CACHE: dict[tuple[str, int, int], dict[str, Any]] = {}
+_CACHE: dict[tuple[str, int, int, tuple[int, int] | None], dict[str, Any]] = {}
 _CACHE_MAX = 8
 
 
@@ -813,19 +815,34 @@ def centerline_and_road(
     return runs, quads, levels, (paired / judged if judged else 0.0)
 
 
-def compile_bundle(doc: dict[str, Any], *, smooth: bool | None = None) -> dict[str, Any]:
+def compile_bundle(
+    doc: dict[str, Any],
+    *,
+    smooth: bool | None = None,
+    corrections: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """One bundle document -> its compiled vector geometry.
 
     `smooth` is whether the borders are smoothed (see SMOOTH_BORDERS, which is
     what None means). It is an argument and not only a constant because the
     sync service's administrator can switch it off for the shared map, and
     the merge job passes their answer here; the document says which it got.
+
+    `corrections` is the circuit's validated corrections document
+    (`track_corrections`), applied to the evidence before anything is
+    derived from it: records inside an excluded area are not compiled, drawn
+    records are compiled as though surveyed, and the circuit's own
+    `smooth_borders` answer stands in for the default when the caller gives
+    none. The bundle is never touched; the document says what was done.
     """
     from app.processing import track_outline  # finish_line; avoid cycle at import
 
+    if smooth is None:
+        smooth = track_corrections.smooth_override(corrections)
     smooth = SMOOTH_BORDERS if smooth is None else bool(smooth)
 
-    edges = doc["edges"]
+    evidence = doc["edges"]
+    edges, applied = track_corrections.apply(evidence, corrections)
     # Every kind is a border record — "wall" or "runoff" says what lies BEYOND
     # the edge, not that the edge isn't one (#49) — so every kind takes part
     # in the ordering. Walls are additionally kept as their own drawing layer,
@@ -853,7 +870,7 @@ def compile_bundle(doc: dict[str, Any], *, smooth: bool | None = None) -> dict[s
         "compiled_at": datetime.now(UTC).isoformat(),
         # Provenance (#40): what evidence this geometry was compiled from.
         "source": {
-            "points": len(edges),
+            "points": len(evidence),
             "runs": meta["runs"],
             "sources": len(meta["source_runs"]),
             "bundle_updated_at": meta["updated_at"],
@@ -878,6 +895,12 @@ def compile_bundle(doc: dict[str, Any], *, smooth: bool | None = None) -> dict[s
             "mu": SMOOTH_MU,
             "cap_m": SMOOTH_CAP_M,
         } if smooth else None,
+        # What the shared repo's corrections did to the evidence before it
+        # was compiled, or None for a circuit compiled from the evidence
+        # alone: records kept out, records drawn in, and the circuit's own
+        # smoothing answer where it gave one.
+        "corrections": None if not corrections or track_corrections.is_empty(corrections)
+        else {**applied, "smooth_borders": track_corrections.smooth_override(corrections)},
     }
 
 
@@ -913,10 +936,12 @@ def for_track(data_dir: Path, track: str) -> dict[str, Any] | None:
 
     Auto-recompile (#40) is by bundle file identity: any write to the bundle —
     a survey save, an import, a merge — makes the stored compile stale, and
-    the next consumer rebuilds and re-persists it. Returns None when the
-    circuit has no bundle. Blocking on a stale compile (parses the bundle and
-    chains it, tens of ms on a full survey): callers run it off the event
-    loop, as they do for track_outline.
+    the next consumer rebuilds and re-persists it. The circuit's corrections
+    file (`track_corrections`) is part of that identity too: a pull that
+    brings new corrections, or takes them away, recompiles the same way.
+    Returns None when the circuit has no bundle. Blocking on a stale compile
+    (parses the bundle and chains it, tens of ms on a full survey): callers
+    run it off the event loop, as they do for track_outline.
     """
     if not track:
         return None
@@ -926,7 +951,11 @@ def for_track(data_dir: Path, track: str) -> dict[str, Any] | None:
         stat = bundle.stat()
     except OSError:
         return None
-    key = (str(bundle), stat.st_mtime_ns, stat.st_size)
+    corrected = track_corrections.identity(data_dir, slug)
+    key = (
+        str(bundle), stat.st_mtime_ns, stat.st_size,
+        (corrected[0], corrected[1]) if corrected else None,
+    )
     cached = _CACHE.get(key)
     if cached is not None:
         return cached
@@ -939,6 +968,7 @@ def for_track(data_dir: Path, track: str) -> dict[str, Any] | None:
             on_disk.get("format") == COMPILED_FORMAT
             and on_disk.get("version") == COMPILED_VERSION
             and on_disk.get("_bundle_identity") == [stat.st_mtime_ns, stat.st_size]
+            and on_disk.get("_corrections_identity") == corrected
         )
         if meta_ok:
             compiled = on_disk
@@ -949,8 +979,10 @@ def for_track(data_dir: Path, track: str) -> dict[str, Any] | None:
         doc = track_bundle.load_slug(data_dir, slug)
         if doc is None:
             return None
-        compiled = compile_bundle(doc)
+        corrections = track_corrections.load(data_dir, slug) if corrected else None
+        compiled = compile_bundle(doc, corrections=corrections)
         compiled["_bundle_identity"] = [stat.st_mtime_ns, stat.st_size]
+        compiled["_corrections_identity"] = corrected
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             tmp = path.with_suffix(".json.tmp")

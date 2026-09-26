@@ -174,6 +174,20 @@ from the repo's latest release, unzip, and run its `import_into_app.py`
 against your datalogger; or download a single track from the site and use
 **Import bundle…** below.
 
+A pull brings the repo's **corrections** for the circuit along with its
+bundle, when it keeps some (the row says *corrected*): the areas an editor
+decided the map should not draw — a pit wall recorded as the border, a
+stretch surveyed on the wrong side — and the borders somebody drew in, a
+bridge across a gap nobody has driven. They are the repo's decision about
+the evidence rather than evidence, so they are never merged into your
+bundle: the app keeps the repo's file beside it, compiles the map from what
+is left, and replaces the file on the next pull (a circuit the repo has
+stopped correcting loses it). The upshot is that the road drawn and judged
+against here is the road the repo's own map shows. The pack's import script
+does the same, and the [API](../reference/api.md#track-bundles-management) takes a corrections
+file directly. Your own evidence is untouched either way, and a correction
+never travels back up with a sync upload.
+
 The data is separate from the app on purpose: it changes every time somebody
 drives, and a corrected corner label should not have to wait for a software
 release.
@@ -186,9 +200,19 @@ manual step: every bundle with a confirmed official layout is uploaded once
 it has settled after a change, corner labels included, and each row here
 carries a chip saying where it stands.
 
+What goes up is **your own evidence**: the votes this installation cast,
+with the corner labels, sections, finish crossings and confirmed layout.
+Evidence you pulled from the repo or imported from a friend's file stays in
+your bundle and never leaves with an upload — the service files every
+installation under one account and refuses a document that names somebody
+else's, and the repo only ever wanted the metres you added. So pulling never
+stands in the way of syncing, and a bundle you pulled but have not surveyed
+yourself has nothing to send.
+
 | chip | meaning |
 | --- | --- |
 | **not synced — confirm layout** | the bundle has no confirmed official layout, so it cannot be filed. Confirm the *Looks like…* suggestion (or set the layout) and it queues itself |
+| **not synced — nothing of yours** | every metre in the bundle was pulled or imported; nothing this installation recorded is in it yet. The first survey run here queues it |
 | **sync in *N* min** | changed since the last upload; it goes once it has been left alone for ten minutes. A running survey keeps resetting that clock, so a run uploads once, after it stops. Admin → Sync → **Sync now** sends it at once |
 | **syncing…** | uploading now |
 | **synced *time*** | accepted by the service; hovering shows the upload id and whether it is still waiting for the next merge run. A word after the time (`held`, `merged`) is the service's own status |

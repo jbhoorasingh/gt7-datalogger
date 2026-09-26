@@ -89,6 +89,12 @@ def _validate_entry(bundle: Any, where: str) -> dict[str, Any]:
             row[field] = _integer(bundle[field], f"{where}: {field}", limit=1e7)
     if bundle.get("updated_at") is not None:
         row["updated_at"] = _text(bundle["updated_at"], f"{where}: updated_at", 64)
+    # The repo's corrections for the circuit, beside the bundle (the index
+    # names the file only for a circuit that has one); resolved and fetched
+    # by the pull exactly as the bundle's own `file` is.
+    corrections = _text(bundle.get("corrections") or "", f"{where}: corrections", 500)
+    if corrections.strip():
+        row["corrections"] = corrections.strip()
     return row
 
 

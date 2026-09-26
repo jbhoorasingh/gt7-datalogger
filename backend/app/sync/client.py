@@ -64,9 +64,11 @@ class Adapter(Protocol):
 # a type the server offers and this build cannot send yet.
 TYPE_DESCRIPTIONS: dict[str, str] = {
     "tracks": (
-        "Track surveys: the border evidence, finish line and corner labels of "
-        "circuits whose official layout you have confirmed. Uploaded once a "
-        "bundle has settled after a change. Nothing about your laps."
+        "Track surveys: the border evidence this installation recorded, with "
+        "the finish line and corner labels, for circuits whose official layout "
+        "you have confirmed. Evidence pulled or imported from elsewhere stays "
+        "here. Uploaded once a bundle has settled after a change. Nothing "
+        "about your laps."
     ),
     "sessions": (
         "Your own sessions and laps — car, lap times, the full 60 Hz samples and "

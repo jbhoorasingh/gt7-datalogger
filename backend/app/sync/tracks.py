@@ -1,10 +1,21 @@
 """The `tracks` adapter: a circuit's survey bundle, pushed as it grows.
 
-What gets sent is the bundle document exactly as export writes it — the
-same v4 format the shared repo serves and import reads — and only for a
-circuit whose official layout a human has confirmed, because the merge job
-files uploads by `official_id` and an unconfirmed layout cannot be filed.
-Nothing else leaves: not `source-id.json`, not settings, not laps.
+What gets sent is the bundle document in the same v5 format the shared
+repo serves and import reads, reduced to **this installation's own
+evidence** (`track_bundle.own_evidence`): the votes cast under its source
+id, with the corner labels, sections, finish crossings and confirmed layout
+travelling whole. Evidence pulled from the shared repo or imported from a
+friend's file stays here and never goes back up. It cannot: the service
+binds every source id an upload names to the uploading account and answers
+`409` for one bound to somebody else's, all or nothing, so a bundle sent
+whole after a pull would be refused for the stranger's votes it carried —
+and the merge job only ever wanted the metres you added, which is what the
+projection is. Only a circuit whose official layout a human has confirmed
+is sent, because the job files uploads by `official_id` and an unconfirmed
+layout cannot be filed; a bundle that holds nothing of this installation's
+own — pulled, never surveyed here — has nothing to send and says so.
+Nothing else leaves: not `source-id.json`, not settings, not laps, not the
+repo's corrections.
 
 When: once a bundle has been left alone for `SETTLE_S`. Every write to a
 bundle — the survey's once-a-minute autosave, the save when it stops, an
@@ -19,9 +30,10 @@ skip the wait.
 How much: at most one upload per bundle per `MIN_INTERVAL_S` (the server
 rate-limits at the same cadence), and none at all when the document has not
 changed since the last one the server accepted. "Changed" ignores
-`meta.updated_at`, which every save rewrites; what counts is the evidence
-and the authored data — the corner labels and sections travel inside the
-document like everything else.
+`meta.updated_at`, which every save rewrites, and it ignores other people's
+evidence, which a pull adds without changing what is sent; what counts is
+this installation's own evidence and the authored data — the corner labels
+and sections travel inside the document like everything else.
 
 What comes back: the server answers `202 {upload_id, status}` and the
 adapter remembers that per track, in `data/sync-state.json`, so a restart
@@ -87,7 +99,7 @@ class TrackSync:
     slug: str
     track: str = ""
     official_id: str = ""
-    # queued | uploading | synced | rejected | error | unconfirmed
+    # queued | uploading | synced | rejected | error | unconfirmed | imported
     status: str = "queued"
     # Digest of the document behind `status`: the one the server accepted,
     # or the one it refused. Empty until either has happened.
@@ -257,7 +269,15 @@ class TracksAdapter:
             # the layout", and confirming it is what queues the bundle.
             rec.status, rec.error = "unconfirmed", ""
             return
-        body, digest = await asyncio.to_thread(_serialise, doc)
+        own = await asyncio.to_thread(
+            track_bundle.own_evidence, doc, track_bundle.source_id(self.data_dir)
+        )
+        if own is None:
+            # Every metre came from a pull or an import. Not an error and not
+            # remembered either: the first survey run here is what queues it.
+            rec.status, rec.error = "imported", ""
+            return
+        body, digest = await asyncio.to_thread(_serialise, own)
         if rec.digest == digest and rec.status in SETTLED:
             return  # the server has already had its say on this exact document
         last = self._last_upload.get(slug)
@@ -448,7 +468,11 @@ class TracksAdapter:
 
 
 def _serialise(doc: dict[str, Any]) -> tuple[bytes, str]:
-    """The upload body and the digest of its evidence. Blocking on a big bundle."""
+    """The upload body and the digest of its evidence. Blocking on a big bundle.
+
+    `doc` is the own-evidence projection, so the digest moves only when this
+    installation's votes or the authored data do — a pull that brings in
+    other people's metres leaves it alone."""
     body = json.dumps(doc, separators=(",", ":"), sort_keys=True).encode("utf-8")
     return body, digest(doc)
 

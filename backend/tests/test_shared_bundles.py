@@ -8,7 +8,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.config import Settings
 from app.main import create_app
-from app.processing import shared_repo, track_bundle
+from app.processing import shared_repo, track_bundle, track_compile, track_corrections
 from app.processing.cars import CarDatabase
 from app.service import TelemetryService
 from app.storage.db import init_db, make_engine, make_session_factory
@@ -243,3 +243,117 @@ async def test_pull_unconfigured_404(client, monkeypatch) -> None:
     monkeypatch.setattr(service.settings, "shared_bundles_url", "")
     resp = await c.post("/api/track-bundles/shared/ring/pull")
     assert resp.status_code == 404
+
+
+# --- the repo's corrections come along ----------------------------------------
+
+
+def _corrections(*polygons, official_id="ring-gp", track="Ring", smooth=None):
+    return {
+        "format": track_corrections.FORMAT, "version": track_corrections.VERSION,
+        "official_id": official_id, "track": track,
+        "compile": {"smooth_borders": smooth},
+        "exclude": [
+            {"id": f"a{i}", "sides": ["L"], "polygon": polygon, "y": None,
+             "only_drawn": False, "reason": "wrong side", "by": "JB", "at": ""}
+            for i, polygon in enumerate(polygons)
+        ],
+        "draw": [],
+    }
+
+
+# The stranger's bundle is six L records at x = 0..5; this takes in four.
+FIRST_FOUR = [[-0.5, -1.0], [3.5, -1.0], [3.5, 1.0], [-0.5, 1.0]]
+CORRECTIONS_URL = "https://bundles.example/corrections/ring.json"
+
+
+def test_validate_index_carries_the_corrections_file() -> None:
+    entries = shared_repo.validate_index(
+        _index(_entry(corrections="corrections/ring.json"), _entry(track="Loop", corrections=""))
+    )
+    assert entries[0]["corrections"] == "corrections/ring.json"
+    assert "corrections" not in entries[1]
+    with pytest.raises(track_bundle.BundleError):
+        shared_repo.validate_index(_index(_entry(corrections=["not", "text"])))
+
+
+async def test_pull_brings_the_repos_corrections_and_takes_them_away_again(
+    client, monkeypatch
+) -> None:
+    c, _service, tmp = client
+    fetched = _serve(monkeypatch, {
+        INDEX_URL: _index(_entry(corrections="corrections/ring.json")),
+        "https://bundles.example/ring.json": _foreign_bundle(n=6),
+        CORRECTIONS_URL: _corrections(FIRST_FOUR),
+    })
+    result = (await c.post("/api/track-bundles/shared/ring/pull")).json()
+    assert result["points"] == 6
+    assert result["corrections"] == {"areas": 1, "drawn": 0, "smooth_borders": None}
+    assert fetched == [INDEX_URL, "https://bundles.example/ring.json", CORRECTIONS_URL]
+    kept = track_corrections.load(tmp, "ring")
+    assert kept is not None and kept["exclude"][0]["polygon"] == FIRST_FOUR
+    # ...and the map is compiled from what is left of the evidence.
+    track_compile._CACHE.clear()
+    compiled = track_compile.for_track(tmp, "Ring")
+    assert compiled is not None
+    assert compiled["corrections"]["excluded"] == 4
+    assert compiled["source"]["points"] == 6
+
+    # The repo's file is replaced whole, never merged...
+    _serve(monkeypatch, {
+        INDEX_URL: _index(_entry(corrections="corrections/ring.json")),
+        "https://bundles.example/ring.json": _foreign_bundle(n=6),
+        CORRECTIONS_URL: _corrections(smooth=False),
+    })
+    result = (await c.post("/api/track-bundles/shared/ring/pull")).json()
+    assert result["corrections"] == {"areas": 0, "drawn": 0, "smooth_borders": False}
+    kept = track_corrections.load(tmp, "ring")
+    assert kept is not None and kept["exclude"] == []
+    # ...and a circuit the repo no longer corrects loses the copy held here.
+    _serve(monkeypatch, {
+        INDEX_URL: _index(_entry()),
+        "https://bundles.example/ring.json": _foreign_bundle(n=6),
+    })
+    result = (await c.post("/api/track-bundles/shared/ring/pull")).json()
+    assert result["corrections"] is None
+    assert track_corrections.load(tmp, "ring") is None
+
+
+async def test_pull_with_bad_corrections_merges_nothing(client, monkeypatch) -> None:
+    """The bundle and its corrections are one offering: a repo serving a
+    corrections file that will not validate is a repo failure (502), and the
+    bundle is not merged without it rather than merged with the pit wall on."""
+    c, _service, tmp = client
+    _serve(monkeypatch, {
+        INDEX_URL: _index(_entry(corrections="corrections/ring.json")),
+        "https://bundles.example/ring.json": _foreign_bundle(n=6),
+        CORRECTIONS_URL: {"format": "not-corrections"},
+    })
+    resp = await c.post("/api/track-bundles/shared/ring/pull")
+    assert resp.status_code == 502
+    assert track_bundle.load(tmp, "Ring") is None
+    assert track_corrections.load(tmp, "ring") is None
+
+    # Corrections filed under another layout than the bundle's are refused too.
+    bundle = _foreign_bundle(n=6)
+    bundle["meta"]["official"] = {
+        "track": "Ring", "layout": "GP", "official_id": "ring-gp", "official_name": "Ring GP",
+        "turns": 10, "length_m": 4000.0, "reverse": False,
+    }
+    _serve(monkeypatch, {
+        INDEX_URL: _index(_entry(corrections="corrections/ring.json")),
+        "https://bundles.example/ring.json": bundle,
+        CORRECTIONS_URL: _corrections(FIRST_FOUR, official_id="loop-gp"),
+    })
+    resp = await c.post("/api/track-bundles/shared/ring/pull")
+    assert resp.status_code == 502
+    assert "loop-gp" in resp.json()["detail"]
+    assert track_bundle.load(tmp, "Ring") is None
+
+    # An unreachable corrections file is the same failure.
+    _serve(monkeypatch, {
+        INDEX_URL: _index(_entry(corrections="corrections/ring.json")),
+        "https://bundles.example/ring.json": _foreign_bundle(n=6),
+    })
+    assert (await c.post("/api/track-bundles/shared/ring/pull")).status_code == 502
+    assert track_bundle.load(tmp, "Ring") is None

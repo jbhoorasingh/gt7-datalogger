@@ -44,6 +44,7 @@ from app.processing import (
     track_bundle,
     track_catalog,
     track_compile,
+    track_corrections,
     track_outline,
     tracks,
 )
@@ -587,6 +588,13 @@ async def pull_shared_bundle(
     client posting a URL: an admin token should not be a proxy for "make this
     server GET anywhere I say". `?track=` overrides the document's label, same
     as import.
+
+    The repo's **corrections** for the circuit come along when the index
+    names them: fetched from beside the bundle, validated, and kept as this
+    installation's copy — replaced, not merged, because they are the repo's
+    decision about the evidence rather than evidence — so the road compiled
+    here is the road the repo's own map shows. A circuit the repo lists
+    without corrections loses whatever copy was here.
     """
     url = _shared_index_url(request)
     if url is None:
@@ -611,6 +619,20 @@ async def pull_shared_bundle(
         bundle_url = shared_repo.resolve_url(url, entry["url"])
         payload = await shared_repo.fetch_json(bundle_url, MAX_IMPORT_BYTES)
         doc = track_bundle.validate_document(payload)
+        corrected: dict[str, Any] | None = None
+        if entry.get("corrections"):
+            # Fetched and checked BEFORE the merge, so a repo serving a bad
+            # corrections file changes nothing here rather than half of it.
+            corrections_url = shared_repo.resolve_url(url, entry["corrections"])
+            corrected = track_corrections.validate(
+                await shared_repo.fetch_json(corrections_url, MAX_IMPORT_BYTES)
+            )
+            official_id = str((doc["meta"].get("official") or {}).get("official_id") or "")
+            if official_id and corrected["official_id"] != official_id:
+                raise track_bundle.BundleError(
+                    f"corrections are for layout {corrected['official_id']!r}, "
+                    f"the bundle is {official_id!r}"
+                )
         result = await asyncio.to_thread(
             track_bundle.merge_document, data_dir(request), doc, track
         )
@@ -618,6 +640,12 @@ async def pull_shared_bundle(
         raise HTTPException(502, f"shared bundle repo: {exc}") from exc
     except httpx.HTTPError as exc:
         raise HTTPException(502, f"shared bundle repo unreachable: {exc}") from exc
+    if corrected is None or track_corrections.is_empty(corrected):
+        track_corrections.remove(data_dir(request), result["slug"])
+        result["corrections"] = None
+    else:
+        track_corrections.write(data_dir(request), result["slug"], corrected)
+        result["corrections"] = track_corrections.summary(corrected)
     # A pull can give a circuit its first authored corners, same as import.
     _bundle_changed(request, result["track"])
     return result
@@ -721,6 +749,9 @@ async def patch_bundle(
                 svc(request).invalidate_authored_corners(was["meta"]["track"])
                 if track_bundle.slugify(payload.track) != slug:
                     svc(request).sync.tracks.forget(slug)
+                    # The corrections follow the bundle, unless the circuit
+                    # it merged onto already has its own.
+                    track_corrections.move(directory, slug, track_bundle.slugify(payload.track))
                     # Sessions still labelled the old way now have no bundle
                     # under them: their verdicts go back to unknown, exactly
                     # as a deleted bundle's would (#91).
@@ -755,12 +786,82 @@ async def delete_bundle(request: Request, slug: str) -> dict[str, str]:
     doc = track_bundle.load_slug(directory, _slug(slug))
     if not track_bundle.delete(directory, _slug(slug)):
         raise HTTPException(404, "no bundle for this track")
+    track_corrections.remove(directory, slug)
     if doc is not None:
         svc(request).invalidate_authored_corners(doc["meta"]["track"])
         # Laps judged against it must not keep a verdict from geometry that
         # no longer exists: back to unknown (#91).
         svc(request).rejudge.changed(doc["meta"]["track"], settle_s=0.0)
     svc(request).sync.tracks.forget(slug)
+    return {"status": "deleted"}
+
+
+# --- the shared repo's corrections --------------------------------------------
+
+
+@router.get("/track-bundles/{slug}/corrections")
+async def get_corrections(request: Request, slug: str) -> dict[str, Any]:
+    """The circuit's corrections as kept here — the repo's document, verbatim."""
+    doc = track_corrections.load(data_dir(request), _slug(slug))
+    if doc is None:
+        raise HTTPException(404, "no corrections for this track")
+    return doc
+
+
+@router.put("/track-bundles/{slug}/corrections", dependencies=[Depends(require_admin)])
+async def put_corrections(request: Request, slug: str) -> dict[str, Any]:
+    """Keep a corrections document for a circuit, replacing any it has.
+
+    What a pull does for a circuit the shared repo corrects, for a document
+    that arrived another way — the track-data pack's import script puts each
+    circuit's file through here after its bundle. Replaced whole, never
+    merged: the file is one decision about the evidence, not evidence. The
+    circuit's laps are re-judged and its map recompiled against the road as
+    corrected, as after any change to what the road is.
+    """
+    directory = data_dir(request)
+    existing = track_bundle.load_slug(directory, _slug(slug))
+    if existing is None:
+        raise HTTPException(404, "no bundle for this track")
+    length = request.headers.get("content-length")
+    if length is not None and length.isdigit() and int(length) > MAX_IMPORT_BYTES:
+        raise HTTPException(413, "corrections too large")
+    chunks: list[bytes] = []
+    size = 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > MAX_IMPORT_BYTES:
+            raise HTTPException(413, "corrections too large")
+        chunks.append(chunk)
+    try:
+        doc = track_corrections.validate(json.loads(b"".join(chunks)))
+    except ValueError as exc:  # BundleError is one
+        raise HTTPException(400, f"invalid corrections: {exc}") from exc
+    official_id = str((existing["meta"].get("official") or {}).get("official_id") or "")
+    if official_id and doc["official_id"] != official_id:
+        raise HTTPException(
+            400,
+            f"corrections are for layout {doc['official_id']!r}; "
+            f"this bundle is {official_id!r}",
+        )
+    if track_corrections.is_empty(doc):
+        track_corrections.remove(directory, slug)
+    else:
+        track_corrections.write(directory, slug, doc)
+    _bundle_changed(request, existing["meta"]["track"])
+    return {"slug": slug, "track": existing["meta"]["track"],
+            "corrections": track_corrections.summary(doc)}
+
+
+@router.delete("/track-bundles/{slug}/corrections", dependencies=[Depends(require_admin)])
+async def delete_corrections(request: Request, slug: str) -> dict[str, str]:
+    """Back to the evidence alone: what an area kept out is drawn again."""
+    directory = data_dir(request)
+    if not track_corrections.remove(directory, _slug(slug)):
+        raise HTTPException(404, "no corrections for this track")
+    doc = track_bundle.load_slug(directory, slug)
+    if doc is not None:
+        _bundle_changed(request, doc["meta"]["track"])
     return {"status": "deleted"}
 
 

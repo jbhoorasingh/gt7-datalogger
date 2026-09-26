@@ -1119,6 +1119,49 @@ def merge_document(
     }
 
 
+def own_evidence(doc: dict[str, Any], source: str) -> dict[str, Any] | None:
+    """The document reduced to what installation `source` itself recorded.
+
+    A bundle accumulates everybody's evidence — a pull merges the shared
+    repo's votes in beside yours, and they stay — but what this installation
+    can vouch for, and what the sync service will take from its account, is
+    only the votes cast under its own source id: the service binds every id
+    an upload names to the uploading account and refuses one bound elsewhere,
+    all or nothing, so a bundle that carries a stranger's votes is a bundle
+    that cannot be uploaded at all. This is the upload: each record keeps
+    the votes `source` cast and nothing else, its kind re-resolved from those
+    alone, records `source` never voted on are dropped, and the run count is
+    `source`'s own. Authored corners and sections, the finish crossings and
+    the confirmed layout travel whole — none of them carries a source.
+
+    None when `source` cast no vote anywhere: nothing of this installation's
+    to send. What comes back is a valid v5 document, and re-merging it into
+    the bundle it came from changes nothing.
+    """
+    edges: list[dict[str, Any]] = []
+    for e in doc["edges"]:
+        votes: Votes = {}
+        for kind, by_source in e["votes"].items():
+            entry = by_source.get(source)
+            if entry is not None:
+                votes[kind] = {source: [int(entry[0]), int(entry[1])]}
+        if not votes:
+            continue
+        edges.append({**e, "votes": votes, "kind": resolve_kind(votes)})
+    if not edges:
+        return None
+    runs = reconcile_runs({source: int(doc["meta"]["source_runs"].get(source, 0))}, edges)
+    return {
+        "format": BUNDLE_FORMAT,
+        "version": BUNDLE_VERSION,
+        "meta": {**doc["meta"], "runs": sum(runs.values()), "source_runs": runs},
+        "edges": edges,
+        "finish_crossings": list(doc["finish_crossings"]),
+        "corners": list(doc["corners"]),
+        "sections": list(doc["sections"]),
+    }
+
+
 def delete(data_dir: Path, slug: str) -> bool:
     path = data_dir / BUNDLE_DIR / f"{slug}.json"
     if not path.exists():
