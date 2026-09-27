@@ -20,6 +20,19 @@ Notable changes to GT7 Datalogger. The format follows
   as a labelled dot. The fastest lap is purple everywhere. `#/admin` links
   still work.
 
+### Added
+
+- **"Not this" on a suggested official layout is remembered by the server.**
+  Ruling a suggestion out on the Tracks page used to hide it in one browser
+  only, while every other device kept offering the same guess. The rejection
+  is now stored per circuit on this installation (never synced), and the
+  next suggestion is the runner-up, or none when nothing else in the catalog
+  is close enough. It works for circuits with no survey bundle too. The
+  checklist shows how many layouts were ruled out and, when none is left to
+  suggest, offers **Suggest again** to take them all back. New admin
+  endpoints: `POST /api/track-suggestions/reject` and
+  `POST /api/track-suggestions/clear`.
+
 ### Fixed
 
 - **Menus, pit stops and pauses no longer merge or split sessions.** (#120,

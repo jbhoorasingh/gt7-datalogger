@@ -25,7 +25,13 @@ import { Tip } from "@/components/ui/Tooltip";
 import { api } from "@/lib/api";
 import { getAdminToken, type SharedBundles } from "@/lib/api";
 import { openSettings } from "@/lib/router";
-import type { SurveyLog, TrackOverview, TrackOverviewRow, TrackSyncStatus } from "@/lib/types";
+import type {
+  OfficialSuggestion,
+  SurveyLog,
+  TrackOverview,
+  TrackOverviewRow,
+  TrackSyncStatus,
+} from "@/lib/types";
 import { toast } from "@/store/toasts";
 
 const toastSuccess = (text: string) => toast(text, "success");
@@ -374,6 +380,7 @@ interface Check {
   detail: React.ReactNode;
   tip?: string;
   action?: Action;
+  secondary?: Action;
 }
 
 const CHECK_ICON = {
@@ -381,30 +388,6 @@ const CHECK_ICON = {
   warn: { icon: "!", cls: "text-warn" },
   todo: { icon: "○", cls: "text-ink-faint" },
 } as const;
-
-// "Not this" on a layout suggestion has no server-side counterpart — the
-// suggestion is recomputed on every overview — so it only quiets the
-// "Needs you" row, in this browser. The suggestion itself stays visible in
-// the detail rail.
-const DISMISSED_KEY = "gt7.tracks.dismissedSuggestions";
-
-function loadDismissed(): string[] {
-  try {
-    const raw = localStorage.getItem(DISMISSED_KEY);
-    const v: unknown = raw ? JSON.parse(raw) : [];
-    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveDismissed(keys: string[]) {
-  try {
-    localStorage.setItem(DISMISSED_KEY, JSON.stringify(keys));
-  } catch {
-    // Private windows and blocked storage: the dismissal lasts this visit.
-  }
-}
 
 export function TracksView() {
   const [data, setData] = useState<TrackOverview | null>(null);
@@ -417,7 +400,6 @@ export function TracksView() {
   const [selected, setSelected] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
-  const [dismissed, setDismissed] = useState<string[]>(loadDismissed);
   const [sharedOpen, setSharedOpen] = useState(false);
   // The shared repo's offerings (#47). Null until answered; an unreachable
   // repo shows AS unreachable rather than as "not configured".
@@ -592,6 +574,18 @@ export function TracksView() {
       });
     });
 
+  // "Not this" is stored server-side, so the refresh `run` does afterwards
+  // brings back the runner-up — or no suggestion — in both the "Needs you"
+  // list and the checklist, on every device, rather than hiding one row in
+  // one browser while the server kept offering the same guess.
+  const rejectAction = (row: TrackOverviewRow, s: OfficialSuggestion): Action => ({
+    label: "Not this",
+    disabled: busy,
+    title: `Rule out ${s.official_name} for this circuit. The next-best layout is suggested instead, if any is close enough.`,
+    onClick: () =>
+      void run("Suggestion ruled out", () => api.rejectSuggestion(row.name, s.official_id)),
+  });
+
   const confirmAction = (row: TrackOverviewRow): Action => ({
     label: "Confirm",
     disabled: busy || !row.bundle,
@@ -646,8 +640,6 @@ export function TracksView() {
   for (const row of rows) {
     const s = row.suggestion;
     if (row.official || !s) continue;
-    const dismissKey = `${row.slug}:${s.official_id}`;
-    if (dismissed.includes(dismissKey)) continue;
     todos.push({
       key: `confirm:${row.slug}`,
       dot: "bg-warn",
@@ -659,15 +651,7 @@ export function TracksView() {
       primary: row.bundle
         ? confirmAction(row)
         : { label: "Survey this track", href: SURVEY_HREF },
-      secondary: {
-        label: "Not this",
-        title: "Hide this suggestion here. It stays in the circuit's checklist.",
-        onClick: () => {
-          const next = [...dismissed, dismissKey];
-          setDismissed(next);
-          saveDismissed(next);
-        },
-      },
+      secondary: rejectAction(row, s),
     });
   }
   for (const log of orphans) {
@@ -818,6 +802,10 @@ export function TracksView() {
     }
     const o = current.official;
     const s = current.suggestion;
+    const ruledOut = current.suggestion_rejected;
+    const ruledOutNote = ruledOut
+      ? ` ${plural(ruledOut, "other layout")} ruled out.`
+      : "";
     checks.push(
       o
         ? {
@@ -831,15 +819,30 @@ export function TracksView() {
               key: "official",
               tone: "warn",
               label: "Official layout",
-              detail: `Looks like ${s.official_name} · ${s.turns} turns · ${s.length_m.toLocaleString()} m — ${s.why}.`,
+              detail: `Looks like ${s.official_name} · ${s.turns} turns · ${s.length_m.toLocaleString()} m — ${s.why}.${ruledOutNote}`,
               action: confirmAction(current),
+              secondary: rejectAction(current, s),
             }
           : {
               key: "official",
               tone: "todo",
               label: "Official layout",
-              detail:
-                "Not matched to an official GT7 layout — GT7 broadcasts no track id, so this is a human decision.",
+              detail: ruledOut
+                ? `No suggestion left: ${plural(ruledOut, "layout")} ruled out, and nothing else in the catalog is close enough.`
+                : "Not matched to an official GT7 layout — GT7 broadcasts no track id, so this is a human decision.",
+              // The way back from a mis-click, or from a circuit renamed so
+              // the ruled-out guess now fits after all.
+              action: ruledOut
+                ? {
+                    label: "Suggest again",
+                    disabled: busy,
+                    title: "Forget every layout ruled out for this circuit",
+                    onClick: () =>
+                      void run("Suggestions restored", () =>
+                        api.clearRejectedSuggestions(current.name),
+                      ),
+                  }
+                : undefined,
             },
     );
     if (!b) {
@@ -1175,7 +1178,14 @@ export function TracksView() {
                         {ck.detail}
                       </div>
                     </div>
-                    {ck.action ? <ActionButton action={ck.action} /> : <span />}
+                    {ck.action ? (
+                      <div className="flex gap-1.5">
+                        <ActionButton action={ck.action} />
+                        {ck.secondary && <ActionButton action={ck.secondary} />}
+                      </div>
+                    ) : (
+                      <span />
+                    )}
                   </div>
                 );
               })}

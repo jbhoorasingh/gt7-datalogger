@@ -493,6 +493,110 @@ def test_reverse_layouts_are_their_own_configuration() -> None:
     assert forward["official_id"] != reverse["official_id"]
 
 
+def test_an_excluded_layout_hands_over_to_the_runner_up() -> None:
+    """Ruling a guess out moves on to the next one — but only while that one
+    clears the same bar; second place to a wrong answer proves nothing."""
+    configs = track_catalog.configurations(track_catalog.load(str(Settings().tracks_json)))
+    first = track_catalog.suggest("Alsace - Village", configs)
+    assert first is not None and first["reverse"] is False
+    second = track_catalog.suggest("Alsace - Village", configs, exclude={first["official_id"]})
+    assert second is not None and second["reverse"] is True
+    assert second["official_id"] != first["official_id"]
+    # Nothing else in the catalog is close enough to be worth offering.
+    assert track_catalog.suggest(
+        "Alsace - Village", configs, exclude={first["official_id"], second["official_id"]}
+    ) is None
+
+
+async def _name_track(service, name):
+    sig = __import__("app.processing.tracks", fromlist=["TrackSignature"]).TrackSignature
+    await service.repo.create_track(
+        name, sig(length_m=5423.0, min_x=-100.0, max_x=100.0, min_z=-100.0, max_z=100.0)
+    )
+
+
+async def _overview_row(c, name):
+    rows = (await c.get("/api/track-overview")).json()["tracks"]
+    return next(r for r in rows if r["name"] == name)
+
+
+async def test_not_this_is_stored_and_moves_the_suggestion_on(client) -> None:
+    """"Not this" used to live in one browser's localStorage while the server
+    kept offering the same guess everywhere else. Stored server-side, every
+    overview after it offers the runner-up, then nothing — and it applies to
+    a track with no bundle, which has nowhere else to keep it."""
+    c, service, _tmp = client
+    await _name_track(service, "Alsace - Village")
+    row = await _overview_row(c, "Alsace - Village")
+    assert row["bundle"] is None
+    assert row["suggestion_rejected"] == 0
+    first = row["suggestion"]["official_id"]
+
+    resp = await c.post("/api/track-suggestions/reject",
+                        json={"track": "Alsace - Village", "official_id": first})
+    assert resp.status_code == 200
+    assert resp.json() == {"slug": "alsace-village", "rejected": [first]}
+    row = await _overview_row(c, "Alsace - Village")
+    assert row["suggestion"]["official_id"] != first
+    assert row["suggestion"]["reverse"] is True
+    assert row["suggestion_rejected"] == 1
+
+    # Rejecting the same layout twice — under another spelling of the same
+    # circuit, even — is one rejection, not two.
+    again = await c.post("/api/track-suggestions/reject",
+                         json={"track": "alsace village", "official_id": first})
+    assert again.json()["rejected"] == [first]
+
+    second = row["suggestion"]["official_id"]
+    await c.post("/api/track-suggestions/reject",
+                 json={"track": "Alsace - Village", "official_id": second})
+    row = await _overview_row(c, "Alsace - Village")
+    assert row["suggestion"] is None  # no honest guess left
+    assert row["suggestion_rejected"] == 2
+
+    # Persisted, not held in memory: it is in the settings table.
+    stored = json.loads((await service.repo.get_settings())["suggestion_rejections"])
+    assert stored == {"alsace-village": [first, second]}
+
+    cleared = await c.post("/api/track-suggestions/clear", json={"track": "Alsace - Village"})
+    assert cleared.json() == {"slug": "alsace-village", "rejected": []}
+    row = await _overview_row(c, "Alsace - Village")
+    assert row["suggestion"]["official_id"] == first
+    assert row["suggestion_rejected"] == 0
+    assert json.loads((await service.repo.get_settings())["suggestion_rejections"]) == {}
+
+
+async def test_rejections_are_per_track_and_only_for_real_layouts(client) -> None:
+    c, service, _tmp = client
+    await _name_track(service, "Alsace - Village")
+    await _name_track(service, "Alsace - Village (Reverse)")
+    forward = (await _overview_row(c, "Alsace - Village"))["suggestion"]["official_id"]
+    await c.post("/api/track-suggestions/reject",
+                 json={"track": "Alsace - Village", "official_id": forward})
+    # The other circuit's guess is its own business.
+    other = await _overview_row(c, "Alsace - Village (Reverse)")
+    assert other["suggestion_rejected"] == 0 and other["suggestion"]["reverse"] is True
+
+    bogus = await c.post("/api/track-suggestions/reject",
+                         json={"track": "Alsace - Village", "official_id": "nope00"})
+    assert bogus.status_code == 400
+
+
+async def test_a_corrupt_rejection_setting_shows_the_suggestion_again(client) -> None:
+    """A hand-edited or half-written value must cost a re-shown guess, never
+    the whole Tracks page."""
+    c, service, _tmp = client
+    await _name_track(service, "Alsace - Village")
+    await service.repo.set_setting("suggestion_rejections", "{not json")
+    row = await _overview_row(c, "Alsace - Village")
+    assert row["suggestion"]["reverse"] is False
+    # And the next rejection overwrites the garbage with a readable map.
+    resp = await c.post("/api/track-suggestions/reject",
+                        json={"track": "Alsace - Village",
+                              "official_id": row["suggestion"]["official_id"]})
+    assert resp.status_code == 200 and len(resp.json()["rejected"]) == 1
+
+
 # --- authored corners reach their consumers (#48) -----------------------------
 
 
