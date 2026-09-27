@@ -121,6 +121,8 @@ class TelemetryService:
             persist=repo.set_setting,
             load_lap=repo.export_lap,
             load_stats=repo.session_lap_stats,
+            # The session's lap analysis (#115), compiled when it is sent.
+            load_analysis=self.lap_analysis,
         )
         # The official layout id per circuit name, for the sessions and
         # live adapters; a lookup per lap is cheap but a lookup per packet

@@ -754,6 +754,14 @@ export interface SyncSessionsDetail {
   pending: number; // sessions with laps or totals still to send
   closed: number; // sessions the server no longer has
   laps_rejected: number;
+  // The lap analysis documents (#115). Absent from a logger older than the
+  // document; `offered` false against a server that takes none.
+  analysis?: {
+    offered: boolean;
+    sent: number; // since the logger started
+    synced: number;
+    rejected: number;
+  };
   current: {
     local_id: number;
     remote_id: string;

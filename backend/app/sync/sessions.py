@@ -18,6 +18,26 @@ lap goes as soon as it is saved; the totals go when the drive ends (the
 next session starts, or the logger stops). Nothing waits to settle: a lap
 is finished the moment it is.
 
+After the totals goes the session's **lap analysis** (#115): the
+`gt7-datalogger-lap-analysis` document that GET
+/api/sessions/{id}/analysis.json serves — the drive as a few hundred
+labelled numbers per lap, which is what anything that has to reason about
+the driving wants instead of the 60 Hz series. Three rules keep it from
+costing anybody anything:
+
+  * It is sent only to a server that SAYS it takes it: `analysis_version`
+    among the `sessions` hints in its capabilities, naming a version at least
+    this document's. A server that predates the endpoint answers 404 to it,
+    and a 404 on an open session is how this adapter learns that a session
+    was deleted — so it is never asked. Against such a server the adapter
+    behaves exactly as it did before there was a document.
+  * Nothing the server says about the document touches the session. A
+    refusal is recorded against the document and that is all: the laps and
+    the totals it follows are already there.
+  * It is compiled when it is sent, from the database, never kept: a lap
+    ruled in or out by hand changes the reference lap and with it every
+    figure, which is also why such a ruling sends the document again.
+
 Offline: the queue is a list of lap ids, persisted in
 `data/sync-sessions.json` next to the remote session id each local session
 was given, so a service that is unreachable for an afternoon gets the
@@ -74,10 +94,19 @@ MAX_QUEUED_LAPS = 500
 # out of the bests later can still be re-sent to the right remote session.
 KEEP_DONE = 50
 
-# Loads the export envelope for a lap id (the repo's export_lap), and the
-# aggregate a session's totals are made of (the repo's session_lap_stats).
+# The capabilities hints that say a server takes the lap analysis document:
+# the highest document version it reads (absent = it has no such endpoint),
+# and the most it will take of one.
+ANALYSIS_VERSION_HINT = "analysis_version"
+ANALYSIS_MAX_BYTES_HINT = "analysis_max_bytes"
+DEFAULT_ANALYSIS_MAX_BYTES = 4 * 1024 * 1024
+
+# Loads the export envelope for a lap id (the repo's export_lap), the
+# aggregate a session's totals are made of (the repo's session_lap_stats),
+# and a session's lap analysis document (the service's lap_analysis).
 LapLoader = Callable[[int], Awaitable[dict[str, Any] | None]]
 StatsLoader = Callable[[int], Awaitable[dict[str, Any]]]
+AnalysisLoader = Callable[[int], Awaitable[dict[str, Any] | None]]
 
 
 @dataclass(slots=True)
@@ -100,12 +129,22 @@ class SessionSync:
     laps: dict[int, dict[str, Any]] = field(default_factory=dict)
     end_pending: bool = False
     ended_at: str = ""
+    # The lap analysis document (#115): owed once the drive has ended, and
+    # again when a lap ruled in or out by hand changed what it says.
+    analysis_pending: bool = False
+    # What became of the last one: "synced", "rejected" (the server, or its
+    # size, said no), "skipped" (the server takes none, or there was nothing
+    # to compile), or "" for a session that has not got that far.
+    analysis_status: str = ""
+    analysis_error: str = ""
     # Set when the server no longer has the session; nothing more is sent.
     closed: str = ""
 
     @property
     def pending(self) -> bool:
-        return not self.closed and (bool(self.queue) or self.end_pending)
+        return not self.closed and (
+            bool(self.queue) or self.end_pending or self.analysis_pending
+        )
 
     def persisted(self) -> dict[str, Any]:
         return {
@@ -120,6 +159,9 @@ class SessionSync:
             "laps": {str(lap_id): dict(v) for lap_id, v in self.laps.items()},
             "end_pending": self.end_pending,
             "ended_at": self.ended_at,
+            "analysis_pending": self.analysis_pending,
+            "analysis_status": self.analysis_status,
+            "analysis_error": self.analysis_error,
             "closed": self.closed,
         }
 
@@ -132,11 +174,13 @@ class SessionsAdapter:
         load_lap: LapLoader | None = None,
         load_stats: StatsLoader | None = None,
         clock: Callable[[], float] = time.monotonic,
+        load_analysis: AnalysisLoader | None = None,
     ) -> None:
         self.client = client
         self.data_dir = data_dir
         self._load_lap = load_lap
         self._load_stats = load_stats
+        self._load_analysis = load_analysis
         self._clock = clock
         self._sessions: dict[int, SessionSync] = {}
         self._current: int | None = None
@@ -152,6 +196,7 @@ class SessionsAdapter:
         self.last_ok_at: str | None = None
         self.last_attempt_at: str | None = None
         self.uploads = 0
+        self.analyses = 0
         self._state_server = ""
         self.reload_state()
 
@@ -201,10 +246,20 @@ class SessionsAdapter:
         rec = self._sessions.get(local_id)
         if rec is None or rec.closed or not rec.remote_id:
             return
-        if rec.laps.get(lap_id, {}).get("status") != "synced":
-            return
-        if all(item[0] != lap_id for item in rec.queue):
+        # Which laps count decides the reference lap, and the reference
+        # decides every figure in the analysis: a drive that has ended owes
+        # the server the document again. One still being driven sends it at
+        # its end, as it would have. This holds whether or not the lap
+        # itself ever reached the server — the document is compiled from the
+        # laps HERE.
+        if rec.ended_at and not rec.end_pending:
+            rec.analysis_pending = True
+        if rec.laps.get(lap_id, {}).get("status") == "synced" and all(
+            item[0] != lap_id for item in rec.queue
+        ):
             rec.queue.append((lap_id, number))
+        if not rec.pending:
+            return
         self._write_state()
         self._kick()
 
@@ -219,6 +274,7 @@ class SessionsAdapter:
             self._sessions.pop(local_id, None)
         else:
             rec.end_pending = True
+            rec.analysis_pending = True
             rec.ended_at = rec.ended_at or _now()
         if self._current == local_id:
             self._current = None
@@ -291,6 +347,13 @@ class SessionsAdapter:
             if isinstance(raw.get("car_id"), int):
                 rec.car_id = raw["car_id"]
             rec.end_pending = bool(raw.get("end_pending"))
+            # Absent from a file written before there was a document: such a
+            # session owes none, and is not sent one after the fact.
+            rec.analysis_pending = bool(raw.get("analysis_pending"))
+            for name in ("analysis_status", "analysis_error"):
+                value = raw.get(name)
+                if isinstance(value, str):
+                    setattr(rec, name, value)
             queue = raw.get("queue")
             if isinstance(queue, list):
                 rec.queue = [
@@ -375,8 +438,11 @@ class SessionsAdapter:
             return
         if rec.end_pending:
             await self._end(rec)
+            return
+        if rec.analysis_pending:
+            await self._send_analysis(rec)
 
-    # --- the three calls ----------------------------------------------------
+    # --- the four calls -----------------------------------------------------
 
     async def _start(self, rec: SessionSync) -> None:
         body = json.dumps(_summary(rec), separators=(",", ":")).encode("utf-8")
@@ -444,6 +510,70 @@ class SessionsAdapter:
         self._write_state()
         log.info("sync: session %d closed on the server (%d laps)", rec.local_id, count)
 
+    def analysis_offered(self) -> int:
+        """The highest lap analysis version the server reads; 0 when it takes
+        none — which is every server that predates the endpoint."""
+        return self.client.hint(TYPE, ANALYSIS_VERSION_HINT, 0)
+
+    def _analysis_settled(self, rec: SessionSync, status: str, error: str = "") -> None:
+        rec.analysis_pending = False
+        rec.analysis_status = status
+        rec.analysis_error = error
+        self._write_state()
+
+    async def _send_analysis(self, rec: SessionSync) -> None:
+        """The session's lap analysis, after everything else of it has gone.
+
+        Every way this can come to nothing ends the same: the document is
+        marked as dealt with and the session is left exactly as it was.
+        """
+        offered = self.analysis_offered()
+        if offered < 1 or self._load_analysis is None:
+            # Not an error and not retried: this server has nowhere to put
+            # it, and asking would be a 404 that reads as a deleted session.
+            self._analysis_settled(rec, "skipped", "the server takes no lap analysis")
+            return
+        try:
+            doc = await self._load_analysis(rec.local_id)
+        except Exception as exc:  # noqa: BLE001 - derived data must not stall the queue
+            log.warning(
+                "sync: lap analysis of session %d could not be compiled",
+                rec.local_id, exc_info=True,
+            )
+            self._analysis_settled(rec, "skipped", f"could not be compiled: {exc}")
+            return
+        if doc is None or not doc.get("laps"):
+            # Deleted here since the drive ended, or left with no lap.
+            self._analysis_settled(rec, "skipped", "the session has no laps to analyse")
+            return
+        version = int(doc.get("version") or 0)
+        if version > offered:
+            self._analysis_settled(
+                rec, "skipped",
+                f"the server reads lap analysis v{offered}; this is v{version}",
+            )
+            return
+        body = json.dumps(doc, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        cap = self.client.hint(TYPE, ANALYSIS_MAX_BYTES_HINT, DEFAULT_ANALYSIS_MAX_BYTES)
+        if len(body) > cap:
+            self._analysis_settled(
+                rec, "rejected",
+                f"lap analysis is {len(body) // 1024} KB; the server takes {cap // 1024} KB",
+            )
+            return
+        path = f"{SESSIONS_PATH}/{rec.remote_id}/analysis"
+        what = f"session {rec.local_id} lap analysis"
+        reply = await self._call(rec, what, "PUT", path, body, analysis=True)
+        if reply is None:
+            return
+        self._analysis_settled(rec, "synced")
+        self.analyses += 1
+        log.info(
+            "sync: lap analysis of session %d (%d laps, %d bytes) -> %s%s",
+            rec.local_id, len(doc["laps"]), len(body), rec.remote_id,
+            " (replaced)" if reply.get("replaced") else "",
+        )
+
     async def _call(
         self,
         rec: SessionSync,
@@ -452,6 +582,7 @@ class SessionsAdapter:
         path: str,
         body: bytes,
         lap: tuple[int, int] | None = None,
+        analysis: bool = False,
     ) -> dict[str, Any] | None:
         """One request, with every failure sorted into the adapter's moves.
 
@@ -465,7 +596,7 @@ class SessionsAdapter:
         try:
             reply = await self.client.transport().request(method, path, body)
         except SyncError as exc:
-            await self._failed(rec, what, exc, lap)
+            await self._failed(rec, what, exc, lap, analysis)
             return None
         finally:
             self._inflight = ""
@@ -475,7 +606,12 @@ class SessionsAdapter:
         return reply
 
     async def _failed(
-        self, rec: SessionSync, what: str, exc: SyncError, lap: tuple[int, int] | None
+        self,
+        rec: SessionSync,
+        what: str,
+        exc: SyncError,
+        lap: tuple[int, int] | None,
+        analysis: bool = False,
     ) -> None:
         if exc.kind == "type_disabled":
             self._error = self._switched_off = "server no longer accepts this"
@@ -485,6 +621,14 @@ class SessionsAdapter:
             self._error = exc.message
             self._not_before = self._clock() + BACKOFF_MAX_S
             log.warning("sync: %s", exc.message)
+            return
+        if exc.kind in ("rejected", "conflict") and analysis:
+            # About the document and nothing else, a 404 included: the laps
+            # and the totals this follows were taken by the same server a
+            # moment ago, so whatever it has against the analysis is not
+            # that the session is gone.
+            self._analysis_settled(rec, "rejected", exc.message)
+            log.warning("sync: %s refused by the server: %s", what, exc.message)
             return
         if exc.kind in ("rejected", "conflict"):
             if exc.status == 404 and rec.remote_id:
@@ -557,7 +701,13 @@ class SessionsAdapter:
         return "idle"
 
     def status(self) -> dict[str, Any]:
-        queued = sum(len(rec.queue) + int(rec.end_pending) for rec in self._sessions.values())
+        # A document owed to a server that takes none is not something
+        # waiting to be sent: it is dropped, unasked, when its turn comes.
+        owed = self.analysis_offered() > 0
+        queued = sum(
+            len(rec.queue) + int(rec.end_pending) + int(owed and rec.analysis_pending)
+            for rec in self._sessions.values()
+        )
         due = self._not_before - self._clock() if self._next() is not None else 0.0
         current = self._sessions.get(self._current) if self._current is not None else None
         return {
@@ -576,6 +726,21 @@ class SessionsAdapter:
                     1 for rec in self._sessions.values()
                     for v in rec.laps.values() if v["status"] == "rejected"
                 ),
+                # The lap analysis documents (#115). `offered` is whether
+                # this server takes them at all; against one that does not,
+                # nothing is sent and nothing here counts up.
+                "analysis": {
+                    "offered": self.analysis_offered() > 0,
+                    "sent": self.analyses,
+                    "synced": sum(
+                        1 for rec in self._sessions.values()
+                        if rec.analysis_status == "synced"
+                    ),
+                    "rejected": sum(
+                        1 for rec in self._sessions.values()
+                        if rec.analysis_status == "rejected"
+                    ),
+                },
                 "current": (
                     {
                         "local_id": current.local_id,
@@ -604,7 +769,7 @@ class SessionsAdapter:
             status = "closed"
         elif self._inflight and self._next() is rec:
             status = "uploading"
-        elif rec.queue or rec.end_pending:
+        elif rec.queue or rec.end_pending or rec.analysis_pending:
             status = "queued"
         elif rec.remote_id:
             status = "synced"
@@ -616,6 +781,8 @@ class SessionsAdapter:
             "laps_synced": synced,
             "laps_queued": len(rec.queue),
             "laps_rejected": rejected,
+            "analysis": "queued" if rec.analysis_pending else rec.analysis_status,
+            "analysis_error": rec.analysis_error,
             "error": rec.closed,
         }
 

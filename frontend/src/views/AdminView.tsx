@@ -810,6 +810,16 @@ function SyncTypeDetail({
           {sessions.laps_rejected ? (
             <span className="text-brake">{sessions.laps_rejected} laps refused</span>
           ) : null}
+          {/* Lap analysis (#115): said only of a server that takes it, so a
+              server that predates it shows nothing new here at all. */}
+          {sessions.analysis?.offered && sessions.analysis.synced > 0 && (
+            <span title="The lap analysis of a session is sent once its drive has ended">
+              {sessions.analysis.synced} lap analyses on the server
+            </span>
+          )}
+          {sessions.analysis?.rejected ? (
+            <span className="text-brake">{sessions.analysis.rejected} lap analyses refused</span>
+          ) : null}
           {sessions.closed ? (
             <span className="text-warn">{sessions.closed} closed by the server</span>
           ) : null}

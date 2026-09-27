@@ -34,7 +34,7 @@ from app.sync.transport import SyncError, Transport
 if TYPE_CHECKING:
     from app.config import Settings
     from app.sync.live import LiveAdapter
-    from app.sync.sessions import LapLoader, SessionsAdapter, StatsLoader
+    from app.sync.sessions import AnalysisLoader, LapLoader, SessionsAdapter, StatsLoader
     from app.sync.tracks import TracksAdapter
 
 log = logging.getLogger(__name__)
@@ -95,6 +95,7 @@ class SyncClient:
         persist: Callable[[str, str], Awaitable[None]] | None = None,
         load_lap: LapLoader | None = None,
         load_stats: StatsLoader | None = None,
+        load_analysis: AnalysisLoader | None = None,
     ) -> None:
         from app.sync.live import LiveAdapter
         from app.sync.sessions import SessionsAdapter
@@ -116,7 +117,8 @@ class SyncClient:
         # The lap and session loaders are the repo's; None in unit tests
         # that never get as far as sending a lap.
         self.sessions: SessionsAdapter = SessionsAdapter(
-            self, data_dir, load_lap=load_lap, load_stats=load_stats
+            self, data_dir, load_lap=load_lap, load_stats=load_stats,
+            load_analysis=load_analysis,
         )
         self.live: LiveAdapter = LiveAdapter(self)
         self.adapters: dict[str, Adapter] = {

@@ -71,6 +71,22 @@ Notable changes to GT7 Datalogger. The format follows
   100 KB for ten laps, compiled in a few tenths of a second, one lap in
   memory at a time. The same file is in the session ZIP as `analysis.json`.
   See `docs/reference/lap-analysis-format.md`.
+- **The lap analysis goes to the sync service with the session.** (#115) With
+  `sessions` sync on, a drive's lap analysis is sent after its totals
+  (`PUT /v1/sessions/{id}/analysis`), compiled at that moment from the
+  database, and sent again when a lap ruled in or out by hand has changed
+  the reference. No new toggle. It is sent **only to a service that says it
+  takes it** — `analysis_version` among the `sessions` hints of its
+  capabilities, naming a version at least the document's — because a service
+  without the endpoint answers 404, and a 404 on an open session is how the
+  adapter learns a session was deleted. Against a service that predates the
+  document a drive syncs with exactly the requests it always did. Whatever
+  the server says about the document is recorded against the document
+  alone: a refusal, a 404 included, never closes the session or touches its
+  laps. A document larger than the server's `analysis_max_bytes`, or of a
+  newer version than it reads, is held back here. Drives already on file
+  when the logger is upgraded are not sent one after the fact. The Admin
+  status line counts the analyses on the server, and the refused ones.
 - **The shared repo's corrections come with a pull, and the map is compiled
   from them.** The repo's editor never deletes evidence; it keeps a
   `corrections/<slug>.json` beside each corrected bundle — areas the map

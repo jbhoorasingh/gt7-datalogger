@@ -120,6 +120,7 @@ async def service(tmp_path, fake):
     svc.sync.sessions = sessions_sync.SessionsAdapter(
         svc.sync, settings.db_path.parent,
         load_lap=repo.export_lap, load_stats=repo.session_lap_stats, clock=clock,
+        load_analysis=svc.lap_analysis,
     )
     svc.sync.adapters["sessions"] = svc.sync.sessions
     svc.clock = clock  # type: ignore[attr-defined]
@@ -206,6 +207,7 @@ async def test_a_session_with_no_lap_is_never_announced(service, fake) -> None:
     assert fake.calls() == []
     assert svc.sync.sessions.status()["sessions"] == {
         "synced": 0, "pending": 0, "closed": 0, "laps_rejected": 0,
+        "analysis": {"offered": False, "sent": 0, "synced": 0, "rejected": 0},
         "current": {"local_id": svc.session_id, "remote_id": "", "laps_synced": 0,
                     "laps_queued": 0, "closed": ""},
     }
@@ -536,3 +538,295 @@ def test_client_without_loaders_still_stands_up(tmp_path) -> None:
     assert status["types"]["sessions"]["supported"] is True
     assert status["types"]["live"]["supported"] is True
     assert TOKEN not in json.dumps(status)
+
+
+# --- the lap analysis document (#115) -----------------------------------------
+
+
+ANALYSIS = "/analysis"
+
+
+def takes_analysis(fake: FakeService, version: int = 1, **hints: int) -> None:
+    """The fake becomes a server that has the endpoint, and says so."""
+    fake.types["sessions"] = {
+        **fake.types["sessions"], "analysis_version": version, **hints,
+    }
+    fake.answer.setdefault(
+        ANALYSIS,
+        lambda req: httpx.Response(
+            202,
+            json={"session_id": req.url.path.split("/")[3], "version": 1,
+                  "bytes": len(req.content), "replaced": False},
+        ),
+    )
+
+
+def analysis_calls(fake: FakeService) -> list[httpx.Request]:
+    return [r for r in fake.calls() if r.url.path.endswith(ANALYSIS)]
+
+
+async def end_drive(svc: TelemetryService) -> None:
+    """The next session starting is what ends the one before it."""
+    await svc._on_session(SessionInfo(car_id=3298, started_at="2026-09-17T15:00:00Z"))
+    await svc.sync.sessions.wait_idle()
+
+
+async def test_a_server_that_predates_the_document_is_never_asked_for_it(service, fake) -> None:
+    """The whole of the compatibility promise, from this side: against a
+    server without the endpoint the drive goes exactly as it always did —
+    the same requests, in the same order, and the session stays open."""
+    assert "analysis_version" not in fake.types["sessions"]
+    local_id = await drive(service, laps=2)
+    await end_drive(service)
+
+    rec = service.sync.sessions._sessions[local_id]
+    assert [(r.method, r.url.path.rsplit("/", 1)[-1]) for r in fake.calls()] == [
+        ("POST", "sessions"), ("POST", "laps"), ("POST", "laps"), ("PATCH", rec.remote_id),
+    ]
+    assert analysis_calls(fake) == []
+    assert rec.closed == ""
+    assert rec.pending is False
+    assert rec.analysis_status == "skipped"
+    status = service.sync.sessions.status()
+    assert status["queued"] == 0
+    assert status["error"] == ""
+    assert status["sessions"]["analysis"] == {
+        "offered": False, "sent": 0, "synced": 0, "rejected": 0,
+    }
+
+
+async def test_the_document_follows_the_totals(service, fake) -> None:
+    takes_analysis(fake)
+    await service.sync.check()
+    local_id = await drive(service, laps=3)
+    await service.sync.sessions.wait_idle()
+    assert analysis_calls(fake) == []  # the drive has not ended
+
+    await end_drive(service)
+    calls = fake.calls()
+    remote = service.sync.sessions._sessions[local_id].remote_id
+    assert [c.method for c in calls] == ["POST", "POST", "POST", "POST", "PATCH", "PUT"]
+    assert calls[-1].url.path == f"/v1/sessions/{remote}/analysis"
+    assert calls[-1].headers["authorization"] == f"Bearer {TOKEN}"
+
+    sent = json.loads(calls[-1].content)
+    served = await service.lap_analysis(local_id)
+    assert served is not None
+    assert sent["format"] == "gt7-datalogger-lap-analysis"
+    assert sent["version"] == 1
+    assert sent["session"]["id"] == local_id
+    assert [lap["number"] for lap in sent["laps"]] == [1, 2, 3]
+    assert {k: v for k, v in sent.items() if k != "compiled_at"} == {
+        k: v for k, v in served.items() if k != "compiled_at"
+    }
+    # None of what it was compiled from.
+    assert b"pos_x" not in calls[-1].content
+
+    rec = service.sync.sessions._sessions[local_id]
+    assert (rec.analysis_status, rec.analysis_pending, rec.pending) == ("synced", False, False)
+    detail = service.sync.sessions.status()["sessions"]["analysis"]
+    assert detail == {"offered": True, "sent": 1, "synced": 1, "rejected": 0}
+    assert service.sync.sessions.session_status(local_id)["analysis"] == "synced"
+    # Counted apart from the laps: the panel says "laps sent".
+    assert service.sync.sessions.uploads == 3
+
+
+@pytest.mark.parametrize("status_code", [400, 404, 409, 413, 422])
+async def test_a_refused_document_costs_the_session_nothing(service, fake, status_code) -> None:
+    """A 404 above all: it is how a deleted session is recognised everywhere
+    else, and the document must never be mistaken for one."""
+    takes_analysis(fake)
+    fake.answer[ANALYSIS] = lambda req: httpx.Response(
+        status_code, json={"error": "unsupported_version", "reason": "not this one"}
+    )
+    await service.sync.check()
+    local_id = await drive(service, laps=2)
+    await end_drive(service)
+
+    rec = service.sync.sessions._sessions[local_id]
+    assert len(analysis_calls(fake)) == 1  # asked once, not again
+    assert rec.closed == ""
+    assert rec.analysis_status == "rejected"
+    assert rec.analysis_error
+    assert rec.pending is False
+    assert [v["status"] for v in rec.laps.values()] == ["synced", "synced"]
+    assert service.sync.sessions.status()["sessions"]["closed"] == 0
+    assert service.sync.sessions.status()["sessions"]["analysis"]["rejected"] == 1
+    # The next drive is untouched by it.
+    second = await drive(service, laps=1)
+    await service.sync.sessions.wait_idle()
+    assert service.sync.sessions._sessions[second].laps
+
+
+async def test_the_document_waits_out_an_outage_behind_the_totals(service, fake) -> None:
+    takes_analysis(fake)
+    await service.sync.check()
+    local_id = await drive(service, laps=1)
+    await service.sync.sessions.wait_idle()
+    fake.down = True
+    await end_drive(service)
+    rec = service.sync.sessions._sessions[local_id]
+    assert (rec.end_pending, rec.analysis_pending) == (True, True)
+    assert analysis_calls(fake) == []
+
+    fake.down = False
+    service.clock.now += sessions_sync.BACKOFF_MAX_S  # type: ignore[attr-defined]
+    service.sync.sessions.clear_backoff()
+    service.sync.sessions._kick()
+    await service.sync.sessions.wait_idle()
+    ours = [c for c in fake.calls() if rec.remote_id in c.url.path]
+    assert [c.method for c in ours][-2:] == ["PATCH", "PUT"]
+    assert rec.analysis_status == "synced"
+
+
+async def test_a_server_error_on_the_document_is_tried_again(service, fake) -> None:
+    takes_analysis(fake)
+    replies = iter([httpx.Response(503, json={"error": "unavailable"})])
+    accepted = fake.answer[ANALYSIS]
+    fake.answer[ANALYSIS] = lambda req: next(replies, None) or accepted(req)  # type: ignore[operator]
+    await service.sync.check()
+    local_id = await drive(service, laps=1)
+    await end_drive(service)
+    rec = service.sync.sessions._sessions[local_id]
+    assert rec.analysis_pending is True
+    assert rec.closed == ""
+
+    service.clock.now += sessions_sync.BACKOFF_MAX_S  # type: ignore[attr-defined]
+    service.sync.sessions._kick()
+    await service.sync.sessions.wait_idle()
+    assert len(analysis_calls(fake)) == 2
+    assert rec.analysis_status == "synced"
+
+
+async def test_a_document_newer_than_the_server_reads_is_held_back(
+    service, fake, monkeypatch
+) -> None:
+    takes_analysis(fake, version=1)
+    await service.sync.check()
+    served = service.lap_analysis
+
+    async def newer(session_id: int):
+        doc = await served(session_id)
+        return {**doc, "version": 2} if doc else doc
+
+    monkeypatch.setattr(service.sync.sessions, "_load_analysis", newer)
+    local_id = await drive(service, laps=1)
+    await end_drive(service)
+    rec = service.sync.sessions._sessions[local_id]
+    assert analysis_calls(fake) == []
+    assert rec.analysis_status == "skipped"
+    assert "v1" in rec.analysis_error and "v2" in rec.analysis_error
+
+
+async def test_an_oversized_document_is_refused_here(service, fake) -> None:
+    takes_analysis(fake, analysis_max_bytes=64)
+    await service.sync.check()
+    local_id = await drive(service, laps=1)
+    await end_drive(service)
+    rec = service.sync.sessions._sessions[local_id]
+    assert analysis_calls(fake) == []
+    assert rec.analysis_status == "rejected"
+    assert "KB" in rec.analysis_error
+    assert rec.closed == ""
+
+
+async def test_a_document_that_cannot_be_compiled_does_not_stall_the_queue(
+    service, fake, monkeypatch
+) -> None:
+    takes_analysis(fake)
+    await service.sync.check()
+
+    async def broken(session_id: int):
+        raise RuntimeError("no figures today")
+
+    monkeypatch.setattr(service.sync.sessions, "_load_analysis", broken)
+    first = await drive(service, laps=1)
+    second = await drive(service, laps=1)  # starting it ends the first
+    await service.sync.sessions.wait_idle()
+    assert service.sync.sessions._sessions[first].analysis_status == "skipped"
+    assert service.sync.sessions._sessions[first].pending is False
+    assert service.sync.sessions._sessions[second].laps  # the queue moved on
+
+
+async def test_a_lap_ruled_by_hand_sends_the_document_again(service, fake) -> None:
+    """Which laps count decides the reference lap, and the reference decides
+    every figure in the document."""
+    takes_analysis(fake)
+    await service.sync.check()
+    local_id = await drive(service, laps=3)
+    await end_drive(service)
+    assert len(analysis_calls(fake)) == 1
+    first = json.loads(analysis_calls(fake)[0].content)
+    assert first["reference"]["number"] == 3  # the quickest of the three
+
+    laps = await service.repo.list_laps(local_id)
+    quickest = next(lap for lap in laps if lap["number"] == 3)
+    updated = await service.repo.set_lap_best_override(quickest["id"], False, "contact")
+    assert updated is not None
+    await service.apply_best_override(updated)
+    await service.sync.sessions.wait_idle()
+
+    assert len(analysis_calls(fake)) == 2
+    again = json.loads(analysis_calls(fake)[1].content)
+    assert again["reference"]["number"] == 2
+    ours = [c for c in fake.calls() if c.url.path.startswith("/v1/sessions/")]
+    # The lap with its new verdict, then the document that follows from it.
+    assert [(c.method, c.url.path.rsplit("/", 1)[-1]) for c in ours][-2:] == [
+        ("POST", "laps"), ("PUT", "analysis"),
+    ]
+
+
+async def test_a_ruling_during_the_drive_waits_for_its_end(service, fake) -> None:
+    takes_analysis(fake)
+    await service.sync.check()
+    local_id = await drive(service, laps=2)
+    await service.sync.sessions.wait_idle()
+    laps = await service.repo.list_laps(local_id)
+    updated = await service.repo.set_lap_best_override(laps[0]["id"], False, "contact")
+    assert updated is not None
+    await service.apply_best_override(updated)
+    await service.sync.sessions.wait_idle()
+    assert analysis_calls(fake) == []
+
+    await end_drive(service)
+    assert len(analysis_calls(fake)) == 1
+
+
+async def test_the_owed_document_survives_a_restart(service, fake, tmp_path) -> None:
+    takes_analysis(fake)
+    await service.sync.check()
+    local_id = await drive(service, laps=1)
+    await service.sync.sessions.wait_idle()
+    fake.down = True
+    await end_drive(service)
+    state = json.loads((tmp_path / "data" / sessions_sync.STATE_FILE).read_text())
+    assert state["sessions"][str(local_id)]["analysis_pending"] is True
+
+    again = sessions_sync.SessionsAdapter(
+        service.sync, tmp_path / "data",
+        load_lap=service.repo.export_lap, load_stats=service.repo.session_lap_stats,
+        load_analysis=service.lap_analysis, clock=Clock(),
+    )
+    rec = again._sessions[local_id]
+    assert (rec.end_pending, rec.analysis_pending) == (True, True)
+
+
+def test_a_state_file_from_before_the_document_owes_none(tmp_path) -> None:
+    """Upgrading the logger must not send the analysis of every drive that is
+    already on file: those ended before there was one to send."""
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / sessions_sync.STATE_FILE).write_text(json.dumps({
+        "format": sessions_sync.STATE_FORMAT, "version": 1, "server": SERVER,
+        "sessions": {"7": {
+            "remote_id": "ses_7", "car": "A", "car_id": 1, "official_id": "",
+            "track_name": "", "started_at": "", "source_id": "", "queue": [],
+            "laps": {"70": {"number": 1, "status": "synced", "error": ""}},
+            "end_pending": False, "ended_at": "2026-09-17T14:30:00+00:00", "closed": "",
+        }},
+    }))
+    client = SyncClient(_settings(tmp_path), data)
+    rec = client.sessions._sessions[7]
+    assert rec.analysis_pending is False
+    assert rec.pending is False
+    assert rec.analysis_status == ""

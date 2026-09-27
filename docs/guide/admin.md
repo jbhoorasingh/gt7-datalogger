@@ -133,6 +133,18 @@ everybody sent and opens the pull requests, and GitHub stays the source of truth
       on the service — visible to your account and its administrators — and the
       service's portal is where you make one public or delete it; nothing from them
       feeds a track outline.
+
+      After the totals goes the session's **lap analysis** — the
+      [document](../reference/lap-analysis-format.md) **Export analysis** downloads:
+      every lap measured corner by corner against the session's best, about 100 KB
+      where the laps themselves are megabytes. It needs no toggle of its own, and it
+      is sent **only to a service that says it takes it** (`analysis_version` among
+      the `sessions` hints of its capabilities): against a service that predates
+      it, nothing about a drive's sync is different and nothing is asked of the
+      server that it does not know. A lap ruled in or out by hand after the drive
+      sends the document again, since it may have changed the reference lap. If the
+      server refuses the document, that is recorded against the document alone —
+      the session and its laps are untouched — and the status line counts it.
     - **live** — where the car is, `GT7_SYNC_LIVE_HZ` times a second (4 by default;
       the server states its own ceiling and the lower wins): position, speed, gear,
       lap and lap time, over one WebSocket to the service, while the car is **on

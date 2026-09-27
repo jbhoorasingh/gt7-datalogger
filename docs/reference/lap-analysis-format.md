@@ -9,9 +9,11 @@ that cost against the session's best lap.
 
 One JSON document per session, served by `GET /api/sessions/{id}/analysis.json`
 (**Sessions → Export analysis**) and included in the
-[session archive](lap-file-format.md#session-archive-zip) as `analysis.json`. It is
-compiled from the stored laps each time it is asked for and never stored itself: a
-lap ruled in or out of the bests changes the reference lap, and with it every figure.
+[session archive](lap-file-format.md#session-archive-zip) as `analysis.json`. With
+the `sessions` [sync](../guide/admin.md) on, it is also sent to the sync service when
+a drive ends, if the service says it takes it. It is compiled from the stored laps
+each time it is asked for and never stored itself: a lap ruled in or out of the bests
+changes the reference lap, and with it every figure.
 
 Format `gt7-datalogger-lap-analysis`, current version **1**. A ten-lap session on a
 fifteen-corner circuit is about 100 KB. It holds no samples, no world positions and
