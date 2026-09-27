@@ -1,12 +1,19 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { NotFoundPage, UnreachablePage, useServerReachability } from "@/components/errors";
 import { StatusBar } from "@/components/StatusBar";
 import { Toasts } from "@/components/ui/Toasts";
 import { TooltipProvider } from "@/components/ui/Tooltip";
+import { api } from "@/lib/api";
 import { isDashLocation, parseDashParams } from "@/lib/dash";
+import { trackEngineerStatus } from "@/lib/engineerStatus";
 import { isEngineerLocation } from "@/lib/engineerRoute";
 import { isOverlayLocation, parseOverlayRoute } from "@/lib/overlay";
 import { parseAnalysisParams, parseHash, type Route } from "@/lib/router";
 import { useTelemetry } from "@/store/telemetry";
+
+// Caught from app start: the server sends it once per socket connect, before
+// any lazily loaded view could subscribe (lib/engineerStatus).
+trackEngineerStatus();
 
 // Every view is its own chunk (#33): an OBS overlay source or a phone on
 // /dash downloads only that view's code — in particular not ECharts, which
@@ -32,9 +39,39 @@ function useRoute(): Route {
   return route;
 }
 
+// A deep link to a session this logger doesn't have (deleted, or copied from
+// another installation) is a 404, not an empty Analysis view. Null while
+// unknown — a failed lookup never blocks the view.
+function useMissingSession(sessionId: number | undefined): number | null {
+  const [missing, setMissing] = useState<number | null>(null);
+  useEffect(() => {
+    setMissing(null);
+    if (sessionId == null) return;
+    let alive = true;
+    api
+      .sessions()
+      .then((list) => {
+        if (alive && !list.some((s) => s.id === sessionId)) setMissing(sessionId);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [sessionId]);
+  return missing;
+}
+
 export default function App() {
   const route = useRoute();
   const connect = useTelemetry((s) => s.connect);
+  const wsConnected = useTelemetry((s) => s.wsConnected);
+  const chromeless =
+    isOverlayLocation(window.location) ||
+    isDashLocation(window.location) ||
+    isEngineerLocation(window.location);
+  // The unreachable page belongs to the app shell; the chrome-less pages
+  // keep their own quiet reconnect.
+  const reach = useServerReachability(wsConnected, !chromeless);
 
   useEffect(() => connect(), [connect]);
 
@@ -44,6 +81,9 @@ export default function App() {
   const analysisRequest = useMemo(
     () => parseAnalysisParams(new URLSearchParams(analysisParams)),
     [analysisParams],
+  );
+  const missingSession = useMissingSession(
+    !chromeless && route.view === "analysis" ? analysisRequest.session : undefined,
   );
 
   // Chrome-less deep links render nothing while their chunk loads — a
@@ -78,13 +118,30 @@ export default function App() {
           <Suspense
             fallback={<div className="p-6 text-sm text-ink-dim">Loading…</div>}
           >
-            {route.view === "live" && <LiveView />}
-            {route.view === "analysis" && <AnalysisView request={analysisRequest} />}
-            {route.view === "sessions" && <SessionsView subTab={route.params.get("sub") === "bests" ? "bests" : "sessions"} />}
-            {route.view === "survey" && <SurveyView />}
-            {route.view === "tracks" && <TracksView />}
-            {route.view === "overlays" && <OverlaysView />}
-            {route.view === "settings" && <SettingsView section={route.params.get("section")} />}
+            {/* The server is gone: no view can show anything true, so the
+                page says so instead (the StatusBar stays for navigation). */}
+            {reach.unreachable ? (
+              <UnreachablePage reach={reach} />
+            ) : (
+              <>
+                {route.view === "notfound" && <NotFoundPage />}
+                {route.view === "live" && <LiveView />}
+                {route.view === "analysis" &&
+                  (missingSession != null ? (
+                    <NotFoundPage
+                      body={`Session #${missingSession} isn’t in this logger’s database — it may have been deleted, or the link came from another installation. Lap links only work on the logger that recorded them.`}
+                      diag={`${window.location.hash} · no session ${missingSession}`}
+                    />
+                  ) : (
+                    <AnalysisView request={analysisRequest} />
+                  ))}
+                {route.view === "sessions" && <SessionsView subTab={route.params.get("sub") === "bests" ? "bests" : "sessions"} />}
+                {route.view === "survey" && <SurveyView />}
+                {route.view === "tracks" && <TracksView />}
+                {route.view === "overlays" && <OverlaysView />}
+                {route.view === "settings" && <SettingsView section={route.params.get("section")} />}
+              </>
+            )}
           </Suspense>
         </main>
         <Toasts />
