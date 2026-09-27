@@ -1,0 +1,173 @@
+{
+  "projectId": "588da14f-7d55-44e9-bcee-92b61816e167",
+  "shape": "package",
+  "pkg": "gt7-datalogger-frontend",
+  "globalName": "GT7",
+  "entry": ".design-sync/ds-entry.tsx",
+  "buildCmd": "sh .design-sync/build-inputs.sh",
+  "srcDir": "src",
+  "tsconfig": "tsconfig.json",
+  "cssEntry": ".design-sync/.cache/compiled.css",
+  "extraFonts": [
+    ".design-sync/fonts/inter.css"
+  ],
+  "dtsPropsFor": {
+    "SegmentedControl": "  value: string;\n  onValueChange: (value: string) => void;\n  options: { value: string; label: React.ReactNode }[];\n  ariaLabel: string;\n  disabled?: boolean;\n  /** \"sm\" is the dense variant used inside toolbars and transports. */\n  size?: \"sm\" | \"md\";"
+  },
+  "provider": {
+    "component": "TooltipProvider"
+  },
+  "overrides": {
+    "ConfirmDialog": {
+      "cardMode": "single",
+      "viewport": "760x520"
+    },
+    "StatusBar": {
+      "cardMode": "single",
+      "primaryStory": "Recording",
+      "viewport": "900x160"
+    },
+    "LapTimeChart": {
+      "cardMode": "column"
+    },
+    "LargeDialog": {
+      "cardMode": "single",
+      "viewport": "1000x700"
+    },
+    "PromptDialog": {
+      "cardMode": "single",
+      "viewport": "760x520"
+    },
+    "Toasts": {
+      "cardMode": "single",
+      "primaryStory": "Stack",
+      "viewport": "640x420"
+    },
+    "AnalysisGuide": {
+      "cardMode": "single",
+      "primaryStory": "Channels",
+      "viewport": "900x760"
+    },
+    "ChannelPicker": {
+      "cardMode": "single",
+      "primaryStory": "Default",
+      "viewport": "980x1020"
+    },
+    "CoachingPanel": {
+      "cardMode": "column"
+    },
+    "CornerDetail": {
+      "cardMode": "column"
+    },
+    "CornerReport": {
+      "cardMode": "column"
+    },
+    "DeviationChart": {
+      "cardMode": "column"
+    },
+    "BestsBoard": {
+      "cardMode": "column"
+    },
+    "CalloutBanner": {
+      "cardMode": "single",
+      "primaryStory": "LapTime"
+    },
+    "RaceEngineerPanel": {
+      "cardMode": "single",
+      "primaryStory": "DashDrawer"
+    },
+    "RaceEngineerStatus": {
+      "cardMode": "single",
+      "primaryStory": "Speaking"
+    },
+    "FuelMapPanel": {
+      "cardMode": "column"
+    },
+    "GearingPanel": {
+      "cardMode": "column"
+    },
+    "GGDiagram": {
+      "cardMode": "column"
+    },
+    "PlaybackBar": {
+      "cardMode": "column"
+    },
+    "RaceLineMap": {
+      "cardMode": "column"
+    },
+    "StintTrendChart": {
+      "cardMode": "column"
+    },
+    "StackedCharts": {
+      "cardMode": "single",
+      "primaryStory": "Session",
+      "viewport": "1000x1500"
+    },
+    "GridRenderer": {
+      "cardMode": "column"
+    },
+    "GridCanvas": {
+      "cardMode": "column"
+    },
+    "EChart": {
+      "cardMode": "column"
+    },
+    "LayoutBuilder": {
+      "cardMode": "single",
+      "primaryStory": "EditingSavedLayout",
+      "viewport": "1400x1000"
+    },
+    "CornerEditor": {
+      "cardMode": "single",
+      "primaryStory": "Labelled",
+      "viewport": "1200x900"
+    },
+    "LiveView": {
+      "cardMode": "single",
+      "primaryStory": "Racing",
+      "viewport": "1440x900"
+    },
+    "DashView": {
+      "cardMode": "single",
+      "primaryStory": "RaceEngineer",
+      "viewport": "1440x900"
+    },
+    "OverlayView": {
+      "cardMode": "single",
+      "primaryStory": "BottomStrip",
+      "viewport": "1600x900"
+    },
+    "AnalysisView": {
+      "cardMode": "single",
+      "primaryStory": "Comparison",
+      "viewport": "1600x1000"
+    },
+    "SessionsView": {
+      "cardMode": "single",
+      "primaryStory": "Sessions",
+      "viewport": "1280x900"
+    },
+    "TracksView": {
+      "cardMode": "single",
+      "primaryStory": "Tracks",
+      "viewport": "1280x900"
+    },
+    "SurveyView": {
+      "cardMode": "single",
+      "primaryStory": "Idle",
+      "viewport": "1280x900"
+    },
+    "AdminView": {
+      "cardMode": "single",
+      "primaryStory": "Settings",
+      "viewport": "1280x1000"
+    },
+    "EngineerView": {
+      "cardMode": "single",
+      "primaryStory": "Speaking",
+      "viewport": "1280x900"
+    }
+  },
+  "docsDir": ".design-sync/docs",
+  "readmeHeader": ".design-sync/conventions.md"
+}

@@ -1,0 +1,76 @@
+/* The stylesheet the sync ships: this app's own index.css (tokens, .panel,
+   .btn, the rules) compiled by the repo's own Tailwind against src/, so every
+   utility the components use is present. */
+@import "../src/index.css";
+@source "../src/**/*.{ts,tsx}";
+
+/* Plus a safelist, because the app is not the only thing that will be built
+   with this library.
+
+   Tailwind emits only the utilities it finds in the sources it scans, so a
+   stylesheet compiled from src/ alone carries exactly the classes this app
+   happens to use today. A design built on the library — by the design agent or
+   by anyone else — reaches for ordinary layout classes the app never needed,
+   and those fail SILENTLY: no warning, no fallback, just an element with no
+   height rendering on top of its neighbour. That cost a debugging cycle here
+   (`h-40` and `max-h-[600px]` are genuinely absent), and it would cost one in
+   every design.
+
+   So: the standard layout, spacing, sizing and typography vocabulary in the
+   ranges a real screen uses, plus every design token in the three utilities a
+   token is reached through. Nothing invented — these are Tailwind's own names
+   and this system's own tokens. */
+
+@source inline("{block,inline-block,inline,flex,inline-flex,grid,inline-grid,hidden,contents}");
+@source inline("flex-{row,row-reverse,col,col-reverse,wrap,wrap-reverse,nowrap,1,auto,initial,none}");
+@source inline("{shrink,grow}-{0,}");
+@source inline("items-{start,end,center,baseline,stretch}");
+@source inline("justify-{start,end,center,between,around,evenly}");
+@source inline("{self,justify-self}-{auto,start,end,center,stretch}");
+@source inline("grid-cols-{1,2,3,4,5,6,8,12}");
+@source inline("grid-rows-{1,2,3,4,5,6}");
+@source inline("col-span-{1,2,3,4,5,6,full}");
+@source inline("row-span-{1,2,3,4,full}");
+
+@source inline("{p,px,py,pt,pr,pb,pl,m,mx,my,mt,mr,mb,ml,gap,gap-x,gap-y,space-x,space-y}-{0,0.5,1,1.5,2,2.5,3,3.5,4,5,6,7,8,10,12,14,16,20,24}");
+@source inline("{mx,my,mt,mr,mb,ml}-auto");
+
+@source inline("w-{0,px,auto,full,screen,min,max,fit,1/2,1/3,2/3,1/4,3/4,1/5,4,5,6,8,10,12,14,16,20,24,28,32,36,40,44,48,56,64,72,80,96}");
+@source inline("h-{0,px,auto,full,screen,min,max,fit,4,5,6,8,10,12,14,16,20,24,28,32,36,40,44,48,56,64,72,80,96}");
+@source inline("{min-w,min-h}-{0,full,screen,min,max,fit}");
+@source inline("max-w-{none,xs,sm,md,lg,xl,2xl,3xl,4xl,5xl,6xl,full,min,max,fit,prose}");
+@source inline("max-h-{none,full,screen,min,max,fit,40,48,56,64,72,80,96}");
+
+@source inline("text-{xs,sm,base,lg,xl,2xl,3xl,4xl,5xl}");
+@source inline("font-{normal,medium,semibold,bold}");
+@source inline("{text,font}-{left,center,right,justify,mono,sans}");
+@source inline("leading-{none,tight,snug,normal,relaxed,loose}");
+@source inline("tracking-{tighter,tight,normal,wide,wider,widest}");
+@source inline("{uppercase,lowercase,capitalize,normal-case,truncate,italic,underline,line-through,no-underline}");
+@source inline("whitespace-{normal,nowrap,pre,pre-line,pre-wrap}");
+@source inline("{break-words,break-all,tabular-nums}");
+
+/* Every theme token, in the three utilities a colour is reached through. */
+@source inline("{bg,text,border,fill,stroke,ring,outline,decoration,caret,accent}-{surface,panel,panel-2,edge,edge-bright,hairline,ink,ink-soft,ink-muted,ink-dim,ink-faint,ink-ghost,accent,accent-100,accent-200,accent-300,accent-400,accent-600,accent-700,accent-800,accent-900,throttle,brake,coast,warn,divider,transparent,current,black,white}");
+@source inline("{bg,text,border}-{accent,throttle,brake,coast,warn,ink,black,white}/{5,8,10,12,15,16,20,25,30,40,50,60,70,75,80,90}");
+
+@source inline("{rounded,rounded-t,rounded-b,rounded-l,rounded-r,rounded-tl,rounded-tr,rounded-bl,rounded-br}-{none,sm,md,lg,xl,2xl,3xl,full,panel}");
+@source inline("border-{0,2,4,8,t,r,b,l,x,y}");
+@source inline("border-{t,r,b,l}-{0,2,4}");
+@source inline("{shadow,ring}-{none,sm,md,lg,xl,2xl,inner}");
+@source inline("opacity-{0,5,10,20,25,30,40,45,50,60,70,75,80,90,95,100}");
+
+@source inline("{relative,absolute,fixed,sticky,static}");
+@source inline("{inset,top,right,bottom,left}-{0,px,auto,1,2,3,4,6,8,full,1/2}");
+@source inline("z-{0,10,20,30,40,50,auto}");
+@source inline("overflow-{auto,hidden,visible,scroll,clip}");
+@source inline("overflow-{x,y}-{auto,hidden,visible,scroll}");
+@source inline("object-{contain,cover,fill,none,scale-down}");
+
+@source inline("cursor-{pointer,default,not-allowed,grab,grabbing,text,wait}");
+@source inline("pointer-events-{none,auto}");
+@source inline("select-{none,text,all,auto}");
+@source inline("transition-{none,all,colors,opacity,shadow,transform}");
+@source inline("duration-{75,100,150,200,300,500,700,1000}");
+@source inline("ease-{linear,in,out,in-out}");
+@source inline("{animate-none,animate-spin,animate-ping,animate-pulse,animate-bounce}");
