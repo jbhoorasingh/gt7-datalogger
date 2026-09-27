@@ -1,5 +1,6 @@
-// Sync (#79). The connection string is the one thing pasted; the server
-// splits it into URL + token and only ever hands back a hint of the token.
+// Sync (#79). The hosted service is the default, so the one thing asked for
+// is its token; your own server's address sits behind "Use your own server".
+// The server only ever hands back a hint of the token.
 // Connect / Disconnect / Test / push act at once; the master switch and the
 // per-type toggles are ordinary buffered settings. Each data type the server
 // advertises is off until turned on — enabling sync enables nothing by itself.
@@ -38,9 +39,13 @@ const SYNC_PUSH_LABEL: Record<string, string> = {
   live: "Reconnect",
 };
 
+// The hosted service: what a blank address means to the server
+// (app/sync/connection.py DEFAULT_URL).
+const HOSTED_URL = "https://sync.gt7-datalogger.com";
+
 const STEPS = [
   { title: "Sign in at sync.gt7-datalogger.com", hint: "Profile → Tokens → Create token. It is shown once." },
-  { title: "Paste the connection string below", hint: "We split it into address + token and test it straight away." },
+  { title: "Paste the token below", hint: "It is tested straight away." },
   { title: "Choose what to send", hint: "Every data type starts off." },
 ];
 
@@ -86,8 +91,9 @@ export function SyncSection({
   reload: () => void;
   setBusy: (b: string | null) => void;
 }) {
-  const [conn, setConn] = useState("");
   const [token, setToken] = useState("");
+  const [ownUrl, setOwnUrl] = useState("");
+  const [ownToken, setOwnToken] = useState("");
   const [replacing, setReplacing] = useState(false);
   const [forgetting, setForgetting] = useState(false);
 
@@ -115,30 +121,38 @@ export function SyncSection({
     }
   }
 
-  // Takes a whole connection string (the one-paste form the portal shows) or
-  // a bare address; the server splits the former into address and token.
-  async function connect() {
-    const text = conn.trim();
+  // The hosted service: the token alone, with the address reset to the
+  // default in the same request, so a logger once pointed at a LAN server
+  // comes back to the hosted one. A whole connection string pasted here still
+  // works — the server splits it.
+  async function connectHosted() {
+    const text = token.trim();
     if (!text) return;
-    const s = await applyNow({ sync_url: text }, "Sync server");
+    const patch = text.includes("?") ? { sync_url: text } : { sync_url: "", sync_token: text };
+    if (!(await applyNow(patch, "Sync token"))) return;
+    setToken("");
+    setReplacing(false);
+    await test("Sync token");
+  }
+
+  // Your own server: its address (or a connection string carrying both),
+  // and the token when it is not already in the string.
+  async function connectOwn() {
+    const address = ownUrl.trim();
+    if (!address) return;
+    const text = ownToken.trim();
+    const patch = text ? { sync_url: address, sync_token: text } : { sync_url: address };
+    const s = await applyNow(patch, "Sync server");
     if (!s) return;
-    setConn("");
-    if (!text.includes("?")) {
-      toast(`Sync server set to ${s.sync_url}${s.sync_token_set ? "" : " — now add the token"}`, "success");
+    setOwnUrl("");
+    setOwnToken("");
+    if (!s.sync_token_set) {
+      toast(`Sync server set to ${s.sync_url} — now add its token`, "success");
       reload();
       return;
     }
     setReplacing(false);
     await test("Sync server");
-  }
-
-  async function saveToken() {
-    const text = token.trim();
-    if (!text) return;
-    if (!(await applyNow({ sync_token: text }, "Sync token"))) return;
-    setToken("");
-    setReplacing(false);
-    await test("Sync token");
   }
 
   async function push(name: string) {
@@ -190,7 +204,7 @@ export function SyncSection({
             </span>
             {!replacing && (
               <button className="btn btn-primary" onClick={() => setReplacing(true)}>
-                Paste new connection string
+                Paste a new token
               </button>
             )}
           </div>
@@ -217,20 +231,23 @@ export function SyncSection({
           ))}
           <div className="flex gap-2 sm:pl-[34px]">
             <input
-              aria-label="Connection string"
+              type="password"
+              aria-label="Sync token"
               autoComplete="off"
-              value={conn}
-              onChange={(e) => setConn(e.target.value)}
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") void connect();
+                if (e.key === "Enter") void connectHosted();
               }}
-              placeholder="gt7sync://sync.gt7-datalogger.com/?token=gts_…"
+              placeholder={
+                hasToken ? `stored (${saved.sync_token_hint}) — paste a new one to replace it` : "gts_…"
+              }
               className={INPUT_CLS}
             />
             <button
               className="btn btn-primary shrink-0"
-              disabled={busy !== null || !conn.trim()}
-              onClick={() => void connect()}
+              disabled={busy !== null || !token.trim()}
+              onClick={() => void connectHosted()}
             >
               Connect
             </button>
@@ -241,16 +258,20 @@ export function SyncSection({
             )}
           </div>
           <span className="text-[11px] text-ink-faint sm:pl-[34px]">
-            Own server on the LAN? Paste <span className="font-tabular">gt7sync+http://host:port/?token=…</span>.
+            Kept apart from the address, masked here, never in a URL and never in the logs.
             Pulling shared track bundles needs none of this.
           </span>
-          <details className="text-[11px] text-ink-dim sm:pl-[34px]">
-            <summary className="cursor-pointer text-ink-faint">Address and token separately</summary>
+          <details
+            className="text-[11px] text-ink-dim sm:pl-[34px]"
+            open={saved.sync_url !== "" && saved.sync_url !== HOSTED_URL ? true : undefined}
+          >
+            <summary className="cursor-pointer text-ink-faint">Use your own server</summary>
             <div className="mt-2 flex flex-col gap-1.5">
               <p>
-                An address alone goes in the field above: a host name is read as https, use{" "}
-                <span className="font-tabular">http://</span> for a server on the LAN, and empty
-                means the hosted service.
+                A server on your LAN, or anywhere other than the hosted service. A host name is
+                read as https; use <span className="font-tabular">http://</span> for a LAN server.
+                A connection string (<span className="font-tabular">gt7sync+http://host:port/?token=…</span>)
+                carries both, so the token field can stay empty.
                 {saved.sync_url && (
                   <>
                     {" "}
@@ -258,32 +279,38 @@ export function SyncSection({
                   </>
                 )}
               </p>
+              <input
+                aria-label="Sync server address"
+                autoComplete="off"
+                value={ownUrl}
+                onChange={(e) => setOwnUrl(e.target.value)}
+                placeholder="http://192.168.1.20:8787"
+                className={INPUT_CLS}
+              />
               <div className="flex gap-2">
                 <input
                   type="password"
-                  aria-label="Sync token"
+                  aria-label="Sync server token"
                   autoComplete="off"
-                  value={token}
-                  onChange={(e) => setToken(e.target.value)}
+                  value={ownToken}
+                  onChange={(e) => setOwnToken(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter") void saveToken();
+                    if (e.key === "Enter") void connectOwn();
                   }}
-                  placeholder={
-                    hasToken
-                      ? `stored (${saved.sync_token_hint}) — paste a new one to replace it`
-                      : "paste the token here"
-                  }
+                  placeholder="token (leave empty for a connection string)"
                   className={INPUT_CLS}
                 />
                 <button
                   className="btn shrink-0"
-                  disabled={busy !== null || !token.trim()}
-                  onClick={() => void saveToken()}
+                  disabled={busy !== null || !ownUrl.trim()}
+                  onClick={() => void connectOwn()}
                 >
-                  Save token
+                  Connect
                 </button>
               </div>
-              <p>Kept apart from the address, masked here, never in a URL and never in the logs.</p>
+              {saved.sync_url !== "" && saved.sync_url !== HOSTED_URL && (
+                <p>Connecting with the token field above switches back to the hosted service.</p>
+              )}
             </div>
           </details>
         </div>
@@ -360,7 +387,7 @@ export function SyncSection({
       <ConfirmDialog
         open={forgetting}
         title="Disconnect from the sync service?"
-        body="The stored token is forgotten and sync stops until a new connection string is pasted. The token cannot be shown again — the service only reveals it once, when it is created."
+        body="The stored token is forgotten and sync stops until a new token is saved. The token cannot be shown again — the service only reveals it once, when it is created."
         confirmLabel="Disconnect"
         danger
         onConfirm={() => {

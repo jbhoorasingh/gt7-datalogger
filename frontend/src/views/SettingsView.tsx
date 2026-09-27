@@ -272,7 +272,7 @@ export function SettingsView({ section: sectionParam }: { section?: string | nul
     const host = sync?.capabilities?.server || sync?.url || saved.sync_url || "hosted service";
     health.push(
       !saved.sync_token_set
-        ? { label: "Sync", value: "Not set up", meta: "paste a connection string", tone: "faint", go: "sync" }
+        ? { label: "Sync", value: "Not set up", meta: "paste your sync token", tone: "faint", go: "sync" }
         : syncErr
           ? {
               label: "Sync",
