@@ -26,6 +26,23 @@ Notable changes to GT7 Datalogger. The format follows
   consistency chart is cleared with the session it belonged to. Laps from
   another session named in a link still load as guests, into an empty
   session too.
+- **Pinning the old car CSV no longer wipes the car details off your
+  sessions.** An install that still sets `GT7_CARS_CSV` loads a file that
+  knows a car's id and name and nothing else. At the next start after a
+  background refresh had filled the sessions in, the startup backfill found
+  the rows were last built from a different inventory, ran again from the
+  CSV, and wrote its blanks over every figure: manufacturer, year,
+  drivetrain, power, weight and PP all went back to empty, and stayed empty
+  until the next refresh a week later. The backfill now writes the figures
+  only from a record that has some (`Repository.backfill_session_cars`); a
+  record that is a name alone still names a session showing `Car #1234`,
+  which is what the pin is kept for, and erases nothing. A record with any
+  detail is written whole as before, noughts included, so an electric car's
+  displacement is still 0 and a corrected figure still replaces a wrong one.
+  Sessions blanked before this release are filled in again by the next
+  refresh, or at once by starting without the pin. `data/cars.json`, where
+  the refresh writes, is now ignored by git.
+
 - **Pulling a shared bundle no longer breaks sync for that circuit.** A pull
   merges every contributor's votes into your bundle, source ids and all, and
   the tracks adapter then uploaded the whole document. The sync service binds

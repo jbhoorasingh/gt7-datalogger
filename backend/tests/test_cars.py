@@ -623,6 +623,99 @@ async def test_the_class_benchmark_lookup_carries_them(repo) -> None:
     assert best["car_manufacturer"] == "Nissan"
 
 
+# --- a record with nothing to say erases nothing ------------------------------
+
+
+NAMES_ONLY = Car(id=102, name="Skyline GTS-R (R31) '87")
+
+
+async def test_a_names_only_record_does_not_blank_the_figures(repo) -> None:
+    """The legacy CSV knows a car's name and nothing else. Backfilling from it
+    used to write its blanks over figures a fuller inventory had stored."""
+    session_id = await repo.create_session(
+        SessionInfo(car_id=102, started_at="2026-08-30T00:00:00Z"), NISSAN
+    )
+    before = next(s for s in await repo.list_sessions() if s["id"] == session_id)
+
+    assert await repo.backfill_session_cars({102: NAMES_ONLY}) == 1
+
+    after = next(s for s in await repo.list_sessions() if s["id"] == session_id)
+    assert {f: after[f] for f in FULL_FIELDS} == {f: before[f] for f in FULL_FIELDS}
+    assert after["car_manufacturer"] == "Nissan"
+    assert after["car_power_bhp"] == 207
+    assert after["car_weight_kg"] == 1340
+    assert after["car_performance_points"] == 440.85
+
+
+async def test_a_names_only_record_still_names_a_session_that_has_no_name(repo) -> None:
+    """What the CSV pin is kept for: a session opened before its car was known
+    shows a name instead of `Car #102`."""
+    session_id = await repo.create_session(
+        SessionInfo(car_id=102, started_at="2026-08-30T00:00:00Z"), None
+    )
+    assert await repo.backfill_session_cars({102: NAMES_ONLY}) == 1
+    row = next(s for s in await repo.list_sessions() if s["id"] == session_id)
+    assert row["car_name"] == "Skyline GTS-R (R31) '87"
+    assert [row[f] for f in FULL_FIELDS] == ["", 0, "", "", "", 0, 0, 0.0, 0, 0, 0, 0, 0.0]
+
+
+async def test_a_record_with_any_detail_is_still_written_whole(repo) -> None:
+    """A record that says something is the inventory's answer about the car,
+    noughts included: an electric car's displacement is 0 because it has none,
+    and a corrected figure has to be able to replace a wrong one."""
+    session_id = await repo.create_session(
+        SessionInfo(car_id=102, started_at="2026-08-30T00:00:00Z"), NISSAN
+    )
+    electric = Car(
+        id=102, name="Skyline GTS-R (R31) '87", manufacturer="Nissan", aspiration="EV",
+        power_bhp=300,
+    )
+    assert await repo.backfill_session_cars({102: electric}) == 1
+    row = next(s for s in await repo.list_sessions() if s["id"] == session_id)
+    assert row["car_aspiration"] == "EV"
+    assert row["car_power_bhp"] == 300
+    assert row["car_displacement_cc"] == 0
+
+
+async def test_a_start_with_the_csv_pinned_keeps_what_a_refresh_filled_in(
+    repo, tmp_path
+) -> None:
+    """The whole path, as it happened: a refresh fills the rows in, and the
+    next start loads the pinned CSV, finds the marker is not its own and runs
+    the backfill. The figures have to be there afterwards."""
+    log = logging.getLogger("t")
+    filled_by_refresh = await repo.create_session(
+        SessionInfo(car_id=102, started_at="2026-08-30T00:00:00Z"), None
+    )
+    never_named = await repo.create_session(
+        SessionInfo(car_id=24, started_at="2026-08-30T01:00:00Z"), None
+    )
+    refreshed = CarDatabase()
+    refreshed.replace(_inventory(NISSAN))
+    await car_refresh.record(repo, refreshed, datetime.date(2026, 9, 26))
+    rows = {s["id"]: s for s in await repo.list_sessions()}
+    assert rows[filled_by_refresh]["car_power_bhp"] == 207
+
+    csv_path = tmp_path / "cars.csv"
+    csv_path.write_text(
+        "id,name\n102,Skyline GTS-R (R31) '87\n24,180SX Type X '96\n", encoding="utf-8"
+    )
+    settings = Settings(cars_csv=csv_path, db_path=tmp_path / "gt7.db")
+    pinned = CarDatabase()
+    await sync_car_inventory(settings, repo, pinned, await repo.get_settings(), log)
+
+    # The CSV was what loaded, and the backfill did run from it...
+    assert pinned.get(102) == NAMES_ONLY
+    assert (await repo.get_settings())[GENERATED_KEY] == car_refresh.stamp(pinned)
+    rows = {s["id"]: s for s in await repo.list_sessions()}
+    # ...naming the session nothing had named...
+    assert rows[never_named]["car_name"] == "180SX Type X '96"
+    # ...and leaving alone what it had no answer for.
+    assert rows[filled_by_refresh]["car_manufacturer"] == "Nissan"
+    assert rows[filled_by_refresh]["car_power_bhp"] == 207
+    assert rows[filled_by_refresh]["car_performance_points"] == 440.85
+
+
 async def test_adding_columns_re_runs_the_backfill_on_upgrade(repo, tmp_path) -> None:
     """The 0009 upgrade path: a release that adds denormalised columns leaves
     the inventory file byte-identical, so the marker has to carry the column

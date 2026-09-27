@@ -238,12 +238,21 @@ class Repository:
         the `Car #{id}` placeholder: a name the user has been looking at should
         not change under them for a diacritic, and a category from packet C
         describes the actual race, not the car's showroom class.
+
+        The figures are written only from a record that HAS some. A record
+        that is a name and nothing else — every row of the legacy two-column
+        CSV, and a car the source stopped publishing, merged into a refresh
+        from one — has no answer about the car, and no answer must not erase
+        one: an install that pins GT7_CARS_CSV had the manufacturer, power,
+        weight and PP a refresh had filled in blanked again by every start
+        after it. Such a record still names a session that has no name.
         """
         async with self._sf() as db:
             driven = set((await db.execute(select(SessionRow.car_id).distinct())).scalars())
             updated = 0
             for car_id in sorted(driven & set(cars)):
                 car = cars[car_id]
+                figures = car_figures(car)
                 result = await db.execute(
                     update(SessionRow)
                     .where(SessionRow.car_id == car_id)
@@ -262,7 +271,7 @@ class Repository:
                             (SessionRow.car_category == "", car.category),
                             else_=SessionRow.car_category,
                         ),
-                        **car_figures(car),
+                        **(figures if any(figures.values()) else {}),
                     )
                 )
                 updated += cast(CursorResult[Any], result).rowcount or 0
