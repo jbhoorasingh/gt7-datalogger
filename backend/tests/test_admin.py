@@ -111,6 +111,21 @@ async def test_clear_data(client) -> None:
     assert service.session_id is None
 
 
+async def test_stats_report_what_compacting_would_reclaim(client) -> None:
+    c, service = client
+    await drive_laps(service, laps=3)
+    before = (await c.get("/api/admin/stats")).json()["db"]
+    assert before["reclaimable_bytes"] == 0
+    # Deleting the laps frees their pages without shrinking the file...
+    await c.post("/api/admin/clear-data")
+    cleared = (await c.get("/api/admin/stats")).json()["db"]
+    assert cleared["reclaimable_bytes"] > 0
+    assert cleared["reclaimable_bytes"] < cleared["size_bytes"]
+    # ...until a VACUUM hands them back.
+    await c.post("/api/admin/vacuum")
+    assert (await c.get("/api/admin/stats")).json()["db"]["reclaimable_bytes"] == 0
+
+
 async def test_log_level_change(client) -> None:
     c, _ = client
     resp = await c.put("/api/admin/settings", json={"log_level": "DEBUG"})

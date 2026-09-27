@@ -107,6 +107,19 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Added
 
+- **Back up every lap in one download.** Settings › Data has **Export all
+  laps (JSON)** and **CSV (all laps)**. Each gives one ZIP with a folder per
+  session. The JSON archive holds each lap's export file, the same file
+  `GET /api/laps/{id}/export` serves, so each lap can be imported again. It
+  also holds the session's `session.json`. The CSV archive holds each lap's
+  CSV, the same file `GET /api/laps/{id}/export.csv` serves. Both archives
+  are streamed a lap at a time, so a large database starts downloading at
+  once and never sits whole in memory or in a temporary file. The endpoints
+  are `GET /api/export/laps.zip` and `GET /api/export/laps-csv.zip`. Like
+  the single-lap exports, they do not need the admin token. **Compact
+  database** now says roughly how much it would reclaim, once that is 1 MB
+  or more. `GET /api/admin/stats` reports the figure as
+  `db.reclaimable_bytes`.
 - **The corner report card says where you braked against the reference.**
   (#110) "Braked 14 m earlier into T3" is a number a driver can act on next
   lap, and the card did not have it. Three columns now say how each corner

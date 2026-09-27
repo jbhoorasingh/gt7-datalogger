@@ -1013,7 +1013,15 @@ export interface LogRecord {
 
 export interface AdminStats {
   uptime_s: number;
-  db: { sessions: number; laps: number; size_bytes: number; path: string };
+  db: {
+    sessions: number;
+    laps: number;
+    size_bytes: number;
+    // Free pages a VACUUM ("Compact") would hand back: space deleted laps
+    // left in the file.
+    reclaimable_bytes: number;
+    path: string;
+  };
   cars_loaded: number;
   source: ConnectionStatus;
   clients: number;

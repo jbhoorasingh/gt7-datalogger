@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import csv
-import io
 import logging
 import math
 import tempfile
@@ -351,95 +349,47 @@ async def export_lap(request: Request, lap_id: int) -> dict[str, Any]:
     return data
 
 
-# Channel map for CSV export: sample column -> (display name, unit).
-CSV_CHANNELS = (
-    ("t", "Time", "s"),
-    ("dist", "Distance", "m"),
-    ("speed", "Ground Speed", "km/h"),
-    ("throttle", "Throttle Pos", "%"),
-    ("brake", "Brake Pos", "%"),
-    ("gear", "Gear", ""),
-    ("rpm", "Engine RPM", "rpm"),
-    ("boost", "Boost Pressure", "bar"),
-    ("tire_slip", "Tyre Slip Ratio", ""),
-    ("yaw_rate", "Yaw Rate", "rad/s"),
-    ("pos_x", "Pos X", "m"),
-    ("pos_z", "Pos Z", "m"),
-    ("pos_y", "Pos Y", "m"),
-    ("body_height", "Ride Height", "mm"),
-    ("fuel", "Fuel Level", "L"),
-    ("slip_fl", "Tyre Slip FL", ""),
-    ("slip_fr", "Tyre Slip FR", ""),
-    ("slip_rl", "Tyre Slip RL", ""),
-    ("slip_rr", "Tyre Slip RR", ""),
-    ("tt_fl", "Tyre Temp FL", "C"),
-    ("tt_fr", "Tyre Temp FR", "C"),
-    ("tt_rl", "Tyre Temp RL", "C"),
-    ("tt_rr", "Tyre Temp RR", "C"),
-    ("sus_fl", "Susp Travel FL", "mm"),
-    ("sus_fr", "Susp Travel FR", "mm"),
-    ("sus_rl", "Susp Travel RL", "mm"),
-    ("sus_rr", "Susp Travel RR", "mm"),
-    ("aids", "Driver Aids", ""),
-    ("surface", "Surface Mask", ""),
-    ("steer", "Steering Angle", "rad"),
-    # Raw broadcast units — see analysis.accel_calibration for what they turn
-    # out to be. Exported unconverted so an external tool calibrates its own way.
-    ("acc_lat", "Accel Lateral", ""),
-    ("acc_long", "Accel Longitudinal", ""),
-    ("acc_vert", "Accel Vertical", ""),
-    ("throttle_f", "Throttle Applied", "%"),
-    ("brake_f", "Brake Applied", "%"),
-    ("race_pos", "Race Position", ""),
-    ("body_slip", "Body Slip Angle", "deg"),
-)
-
-
-def _csv_text(value: str) -> str:
-    """Neutralize spreadsheet formula injection in text cells."""
-    return f"'{value}" if value[:1] in ("=", "+", "-", "@") else value
-
-
 @router.get("/laps/{lap_id}/export.csv")
 async def export_lap_csv(request: Request, lap_id: int) -> PlainTextResponse:
-    """MoTeC-compatible CSV export (i2 'CSV file' import, Excel, etc.).
-
-    The "Sample Rate" header is nominal — the `t` column is authoritative
-    (it integrates packet-id deltas, so dropped frames widen its steps).
-    """
+    """MoTeC-style CSV export — see archive.lap_csv for the format."""
     lap = await svc(request).repo.get_lap(lap_id, with_samples=True)
     if lap is None:
         raise HTTPException(404, "lap not found")
-    samples = lap["samples"]
-    cols = [c for c in CSV_CHANNELS if c[0] in samples]
-    time_ms = lap["time_ms"]
-    duration = f"{time_ms // 60000}:{(time_ms % 60000) / 1000:06.3f}"
-    car = svc(request).cars.name(lap["car_id"])
-
-    buf = io.StringIO()
-    meta = csv.writer(buf, quoting=csv.QUOTE_ALL, lineterminator="\n")
-    data = csv.writer(buf, quoting=csv.QUOTE_MINIMAL, lineterminator="\n")
-    meta.writerow(["Format", "MoTeC CSV File"])
-    meta.writerow(["Device", "GT7 Datalogger"])
-    meta.writerow(["Vehicle", _csv_text(car)])
-    meta.writerow(["Comment", _csv_text(f"Lap {lap['number']} - {duration}")])
-    meta.writerow(["Log Date", _csv_text(str(lap.get("finished_at", "")))])
-    meta.writerow(["Sample Rate", "60.000"])
-    buf.write("\n")  # blank separator line between metadata and channels
-    meta.writerow([name for _, name, _ in cols])
-    meta.writerow([unit for _, _, unit in cols])
-    n = len(samples["t"])
-    for i in range(n):
-        # Guard against ragged legacy rows; values are numeric so
-        # QUOTE_MINIMAL leaves them unquoted.
-        data.writerow(
-            [samples[key][i] if i < len(samples[key]) else "" for key, _, _ in cols]
-        )
-
     return PlainTextResponse(
-        buf.getvalue(),
+        archive.lap_csv(lap, svc(request).cars.name(lap["car_id"])),
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="gt7-lap-{lap_id}.csv"'},
+    )
+
+
+# --- bulk exports -------------------------------------------------------------
+#
+# Open like every other export: reading the laps back out is no more
+# privileged than reading them one at a time, which the token has never
+# gated (test_auth.test_reads_stay_open_with_token_set).
+
+
+@router.get("/export/laps.zip")
+async def export_all_laps(request: Request) -> StreamingResponse:
+    """Every lap's JSON export in one ZIP, a folder per session — the
+    Settings "Back up" download. Streamed; see app.storage.archive."""
+    name = archive.bulk_archive_name("json")
+    return StreamingResponse(
+        archive.stream_all_laps(svc(request).repo, name.removesuffix(".zip")),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )
+
+
+@router.get("/export/laps-csv.zip")
+async def export_all_laps_csv(request: Request) -> StreamingResponse:
+    """Every lap's CSV in one ZIP, a folder per session. Streamed."""
+    service = svc(request)
+    name = archive.bulk_archive_name("csv")
+    return StreamingResponse(
+        archive.stream_all_laps_csv(service.repo, name.removesuffix(".zip"), service.cars.name),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
     )
 
 

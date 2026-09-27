@@ -103,6 +103,9 @@ async def test_reads_stay_open_with_token_set(secured) -> None:
         "/api/laps",
         f"/api/laps/{lap_id}/export",
         f"/api/laps/{lap_id}/export.csv",
+        # Every lap at once is no more privileged than each one alone.
+        "/api/export/laps.zip",
+        "/api/export/laps-csv.zip",
         "/api/tracks",
         "/api/layouts",
     ):
