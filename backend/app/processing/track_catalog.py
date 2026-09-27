@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Collection
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -95,9 +96,19 @@ def _name_score(a: list[str], b: list[str]) -> float:
 
 
 def suggest(
-    name: str, configs: list[dict[str, Any]], length_m: float | None = None
+    name: str,
+    configs: list[dict[str, Any]],
+    length_m: float | None = None,
+    exclude: Collection[str] = (),
 ) -> dict[str, Any] | None:
-    """The official configuration a track name most likely refers to, or None."""
+    """The official configuration a track name most likely refers to, or None.
+
+    `exclude` holds official ids a human has already said this track is NOT.
+    They drop out before scoring, so what comes back is the runner-up — held
+    to the same threshold as any first guess, because being second to a
+    wrong answer is no evidence of being right. When nothing else clears it
+    the answer is None, the same honest "no guess" a nonsense name gets.
+    """
     tokens = _tokens(name)
     if not tokens:
         return None
@@ -105,6 +116,8 @@ def suggest(
     best_score = 0.0
     best_why = ""
     for cfg in configs:
+        if cfg["official_id"] in exclude:
+            continue
         score = _name_score(tokens, _tokens(cfg["official_name"]))
         if score <= 0:
             continue

@@ -83,6 +83,8 @@ async def test_mutating_routes_require_token(secured) -> None:
         ("POST", "/api/admin/vacuum", None),
         ("PUT", "/api/admin/settings", {"log_level": "INFO"}),
         ("POST", "/api/admin/clear-data", None),
+        ("POST", "/api/track-suggestions/reject", {"track": "T", "official_id": "81f860"}),
+        ("POST", "/api/track-suggestions/clear", {"track": "T"}),
     ]
     for method, url, body in checks:
         bare = await c.request(method, url, json=body)

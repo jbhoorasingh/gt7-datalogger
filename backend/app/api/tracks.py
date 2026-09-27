@@ -27,6 +27,7 @@ import json
 import logging
 import os
 import re
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -199,11 +200,17 @@ async def overview(request: Request) -> dict[str, Any]:
         if existing["length_m"] is None:
             existing["length_m"] = track["length_m"]
 
+    rejections = _parse_rejections((await service.repo.get_settings()).get(REJECTIONS_KEY))
     for row in rows.values():
+        ruled_out = rejections.get(row["slug"], [])
+        # How many layouts a human has said this is NOT, so the view can
+        # offer to take that back — the list itself is not interesting.
+        row["suggestion_rejected"] = len(ruled_out)
         if row["official"] is None:
-            # A guess, never a lookup: shown so a human can confirm it.
+            # A guess, never a lookup: shown so a human can confirm it — or
+            # rule it out, which moves the guess on to the runner-up.
             row["suggestion"] = track_catalog.suggest(
-                row["name"], configs, row["length_m"]
+                row["name"], configs, row["length_m"], exclude=set(ruled_out)
             )
 
     return {
@@ -226,6 +233,102 @@ async def overview(request: Request) -> dict[str, Any]:
             "error": tracks_sync.status()["error"],
         },
     }
+
+
+# --- "not this": ruling a suggested layout out -------------------------------
+
+# Settings-table JSON, {slug: [official_id, ...]}. Keyed on the slug because
+# that is what an overview row is keyed on — a DB name, a bundle and a
+# session label that spell the circuit differently are one row, and one
+# "not this" has to quiet all of them.
+REJECTIONS_KEY = "suggestion_rejections"
+# Read-modify-write of one settings value; two quick "Not this" clicks must
+# not each save a list the other never saw.
+_rejections_lock = asyncio.Lock()
+
+
+def _parse_rejections(raw: str | None) -> dict[str, list[str]]:
+    """The stored map, tolerating anything a hand-edited DB might hold: a
+    rejection that cannot be read is a suggestion shown again, not a 500 on
+    the Tracks page."""
+    if not raw:
+        return {}
+    try:
+        decoded: Any = json.loads(raw)
+    except ValueError:
+        return {}
+    if not isinstance(decoded, dict):
+        return {}
+    return {
+        str(slug): [str(i) for i in ids if isinstance(i, str)]
+        for slug, ids in decoded.items()
+        if isinstance(ids, list)
+    }
+
+
+async def _update_rejections(
+    request: Request, slug: str, change: Callable[[list[str]], list[str]]
+) -> list[str]:
+    repo = svc(request).repo
+    async with _rejections_lock:
+        stored = _parse_rejections((await repo.get_settings()).get(REJECTIONS_KEY))
+        ids = change(stored.get(slug, []))
+        if ids:
+            stored[slug] = ids
+        else:
+            stored.pop(slug, None)
+        await repo.set_setting(
+            REJECTIONS_KEY, json.dumps(stored, separators=(",", ":"), sort_keys=True)
+        )
+    return ids
+
+
+class RejectSuggestionPayload(BaseModel):
+    track: str = Field(min_length=1, max_length=track_bundle.MAX_TRACK_NAME)
+    official_id: str = Field(min_length=1, max_length=64)
+
+
+@router.post("/track-suggestions/reject", dependencies=[Depends(require_admin)])
+async def reject_suggestion(
+    request: Request, payload: RejectSuggestionPayload
+) -> dict[str, Any]:
+    """Record that a track is NOT the official layout it was suggested as.
+
+    The suggestion is recomputed on every overview, so dismissing it only in
+    the browser left it re-offered on every other device and after every
+    cleared cache. Stored here, the next overview moves on to the runner-up
+    — or to no suggestion at all — everywhere at once.
+
+    Stored per installation and never synced: it is one person's verdict on
+    a guess, not evidence about the circuit, and the sync service files
+    bundles only by a CONFIRMED layout anyway.
+    """
+    slug = track_bundle.slugify(payload.track.strip())
+    official_id = payload.official_id.strip()
+    doc = _catalog(request)
+    known = {c["official_id"] for c in track_catalog.configurations(doc)} if doc else set()
+    if official_id not in known:
+        # Only a real configuration can be ruled out; anything else would sit
+        # in the settings table forever, excluding nothing.
+        raise HTTPException(400, f"no official layout {official_id!r} in the catalog")
+
+    def add(ids: list[str]) -> list[str]:
+        return ids if official_id in ids else [*ids, official_id]
+
+    return {"slug": slug, "rejected": await _update_rejections(request, slug, add)}
+
+
+class ClearRejectionsPayload(BaseModel):
+    track: str = Field(min_length=1, max_length=track_bundle.MAX_TRACK_NAME)
+
+
+@router.post("/track-suggestions/clear", dependencies=[Depends(require_admin)])
+async def clear_rejections(
+    request: Request, payload: ClearRejectionsPayload
+) -> dict[str, Any]:
+    """Forget every "not this" on one track, so the best guess comes back."""
+    slug = track_bundle.slugify(payload.track.strip())
+    return {"slug": slug, "rejected": await _update_rejections(request, slug, lambda _: [])}
 
 
 # --- the surveyed road, compiled for drawing (#51, #44) ------------------------

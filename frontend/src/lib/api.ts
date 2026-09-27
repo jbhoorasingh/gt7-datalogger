@@ -20,6 +20,7 @@ import type {
   RejudgeResult,
   SessionSummary,
   StintTrend,
+  SuggestionRejections,
   SurveyEdge,
   SurveyDiscard,
   SurveyLog,
@@ -318,6 +319,15 @@ export const api = {
       "/api/tracks/identify",
       "POST",
     ),
+  // "Not this" on a suggested official layout: the next overview offers the
+  // runner-up, or no suggestion at all. `clear` takes every one of them back.
+  rejectSuggestion: (track: string, officialId: string) =>
+    send<SuggestionRejections>("/api/track-suggestions/reject", "POST", {
+      track,
+      official_id: officialId,
+    }),
+  clearRejectedSuggestions: (track: string) =>
+    send<SuggestionRejections>("/api/track-suggestions/clear", "POST", { track }),
   createTrack: (name: string, lapId: number) =>
     send<{ id: number; name: string }>("/api/tracks", "POST", { name, lap_id: lapId }),
   deleteTrack: (id: number) => send<{ status: string }>(`/api/tracks/${id}`, "DELETE"),

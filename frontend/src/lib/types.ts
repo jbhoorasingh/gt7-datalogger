@@ -328,6 +328,9 @@ export interface TrackOverviewRow {
   sessions: number;
   official: OfficialMatch | null;
   suggestion: OfficialSuggestion | null;
+  // Layouts a human has ruled out for this row ("Not this"), stored
+  // server-side; `suggestion` is already the best guess among the rest.
+  suggestion_rejected: number;
   sync: TrackSyncStatus | null;
 }
 
@@ -1046,4 +1049,12 @@ export interface ConsoleDiscovery {
   found: boolean;
   ip: string | null;
   reason?: string;
+}
+
+// What POST /api/track-suggestions/reject and /clear answer: the official
+// ids now ruled out for the track, keyed by its slug like an overview row.
+// Local to this installation — never synced.
+export interface SuggestionRejections {
+  slug: string;
+  rejected: string[];
 }
