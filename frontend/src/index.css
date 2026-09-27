@@ -187,3 +187,84 @@ input[type="range"] {
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* Error / empty pages (components/errors). One keyframe per illustration;
+   every one of them stops under prefers-reduced-motion. */
+@keyframes offtrack {
+  0% {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    stroke-dashoffset: -560;
+    opacity: 0;
+  }
+}
+
+@keyframes flagwave {
+  0%,
+  100% {
+    transform: skewY(0) translateY(0);
+  }
+  50% {
+    transform: skewY(-3deg) translateY(-2px);
+  }
+}
+
+@keyframes sweep {
+  0%,
+  100% {
+    opacity: 0.15;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@keyframes crawl {
+  to {
+    background-position: -40px 0;
+  }
+}
+
+.animate-offtrack {
+  animation: offtrack 3.2s ease-in infinite;
+}
+.animate-flagwave {
+  animation: flagwave 3s ease-in-out infinite;
+}
+.animate-sweep {
+  animation: sweep 2.4s ease-in-out infinite;
+}
+.animate-blink {
+  animation: blink 1.2s step-end infinite;
+}
+.animate-crawl {
+  animation: crawl 1.2s linear infinite;
+}
+
+/* The yellow-flag hazard band above and below the unreachable page. */
+.hazard-stripes {
+  height: 3px;
+  flex-shrink: 0;
+  background: repeating-linear-gradient(90deg, var(--color-warn) 0 20px, transparent 20px 40px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-offtrack,
+  .animate-flagwave,
+  .animate-sweep,
+  .animate-blink,
+  .animate-crawl {
+    animation-play-state: paused;
+  }
+}

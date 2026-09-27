@@ -2,8 +2,11 @@
 // query params (#/analysis?session=3&laps=12,15&ref=15). The URL is the single
 // source of truth for cross-view handoff (Sessions/Live → Analysis) and makes
 // every view bookmarkable. The /overlay path is handled separately (lib/overlay).
+// A path that names no view parses to "notfound" (the 404 page) rather than
+// quietly landing on Live; "notfound" has no tab and is never navigated to.
 
 export type View =
+  | "notfound"
   | "live"
   | "analysis"
   | "sessions"
@@ -12,7 +15,7 @@ export type View =
   | "overlays"
   | "settings";
 
-const VIEWS: readonly View[] = [
+const VIEWS: readonly Exclude<View, "notfound">[] = [
   "live",
   "analysis",
   "sessions",
@@ -30,7 +33,8 @@ export interface Route {
 export function parseHash(hash: string): Route {
   const stripped = hash.replace(/^#\/?/, "");
   const qIndex = stripped.indexOf("?");
-  const path = qIndex >= 0 ? stripped.slice(0, qIndex) : stripped;
+  // A trailing slash (#/sessions/) names the same view.
+  const path = (qIndex >= 0 ? stripped.slice(0, qIndex) : stripped).replace(/\/+$/, "");
   const query = qIndex >= 0 ? stripped.slice(qIndex + 1) : "";
   const params = new URLSearchParams(query);
   // Settings sections live in the path (#/settings/sync); Admin was renamed
@@ -45,7 +49,9 @@ export function parseHash(hash: string): Route {
     params.set("sub", "bests");
     return { view: "sessions", params };
   }
-  const view = (VIEWS as readonly string[]).includes(path) ? (path as View) : "live";
+  // The bare origin (no hash, "#", "#/") is Live.
+  if (path === "") return { view: "live", params };
+  const view = (VIEWS as readonly string[]).includes(path) ? (path as View) : "notfound";
   return { view, params };
 }
 
