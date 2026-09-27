@@ -836,7 +836,10 @@ class LapProcessor:
             lap.min_oil_pressure = round(engine[2], 3)
             lap.gearing = {
                 "ratios": [round(r, 4) for r in p.gear_ratios if r > 0],
-                "top_speed": round(p.transmission_top_speed, 1),
+                # GT7's own estimate of the car's top speed, in km/h. NOT
+                # `transmission_top_speed`, which is a ratio (~2.3 for a tuned
+                # AE86) and made every "est. @ redline" read 1-2 km/h.
+                "top_speed": float(p.calculated_max_speed),
                 "rpm_alert": p.rpm_alert_max,
             }
             lap.compute_metrics()
@@ -962,7 +965,7 @@ class LapProcessor:
         lap.min_oil_pressure = round(self._min_oil_pressure, 3)
         lap.gearing = {
             "ratios": [round(r, 4) for r in src.gear_ratios if r > 0],
-            "top_speed": round(src.transmission_top_speed, 1),
+            "top_speed": float(src.calculated_max_speed),
             "rpm_alert": src.rpm_alert_max,
         }
         lap.compute_metrics()

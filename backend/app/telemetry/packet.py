@@ -236,6 +236,7 @@ def build_packet(
     oil_temp: float = 90.0,
     gear_ratios: tuple[float, ...] = (),
     transmission_top_speed: float = 300.0,
+    calculated_max_speed: int = 300,
     car_id: int = 0,
     fmt: str = "A",
     wheel_rotation: float = 0.0,
@@ -275,7 +276,7 @@ def build_packet(
         day_progression_ms,
         race_position, total_positions,
         1000, 9000,  # rpm alerts
-        300,  # calc max speed
+        calculated_max_speed,
         flags,
         (suggested_gear << 4) | (current_gear & 0x0F),
         throttle, brake, 0,

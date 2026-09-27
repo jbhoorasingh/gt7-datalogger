@@ -174,7 +174,7 @@ async def drive_laps(service: TelemetryService, laps: int = 2) -> None:
                         water_temp=88.0,
                         oil_temp=95.0,
                         gear_ratios=(3.2, 2.3, 1.8),
-                        transmission_top_speed=290.0,
+                        calculated_max_speed=290,
                     )
                 )
             )
@@ -185,7 +185,7 @@ async def drive_laps(service: TelemetryService, laps: int = 2) -> None:
             build_packet(
                 packet_id=9999, current_lap=laps + 1, last_lap_time_ms=59_000,
                 speed_mps=40.0, flags=ON_TRACK, fuel_level=100.0 - laps,
-                gear_ratios=(3.2, 2.3, 1.8), transmission_top_speed=290.0,
+                gear_ratios=(3.2, 2.3, 1.8), calculated_max_speed=290,
             )
         )
     )

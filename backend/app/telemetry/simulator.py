@@ -424,7 +424,10 @@ class SimTelemetrySource:
                 water_temp=84.0 + (tick % 36000) / 36000 * 8 + sim.temp_offset,
                 oil_temp=88.0 + (tick % 36000) / 36000 * 12 + sim.temp_offset,
                 gear_ratios=(3.2, 2.3, 1.8, 1.4, 1.15, 0.95),
-                transmission_top_speed=290.0,
+                # A final-drive-shaped ratio and a km/h top speed, in the
+                # fields that really carry them.
+                transmission_top_speed=2.9,
+                calculated_max_speed=290,
                 car_id=CAR_ID,
                 # Packet C extension: exercises the full parse path in dev.
                 fmt="C",
@@ -619,7 +622,10 @@ class SimTelemetrySource:
                 water_temp=84.0 + (tick % 36000) / 36000 * 8,
                 oil_temp=88.0 + (tick % 36000) / 36000 * 12,
                 gear_ratios=(3.2, 2.3, 1.8, 1.4, 1.15, 0.95),
-                transmission_top_speed=290.0,
+                # A final-drive-shaped ratio and a km/h top speed, in the
+                # fields that really carry them.
+                transmission_top_speed=2.9,
+                calculated_max_speed=290,
                 car_id=CAR_ID,
                 fmt="C",
                 wheel_rotation=lat * 1.2,
