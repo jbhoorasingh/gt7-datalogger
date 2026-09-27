@@ -107,7 +107,7 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Added
 
-- **Find console.** Settings → Connection has a **Find console** button next
+- **Find console.** Settings › Connection has a **Find console** button next
   to the console IP. It broadcasts the heartbeat for up to three seconds,
   even when an IP is saved, and fills in the address that answers with GT7
   telemetry; Apply saves it. The live stream is not interrupted, and a
