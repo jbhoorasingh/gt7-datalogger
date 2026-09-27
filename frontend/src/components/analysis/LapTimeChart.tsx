@@ -12,6 +12,7 @@ import type * as echarts from "echarts";
 import type { EChartsOption, SeriesOption } from "echarts";
 import { useMemo, useRef } from "react";
 import { CHART_COLORS, EChart } from "@/components/EChart";
+import { FASTEST_COLOR } from "@/lib/colors";
 import { countingLaps, formatSpread, lapConsistency } from "@/lib/consistency";
 import { formatLapTime } from "@/lib/format";
 import { type LapSummary, notCountingLabel } from "@/lib/types";
@@ -128,7 +129,7 @@ export function LapTimeChart({ laps, selected, lapColors, onToggleLap }: Props) 
           ...p,
           symbolSize: sizeOf(p),
           itemStyle: {
-            color: colorOf(p, p.lapId === bestId ? CHART_COLORS.accent : CHART_COLORS.value),
+            color: colorOf(p, p.lapId === bestId ? FASTEST_COLOR : CHART_COLORS.value),
           },
         })),
         cursor: "pointer",
@@ -227,7 +228,7 @@ export function LapTimeChart({ laps, selected, lapColors, onToggleLap }: Props) 
               median <span className="text-ink">{formatLapTime(consistency.medianMs)}</span>
             </span>
             <span>
-              best <span className="text-accent">{formatLapTime(consistency.bestMs)}</span>
+              best <span style={{ color: FASTEST_COLOR }}>{formatLapTime(consistency.bestMs)}</span>
             </span>
             <span className="text-ink-faint">{consistency.laps} laps counted</span>
           </>
