@@ -5,6 +5,21 @@ Notable changes to GT7 Datalogger. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Web UI usability revamp.** Admin is renamed **Settings**. It now has a
+  section rail, a health strip, and a single Apply bar that sends every
+  buffered edit in one request, replacing seven separate Apply buttons. The
+  overlay builder moves to its own **Overlays** tab. Sessions becomes a
+  master–detail view with a lap-time chart, a bulk-action bar and
+  auto-hidden constant columns. Tracks gains a "Needs you" list and a
+  readiness checklist. Live is denser: shift lights, a Δ card and a pinned
+  in-progress lap. `/engineer` and `/dash` are rebuilt for touch. New
+  route-level pages cover 404, a locked server, server errors, an
+  unreachable server and a silent console. The status bar shows telemetry
+  as a labelled dot. The fastest lap is purple everywhere. `#/admin` links
+  still work.
+
 ### Fixed
 
 - **Menus, pit stops and pauses no longer merge or split sessions.** (#120,
