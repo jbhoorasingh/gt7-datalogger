@@ -203,6 +203,10 @@ export const api = {
   sessionZipUrl: (id: number) => `/api/sessions/${id}/export.zip`,
   // The lap analysis document (#115): the session measured per corner.
   sessionAnalysisUrl: (id: number) => `/api/sessions/${id}/analysis.json`,
+  // Every recorded lap in one streamed ZIP, a folder per session: the JSON
+  // export files (re-importable) or each lap's CSV. Settings' Back up row.
+  allLapsZipUrl: "/api/export/laps.zip",
+  allLapsCsvZipUrl: "/api/export/laps-csv.zip",
   // `track` narrows to one circuit's laps across every session — what the
   // Analysis "+ Add lap" picker feeds on (#26).
   laps: (track = "", category = "") => {

@@ -1250,7 +1250,13 @@ class Repository:
         async with self._sf() as db:
             sessions = (await db.execute(select(func.count(SessionRow.id)))).scalar_one()
             laps = (await db.execute(select(func.count(LapRow.id)))).scalar_one()
-            return {"sessions": sessions, "laps": laps}
+            # Pages SQLite holds on its free list: deleted laps leave their
+            # space in the file until a VACUUM hands it back, so this is what
+            # "Compact" would recover — near enough, as VACUUM also
+            # defragments partly-filled pages this does not count.
+            free: int = (await db.execute(text("PRAGMA freelist_count"))).scalar_one()
+            page: int = (await db.execute(text("PRAGMA page_size"))).scalar_one()
+            return {"sessions": sessions, "laps": laps, "reclaimable_bytes": free * page}
 
     async def clear_all(self) -> None:
         """Delete all recorded sessions and laps (settings are kept)."""
