@@ -1,9 +1,11 @@
 // Editable twin of GridRenderer for the layout builder: the layout at true
 // canvas size, CSS-scaled to fit, with hand-rolled pointer-event dragging.
 // Drag a widget to move it (snapped ghost, green = valid / red = collision),
-// drag the corner handle to step through its allowed footprints.
+// drag the corner handle to step through its allowed footprints. The selected
+// cell gets an accent ring, the resize handle and a "{Widget} · w×h" tag,
+// all sized in screen pixels so they read the same at any zoom.
 
-import { memo, useEffect, useRef, useState, type CSSProperties } from "react";
+import { memo, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { CARD_PAD, widgetZoom } from "@/components/GridRenderer";
 import type { LayoutCell, LayoutConfig } from "@/lib/layout";
 import type { LapSummary, LiveFrame } from "@/lib/types";
@@ -48,6 +50,7 @@ export function GridCanvas({
   selected,
   onSelect,
   onCellsChange,
+  footer,
 }: {
   layout: LayoutConfig;
   frame: LiveFrame | null;
@@ -55,6 +58,8 @@ export function GridCanvas({
   selected: string | null;
   onSelect: (id: string | null) => void;
   onCellsChange: (cells: LayoutCell[]) => void;
+  // Rendered under the canvas once its scale is known (the caption).
+  footer?: (scale: number) => ReactNode;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
@@ -206,19 +211,29 @@ export function GridCanvas({
   const card: CSSProperties = bare
     ? {}
     : { backgroundColor: `rgba(8, 10, 14, ${cardAlpha})` };
+  // Painted on the unscaled frame so the transparency checkerboard keeps a
+  // 20px screen size at any zoom.
   const pageBg =
     layout.page === "green"
       ? "#00ff00"
       : layout.page === "dark"
         ? "var(--color-surface)"
-        : "repeating-conic-gradient(#1b1f26 0% 25%, #14171c 0% 50%) 0 0 / 24px 24px";
+        : "repeating-conic-gradient(#101317 0% 25%, #0c0f12 0% 50%) 0 0 / 20px 20px";
+  // One screen pixel in true-canvas px, for chrome drawn inside the scaled layer.
+  const px = scale > 0 ? 1 / scale : 1;
+  const selectedCell = layout.cells.find((c) => c.id === selected) ?? null;
+  const dragMoved = drag?.moved === true;
 
   return (
     <div ref={container} className="w-full">
       {scale > 0 && (
         <div
-          className="relative overflow-hidden rounded-lg border border-edge"
-          style={{ width: trueSize.width * scale, height: trueSize.height * scale }}
+          className="relative mx-auto overflow-hidden rounded-md shadow-[0_0_0_1px_var(--color-edge)]"
+          style={{
+            width: trueSize.width * scale,
+            height: trueSize.height * scale,
+            background: pageBg,
+          }}
           onPointerDown={(e) => {
             if (e.target === e.currentTarget) onSelect(null);
           }}
@@ -230,7 +245,7 @@ export function GridCanvas({
               height: trueSize.height,
               transform: `scale(${scale})`,
               transformOrigin: "0 0",
-              background: pageBg,
+              ["--px" as string]: `${px}px`,
             }}
             onPointerDown={(e) => {
               if (e.target === e.currentTarget) onSelect(null);
@@ -264,7 +279,9 @@ export function GridCanvas({
                   key={cell.id}
                   className={`absolute flex cursor-grab touch-none items-center justify-center overflow-hidden active:cursor-grabbing ${
                     frameless ? "" : "rounded-xl border border-edge p-3"
-                  } ${isSelected ? "ring-2 ring-accent" : ""} ${dragging ? "opacity-40" : ""}`}
+                  } ${
+                    isSelected ? "" : "hover:shadow-[0_0_0_calc(2*var(--px))_var(--color-edge-bright)]"
+                  } ${dragging ? "opacity-40" : ""}`}
                   style={{
                     left: left(cell.x),
                     top: top(cell.y),
@@ -300,16 +317,55 @@ export function GridCanvas({
                       {WIDGET_META[cell.widget].label}
                     </span>
                   )}
-                  <div
-                    className="absolute bottom-0 right-0 h-4 w-4 cursor-nwse-resize touch-none rounded-tl bg-accent/60"
-                    title="Drag to resize"
-                    onPointerDown={(e) => startResize(e, cell)}
-                    onPointerMove={onPointerMove}
-                    onPointerUp={onPointerUp}
-                  />
                 </div>
               );
             })}
+
+            {/* selection: ring, tag and resize handle. The handle stays mounted
+                through a resize drag — it holds the pointer capture. */}
+            {selectedCell && (
+              <div
+                className="pointer-events-none absolute rounded-xl"
+                style={{
+                  left: left(selectedCell.x),
+                  top: top(selectedCell.y),
+                  width: spanW(selectedCell.w),
+                  height: spanH(selectedCell.h),
+                  boxShadow: dragMoved ? "none" : `0 0 0 ${3 * px}px var(--color-accent)`,
+                }}
+              >
+                {!dragMoved && (
+                  <span
+                    className="absolute left-0 whitespace-nowrap rounded bg-accent-900 font-tabular text-accent-200"
+                    style={{
+                      // Above the cell, or inside it on the top row where
+                      // "above" is off the canvas.
+                      top: selectedCell.y === 0 ? 6 * px : -26 * px,
+                      fontSize: 11 * px,
+                      padding: `${2 * px}px ${8 * px}px`,
+                    }}
+                  >
+                    {WIDGET_META[selectedCell.widget].label} · {selectedCell.w}×{selectedCell.h}
+                  </span>
+                )}
+                <div
+                  className="pointer-events-auto absolute cursor-nwse-resize touch-none border-accent"
+                  title="Drag to resize"
+                  style={{
+                    right: -3 * px,
+                    bottom: -3 * px,
+                    width: 16 * px,
+                    height: 16 * px,
+                    borderRightWidth: 3 * px,
+                    borderBottomWidth: 3 * px,
+                    borderBottomRightRadius: 12,
+                  }}
+                  onPointerDown={(e) => startResize(e, selectedCell)}
+                  onPointerMove={onPointerMove}
+                  onPointerUp={onPointerUp}
+                />
+              </div>
+            )}
 
             {/* snapped ghost while dragging */}
             {drag && drag.moved && (
@@ -328,12 +384,7 @@ export function GridCanvas({
           </div>
         </div>
       )}
-      {scale > 0 && (
-        <div className="mt-1 font-tabular text-[11px] text-ink-dim">
-          shown at {(scale * 100).toFixed(0)}% of actual size
-          {layout.size == null && " (fills the screen when opened)"}
-        </div>
-      )}
+      {scale > 0 && footer?.(scale)}
     </div>
   );
 }
