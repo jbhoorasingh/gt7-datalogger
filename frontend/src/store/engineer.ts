@@ -23,7 +23,9 @@ import {
   type Verbosity,
   type VoiceCallout,
 } from "@/lib/types";
+import { ackNote } from "@/lib/engineerState";
 import { sendWs } from "@/lib/wsBus";
+import { liveFrameRef } from "@/store/telemetry";
 
 const CLIENT_ID_KEY = "gt7.clientId";
 export const ENGINEER_SETTINGS_KEY = "gt7-race-engineer-settings-v1";
@@ -58,6 +60,21 @@ function randomId(): string {
 }
 
 export type VoicePage = "dash" | "engineer";
+
+/** How many callouts the feed keeps; /engineer lists them for the session. */
+const HISTORY_LIMIT = 50;
+
+/**
+ * What this browser knows about a callout beyond the server's payload: when
+ * it arrived (browser clock — the server's may disagree), the lap it arrived
+ * on, and why it was not spoken here, if it wasn't.
+ */
+export interface CalloutReceipt {
+  receivedAt: number;
+  lap: number | null;
+  status: CalloutAckStatus | null;
+  note: string | null;
+}
 
 interface EngineerState {
   // --- persisted preferences (this device only) ---
@@ -96,6 +113,10 @@ interface EngineerState {
   speaking: VoiceCallout | null;
   queue: QueuedCallout[];
   history: VoiceCallout[];
+  /** Keyed by callout id, for every callout still in `history`. */
+  receipts: Record<string, CalloutReceipt>;
+  /** Callouts received in this page load, including ones aged out of history. */
+  receivedCount: number;
 
   setEnabled: (on: boolean) => void;
   setVoice: (voiceURI: string, lang: string) => void;
@@ -108,6 +129,8 @@ interface EngineerState {
   claimSpeaker: () => void;
   releaseSpeaker: () => void;
   testVoice: () => void;
+  /** Say a past callout again, here, whatever the speaker role. */
+  replay: (callout: VoiceCallout) => void;
   /** Click handler for "Enable Race Engineer": arms audio, claims, registers. */
   enableVoice: () => Promise<void>;
   handleCallout: (callout: VoiceCallout) => void;
@@ -160,6 +183,23 @@ export const useEngineer = create<EngineerState>()(
             const spoken = get().history.find((c) => c.id === calloutId) ?? null;
             if (spoken) set({ lastSpoken: spoken });
           }
+          set((st) => {
+            const receipt = st.receipts[calloutId];
+            const callout = st.history.find((c) => c.id === calloutId);
+            // First verdict wins: a re-sent id acks "duplicate" and must not
+            // turn a callout that was heard into one that wasn't.
+            if (!receipt || !callout || receipt.status != null) return {};
+            return {
+              receipts: {
+                ...st.receipts,
+                [calloutId]: {
+                  ...receipt,
+                  status,
+                  note: ackNote(status, callout.category, st.verbosity),
+                },
+              },
+            };
+          });
         },
         onSpeaking: (callout) => set({ speaking: callout }),
         onQueue: (items) => set({ queue: items }),
@@ -199,6 +239,8 @@ export const useEngineer = create<EngineerState>()(
         speaking: null,
         queue: [],
         history: [],
+        receipts: {},
+        receivedCount: 0,
 
         setEnabled: (on) => {
           set({ enabled: on });
@@ -241,6 +283,12 @@ export const useEngineer = create<EngineerState>()(
           });
         },
 
+        replay: (callout) => {
+          speakTest(callout.text, speechOptions(get()), {
+            onError: (reason) => set({ speechError: reason }),
+          });
+        },
+
         enableVoice: async () => {
           const supported = speechSupported();
           set({ supported, enabled: true });
@@ -268,7 +316,19 @@ export const useEngineer = create<EngineerState>()(
         },
 
         handleCallout: (callout) => {
-          set((s) => ({ history: [callout, ...s.history].slice(0, 20) }));
+          set((s) => {
+            const history = [callout, ...s.history].slice(0, HISTORY_LIMIT);
+            const receipts: Record<string, CalloutReceipt> = {};
+            for (const c of history) {
+              receipts[c.id] = s.receipts[c.id] ?? {
+                receivedAt: Date.now(),
+                lap: liveFrameRef.current?.current_lap || null,
+                status: null,
+                note: null,
+              };
+            }
+            return { history, receipts, receivedCount: s.receivedCount + 1 };
+          });
           queue.enqueue(callout);
         },
 
