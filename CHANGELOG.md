@@ -107,6 +107,19 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Added
 
+- **A saved layout can switch between OBS overlay and driver dash.** Flip
+  the kind in the Overlays builder and Save sends it with the rest of the
+  edit; it used to force "Save as a new layout". Kind only decides which
+  list a layout appears in — `/overlay?layout=` and `/dash?layout=` render
+  any layout — so no URL already in use stops working. `PUT
+  /api/layouts/{id}` accepts `kind`.
+- **Sessions pins the lap in progress.** While the selected session is the
+  one being recorded, the lap being driven sits at the top of the lap table
+  with its running time and live Δ to the session best, whatever the sort.
+  It has no checkbox or menu, hands over to the completed row when the lap
+  is stored, and drops out when telemetry goes quiet for 5 s or the car
+  leaves the track. Only that row updates at frame rate; the table does not
+  re-render.
 - **The corner report card says where you braked against the reference.**
   (#110) "Braked 14 m earlier into T3" is a number a driver can act on next
   lap, and the card did not have it. Three columns now say how each corner
