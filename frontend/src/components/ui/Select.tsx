@@ -18,6 +18,10 @@ const TRIGGER_VARIANTS = {
     "rounded-md border border-edge bg-transparent text-ink-soft hover:border-accent",
   // Inline label-and-value, for a toolbar where the control IS the text.
   bare: "border-0 bg-transparent text-accent hover:text-accent-300",
+  // The last item of a segmented row: lit like a selected segment once it
+  // holds a value, quiet while it shows its placeholder.
+  segment:
+    "border-0 bg-accent/16 text-accent-300 data-[placeholder]:bg-transparent hover:text-ink",
 } as const;
 
 export function Select({
