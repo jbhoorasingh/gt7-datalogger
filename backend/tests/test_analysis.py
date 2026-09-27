@@ -522,6 +522,61 @@ def test_corner_report_wraparound_needs_both_halves() -> None:
     assert analysis.corner_report([_window(5, 900.0, 100.0)], short) == []
 
 
+# --- braking in the report (#110) ---------------------------------------------
+
+
+def _braking_lap(on: float | None, off: float = 190.0, peak: float = 80.0) -> dict:
+    """A lap that brakes from `on` to `off` for a corner at 150-300 m, or
+    does not brake at all."""
+    lap = make_lap(1000.0, 50.0, n=1001)  # 1 m steps
+    if on is not None:
+        for i, d in enumerate(lap["dist"]):
+            if on <= d < off:
+                lap["brake"][i] = peak
+                lap["throttle"][i] = 0.0
+    return lap
+
+
+def _corner(n: int, entry: float, apex: float, exit_: float) -> dict:
+    return {"n": n, "entry_dist": entry, "apex_dist": apex, "exit_dist": exit_}
+
+
+def test_corner_report_says_where_the_brake_went_on_and_came_off() -> None:
+    row = analysis.corner_report([_corner(1, 150.0, 220.0, 300.0)], _braking_lap(120.0))[0]
+    assert row["brake_on"] == pytest.approx(120.0)
+    assert row["brake_off"] == pytest.approx(189.0)
+    assert row["brake_dist"] == pytest.approx(69.0)
+    assert row["brake_peak"] == pytest.approx(80.0)
+    # The lap's own report: there is nothing for it to be early against.
+    assert row["brake_delta_m"] is None
+
+
+def test_corner_report_measures_the_brake_point_against_the_reference() -> None:
+    from app.processing.corner_metrics import LapTrace, measure, windows
+
+    corners = [_corner(1, 150.0, 220.0, 300.0)]
+    reference = measure(LapTrace(_braking_lap(134.0)), windows(corners))
+    early = analysis.corner_report(corners, _braking_lap(120.0), reference=reference)[0]
+    late = analysis.corner_report(corners, _braking_lap(140.0), reference=reference)[0]
+    assert early["brake_delta_m"] == pytest.approx(-14.0)
+    assert late["brake_delta_m"] == pytest.approx(6.0)
+
+
+def test_corner_report_a_corner_taken_without_braking_reports_none_not_zero() -> None:
+    from app.processing.corner_metrics import LapTrace, measure, windows
+
+    corners = [_corner(1, 150.0, 220.0, 300.0)]
+    reference = measure(LapTrace(_braking_lap(134.0)), windows(corners))
+    row = analysis.corner_report(corners, _braking_lap(None), reference=reference)[0]
+    for key in ("brake_on", "brake_off", "brake_peak", "brake_dist", "brake_delta_m"):
+        assert row[key] is None, key
+    # And the other way round: the lap braked where the reference did not.
+    flat = measure(LapTrace(_braking_lap(None)), windows(corners))
+    row = analysis.corner_report(corners, _braking_lap(120.0), reference=flat)[0]
+    assert row["brake_on"] == pytest.approx(120.0)
+    assert row["brake_delta_m"] is None
+
+
 def test_corner_report_degenerate_inputs() -> None:
     assert analysis.corner_report([_window(1, 0.0, 100.0)], {}) == []
     assert analysis.corner_report([], make_lap(1000.0, 50.0)) == []

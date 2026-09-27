@@ -98,6 +98,66 @@ export function eventMarkers(
   return out;
 }
 
+export interface BrakeMarker {
+  x: number;
+  z: number;
+  lapId: string;
+  label: string;
+  color: string;
+  isRef: boolean;
+  /** Where the brake went on, metres along the reference lap's axis. */
+  dist: number;
+  /** Metres earlier (negative) or later than the reference; null on it. */
+  deltaM: number | null;
+}
+
+export interface BrakeLap {
+  id: string;
+  label: string;
+  color: string;
+  isRef: boolean;
+  entry: CompareLapEntry;
+}
+
+/**
+ * Where each lap began braking for one corner (#110): the position the lap
+ * was at when the brake went on. A lap that took the corner without braking
+ * has no marker — nothing is drawn at the corner's entry in its place.
+ *
+ * The brake point is on the same axis as the entry's series, like an
+ * event's distance, so it is looked up directly.
+ */
+export function brakeMarkers(laps: BrakeLap[], corner: number | null): BrakeMarker[] {
+  if (corner == null) return [];
+  const out: BrakeMarker[] = [];
+  for (const lap of laps) {
+    const row = lap.entry.corner_report?.find((r) => r.n === corner);
+    const dist = row?.brake_on;
+    if (dist == null) continue;
+    const at = positionAtDist(lap.entry.series, dist);
+    if (!at) continue;
+    out.push({
+      x: at[0],
+      z: at[1],
+      lapId: lap.id,
+      label: lap.label,
+      color: lap.color,
+      isRef: lap.isRef,
+      dist,
+      deltaM: lap.isRef ? null : (row?.brake_delta_m ?? null),
+    });
+  }
+  return out;
+}
+
+/** A brake point against the reference's, in words: "14 m earlier than the
+ *  reference". */
+export function brakeDeltaText(deltaM: number): string {
+  const m = Math.round(Math.abs(deltaM));
+  if (m === 0) return "level with the reference";
+  return `${m} m ${deltaM < 0 ? "earlier" : "later"} than the reference`;
+}
+
 /** Whether any sample of the lap has this aid bit set. */
 export function hasAid(series: Samples, bit: number): boolean {
   return !!series.aids?.some((v) => (v & bit) !== 0);

@@ -17,8 +17,8 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from app.api.auth import require_admin
-from app.processing import alignment, analysis
-from app.processing.laps import SAMPLE_COLUMNS
+from app.processing import alignment, analysis, corner_metrics, stint
+from app.processing.laps import SAMPLE_COLUMNS, decode_samples
 from app.processing.tracks import signature_from_samples
 from app.race_engineer import replay
 from app.storage import archive
@@ -391,6 +391,7 @@ CSV_CHANNELS = (
     ("throttle_f", "Throttle Applied", "%"),
     ("brake_f", "Brake Applied", "%"),
     ("race_pos", "Race Position", ""),
+    ("body_slip", "Body Slip Angle", "deg"),
 )
 
 
@@ -663,6 +664,11 @@ def _compare_laps(
     # laps at the same place on track. A lap that cannot be lined up keeps its
     # own distance and says so (`aligned: false`).
     path = alignment.ReferencePath(ref_samples)
+    # What the reference did at each corner, which is what every other lap's
+    # braking point is early or late against (#110).
+    ref_measures = corner_metrics.measure(
+        corner_metrics.LapTrace(ref_samples), corner_metrics.windows(ref_corners)
+    )
 
     out: dict[str, Any] = {
         "ref": ref,
@@ -705,7 +711,11 @@ def _compare_laps(
             # Every lap measured through the SAME corner windows (the
             # reference's), which is what makes the per-corner report card's
             # time-lost column mean something (#21).
-            entry["corner_report"] = analysis.corner_report(ref_corners, samples)
+            entry["corner_report"] = (
+                analysis.corner_report(ref_corners, samples, measures=ref_measures)
+                if lap_id == ref
+                else analysis.corner_report(ref_corners, samples, reference=ref_measures)
+            )
         out["laps"][str(lap_id)] = entry
     return out
 
@@ -767,6 +777,32 @@ async def deviation(
     result = await asyncio.to_thread(_deviation)
     result["lap_ids"] = [r["id"] for r in best]
     return result
+
+
+@router.get("/analysis/stint")
+async def stint_trend(request: Request, session_id: int) -> dict[str, Any]:
+    """Lap time and tyre temperature lap over lap, split into stints (#111).
+
+    Worked out from the stored laps each time it is asked for, so it covers
+    every session there is, whenever it was recorded. The laps are read one
+    at a time and each is reduced to a handful of figures before the next is
+    touched: a session of any length costs the memory of one lap.
+    """
+    repo = svc(request).repo
+    rows = [r for r in await repo.list_laps(session_id) if (r["total_ticks"] or 0) > 0]
+    figures: dict[int, stint.LapFigures] = {}
+    for row in rows:
+        raw = await repo.lap_samples_json(row["id"])
+        if raw is None:
+            continue  # deleted since the list was read
+
+        def _reduce(raw: str = raw) -> stint.LapFigures | None:
+            return stint.lap_figures(decode_samples(raw))
+
+        reduced = await asyncio.to_thread(_reduce)
+        if reduced is not None:
+            figures[row["id"]] = reduced
+    return {"session_id": session_id, **stint.stint_trend(rows, figures)}
 
 
 @router.get("/analysis/fuel")

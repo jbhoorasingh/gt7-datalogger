@@ -245,7 +245,7 @@ class SessionAnalysis:
         self.length = 0.0
         self._ref_trace: LapTrace | None = None
         self._ref_measures: dict[int, CornerMeasure] = {}
-        self._ref_report: dict[int, dict[str, float | int]] = {}
+        self._ref_report: dict[int, analysis.CornerRow] = {}
 
         if reference is None or not reference_samples or not reference_samples.get("dist"):
             self.reference = None
@@ -266,8 +266,10 @@ class SessionAnalysis:
         self._ref_trace = LapTrace(reference_samples)
         self._ref_measures = measure(self._ref_trace, self.windows)
         self._ref_report = {
-            int(row["n"]): row
-            for row in analysis.corner_report(self.corners, reference_samples)
+            row["n"]: row
+            for row in analysis.corner_report(
+                self.corners, reference_samples, measures=self._ref_measures
+            )
         }
 
     # --- one lap --------------------------------------------------------------
@@ -367,10 +369,11 @@ class SessionAnalysis:
         aligned: bool,
         lap_id: int,
     ) -> list[dict[str, Any]]:
-        report = {
-            int(row["n"]): row for row in analysis.corner_report(self.corners, samples)
-        }
         measures = measure(trace, self.windows)
+        report = {
+            row["n"]: row
+            for row in analysis.corner_report(self.corners, samples, measures=measures)
+        }
         by_n = {int(c["n"]): c for c in self.corners}
         aids = trace.column("aids")
         spread: dict[int, tuple[float | None, float | None, float | None]] = {}

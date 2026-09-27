@@ -36,7 +36,9 @@ shared or backed up, and export as CSV for MoTeC i2 or Excel.
 `exclude_reason` saying why when the ruling is an exclusion — one of `off-track`,
 `contact`, `restart`, `dirty`, `pit-out`. `salvaged` marks a lap recovered from a
 [replay ending](../internals/lap-detection.md#replay-salvage). All five are additive;
-the format version is unchanged.
+the format version is unchanged. So is a sample column added since, such as
+`body_slip`: a file without it imports as a lap without the channel, and an older
+version importing a file with it drops the column it does not know.
 
 The `samples` object holds the **full 60 Hz series** as parallel arrays, one per
 channel — see [Derived channels & metrics](../internals/derived-channels.md) for the
@@ -117,10 +119,14 @@ understands:
   `Sample Rate: 60.000`
 - Then a channel-name row and a unit row, followed by one row per tick
 
-27 channels with explicit units: Time (s), Distance (m), Ground Speed (km/h), Throttle
-Pos (%), Brake Pos (%), Gear, Engine RPM (rpm), Boost Pressure (bar), Tyre Slip Ratio,
-Yaw Rate (rad/s), Pos X/Z (m), Ride Height (mm), Fuel Level (L), Tyre Slip FL/FR/RL/RR,
-Tyre Temp FL/FR/RL/RR (C), Susp Travel FL/FR/RL/RR (mm), and Driver Aids (bitmask).
+Every column the lap has, with explicit units: Time (s), Distance (m), Ground Speed
+(km/h), Throttle Pos (%), Brake Pos (%), Gear, Engine RPM (rpm), Boost Pressure (bar),
+Tyre Slip Ratio, Yaw Rate (rad/s), Pos X/Y/Z (m), Ride Height (mm), Fuel Level (L), Tyre
+Slip FL/FR/RL/RR, Tyre Temp FL/FR/RL/RR (C), Susp Travel FL/FR/RL/RR (mm), Driver Aids
+and Surface Mask (bitmasks) — and, where the recording carries them, the
+[optional columns](../internals/derived-channels.md#optional-columns): Steering Angle
+(rad), Accel Lateral / Longitudinal / Vertical (raw), Throttle / Brake Applied (%), Race
+Position and Body Slip Angle (deg).
 
 !!! tip
     In MoTeC i2, create a new workspace, then *File → Import* and choose the CSV. The

@@ -8,8 +8,18 @@ from __future__ import annotations
 
 import math
 from bisect import bisect_left
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypedDict
+
+from app.processing.corner_metrics import (
+    CornerMeasure,
+    LapTrace,
+    brake_length,
+    brake_point_delta,
+    measure,
+    windows,
+)
 
 Samples = dict[str, list[float]]
 
@@ -568,10 +578,45 @@ def corners_for_lap(
 GRID_TOLERANCE_M = 2.0
 
 
+class CornerRow(TypedDict):
+    """One corner of one lap's report. The speeds and the time are always
+    there; everything else is None where the lap did not do the thing or the
+    recording cannot say — a corner taken without braking has no braking
+    point, which is not a braking point of zero."""
+
+    n: int
+    entry_speed: float
+    min_speed: float
+    exit_speed: float
+    time_ms: float
+    # Braking (#110), from corner_metrics: where the brake went on and came
+    # off (metres along the axis the lap was measured on), the most pedal it
+    # saw, and the length of the zone.
+    brake_on: float | None
+    brake_off: float | None
+    brake_peak: float | None
+    brake_dist: float | None
+    # Metres earlier (negative) or later (positive) than the reference lap
+    # braked. None against no reference, and unless both laps braked.
+    brake_delta_m: float | None
+    # Balance (#109): body slip through the corner in degrees, positive with
+    # the nose pointing into it.
+    slip_peak: float | None
+    slip_mean: float | None
+
+
+def _rounded(value: float | None, digits: int = 1) -> float | None:
+    return None if value is None else round(value, digits) + 0.0
+
+
 def corner_report(
-    corners: list[dict[str, Any]], samples: Samples
-) -> list[dict[str, float | int]]:
-    """One lap's entry/min/exit speed and time-through for each corner.
+    corners: list[dict[str, Any]],
+    samples: Samples,
+    *,
+    measures: Mapping[int, CornerMeasure] | None = None,
+    reference: Mapping[int, CornerMeasure] | None = None,
+) -> list[CornerRow]:
+    """One lap's speeds, time-through, braking and balance for each corner.
 
     `corners` is the REFERENCE lap's set (authored or detected), so every lap
     in a comparison is measured through the same entry/exit windows — the same
@@ -579,6 +624,12 @@ def corner_report(
     corner whose window runs past this lap's recording is omitted rather than
     clamped: the time through part of a corner reported as the whole corner
     would sort itself to the top of the report as a phantom gain.
+
+    What the lap did at each corner is corner_metrics' answer, the one the
+    race engineer speaks and the lap analysis document carries. `measures` is
+    that answer when the caller has already worked it out for this lap;
+    `reference` is the reference lap's, and what `brake_delta_m` is measured
+    against — left out, the report is the lap's own and has no delta.
     """
     dist = samples.get("dist") or []
     t = samples.get("t") or []
@@ -598,7 +649,10 @@ def corner_report(
     ts = [t[i] for i in keep]
     sp = [speed[i] for i in keep]
 
-    out: list[dict[str, float | int]] = []
+    if measures is None:
+        measures = measure(LapTrace(samples), windows(corners))
+
+    out: list[CornerRow] = []
     for c in corners:
         entry, exit_ = float(c["entry_dist"]), float(c["exit_dist"])
         if entry <= exit_:
@@ -619,12 +673,22 @@ def corner_report(
             lo = bisect_left(d, entry)
             hi = bisect_left(d, exit_)
             window = (sp[lo:] + sp[:hi]) or [sp[0]]
+        number = int(c["n"])
+        mine = measures.get(number)
+        theirs = reference.get(number) if reference is not None else None
         out.append({
-            "n": int(c["n"]),
+            "n": number,
             "entry_speed": round(_interp(d, sp, entry), 1),
             "min_speed": round(min(window), 1),
             "exit_speed": round(_interp(d, sp, exit_), 1),
             "time_ms": round(time_s * 1000, 1),
+            "brake_on": _rounded(mine.brake_on if mine else None),
+            "brake_off": _rounded(mine.brake_off if mine else None),
+            "brake_peak": _rounded(mine.brake_peak if mine else None),
+            "brake_dist": _rounded(brake_length(mine)),
+            "brake_delta_m": _rounded(brake_point_delta(mine, theirs)),
+            "slip_peak": _rounded(mine.slip_peak if mine else None, 2),
+            "slip_mean": _rounded(mine.slip_mean if mine else None, 2),
         })
     return out
 

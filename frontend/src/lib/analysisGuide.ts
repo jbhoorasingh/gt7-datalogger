@@ -101,6 +101,24 @@ export const GUIDE_FEATURES: GuideFeature[] = [
     docs: `${VIEW}#corner-report-card`,
   },
   {
+    title: "Braking points",
+    body:
+      "Brake Δ in the report card is where the brake went on against the reference: −14 is 14 m earlier. Beside it, the most pedal and the length of the braking zone. Hover a row to pin both laps' brake points on the map.",
+    docs: `${VIEW}#braking`,
+  },
+  {
+    title: "Balance: body slip per corner",
+    body:
+      "Slip in the report card is how far the nose pointed into the corner past the car's direction of travel, in degrees. More than the reference is more rotation, towards oversteer; less is the nose pushing wide. Needs a recording with the body slip channel.",
+    docs: `${VIEW}#balance`,
+  },
+  {
+    title: "Stint trend",
+    body:
+      "Lap time and tyre temperature for every lap of the session, split into stints at pit stops, with each stint's drift as a figure such as +0.18 s/lap. GT7 sends no tyre wear: temperature and pace drift are the only proxies.",
+    docs: `${VIEW}#stint-trend`,
+  },
+  {
     title: "Traction circle (g-g)",
     body:
       "Lateral against longitudinal g for every moment of the lap — how much of the circle a lap uses is the reading. Needs packet B or wider; the footnote says whether the scale could be verified.",

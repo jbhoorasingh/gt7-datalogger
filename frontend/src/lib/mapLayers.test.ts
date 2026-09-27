@@ -1,6 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { aidPoints, eventMarkers, hasAid, severityText, wheelsText } from "./mapLayers";
-import { AIDS_ASM, AIDS_TCS, type CompareLapEntry, type LapEvent } from "./types";
+import {
+  aidPoints,
+  brakeDeltaText,
+  brakeMarkers,
+  eventMarkers,
+  hasAid,
+  severityText,
+  wheelsText,
+} from "./mapLayers";
+import {
+  AIDS_ASM,
+  AIDS_TCS,
+  type CompareLapEntry,
+  type CornerReportRow,
+  type LapEvent,
+} from "./types";
 
 // A straight 100 m run along +x, sampled every 10 m.
 function entry(events: LapEvent[], aids?: number[]): CompareLapEntry {
@@ -122,5 +136,67 @@ describe("tooltip text", () => {
     expect(severityText(event("bottoming", 0, ["rl"], 0.99))).toBe(
       "compressed to 99% of the lap's travel",
     );
+  });
+});
+
+describe("brakeMarkers", () => {
+  const row = (n: number, over: Partial<CornerReportRow>): CornerReportRow => ({
+    n,
+    entry_speed: 180,
+    min_speed: 90,
+    exit_speed: 120,
+    time_ms: 5000,
+    ...over,
+  });
+  const lap = (id: string, isRef: boolean, report: CornerReportRow[]) => ({
+    id,
+    label: `L${id}`,
+    color: "#fff",
+    isRef,
+    entry: { ...entry([]), corner_report: report },
+  });
+
+  it("puts each lap's marker where its brake went on", () => {
+    const marks = brakeMarkers(
+      [
+        lap("1", true, [row(3, { brake_on: 48 })]),
+        lap("2", false, [row(3, { brake_on: 34, brake_delta_m: -14 })]),
+      ],
+      3,
+    );
+    expect(marks.map((m) => [m.lapId, m.x, m.deltaM])).toEqual([
+      ["1", 48, null],
+      ["2", 34, -14],
+    ]);
+    expect(marks[1].z).toBeCloseTo(5, 6);
+  });
+
+  it("draws nothing for a lap that took the corner without braking", () => {
+    const marks = brakeMarkers(
+      [
+        lap("1", true, [row(3, { brake_on: 48 })]),
+        lap("2", false, [row(3, { brake_on: null, brake_delta_m: null })]),
+      ],
+      3,
+    );
+    expect(marks.map((m) => m.lapId)).toEqual(["1"]);
+  });
+
+  it("draws nothing for a corner the lap has no row for, or for no corner", () => {
+    const laps = [lap("1", true, [row(3, { brake_on: 48 })])];
+    expect(brakeMarkers(laps, 4)).toEqual([]);
+    expect(brakeMarkers(laps, null)).toEqual([]);
+  });
+
+  it("reads a report from before the braking columns as no braking", () => {
+    expect(brakeMarkers([lap("1", true, [row(3, {})])], 3)).toEqual([]);
+  });
+});
+
+describe("brakeDeltaText", () => {
+  it("says earlier or later, in whole metres", () => {
+    expect(brakeDeltaText(-13.7)).toBe("14 m earlier than the reference");
+    expect(brakeDeltaText(6.2)).toBe("6 m later than the reference");
+    expect(brakeDeltaText(0.3)).toBe("level with the reference");
   });
 });

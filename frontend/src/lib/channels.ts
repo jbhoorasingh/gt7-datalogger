@@ -234,6 +234,19 @@ export const CHANNELS: ChannelDef[] = [
     columns: ["acc_vert"],
   },
 
+  // --- Balance (#109). Signed, so the two directions of a slide are told
+  // apart; which of them is "into the corner" depends on the corner, and the
+  // corner report card turns the sign to say so.
+  {
+    key: "body_slip",
+    title: "Body slip (°)",
+    description:
+      "The angle between where the car points and where it is going. Positive is the nose to the right of travel: into a right-hander, out of a left-hander. Zero below 29 km/h.",
+    needs: "A recording made with 0.7.0 or later",
+    group: "Chassis",
+    height: 0.9,
+  },
+
   // --- Tires & wheels ---
   {
     key: "tire_slip",

@@ -2,8 +2,20 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass
 from enum import IntFlag
+
+# Below this the car's direction of travel is noise, and so is any angle
+# measured from it (m/s, about 29 km/h). Over a real capture the angle between
+# nose and travel has a median of 0.2-0.5 degrees at every speed above this
+# and of 1.6, 4.6 and 10.6 degrees in the three bands below it. The same gate
+# the accelerometer calibration puts on a heading taken from positions.
+BODY_SLIP_MIN_SPEED = 8.0
+# How far from 1 the orientation's length may be and still be an orientation.
+# A real packet's is 1 to five places; a source that sends no orientation
+# sends zeros.
+ORIENTATION_TOLERANCE = 0.05
 
 
 class SimulatorFlags(IntFlag):
@@ -48,6 +60,10 @@ class TelemetryPacket:
     velocity_x: float
     velocity_y: float
     velocity_z: float
+    # Named as the community layout names them, which is not what they are:
+    # the three "rotation" floats are the x, y and z of a unit quaternion and
+    # "orientation to north" is its w. None of the four is an angle, and the
+    # last is not a heading. See body_slip_deg.
     rotation_pitch: float
     rotation_yaw: float
     rotation_roll: float
@@ -177,6 +193,42 @@ class TelemetryPacket:
             abs(self.wheel_rps_rl) * self.tire_radius_rl / self.speed_mps,
             abs(self.wheel_rps_rr) * self.tire_radius_rr / self.speed_mps,
         )
+
+    @property
+    def body_slip_deg(self) -> float | None:
+        """Body slip angle: how far the nose points from where the car is
+        going, in degrees. Positive is the nose to the RIGHT of travel — in
+        a right-hander, turned further into the corner than the car is
+        moving. That is ISO 8855's sign, and the sign of a right-hander
+        everywhere else in the app.
+
+        Measured in the car's own frame: the velocity is turned by the
+        inverse of the car's orientation, and the angle is between its two
+        horizontal parts there. The car's nose is its local -Z and its
+        right-hand side +X. On the map the same angle is the heading of the
+        nose less the heading of travel, but only on level ground; in the
+        car's frame banking and gradient do not read as slip.
+
+        None when the packet carries no orientation. 0 below
+        BODY_SLIP_MIN_SPEED: a car that is barely moving has no direction of
+        travel to be measured against, and the recording has to say
+        something on every tick.
+        """
+        w = self.rel_orientation_to_north
+        x, y, z = -self.rotation_pitch, -self.rotation_yaw, -self.rotation_roll
+        length = w * w + x * x + y * y + z * z
+        if not math.isfinite(length) or abs(length - 1.0) > ORIENTATION_TOLERANCE:
+            return None
+        vx, vy, vz = self.velocity_x, self.velocity_y, self.velocity_z
+        # v' = v + w t + u x t, with t = 2 u x v and u the inverse's x, y, z.
+        tx = 2 * (y * vz - z * vy)
+        ty = 2 * (z * vx - x * vz)
+        tz = 2 * (x * vy - y * vx)
+        right = vx + w * tx + (y * tz - z * ty)
+        back = vz + w * tz + (x * ty - y * tx)
+        if math.hypot(right, back) < BODY_SLIP_MIN_SPEED:
+            return 0.0
+        return math.degrees(math.atan2(-right, -back))
 
     @property
     def aids_bits(self) -> int:

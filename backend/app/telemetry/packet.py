@@ -27,8 +27,8 @@ _HEAD = struct.Struct(
     "<i"  # 0x00 magic
     "3f"  # 0x04 position
     "3f"  # 0x10 velocity
-    "3f"  # 0x1C rotation (pitch, yaw, roll)
-    "f"  # 0x28 relative orientation to north
+    "3f"  # 0x1C rotation: x, y, z of the orientation quaternion
+    "f"  # 0x28 relative orientation to north: the quaternion's w
     "3f"  # 0x2C angular velocity
     "f"  # 0x38 body height
     "f"  # 0x3C engine rpm
@@ -203,6 +203,10 @@ def build_packet(
     packet_id: int = 0,
     position: tuple[float, float, float] = (0.0, 0.0, 0.0),
     velocity: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    # The car's orientation as GT7 sends it: a unit quaternion's x, y, z and
+    # then its w. All zeros is "no orientation", which is what a packet built
+    # without one has always carried.
+    orientation: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0),
     angular_velocity: tuple[float, float, float] = (0.0, 0.0, 0.0),
     body_height: float = 0.1,
     engine_rpm: float = 0.0,
@@ -256,8 +260,7 @@ def build_packet(
         MAGIC,
         *position,
         *velocity,
-        0.0, 0.0, 0.0,  # rotation
-        0.0,  # rel north
+        *orientation,  # "rotation" x, y, z and "rel north" w
         *angular_velocity,
         body_height,
         engine_rpm,

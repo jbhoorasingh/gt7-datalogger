@@ -23,6 +23,8 @@
 // On top of the laps sit two optional layers: a marker where each detected
 // event began (#103) and a ring on every sample a driver aid was intervening
 // (#104), both in the lap's own colour so several laps can be read at once.
+// And, for one corner at a time, a pin where each lap began braking for it
+// (#110): the corner report card's "14 m earlier", as two places on the road.
 //
 // The cursor dots are distance-locked by default, like every other panel.
 // Time sync (#75) moves the non-reference dots to where each lap was at the
@@ -37,6 +39,8 @@ import { LargeDialog } from "@/components/ui/Dialog";
 import { Tip } from "@/components/ui/Tooltip";
 import {
   aidPoints,
+  brakeDeltaText,
+  type BrakeMarker,
   EVENT_LABELS,
   eventMarkers,
   type MapLayers,
@@ -99,6 +103,7 @@ const AID_LAYERS = [
 const EVENT_PAD_M = 60;
 
 const NO_LAYERS: MapLayers = { events: false, tcs: false, asm: false };
+const NO_MARKS: BrakeMarker[] = [];
 
 function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -113,6 +118,11 @@ const MAX_NUMBERED_CORNERS_LARGE = 90;
 // the braking zone into it and the exit out of it — rather than cropped to
 // the arc itself.
 const CORNER_PAD_M = 40;
+
+// How far before a corner's window a brake point still belongs in the frame
+// with it: as far back as a braking zone may begin (BRAKE_SEARCH_M in
+// processing/corner_metrics.py) and the window's own lead.
+const BRAKE_FRAME_M = 250 + CORNER_PAD_M;
 
 // Chart margin, subtracted when measuring the plotting area's pixel aspect.
 const GRID_PAD = 8;
@@ -140,7 +150,10 @@ export function cornerRange(c: Corner): [number, number] {
 /** Which corner the current zoom is showing, if it is showing one. Derived
  *  rather than remembered: the charts can change the zoom too (drag, sector
  *  buttons, reset), and a remembered selection would go stale behind them. */
-function selectedCorner(corners: Corner[], zoom: [number, number] | null): Corner | null {
+export function selectedCorner(
+  corners: Corner[],
+  zoom: [number, number] | null,
+): Corner | null {
   if (!zoom) return null;
   return (
     corners.find((c) => {
@@ -184,6 +197,10 @@ interface MapProps {
   sync?: "position" | "time";
   // Event markers and aid rings. Omitted draws neither.
   layers?: MapLayers;
+  // Where each lap began braking for the corner being looked at (#110).
+  // They change as the pointer moves down the corner report, so they are
+  // merged into the chart like the cursor dots, never rebuilt with it.
+  brakeMarks?: BrakeMarker[];
 }
 
 // The follow camera's window: a fixed span of metres centred on the reference
@@ -247,6 +264,7 @@ function MapBody({
   followSpanM = FOLLOW_SPAN_M,
   sync = "position",
   layers = NO_LAYERS,
+  brakeMarks = NO_MARKS,
   maximized = false,
 }: MapProps & { onMaximize?: () => void; maximized?: boolean }) {
   const chartRef = useRef<echarts.ECharts | null>(null);
@@ -292,6 +310,18 @@ function MapBody({
   const rangeRef = useRef(onZoomChange);
   rangeRef.current = onZoomChange;
 
+  // Brake points that belong to the corner in view are part of what the view
+  // has to show: a braking zone begins well before the corner's own window,
+  // and a pin outside the frame marks nothing. Held as a string so that a
+  // pointer moving over OTHER corners' rows, whose pins are elsewhere,
+  // changes nothing here and rebuilds nothing below.
+  const framedMarks = zoomRange
+    ? brakeMarks
+        .filter((m) => m.dist >= zoomRange[0] - BRAKE_FRAME_M && m.dist <= zoomRange[1])
+        .map((m) => `${m.x.toFixed(1)},${m.z.toFixed(1)}`)
+        .join(";")
+    : "";
+
   // The framing of the whole view, kept OUT of the option memo: the follow
   // camera swaps the axes every animation frame and needs a value to restore
   // without rebuilding the option (and with it every outline segment).
@@ -317,6 +347,10 @@ function MapBody({
         if (d >= zoomRange[0] && d <= zoomRange[1] && s.pos_x[i] != null && s.pos_z[i] != null) {
           see(s.pos_x[i], s.pos_z[i]);
         }
+      }
+      for (const point of framedMarks ? framedMarks.split(";") : []) {
+        const [x, z] = point.split(",").map(Number);
+        see(x, z);
       }
     } else {
       for (const lap of laps) {
@@ -366,7 +400,7 @@ function MapBody({
     }
 
     return axis;
-  }, [laps, outline, ref, zoomRange, aspect]);
+  }, [laps, outline, ref, zoomRange, aspect, framedMarks]);
 
   const option = useMemo<EChartsOption>(() => {
     const series: SeriesOption[] = [];
@@ -692,6 +726,18 @@ function MapBody({
       }
     }
 
+    // Brake points, filled in by the effect below. A pin and not a dot: the
+    // dots on this map are cars and samples, and a pin's tip — which is
+    // where ECharts anchors the symbol — says "here".
+    series.push({
+      id: "brake-marks",
+      type: "scatter",
+      data: [],
+      symbol: "pin",
+      symbolSize: maximized ? 30 : 24,
+      z: 7, // above the event markers, below the cursors
+    });
+
     // One synced cursor dot per lap, in the lap's color (reference white).
     for (const lap of laps) {
       series.push({
@@ -795,6 +841,37 @@ function MapBody({
     }
     chart.setOption(patch, { notMerge: false, lazyUpdate: true });
   }, [laps, cursorDist, follow, followSpanM, ref, aspect, baseAxis, sync]);
+
+  // Brake points merge in by series id as well. Keyed on the option too:
+  // rebuilding it (a new zoom, a new selection) puts the empty series back.
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const data = brakeMarks.map((mark) => ({
+      value: [mark.x, mark.z],
+      itemStyle: { color: mark.color, borderColor: "#0d0f13", borderWidth: 1.2 },
+      label: {
+        show: true,
+        // Over the pin and under the road, so two pins a few metres apart
+        // keep their names apart.
+        position: mark.isRef ? "bottom" : "top",
+        distance: mark.isRef ? 4 : 2,
+        formatter: mark.isRef ? "ref" : mark.label.split(" ")[0],
+        color: "#e5e7eb",
+        fontSize: maximized ? 11 : 10,
+        textBorderColor: "#0d0f13",
+        textBorderWidth: 2,
+      },
+      tip:
+        `<b>Brake point</b> · ${escapeHtml(mark.label)}<br/>` +
+        (mark.deltaM != null ? `${escapeHtml(brakeDeltaText(mark.deltaM))}<br/>` : "") +
+        `<span style="color:${CHART_COLORS.label}">at ${mark.dist.toFixed(0)} m</span>`,
+    }));
+    chart.setOption(
+      { series: [{ id: "brake-marks", data }] },
+      { notMerge: false, lazyUpdate: true },
+    );
+  }, [brakeMarks, option, maximized]);
 
   const others = laps.filter((lap) => !lap.isRef);
   const hasSurface = !!ref?.entry.series.surface?.some((v) => v > 0);
@@ -911,6 +988,12 @@ function MapBody({
             {aid.label}
           </span>
         ))}
+        {brakeMarks.length > 0 && (
+          <span title="Where each lap's brake went on for this corner, in the lap's colour">
+            <i className="mr-1 inline-block h-2 w-2 rotate-45 rounded-full rounded-br-none bg-ink-dim align-middle" />
+            brake point
+          </span>
+        )}
         {corners.length > 0 && (
           <span>
             <i className="mr-1 inline-block h-2.5 w-2.5 rounded-full border border-ink-dim text-center align-middle text-[7px] leading-[9px]">

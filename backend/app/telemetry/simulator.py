@@ -165,6 +165,40 @@ def _curvature_at(distance: float) -> float:
     return _PATH_K[i] + (_PATH_K[i + 1] - _PATH_K[i]) * f
 
 
+# Body slip of the simulated car (#109). A car in a steady corner points out
+# of it by the angle its rear axle trails the centre of mass, and into it by
+# the slip angle its rear tyres run at, which grows with the cornering load:
+# nose-out in a slow hairpin, nose-in through a fast sweeper.
+REAR_AXLE_M = 1.35  # centre of mass to the rear axle
+REAR_SLIP_RAD_PER_MS2 = 0.004  # 3.2 degrees at the 14 m/s² the car corners at
+
+
+def _body_slip(distance: float, speed: float) -> float:
+    """Radians the nose points to the right of travel here, at this speed."""
+    k = _curvature_at(distance)  # positive in a right-hander
+    return REAR_SLIP_RAD_PER_MS2 * speed * speed * k - REAR_AXLE_M * k
+
+
+def _motion(
+    distance: float, speed: float
+) -> tuple[tuple[float, float, float], tuple[float, float, float, float]]:
+    """Velocity and orientation as GT7 broadcasts them: the velocity along
+    the path, and the car turned from it by its body slip.
+
+    The orientation is a unit quaternion (x, y, z, w) about the vertical
+    axis that takes the car's nose — its local -Z — to where it points.
+    """
+    i, _ = _sample_index(distance)
+    dx, dz = _PATH_X[i + 1] - _PATH_X[i], _PATH_Z[i + 1] - _PATH_Z[i]
+    norm = math.hypot(dx, dz) or 1.0
+    nose = math.atan2(dz, dx) + _body_slip(distance, speed)
+    turn = math.atan2(-math.cos(nose), -math.sin(nose))
+    return (
+        (speed * dx / norm, 0.0, speed * dz / norm),
+        (0.0, math.sin(turn / 2), 0.0, math.cos(turn / 2)),
+    )
+
+
 def _grip_limit(distance: float) -> float:
     """Fastest this corner can be taken (m/s), looking a little way ahead so
     the driver is already slowing when it arrives rather than in it."""
@@ -306,6 +340,7 @@ class SimTelemetrySource:
                     position = sim.race_positions // 2 if sim.race_positions else -1
 
             px, pz = _position_at(distance)
+            velocity, orientation = _motion(distance, speed)
 
             # Yaw rate the circuit itself demands at this speed, rather than
             # an arbitrary sine. Everything downstream that claims to describe
@@ -361,7 +396,8 @@ class SimTelemetrySource:
             plain = build_packet(
                 packet_id=tick,
                 position=(px, 10.0, pz),
-                velocity=(speed, 0.0, 0.0),
+                velocity=velocity,
+                orientation=orientation,
                 angular_velocity=(0.0, lat, 0.0),
                 body_height=0.08 + rng.uniform(0, 0.01),
                 engine_rpm=rpm,
@@ -509,6 +545,7 @@ class SimTelemetrySource:
                     continue
 
             px, pz = _position_at(distance)
+            velocity, orientation = _motion(distance, speed)
             yaw_rate = speed * _curvature_at(distance)
             gear = min(6, max(1, int(speed / 11) + 1))
             rpm = 2000 + (speed * 3.6 % 60) / 60 * 5500 + gear * 100
@@ -546,7 +583,8 @@ class SimTelemetrySource:
             plain = build_packet(
                 packet_id=tick,
                 position=(px, 10.0, pz),
-                velocity=(speed, 0.0, 0.0),
+                velocity=velocity,
+                orientation=orientation,
                 angular_velocity=(0.0, lat, 0.0),
                 body_height=0.08 + rng.uniform(0, 0.01),
                 engine_rpm=rpm,

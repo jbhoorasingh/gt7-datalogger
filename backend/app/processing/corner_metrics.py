@@ -1,7 +1,9 @@
-"""What a lap did at each corner: braking, turn-in, minimum speed, throttle.
+"""What a lap did at each corner: braking, turn-in, minimum speed, throttle,
+and how far the car was rotated against its own direction of travel.
 
 One definition of each, shared by everything that talks about a corner — the
-race engineer's spoken coaching (#110) and the lap analysis document (#115).
+race engineer's spoken coaching (#110), the lap analysis document (#115) and
+the corner report card.
 Before this the braking point lived in the coaching detector alone, and was
 "the first brake application in the 250 m before the corner's entry". On a
 real circuit that is often another corner's: through a sequence the window
@@ -24,7 +26,8 @@ compare two laps the caller puts both on one axis first
 (`alignment.align_to_reference`); the corner windows are the reference
 lap's, so every lap is measured through the same stretch of road.
 
-Distances are metres along that axis, speeds km/h, pedals percent.
+Distances are metres along that axis, speeds km/h, pedals percent, angles
+degrees.
 """
 
 from __future__ import annotations
@@ -65,6 +68,10 @@ TURN_IN_YAW_FLOOR = 0.03
 # How far before the apex turn-in is looked for.
 TURN_IN_SEARCH_M = 200.0
 
+# The fewest samples a corner's body slip is summed up from. A corner the lap
+# crossed in a handful of ticks has a reading, not a balance.
+SLIP_MIN_SAMPLES = 5
+
 
 @dataclass(frozen=True, slots=True)
 class Window:
@@ -79,6 +86,9 @@ class Window:
     # the lap.
     prev_apex: float | None
     next_apex: float | None
+    # "L" or "R", or empty where the corner does not say. Only the body slip
+    # needs it: which way round the corner goes is which way "into it" is.
+    direction: str = ""
 
     @property
     def wraps(self) -> bool:
@@ -125,6 +135,13 @@ class CornerMeasure:
     flat: bool | None = None
     throttle_on: float | None = None
     throttle_full: float | None = None
+    # --- balance (#109)
+    # Body slip between entry and exit, turned so that positive is the nose
+    # pointing INTO the corner, further round than the car is travelling:
+    # rotation. `slip_peak` is the most of it the corner saw, `slip_mean`
+    # the corner's average. Negative is the nose pointing out of the corner.
+    slip_peak: float | None = None
+    slip_mean: float | None = None
 
 
 def windows(corners: list[dict[str, Any]]) -> list[Window]:
@@ -134,16 +151,17 @@ def windows(corners: list[dict[str, Any]]) -> list[Window]:
     A corner without an `apex_dist` — the hand-built ones in tests, and
     nothing `corners_for_lap` returns — takes the middle of its window.
     """
-    placed: list[tuple[float, int, float, float]] = []
+    placed: list[tuple[float, int, float, float, str]] = []
     for corner in corners:
         entry, exit_ = float(corner["entry_dist"]), float(corner["exit_dist"])
         apex = corner.get("apex_dist")
         if apex is None:
             apex = (entry + exit_) / 2 if entry <= exit_ else exit_
-        placed.append((float(apex), int(corner["n"]), entry, exit_))
+        direction = str(corner.get("direction") or "")
+        placed.append((float(apex), int(corner["n"]), entry, exit_, direction))
     placed.sort()
     out: list[Window] = []
-    for i, (apex, n, entry, exit_) in enumerate(placed):
+    for i, (apex, n, entry, exit_, direction) in enumerate(placed):
         out.append(
             Window(
                 n=n,
@@ -152,6 +170,7 @@ def windows(corners: list[dict[str, Any]]) -> list[Window]:
                 exit=exit_,
                 prev_apex=placed[i - 1][0] if i > 0 else None,
                 next_apex=placed[i + 1][0] if i + 1 < len(placed) else None,
+                direction=direction,
             )
         )
     return out
@@ -299,10 +318,27 @@ def _turn_in(trace: LapTrace, window: Window) -> int | None:
     return i if i > 0 else None
 
 
+def _balance(trace: LapTrace, window: Window, out: CornerMeasure) -> None:
+    """The corner's body slip, turned to read as rotation into the corner."""
+    slip = trace.column("body_slip")
+    if slip is None or window.direction not in ("L", "R"):
+        return
+    inside = trace.span(window.entry, window.exit)
+    if len(inside) < SLIP_MIN_SAMPLES:
+        return
+    # The channel counts the nose to the RIGHT of travel as positive, which
+    # in a right-hander is into the corner and in a left-hander out of it.
+    into = 1.0 if window.direction == "R" else -1.0
+    values = [slip[i] * into for i in inside]
+    out.slip_peak = max(values)
+    out.slip_mean = sum(values) / len(values)
+
+
 def measure_corner(trace: LapTrace, window: Window) -> CornerMeasure:
     out = CornerMeasure(n=window.n)
     if len(trace) < 2 or window.wraps:
         return out
+    _balance(trace, window, out)
     d = trace.dist
     speed = trace.column("speed")
     brake = trace.column("brake")
@@ -378,6 +414,14 @@ def brake_point_delta(mine: CornerMeasure | None, theirs: CornerMeasure | None) 
     if mine.brake_on is None or theirs.brake_on is None:
         return None
     return mine.brake_on - theirs.brake_on
+
+
+def brake_length(m: CornerMeasure | None) -> float | None:
+    """Metres from the brake going on to its release. None for a corner taken
+    without braking, and for a zone whose onset is on the lap before."""
+    if m is None or m.brake_on is None or m.brake_off is None:
+        return None
+    return m.brake_off - m.brake_on
 
 
 def min_speed_delta(mine: CornerMeasure | None, theirs: CornerMeasure | None) -> float | None:

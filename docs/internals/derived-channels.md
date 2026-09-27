@@ -49,6 +49,7 @@ mid-lap.
 | `throttle_f` | packet ~ | `throttle_filtered ÷ 2.55` | % |
 | `brake_f` | packet ~ | `brake_filtered ÷ 2.55` | % |
 | `race_pos` | a race (any format) | `race_position`, only while GT7 reports one — it sends −1 outside races | position |
+| `body_slip` | a source that sends the car's orientation (any format) | angle between the car's nose and its velocity, [below](#body-slip-angle) | ° |
 
 **Filtered pedals** are the pedal position *after* the aids acted on it. The gap to the
 raw `throttle` / `brake` column is the intervention itself — TCS trimming throttle, ABS
@@ -78,6 +79,52 @@ says the scale is unverified.
 The result is delivered as `g_per_unit` — multiply the raw channel by it to get g, sign
 included — on the `accel` key of `/api/analysis/compare`, fitted on the reference lap and
 applied to every lap in the comparison so they share one axis.
+
+### Body slip angle
+
+The angle between where the car **points** and where it is **going**: nothing on a
+straight, a degree or so in a corner taken cleanly, tens of degrees in a slide. It is
+what understeer and oversteer are, measured and not inferred from steering against yaw
+rate.
+
+The packet has carried what it takes all along, under names that say something else.
+The community layout calls offset 0x1C *rotation (pitch, yaw, roll)* and 0x28 *relative
+orientation to north*. They are neither three angles nor a heading: together they are
+**one unit quaternion**, `x, y, z` and then `w`. Checked against 793 packets of a real
+capture (the surface survey's log, which keeps the raw fields), 466 of them at 15 m/s
+or more, which are the ones a direction of travel can be taken from:
+
+| Question | Answer from the capture |
+| --- | --- |
+| Are the four floats a quaternion? | Their squared sum is 1.00000 in every packet |
+| Which way is the car's nose? | Its local **−Z**: turned by the quaternion, −Z lies along the velocity with a median difference of 0.00° and 90 % of packets inside ±1.2°. +Z is 180° out, ±X 90° |
+| Is "orientation to north" a heading? | No. As an angle (`2·acos`) it is 29° out on average, because it is the quaternion's `w` and has lost the sign |
+| Which side is the car's right? | Its local **+X** |
+
+So the velocity is turned into the car's own frame by the inverse of the orientation,
+and the angle is taken between its two horizontal parts there:
+
+```
+v_car     = q⁻¹ · v · q
+body_slip = atan2(−v_car.x, −v_car.z)      # degrees
+```
+
+In the car's frame, and not as a difference of two headings on the map, so that banking
+and gradient do not read as slip. **Positive is the nose to the right of travel** — ISO
+8855's sign, and the sign of a right-hander everywhere else in the app. In a
+right-hander that is the nose turned further into the corner than the car is moving; in
+a left-hander it is the nose pointing out of it. The
+[corner report card](../guide/analysis-view.md#balance) turns the sign per corner.
+
+Below **8 m/s** (29 km/h) the column holds 0: a car barely moving has no direction of
+travel to measure from. Over the capture the angle's median is 0.2–0.5° in every speed
+band above that and 1.6°, 4.6° and 10.6° in the three below. The gate is on the car's
+velocity, not the broadcast `speed`: the two differ by up to 11 m/s in the capture.
+
+A packet whose four floats are not a unit quaternion (the squared sum more than 0.05
+from 1) carries no orientation, and the lap has no column. Laps recorded before 0.7.0
+have none either: a stored lap kept the car's position and not its heading, so the
+angle cannot be worked out for them after the fact.
 
 **Wheel slip** is a slip-ratio proxy: wheel surface speed divided by car speed. `< 1`
 under braking means the wheel is locking; `> 1` under power means it's spinning. Below
@@ -148,4 +195,6 @@ it now lives in the GitHub issues), not a runtime concept: Tier 1 = surface data
 Tier 2 = derived analytics like sector splits (sectors still future work; the g-g
 diagram is implemented from the broadcast accelerometer rather than derived from speed
 deltas), Tier 3+ = larger features (overlay, webhooks, strategy — implemented). There is
-no brake-temp or slip-angle channel — GT7 doesn't send them and they aren't synthesized.
+no brake-temp channel — GT7 doesn't send one and it isn't synthesized. The body slip
+angle is not sent either, but the velocity and the orientation it is the angle between
+are.

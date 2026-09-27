@@ -92,6 +92,64 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Added
 
+- **The corner report card says where you braked against the reference.**
+  (#110) "Braked 14 m earlier into T3" is a number a driver can act on next
+  lap, and the card did not have it. Three columns now say how each corner
+  was braked for: **Brake Δ m**, where the brake went on against the
+  reference lap in metres along the track (negative is earlier, dimmed under
+  5 m, which is the same brake point), **Peak %**, the most pedal the zone
+  saw, and **Zone m**, its length. A corner taken without braking reports
+  nothing and not zero; where one lap braked and the other did not, the
+  column says which. **Hovering a row pins the two brake points on the
+  race-line map** in the laps' colours, and the pins stay for the corner the
+  view is zoomed to, so they are still there after clicking a row and
+  scrolling up; the map's frame widens to take them in. The braking point is
+  not the card's: it is `processing/corner_metrics`' answer, the one the race
+  engineer speaks and the lap analysis document carries, on the reference
+  lap's distance axis. `corner_report` rows on `GET /api/analysis/compare`
+  gain `brake_on`, `brake_off`, `brake_peak`, `brake_dist` and
+  `brake_delta_m`, `null` where the lap did not brake.
+- **Body slip angle: understeer and oversteer, measured.** (#109) The angle
+  between where the car points and where it is going was only inferable, from
+  yaw rate, steering and the g-g diagram read together. It is now recorded
+  per tick as the `body_slip` column, in degrees, positive with the nose to
+  the right of travel, and zero below 29 km/h where the angle is noise. It is
+  a **Body slip** channel in the Chassis group of the channel picker (off by
+  default) and a column in the CSV export, and the corner report card gains
+  **Slip pk °** and **Slip avg °** per corner against the reference, turned
+  so that positive is the nose pointing into the corner whichever way it
+  goes: more than the reference is more rotation. What GT7 sends for the
+  car's heading was the open question, and a real capture settled it: the
+  packet's "rotation" and "orientation to north" are neither three angles nor
+  a heading but one unit quaternion (its length is 1.00000 in all 793
+  captured packets), the car's nose is its local −Z, and turned by it the
+  nose lies along the velocity to within 1.2° in nine packets of ten. The
+  angle is taken in the car's own frame, so banking and gradient do not read
+  as slip. An optional column: a recording from a source that sends no
+  orientation has none, and neither do laps recorded before this, which kept
+  the car's position and not its heading. The lap file's format version is
+  unchanged. See `docs/internals/derived-channels.md`.
+- **Stint trend: tyre temperature and lap time, lap over lap.** (#111) Over
+  a stint the tyres go away and the lap times follow, and nothing showed the
+  two together. A new full-width panel in Analysis draws every lap of the
+  session: lap time as points, the tyres' average temperature as lines
+  (front and rear, or each wheel), and the fuel on board as an optional
+  third. The session is split into stints at pit stops, and each stint has
+  its drift as a figure — `+0.18 s/lap`, with the tyres' own in °C a lap —
+  and as a dashed line through its laps. A lap the car was in the pits on
+  belongs to neither stint, laps that do not count are gaps and not points,
+  and a lap too slow for the scale is pinned to its top edge. The drift is a
+  Theil–Sen slope, the median of the slopes between every pair of laps: one
+  spin moves a least-squares line from +0.18 to +0.80 s a lap and the median
+  not at all. GT7 sends no tyre wear, and the panel says that temperature
+  and pace drift are the only proxies. `GET /api/analysis/stint` works it
+  out from the stored laps, one lap in memory at a time, so it covers every
+  session already recorded; nothing is added to the database. GT7 flags no
+  pit stop either, so a lap is taken for one by what a stop leaves behind:
+  fuel that went up, all four tyres changing temperature at once, or lap
+  time the car was not being driven for. **None of the sessions this was
+  checked on contains a pit stop**; the rules are tested on laps made to
+  carry each sign. See `docs/internals/analysis-math.md`.
 - **Lap analysis: a session as a few hundred labelled numbers.** (#115) A
   lap is stored and exported as its 60 Hz recording, which is the right shape
   for a chart and the wrong one for anything that has to reason about the
@@ -152,6 +210,12 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Changed
 
+- **The simulated car has a heading.** The simulator sent every packet with
+  a velocity of `(speed, 0, 0)` and no orientation, whichever way the car was
+  going. It now sends the velocity along the path it is driving and the
+  car's orientation as GT7 does, turned from the path by a body slip that
+  points the nose out of a slow corner and into a fast one, so the body slip
+  channel can be seen in sim mode. `build_packet` takes an `orientation`.
 - **The Race Engineer's coaching compares laps by place, and knows which
   corner a braking zone belongs to.** (#110) Two things were wrong with
   "you braked twelve metres earlier into turn five". The laps were compared

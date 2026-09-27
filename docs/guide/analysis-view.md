@@ -111,6 +111,75 @@ row zooms every chart and the map to that corner. Corners come from the circuit'
 [authored set](tracks-view.md#labelling-corners) when it has one — stable numbers and
 names across sessions — otherwise from detection on the reference lap.
 
+### Braking
+
+Three columns say how the corner was braked for:
+
+| Column | What it is |
+| --- | --- |
+| **Brake Δ m** | Where the brake went on against the reference lap, in metres along the track: `−14` is 14 m **earlier**, `+6` is 6 m later (deeper). Dimmed under 5 m, which is the same brake point |
+| **Peak %** | The most brake pedal the braking zone saw |
+| **Zone m** | Metres from the brake going on to its release |
+
+A corner taken without braking has **no** figures, not zeros. Where one lap braked and
+the other did not, the first column says which: *no brake* (the reference braked here,
+this lap did not) or *ref flat*. The columns are left out altogether when neither lap
+braked anywhere, as on an oval taken flat.
+
+The braking point is the [race engineer's](race-engineer.md): one definition, in
+`processing/corner_metrics.py`, so the card, the spoken coaching and the
+[lap analysis document](../reference/lap-analysis-format.md) cannot disagree about where
+you braked. How a brake application is given to a corner is in
+[Lap comparison math](../internals/analysis-math.md#braking-and-balance-per-corner).
+
+**Hovering a row** marks the two brake points on the race-line map — see
+[Brake points](#brake-points).
+
+### Balance
+
+On a recording that carries the [body slip](../internals/derived-channels.md#body-slip-angle)
+channel, two more columns say how far the car was rotated through the corner:
+**Slip pk °**, the most the nose pointed into the corner past the direction the car was
+travelling in, and **Slip avg °**, the same angle averaged from entry to exit. Both are
+positive with the nose *into* the corner, whichever way the corner turns, so more than
+the reference's small figure is more rotation — towards oversteer — and less, or a
+negative figure, is the nose pushing wide. Recordings made before 0.7.0 have no such
+channel, and the columns are left out.
+
+## Stint trend
+
+Every lap of the session on one chart: **lap time** as points against the left axis, the
+**tyre temperatures** as lines against the right one, lap number across. It is there to
+show tyres going away and the pace going with them, which no other panel puts side by
+side.
+
+GT7 broadcasts **no tyre wear**. How hot the tyres ran and how the lap time drifted are
+the only two things there are to read it by, and the panel says so under the chart.
+
+- **Tyres** switches the lines between *Front / rear* (each axle's average) and *Each
+  wheel*. The temperature is the lap's average; hover a lap for each wheel's average and
+  maximum.
+- **Fuel** adds the fuel on board at the start of each lap as a dotted line. A lighter
+  car is a quicker one, which hides part of what the tyres cost. The button is absent
+  in a session that burned no fuel.
+- The session is split into **stints at pit stops**, marked by a dashed line labelled
+  *pit*. A lap the car was in the pits on is a hollow □ and belongs to neither stint,
+  so an out-lap does not read as degradation and the step from worn tyres to new ones
+  is not drawn as a slope.
+- Laps that do not count toward bests — partial, or
+  [excluded by hand](sessions-view.md#excluding-a-lap-from-bests) — are hollow ○:
+  **gaps** in the trend, not points on it. A lap too slow for the scale is pinned to
+  the top edge as a hollow △, so one spin cannot flatten the rest.
+- Each stint has a dashed line fitted through its counting laps and the **drift** as a
+  figure: `+0.18 s/lap`, with the front and rear tyres' own drift in °C a lap beside
+  it. It needs three counting laps in the stint. The drift is the *typical* change
+  from one lap to the next ([a median of slopes](../internals/analysis-math.md#stint-trend)),
+  so one slow lap does not move it.
+- Click a lap to add it to the comparison, or take it out.
+
+The trend is worked out from the stored laps, so it is there for every session,
+whenever it was recorded.
+
 ## The guide
 
 **?** in the toolbar opens a short guide to the view: a **Features** tab with a sentence
@@ -122,7 +191,7 @@ entry links to its section of this documentation. It never opens by itself.
 
 ## Channel picker
 
-The **Channels (n)** button opens a grouped picker with 30 channels. Hovering one shows
+The **Channels (n)** button opens a grouped picker with 31 channels. Hovering one shows
 what it is, and **What are these?** opens the guide's channel list:
 
 | Group | Channels |
@@ -131,10 +200,17 @@ what it is, and **What are these?** opens the guide's channel list:
 | Race | **Race position** — recorded only while GT7 reports positions, so the panel is simply empty on time trials |
 | Engine | RPM, Boost |
 | Tires & wheels | Tire spd/car spd, slip front/rear avg, slip per wheel, tire temp front/rear avg, **tire temp F−R balance** |
-| Chassis | Ride height, susp travel front/rear avg, **lateral / longitudinal / vertical g** |
+| Chassis | Ride height, susp travel front/rear avg, **lateral / longitudinal / vertical g**, **body slip** |
 
 Your selection persists in the browser and is added to the URL when it differs from the
 default nine-panel stack. Laps recorded before a channel existed simply skip that line.
+
+!!! note "Understeer and oversteer, measured"
+    **Body slip** is the angle between where the car points and where it is going, in
+    degrees: positive with the nose to the **right** of travel, so into a right-hander
+    and out of a left-hander. It is off by default, and zero below 29 km/h. The
+    [corner report card](#balance) turns the sign per corner, so that rotation reads
+    the same way in both directions.
 
 !!! note "Aid intervention, measured rather than inferred"
     **Throttle applied** / **Brake applied** are the pedal *after* the aids acted on it.
@@ -213,6 +289,16 @@ remembered on this device.
 
 Both layers follow the zoom, and the key under the map lists only what is drawn in the
 current window. Laps recorded before per-corner channels existed have neither.
+
+### Brake points
+
+A pin marks where each lap **began braking** for one corner, in the lap's colour: the
+reference's, and the lap the [corner report card](#braking) is about. The corner is the
+row under the pointer in the card — or, with the pointer elsewhere, the corner the view
+is zoomed to, so that clicking a row and scrolling up to the map finds the pins still
+there. Hover a pin for how many metres earlier or later than the reference it is. A lap
+that took the corner without braking has no pin. The map's frame widens to take in the
+pins of the corner it is showing: a braking zone begins well before the corner itself.
 
 ### Corners
 

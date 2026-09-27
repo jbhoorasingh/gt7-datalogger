@@ -18,6 +18,7 @@ import type {
   RaceEngineerDiagnostics,
   RejudgeResult,
   SessionSummary,
+  StintTrend,
   SurveyEdge,
   SurveyDiscard,
   SurveyLog,
@@ -234,6 +235,9 @@ export const api = {
   // present whether or not voice was ever enabled (#23).
   coachingNotes: (sessionId: number) =>
     get<CoachingNotes>(`/api/analysis/coaching?session_id=${sessionId}`),
+  // Lap time and tyre temperature lap over lap, split into stints (#111).
+  stintTrend: (sessionId: number) =>
+    get<StintTrend>(`/api/analysis/stint?session_id=${sessionId}`),
   fuelMap: (lapId: number) => get<FuelMapResult>(`/api/analysis/fuel?lap_id=${lapId}`),
   setRecording: (recording: boolean) =>
     send<ConnectionStatus>("/api/control/recording", "POST", { recording }),

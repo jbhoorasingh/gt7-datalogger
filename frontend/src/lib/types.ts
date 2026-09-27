@@ -593,6 +593,21 @@ export interface CornerReportRow {
   min_speed: number;
   exit_speed: number;
   time_ms: number;
+  // Braking (#110). Null wherever the lap did not brake for the corner —
+  // never zero — and absent from a server older than the columns. Distances
+  // are metres along the reference lap's axis.
+  brake_on?: number | null;
+  brake_off?: number | null;
+  brake_peak?: number | null; // most pedal the zone saw, %
+  brake_dist?: number | null; // brake on to brake off, m
+  // Metres earlier (negative) or later (positive) than the reference lap
+  // braked. Null on the reference itself, and unless both laps braked.
+  brake_delta_m?: number | null;
+  // Balance (#109): body slip through the corner in degrees, positive with
+  // the nose pointing INTO the corner whichever way it turns. Null on a
+  // recording without the body_slip channel.
+  slip_peak?: number | null;
+  slip_mean?: number | null;
 }
 
 export interface CompareLapEntry {
@@ -636,6 +651,41 @@ export interface CoachingLapNotes {
 export interface CoachingNotes {
   session_id: number;
   laps: CoachingLapNotes[];
+}
+
+// One lap of the stint trend (#111). Tyre temperatures are the lap's averages
+// in °C, null on a recording from before the per-wheel columns.
+export interface StintLap {
+  id: number;
+  number: number;
+  time_ms: number;
+  counts: boolean; // counts toward bests: a point on the trend, not a gap
+  pit: boolean; // the car was in the pits on this lap
+  stint: number | null; // null on a pit lap, which belongs to neither side
+  exclude_reason: ExcludeReason | "";
+  fuel_start: number | null;
+  tt_front: number | null;
+  tt_rear: number | null;
+  tt: Partial<Record<"fl" | "fr" | "rl" | "rr", { avg: number; max: number }>>;
+}
+
+// One stint: the laps between two pit stops. The per-lap figures are
+// Theil-Sen slopes over the laps that count, null for fewer than three.
+export interface Stint {
+  n: number;
+  first_lap: number;
+  last_lap: number;
+  laps: number; // laps that count
+  pace_ms_per_lap: number | null;
+  pace_fit: [[number, number], [number, number]] | null; // [lap, ms] at each end
+  tt_front_per_lap: number | null;
+  tt_rear_per_lap: number | null;
+}
+
+export interface StintTrend {
+  session_id: number;
+  laps: StintLap[];
+  stints: Stint[];
 }
 
 // One border's coverage, measured against the compiled boundary itself (#38):

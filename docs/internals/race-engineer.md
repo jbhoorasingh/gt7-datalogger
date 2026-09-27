@@ -205,8 +205,10 @@ laps directly:
 
 What a lap did at a corner is not defined here. It is
 `app/processing/corner_metrics.py`'s answer, shared with the
-[lap analysis document](../reference/lap-analysis-format.md#what-is-measured-at-a-corner),
-so the engineer and the export cannot disagree about where a driver braked:
+[lap analysis document](../reference/lap-analysis-format.md#what-is-measured-at-a-corner)
+and the [corner report card](../guide/analysis-view.md#braking), so the engineer, the
+export and the card cannot disagree about where a driver braked. The card dims a
+brake-point difference under the same 5 m floor:
 
 - A **brake application** is the pedal at or above 20 % (the gate
   `processing/events.py` uses for a lockup) for at least 0.1 s; two applications less

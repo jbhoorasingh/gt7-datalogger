@@ -205,6 +205,83 @@ they describe what this lap did through a corner whose identity is already
 settled. So a driver who straightlined turn 7 gets a small angle *against
 turn 7*, rather than turn 7 disappearing.
 
+## Braking and balance, per corner
+
+The corner report card's braking columns are not worked out by the card. What a lap did
+at a corner is `app/processing/corner_metrics.py`'s answer — the one the
+[race engineer](race-engineer.md) speaks and the
+[lap analysis document](../reference/lap-analysis-format.md#what-is-measured-at-a-corner)
+carries — read on the reference lap's distance axis, which every lap in a comparison
+has been [put on](#lining-laps-up-by-place-on-track):
+
+- a **brake application** is the pedal at or above 20 % for at least 0.1 s, and two
+  less than 10 m apart are one;
+- each belongs to **one corner**, the first apex its midpoint has not reached, if it
+  began no more than 250 m before that corner's entry;
+- the corner's **braking zone** is the application, of those it was given, that took
+  the most speed off.
+
+| Figure | Is |
+| --- | --- |
+| `brake_on`, `brake_off` | where the zone began and ended, m along the reference's axis |
+| `brake_peak` | the most pedal inside it, % |
+| `brake_dist` | `brake_off − brake_on` |
+| `brake_delta_m` | `brake_on − reference's brake_on`: negative is earlier. `null` unless both laps braked, and on the reference itself |
+
+All of them are `null` for a corner taken without braking. `brake_on` is `null` for a
+zone that was already under way at the lap's first sample: it began on the lap before.
+
+**Balance** is the [body slip](derived-channels.md#body-slip-angle) between the corner's
+entry and exit, turned so that the two directions read alike: multiplied by +1 in a
+right-hander and −1 in a left-hander, which makes positive *the nose pointing into the
+corner*. `slip_peak` is the largest of those values and `slip_mean` their average over
+the samples, which at 60 Hz is an average over time. A corner crossed in fewer than five
+samples has neither, and nor does a corner that wraps the start line.
+
+## Stint trend
+
+`GET /api/analysis/stint` reduces each lap to a handful of figures — the recording's
+clock, the fuel taken on, each tyre's average and maximum temperature, the largest step
+all four tyres made at once — and lays them out in driving order. The laps are read one
+at a time, so a session of any length costs the memory of one lap: twelve laps take
+about a tenth of a second.
+
+**A pit lap** is a lap the car was in the pits on. GT7 sends no flag for it, so it is
+taken from what a stop leaves in a recording. Any one of:
+
+| Sign | Rule | Why it is safe |
+| --- | --- | --- |
+| Ruled out by hand | `exclude_reason` is `pit-out` | the driver said so |
+| Refuelled | fuel rose by ≥ 0.5 within the lap, or from the end of one lap to the start of the next | fuel otherwise only falls |
+| Tyres changed | all four tyres moved ≥ 10 °C between two consecutive samples, or across the line | over 297 real laps the most all four moved together in a sample is 6.1 °C, and across the line 1.2 °C. One tyre alone moves up to 24 °C (locked, or against a wall), which is why it takes all four |
+| Time not driven | GT7's lap time exceeds the recording's clock by ≥ 5 s | the clock stands still while the car is not being driven; over real laps the two differ by hundredths, 1.8 s at worst on a first lap from the grid |
+
+A **partial lap is not taken for a stop**. Most are a car leaving the pits, but a lap cut
+short by a rewind or a missed chicane is partial too; it is a gap in its stint and
+nothing more.
+
+!!! warning "Not yet seen against a real stop"
+    None of the sessions these rules were checked on contains a pit stop. The rules are
+    built from how the recorder treats one (it sets aside the packets GT7 sends while
+    the car is not being driven) and from what cannot happen on the road, and they are
+    tested on laps made to carry each sign. A stop that leaves none of them — no fuel
+    taken, the same tyres kept, and a recording that ran through it — will not split
+    the session.
+
+A stint is the laps between two stops, and the pit lap belongs to neither. Its **drift**
+is a [Theil–Sen](https://en.wikipedia.org/wiki/Theil%E2%80%93Sen_estimator) slope: the
+median of the slopes between every pair of its counting laps, with the line's height
+the median of what is left. A least-squares line through ten laps that climb 0.18 s a
+lap, one of which was a spin twenty seconds off the pace, says +0.80 s a lap; the median
+says +0.18, and goes on saying it until about a third of the laps are like that one.
+The tyre temperatures' drift is the same estimator over each axle's average. Fewer than
+three counting laps have no drift.
+
+On the chart the lap-time axis is set by the bulk of the counting laps: from the
+quickest to the slowest of those no more than six median absolute deviations (and never
+less than 1.5 s) above the median. Anything slower is pinned to the top edge. That is
+drawing only — the drift is taken over every counting lap, the pinned ones included.
+
 ## Cursor synchronization
 
 All the "synced" behavior is one shared value: the cursor's grid index

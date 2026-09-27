@@ -158,6 +158,11 @@ async def test_packet_c_records_every_optional_column(client) -> None:
             # test_laps covers the race case.
             assert column not in samples
             continue
+        if column == "body_slip":
+            # Gated by the source sending the car's orientation (#109), which
+            # drive() does not. test_body_slip covers the recording that does.
+            assert column not in samples
+            continue
         assert column in samples, column
         assert len(samples[column]) == n, column
     assert samples["steer"][0] == pytest.approx(0.42)

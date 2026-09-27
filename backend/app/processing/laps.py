@@ -117,11 +117,17 @@ START_HEADING_M = 10.0
 #                                         reporting positions (#60): it sends
 #                                         -1 outside races, and a column of
 #                                         -1s would chart as "P-1"
+#   body_slip                   any format, but only from a source that sends
+#                                         the car's orientation (#109):
+#                                         degrees between nose and travel,
+#                                         positive with the nose to the right
+#                                         (TelemetryPacket.body_slip_deg)
 OPTIONAL_COLUMNS = (
     "steer",
     "acc_lat", "acc_long", "acc_vert",
     "throttle_f", "brake_f",
     "race_pos",
+    "body_slip",
 )
 
 # Columnar per-tick series kept for each lap. Column order matters for the
@@ -1228,6 +1234,9 @@ class LapProcessor:
         if p.race_position >= 1 and p.total_positions >= 2:
             s["race_pos"].append(float(p.race_position))
             self._lap_position = p.race_position
+        slip = p.body_slip_deg
+        if slip is not None:
+            s["body_slip"].append(round(slip, 2))
         # GT7's own lap clock beside the samples (packet C only): the salvage
         # trimmer needs to know where inside this buffer the lap began (#26).
         if p.lap_time_ms is not None:

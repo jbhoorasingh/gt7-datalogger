@@ -58,7 +58,9 @@ Every packet decodes to a typed structure with ~50 fields. The important ones:
 | Offset | Field | Units / notes |
 | --- | --- | --- |
 | 0x04 | position X/Y/Z | m, GT7 world coordinates |
-| 0x10 | velocity X/Y/Z | m/s |
+| 0x10 | velocity X/Y/Z | m/s, world axes |
+| 0x1C | orientation x/y/z | the car's orientation as a unit quaternion, with 0x28. The community layout names these *rotation pitch/yaw/roll*; they are not angles ([how that was settled](derived-channels.md#body-slip-angle)) |
+| 0x28 | orientation w | named *relative orientation to north*; not a heading |
 | 0x2C | angular velocity X/Y/Z | rad/s (Y = yaw rate) |
 | 0x38 | body height | m |
 | 0x3C | engine RPM | rpm |

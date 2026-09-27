@@ -11,15 +11,20 @@ import { AnalysisGuide, type GuideTab } from "@/components/analysis/AnalysisGuid
 import { ChannelPicker } from "@/components/analysis/ChannelPicker";
 import { CoachingPanel } from "@/components/analysis/CoachingPanel";
 import { CornerDetail, type CornerLap } from "@/components/analysis/CornerDetail";
-import { CornerReport, type ReportLap } from "@/components/analysis/CornerReport";
+import {
+  CornerReport,
+  reportFocus,
+  type ReportLap,
+} from "@/components/analysis/CornerReport";
 import { DeviationChart } from "@/components/analysis/DeviationChart";
 import { FuelMapPanel } from "@/components/analysis/FuelMapPanel";
 import { GearingPanel } from "@/components/analysis/GearingPanel";
 import { GGDiagram, ggLap, type GGLap } from "@/components/analysis/GGDiagram";
 import { LapTimeChart } from "@/components/analysis/LapTimeChart";
 import { PlaybackBar } from "@/components/analysis/PlaybackBar";
-import { RaceLineMap, type MapLap } from "@/components/analysis/RaceLineMap";
+import { RaceLineMap, selectedCorner, type MapLap } from "@/components/analysis/RaceLineMap";
 import { StackedCharts } from "@/components/analysis/StackedCharts";
+import { StintTrendChart } from "@/components/analysis/StintTrend";
 import { LargeDialog } from "@/components/ui/Dialog";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Select } from "@/components/ui/Select";
@@ -34,7 +39,8 @@ import {
   saveChannelKeys,
 } from "@/lib/channels";
 import { lapColor, lapColorMap } from "@/lib/colors";
-import { hasAid, type MapLayerKey } from "@/lib/mapLayers";
+import { brakeMarkers, hasAid, type MapLayerKey } from "@/lib/mapLayers";
+import { hasTrend } from "@/lib/stint";
 import { formatLapTime, formatSpeed, formatTime } from "@/lib/format";
 import {
   openInAnalysis,
@@ -51,6 +57,7 @@ import {
   type DeviationResult,
   type LapSummary,
   type SessionSummary,
+  type StintTrend,
   type TrackOutline,
 } from "@/lib/types";
 import { useAnalysisSelection } from "@/store/analysis";
@@ -396,6 +403,26 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
     };
   }, [sessionId, lapEpoch]);
 
+  // Lap time and tyre temperature across the session (#111). Cleared with
+  // the session like the consistency chart, and for the same reason kept
+  // while a lap arrives: the panel would blink on every lap being driven.
+  const [stintTrend, setStintTrend] = useState<StintTrend | null>(null);
+  const stintFor = useRef<number | null>(null);
+  useEffect(() => {
+    if (sessionId == null) return;
+    if (stintFor.current !== sessionId) {
+      stintFor.current = sessionId;
+      setStintTrend(null);
+    }
+    let live = true;
+    api.stintTrend(sessionId)
+      .then((t) => live && setStintTrend(t))
+      .catch(() => live && setStintTrend(null));
+    return () => {
+      live = false;
+    };
+  }, [sessionId, lapEpoch]);
+
   // The surveyed road under the race line (#51). Keyed on the SESSION'S
   // circuit rather than the reference lap: the lap only ever resolved to its
   // session's circuit anyway, so this is the same answer without refetching
@@ -642,6 +669,26 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
       }))
       .filter((l) => l.report.length > 0);
   }, [compare, lapLabels, refLap, lapColors]);
+
+  // Brake points on the map (#110): the reference's and the report's lap,
+  // for the corner under the pointer in the report card — or, with the
+  // pointer elsewhere, the corner the view is zoomed to. The second is what
+  // makes them reachable at all on a screen where the card and the map do
+  // not fit together: click the row, and the pins are there when the map
+  // comes back into view.
+  const [reportFocusId, setReportFocusId] = useState<string | null>(null);
+  const [hoverCorner, setHoverCorner] = useState<number | null>(null);
+  // A table that goes away under the pointer never reports it leaving.
+  useEffect(() => setHoverCorner(null), [compare]);
+  const brakeMarks = useMemo(() => {
+    const corner =
+      hoverCorner ?? selectedCorner(refEntry?.corners ?? [], zoomRange)?.n ?? null;
+    const focus = reportFocus(reportLaps, reportFocusId);
+    return brakeMarkers(
+      mapLaps.filter((lap) => lap.isRef || lap.id === focus?.id),
+      corner,
+    );
+  }, [hoverCorner, refEntry, zoomRange, reportLaps, reportFocusId, mapLaps]);
 
   // Same laps, shaped for the Corner Detail widget (cursor-synced with the
   // charts and the map dot).
@@ -1002,6 +1049,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
             follow={mapFollow}
             sync={mapSync}
             layers={mapLayers}
+            brakeMarks={brakeMarks}
             laps={mapLaps}
             cursorDist={cursorDist}
             zoomRange={zoomRange}
@@ -1178,6 +1226,24 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
         )}
       </div>
 
+      {/* A stint is read along its length, so the trend gets the full width
+          as well: thirty laps in a 300px cell are thirty dots in a row. */}
+      {stintTrend && hasTrend(stintTrend.laps) && (
+        <Panel title="Stint trend — lap time and tyre temperature">
+          <StintTrendChart
+            trend={stintTrend}
+            selected={selected}
+            lapColors={lapColors}
+            onToggleLap={(id) => {
+              manualSelection.current = true;
+              setSelected((cur) =>
+                cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id],
+              );
+            }}
+          />
+        </Panel>
+      )}
+
       {/* The corner report is a wide table — it gets the full width rather
           than a 300px grid cell. */}
       {reportLaps.length > 0 && refEntry?.corners && refEntry.corners.length > 0 && (
@@ -1186,7 +1252,10 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
             corners={refEntry.corners}
             laps={reportLaps}
             units={units}
+            focusId={reportFocusId}
+            onFocusChange={setReportFocusId}
             onZoom={setZoomRange}
+            onHoverCorner={setHoverCorner}
           />
         </Panel>
       )}
