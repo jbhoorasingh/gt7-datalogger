@@ -1,1309 +1,455 @@
-// Admin view: connection settings (PS IP, source), diagnostics, live log
-// viewer, and data management.
+// Settings (was Admin): a rail of sections, a health strip across the top,
+// and one section panel at a time, chosen by #/settings/{section}. Setting
+// edits are buffered and go to the server as one PUT from the pending bar;
+// actions (Test, Restart, Compact, sync Connect…) still act at once.
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { ConfirmDialog } from "@/components/ui/Dialog";
-import { SegmentedControl } from "@/components/ui/SegmentedControl";
-import { Select } from "@/components/ui/Select";
-import { api, ApiError, getAdminToken, setAdminToken } from "@/lib/api";
-import { formatDuration } from "@/lib/format";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AccessSection, probeProtection, TokenField, type Protection } from "@/components/settings/AccessSection";
+import { ConnectionSection } from "@/components/settings/ConnectionSection";
+import { DataSection } from "@/components/settings/DataSection";
+import { EngineerSection } from "@/components/settings/EngineerSection";
+import { HealthSection } from "@/components/settings/HealthSection";
+import { LogsSection } from "@/components/settings/LogsSection";
 import {
-  CALLOUT_CATEGORIES,
-  type AdminSettings,
-  type AdminStats,
-  type CalloutCategory,
-  type LogRecord,
-  type RaceEngineerDiagnostics,
-  type SpokenUnits,
-  type SyncStatus,
-  type SyncTypeStatus,
-  type Verbosity,
-  type WebhookEvent,
-} from "@/lib/types";
+  filterSections,
+  mergeEdits,
+  pendingKeys,
+  pendingPatch,
+  resolveSection,
+  type SectionId,
+  type SettingsEdits,
+} from "@/components/settings/model";
+import { NotificationsSection } from "@/components/settings/NotificationsSection";
+import { OverlaysSection } from "@/components/settings/OverlaysSection";
+import { PendingBar } from "@/components/settings/PendingBar";
+import { Dot, mb, SectionPanel, TONE_TEXT, type SectionProps, type Tone } from "@/components/settings/parts";
+import { SyncSection, syncQueued } from "@/components/settings/SyncSection";
+import { api, ApiError, type AdminSettingsPatch } from "@/lib/api";
+import type { LayoutSummary } from "@/lib/layout";
+import { openSettings } from "@/lib/router";
+import type { AdminSettings, AdminStats, SyncStatus } from "@/lib/types";
 import { useTelemetry } from "@/store/telemetry";
 import { toast } from "@/store/toasts";
+import { version } from "../../package.json";
 
-const LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR"] as const;
+const POLL_MS = 5000;
 
-// Order matches the backend's ALL_EVENTS.
-const WEBHOOK_EVENTS: { value: WebhookEvent; label: string; hint: string }[] = [
-  { value: "personal_best", label: "Personal bests", hint: "a lap beats your session best" },
-  { value: "session_summary", label: "Session summaries", hint: "car, laps, best time, fuel used" },
-  { value: "overtake", label: "Overtakes", hint: "you gain a race position" },
-  { value: "position_lost", label: "Positions lost", hint: "you drop a race position" },
-  { value: "off_road", label: "Off-road excursions", hint: "3+ wheels on grass/dirt — needs packet format C" },
-];
-
-const LEVEL_COLORS: Record<string, string> = {
-  DEBUG: "text-ink-faint",
-  INFO: "text-ink",
-  WARNING: "text-warn",
-  ERROR: "text-brake",
-  CRITICAL: "text-brake",
-};
-
-// Section slugs in #/settings/{section}, mapped to the panel that holds them
-// until each section gets its own page.
-const SECTION_PANEL: Record<string, string> = {
-  connection: "connection",
-  access: "connection",
-  health: "diagnostics",
-  notifications: "notifications",
-  "race-engineer": "race-engineer",
-  sync: "sync",
-  logs: "logs",
-  data: "data-management",
-};
-
-export function SettingsView({ section }: { section?: string | null }) {
+export function SettingsView({ section: sectionParam }: { section?: string | null }) {
+  const section = resolveSection(sectionParam);
   const setStatus = useTelemetry((s) => s.setStatus);
-  const [settings, setSettings] = useState<AdminSettings | null>(null);
+
+  const [saved, setSaved] = useState<AdminSettings | null>(null);
   const [settingsError, setSettingsError] = useState<Error | null>(null);
-  const [stats, setStats] = useState<AdminStats | null>(null);
+  const [edits, setEdits] = useState<SettingsEdits>({});
+  const [applying, setApplying] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
-  const [confirmingClear, setConfirmingClear] = useState(false);
+  const [query, setQuery] = useState("");
 
-  const flash = useCallback((text: string, error = false) => {
-    toast(text, error ? "error" : "success");
-  }, []);
+  const [stats, setStats] = useState<AdminStats | null>(null);
+  const [hz, setHz] = useState<number | null>(null);
+  const lastPackets = useRef<{ n: number; t: number } | null>(null);
+  const [sync, setSync] = useState<SyncStatus | null>(null);
+  const [layouts, setLayouts] = useState<LayoutSummary[] | null>(null);
+  const [logErrors, setLogErrors] = useState(0);
+  const [protection, setProtection] = useState<Protection>(null);
+  // Bumped on every settings write, so a sync poll that set off before it
+  // can't wind the saved copy back.
+  const writeEpoch = useRef(0);
 
-  useEffect(() => {
-    const panel = section ? SECTION_PANEL[section] : undefined;
-    if (panel) document.getElementById(`settings-${panel}`)?.scrollIntoView({ block: "start" });
-  }, [section]);
-
-  const refreshStats = useCallback(() => {
-    api.admin.stats().then((s) => {
-      setStats(s);
-      setStatus(s.source);
-    }).catch(() => {});
-  }, [setStatus]);
+  const locked =
+    settingsError instanceof ApiError && (settingsError.status === 401 || settingsError.status === 403)
+      ? settingsError.message
+      : null;
 
   useEffect(() => {
     api.admin
       .settings()
       .then((s) => {
-        setSettings(s);
+        setSaved(s);
         setSettingsError(null);
       })
-      .catch((e) => {
-        setSettingsError(e instanceof Error ? e : new Error("Could not load settings"));
-        flash("Could not load settings", true);
-      });
+      .catch((e) => setSettingsError(e instanceof Error ? e : new Error("Could not load settings")));
+    void probeProtection().then(setProtection);
+  }, []);
+
+  const refreshStats = useCallback(() => {
+    api.admin
+      .stats()
+      .then((s) => {
+        setStats(s);
+        setStatus(s.source);
+        // Packet rate from two samples: the console's actual send rate.
+        const now = performance.now();
+        const prev = lastPackets.current;
+        lastPackets.current = { n: s.source.packets_received, t: now };
+        if (prev && s.source.connected && now > prev.t && s.source.packets_received >= prev.n) {
+          setHz(Math.round(((s.source.packets_received - prev.n) * 1000) / (now - prev.t)));
+        } else if (!s.source.connected) {
+          setHz(null);
+        }
+      })
+      .catch(() => {});
+    api.admin
+      .logs(300, "ERROR")
+      .then((ls) => setLogErrors(ls.length))
+      .catch(() => {});
+  }, [setStatus]);
+
+  // The toggles read the polled status, not a stale snapshot: the server
+  // flips a type off by itself on a 403, and a switch that stayed on next to
+  // "the server no longer accepts this" would be a lie.
+  const reloadSync = useCallback(() => {
+    const epoch = writeEpoch.current;
+    api.admin
+      .sync()
+      .then((st) => {
+        setSync(st);
+        if (epoch !== writeEpoch.current) return;
+        setSaved((s) =>
+          s && {
+            ...s,
+            sync_enabled: st.enabled,
+            sync_tracks: st.types.tracks?.enabled ?? s.sync_tracks,
+            sync_sessions: st.types.sessions?.enabled ?? s.sync_sessions,
+            sync_live: st.types.live?.enabled ?? s.sync_live,
+          },
+        );
+      })
+      .catch(() => {});
+  }, []);
+
+  const reloadLayouts = useCallback(() => {
+    api.layouts
+      .list()
+      .then(setLayouts)
+      .catch(() => setLayouts([]));
+  }, []);
+
+  useEffect(() => {
     refreshStats();
-    const t = window.setInterval(refreshStats, 5000);
+    reloadSync();
+    reloadLayouts();
+    const t = window.setInterval(() => {
+      refreshStats();
+      reloadSync();
+    }, POLL_MS);
     return () => window.clearInterval(t);
-  }, [refreshStats, flash]);
+  }, [refreshStats, reloadSync, reloadLayouts]);
 
-  async function apply(patch: Parameters<typeof api.admin.updateSettings>[0], label: string) {
-    setBusy(label);
+  const draft = useMemo(() => (saved ? { ...saved, ...edits } : null), [saved, edits]);
+  const pending = useMemo(() => (saved ? pendingKeys(saved, edits) : []), [saved, edits]);
+
+  const edit = useCallback(
+    (patch: SettingsEdits) => {
+      if (saved) setEdits((e) => mergeEdits(saved, e, patch));
+    },
+    [saved],
+  );
+
+  async function apply() {
+    if (!saved) return;
+    setApplying(true);
+    writeEpoch.current++;
     try {
-      setSettings(await api.admin.updateSettings(patch));
-      flash(`${label} applied`);
+      const next = await api.admin.updateSettings(pendingPatch(saved, edits));
+      setSaved(next);
+      setEdits({});
+      toast("Settings applied", "success");
       refreshStats();
+      reloadSync();
     } catch (e) {
-      flash(e instanceof Error ? e.message : `${label} failed`, true);
+      toast(e instanceof Error ? e.message : "Applying settings failed", "error");
     } finally {
-      setBusy(null);
+      setApplying(false);
     }
   }
 
-  async function run(label: string, fn: () => Promise<unknown>, done?: (r: unknown) => string) {
-    setBusy(label);
-    try {
-      const r = await fn();
-      flash(done ? done(r) : `${label} done`);
-      refreshStats();
-    } catch (e) {
-      flash(e instanceof Error ? e.message : `${label} failed`, true);
-    } finally {
-      setBusy(null);
-    }
+  const applyNow = useCallback(
+    async (patch: AdminSettingsPatch, label: string): Promise<AdminSettings | null> => {
+      setBusy(label);
+      writeEpoch.current++;
+      try {
+        const next = await api.admin.updateSettings(patch);
+        setSaved(next);
+        // Edits still pending elsewhere stay; any now matching the server drop out.
+        setEdits((e) => mergeEdits(next, e, {}));
+        return next;
+      } catch (e) {
+        toast(e instanceof Error ? e.message : `${label} failed`, "error");
+        return null;
+      } finally {
+        setBusy(null);
+      }
+    },
+    [],
+  );
+
+  const run = useCallback(
+    async (label: string, fn: () => Promise<unknown>, done?: (r: unknown) => string) => {
+      setBusy(label);
+      try {
+        const r = await fn();
+        toast(done ? done(r) : `${label} done`, "success");
+        refreshStats();
+      } catch (e) {
+        toast(e instanceof Error ? e.message : `${label} failed`, "error");
+      } finally {
+        setBusy(null);
+      }
+    },
+    [refreshStats],
+  );
+
+  // --- the rail and health strip read the same facts ------------------------
+
+  const src = stats?.source;
+  const queued = syncQueued(sync);
+  const syncErr = saved?.sync_token_set ? sync?.capabilities_error ?? "" : "";
+  const syncTypeErr = sync ? Object.values(sync.types).some((t) => t.active && t.state === "error") : false;
+
+  const meta: Partial<Record<SectionId, [string, Tone]>> = {};
+  if (src) {
+    meta.connection = src.connected
+      ? [src.source === "sim" ? "simulated" : "receiving", "good"]
+      : ["no data", "warn"];
+    const dropped = src.frames_dropped ?? 0;
+    meta.health =
+      dropped > 0
+        ? [`${dropped.toLocaleString()} dropped`, "warn"]
+        : src.decode_errors > 0
+          ? [`${src.decode_errors} bad`, "warn"]
+          : ["ok", "faint"];
+  }
+  if (stats) {
+    const size = stats.db.size_bytes / 1048576;
+    meta.data = [`${size < 10 ? size.toFixed(1) : Math.round(size)} MB`, "faint"];
+  }
+  if (draft && saved) {
+    meta.sync = !saved.sync_token_set
+      ? ["not set up", "faint"]
+      : syncErr || syncTypeErr
+        ? ["error", "bad"]
+        : !draft.sync_enabled
+          ? ["off", "faint"]
+          : queued > 0
+            ? [`${queued} queued`, "accent"]
+            : ["on", "good"];
+    meta["race-engineer"] = draft.race_engineer ? ["on", "good"] : ["off", "faint"];
+    meta.notifications = draft.webhook_url.trim()
+      ? [`${draft.webhook_events.length} event${draft.webhook_events.length === 1 ? "" : "s"}`, "good"]
+      : ["off", "faint"];
+  }
+  if (layouts) meta.overlays = [`${layouts.length} saved`, "faint"];
+  if (logErrors > 0) meta.logs = [`${logErrors} error${logErrors === 1 ? "" : "s"}`, "bad"];
+  if (protection) meta.access = protection === "open" ? ["open", "warn"] : ["protected", "good"];
+
+  const rail = filterSections(query);
+
+  const health: { label: string; value: string; meta: string; tone: Tone; go: SectionId }[] = [];
+  if (src) {
+    health.push({
+      label: "Telemetry",
+      value: src.connected ? "Receiving" : "No telemetry",
+      meta: [
+        src.source === "sim" ? "simulator" : src.console_ip || "auto-discover",
+        `format ${src.packet_format ?? "A"}`,
+        src.connected && hz != null ? `${hz} Hz` : "",
+      ]
+        .filter(Boolean)
+        .join(" · "),
+      tone: src.connected ? "good" : "warn",
+      go: "connection",
+    });
+    health.push({
+      label: "Recording",
+      value: src.recording ? `On${src.session_id != null ? ` · session #${src.session_id}` : ""}` : "Paused",
+      meta: src.track_name || "circuit not identified yet",
+      tone: src.recording ? "bad" : "faint",
+      go: "health",
+    });
+  }
+  if (saved) {
+    const host = sync?.capabilities?.server || sync?.url || saved.sync_url || "hosted service";
+    health.push(
+      !saved.sync_token_set
+        ? { label: "Sync", value: "Not set up", meta: "paste a connection string", tone: "faint", go: "sync" }
+        : syncErr
+          ? {
+              label: "Sync",
+              value: /\b40[13]\b/.test(syncErr) ? "Token rejected" : "Sync error",
+              meta: syncErr,
+              tone: "bad",
+              go: "sync",
+            }
+          : {
+              label: "Sync",
+              value: !saved.sync_enabled ? "Off" : queued > 0 ? `${queued} queued` : "Connected",
+              meta: host,
+              tone: !saved.sync_enabled ? "faint" : queued > 0 ? "accent" : "good",
+              go: "sync",
+            },
+    );
+  }
+  if (stats) {
+    health.push({
+      label: "Storage",
+      value: mb(stats.db.size_bytes),
+      meta: `${stats.db.sessions.toLocaleString()} sessions · ${stats.db.laps.toLocaleString()} laps`,
+      tone: "faint",
+      go: "data",
+    });
   }
 
-  return (
-    <div className="mx-auto flex max-w-[1200px] flex-col gap-3">
-      <h2 className="text-[17px] font-medium">Admin</h2>
+  const sectionProps: SectionProps | null =
+    saved && draft ? { saved, draft, edit, busy, run, applyNow } : null;
 
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        {/* Connection settings */}
-        <Panel title="Connection" subtitle="how telemetry reaches the datalogger">
-          {settings ? (
-            <ConnectionForm settings={settings} busy={busy} onApply={apply} />
-          ) : settingsError instanceof ApiError &&
-            (settingsError.status === 401 || settingsError.status === 403) ? (
-            <TokenForm error={settingsError.message} />
-          ) : settingsError ? (
-            <div className="p-4 text-sm text-warn">
-              Backend unreachable — could not load settings
-              {settingsError instanceof ApiError ? ` (HTTP ${settingsError.status})` : ""}.
-            </div>
-          ) : (
-            <div className="p-4 text-sm text-ink-dim">Loading…</div>
-          )}
-        </Panel>
-
-        {/* Diagnostics */}
-        <Panel title="Diagnostics" subtitle="live health — refreshes every 5 s">
-          {stats ? (
-            <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 px-4 py-3.5 font-tabular text-[11.5px]">
-              <Stat k="Telemetry" v={stats.source.connected ? "connected" : "no data"}
-                cls={stats.source.connected ? "text-throttle" : "text-brake"} />
-              <Stat k="Console" v={stats.source.console_ip || "auto-discover"} />
-              <Stat k="Packets received" v={stats.source.packets_received.toLocaleString()} />
-              <Stat k="Decode errors" v={String(stats.source.decode_errors)}
-                cls={stats.source.decode_errors > 0 ? "text-warn" : undefined} />
-              <Stat k="Packet format" v={stats.source.packet_format ?? "A"} />
-              <Stat k="Frames dropped" v={String(stats.source.frames_dropped ?? 0)}
-                cls={(stats.source.frames_dropped ?? 0) > 0 ? "text-warn" : undefined} />
-              <Stat k="Server uptime" v={formatDuration(stats.uptime_s * 1000)} />
-              <Stat k="Live clients" v={String(stats.clients)} />
-              <Stat k="Sessions / laps" v={`${stats.db.sessions} / ${stats.db.laps}`} />
-              <Stat k="Database size" v={`${(stats.db.size_bytes / 1048576).toFixed(1)} MB`} />
-              <Stat k="Car names loaded" v={String(stats.cars_loaded)} />
-              <Stat k="Recording" v={stats.source.recording ? "on" : "off"} />
-            </div>
-          ) : (
-            <div className="p-4 text-sm text-ink-dim">Loading…</div>
-          )}
-          <div className="rule" />
-          <div className="flex flex-wrap gap-2 px-4 py-3">
-            <button
-              className="btn"
-              disabled={busy !== null}
-              onClick={() => run("Restart source", api.admin.restartSource)}
-            >
-              Restart telemetry source
-            </button>
-            <button
-              className="btn"
-              disabled={busy !== null}
-              onClick={() =>
-                run("Car DB update", api.admin.updateCars, (r) => {
-                  const res = r as { cars: number; sessions_updated: number };
-                  const filled = res.sessions_updated
-                    ? `, ${res.sessions_updated} session(s) updated`
-                    : "";
-                  return `Car database updated: ${res.cars} cars${filled}`;
-                })
-              }
-            >
-              Update car database
-            </button>
-          </div>
-        </Panel>
-      </div>
-
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        {/* Webhook notifications */}
-        <Panel title="Notifications" subtitle="webhook pings for race events">
-          {settings ? (
-            <WebhookForm settings={settings} busy={busy} onApply={apply} flash={flash} setBusy={setBusy} />
-          ) : (
-            <div className="p-4 text-sm text-ink-dim">Loading…</div>
-          )}
-        </Panel>
-
-        {/* Race Engineer voice callouts */}
-        <Panel title="Race Engineer" subtitle="what the voice callouts may say">
-          {settings ? (
-            <RaceEngineerForm settings={settings} busy={busy} onApply={apply} flash={flash} />
-          ) : (
-            <div className="p-4 text-sm text-ink-dim">Loading…</div>
-          )}
-        </Panel>
-      </div>
-
-      {/* Sync service (#79) */}
-      <Panel title="Sync" subtitle="push surveys, laps and a live position stream to a sync service">
-        {settings ? (
-          <SyncForm
-            settings={settings}
-            busy={busy}
-            onApply={apply}
-            onSettings={setSettings}
-            flash={flash}
+  function renderSection() {
+    switch (section) {
+      case "overlays":
+        return <OverlaysSection layouts={layouts} reload={reloadLayouts} />;
+      case "health":
+        return <HealthSection busy={busy} run={run} stats={stats} hz={hz} />;
+      case "data":
+        return <DataSection busy={busy} run={run} stats={stats} />;
+      case "access":
+        return <AccessSection protection={protection} locked={locked} />;
+    }
+    // The rest edit settings, so they wait for the server's copy.
+    if (!sectionProps) return <SettingsUnavailable error={settingsError} locked={locked} />;
+    switch (section) {
+      case "connection":
+        return <ConnectionSection {...sectionProps} stats={stats} hz={hz} />;
+      case "sync":
+        return (
+          <SyncSection
+            {...sectionProps}
+            status={sync}
+            setStatus={setSync}
+            reload={reloadSync}
             setBusy={setBusy}
           />
-        ) : (
-          <div className="p-4 text-sm text-ink-dim">Loading…</div>
-        )}
-      </Panel>
+        );
+      case "race-engineer":
+        return <EngineerSection {...sectionProps} />;
+      case "notifications":
+        return <NotificationsSection {...sectionProps} />;
+      case "logs":
+        return <LogsSection {...sectionProps} />;
+    }
+  }
 
-      {/* Logs */}
-      <Panel title="Logs" subtitle="live server log">
-        <LogViewer />
-      </Panel>
-
-      {/* Data management */}
-      <Panel title="Data management" subtitle="recorded sessions and laps">
-        <div className="flex flex-wrap items-center gap-2 px-4 py-3">
-          <button
-            className="btn"
-            disabled={busy !== null}
-            onClick={() => run("Vacuum", api.admin.vacuum, () => "Database compacted")}
-          >
-            Compact database
-          </button>
-          <button
-            className="btn btn-danger"
-            disabled={busy !== null}
-            onClick={() => setConfirmingClear(true)}
-          >
-            Delete all recorded data
-          </button>
-          <span className="text-[10.5px] text-ink-faint">
-            Settings are kept. Export laps you want to keep first (Sessions view).
-          </span>
-        </div>
-      </Panel>
-
-      <ConfirmDialog
-        open={confirmingClear}
-        title="Delete ALL recorded data?"
-        body="Every session and lap will be deleted. This cannot be undone — export laps you want to keep first."
-        confirmLabel="Delete everything"
-        danger
-        onConfirm={() => {
-          setConfirmingClear(false);
-          run("Clear data", api.admin.clearData, () => "All sessions and laps deleted");
-        }}
-        onCancel={() => setConfirmingClear(false)}
-      />
-    </div>
-  );
-}
-
-function TokenForm({ error }: { error: string }) {
-  const [token, setToken] = useState(getAdminToken());
   return (
-    <div className="space-y-2 p-4">
-      <p className="text-sm text-warn">{error}</p>
-      <label className="block text-xs text-ink-dim" htmlFor="admin-token">
-        Admin token (the server&apos;s GT7_ADMIN_TOKEN)
-      </label>
-      <div className="flex gap-2">
+    <div className={`mx-auto flex max-w-[1200px] flex-col gap-3 ${pending.length > 0 ? "pb-20" : ""}`}>
+      <div className="flex flex-wrap items-center gap-3">
+        <h2 className="text-[17px] font-medium">Settings</h2>
+        <span className="text-[11px] text-ink-faint">
+          this installation · v{version} · changes apply when you press Apply
+        </span>
         <input
-          id="admin-token"
-          type="password"
-          value={token}
-          onChange={(e) => setToken(e.target.value)}
-          className="w-full rounded-md border border-edge bg-panel-2 px-3 py-1.5 font-tabular text-sm focus:border-accent focus:outline-none"
-        />
-        <button
-          className="btn shrink-0"
-          onClick={() => {
-            setAdminToken(token.trim());
-            window.location.reload();
+          type="search"
+          aria-label="Find a setting"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            const first = rail[0]?.items[0];
+            if (e.key === "Enter" && query.trim() && first) openSettings(first.id);
           }}
-        >
-          Save
-        </button>
-      </div>
-      <p className="text-[11px] text-ink-dim">
-        Stored in this browser only. Live/overlay pages work without it.
-      </p>
-    </div>
-  );
-}
-
-function ConnectionForm({
-  settings,
-  busy,
-  onApply,
-}: {
-  settings: AdminSettings;
-  busy: string | null;
-  onApply: (patch: Parameters<typeof api.admin.updateSettings>[0], label: string) => void;
-}) {
-  const [ip, setIp] = useState(settings.ps_ip);
-  const [token, setToken] = useState(getAdminToken());
-  useEffect(() => setIp(settings.ps_ip), [settings.ps_ip]);
-
-  return (
-    <div className="space-y-4 p-4">
-      <div>
-        <label className="mb-1 block text-xs text-ink-dim" htmlFor="ps-ip">
-          PlayStation IP address
-        </label>
-        <div className="flex gap-2">
-          <input
-            id="ps-ip"
-            value={ip}
-            onChange={(e) => setIp(e.target.value)}
-            placeholder="e.g. 192.168.1.30 — empty = auto-discover"
-            className="w-full rounded-md border border-edge bg-panel-2 px-3 py-1.5 font-tabular text-sm placeholder:text-ink-ghost focus:border-accent focus:outline-none"
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && ip !== settings.ps_ip) onApply({ ps_ip: ip }, "Console IP");
-            }}
-          />
-          <button
-            className="btn shrink-0"
-            disabled={busy !== null || ip === settings.ps_ip}
-            onClick={() => onApply({ ps_ip: ip }, "Console IP")}
-          >
-            Apply
-          </button>
-        </div>
-        <p className="mt-1 text-[11px] text-ink-dim">
-          Applied immediately — no restart needed. Heartbeat goes to port {settings.heartbeat_port},
-          telemetry arrives on {settings.telemetry_port}/udp.
-        </p>
-      </div>
-
-      <div className="flex items-center gap-6">
-        <div>
-          <span className="mb-1 block text-xs text-ink-dim">Telemetry source</span>
-          <SegmentedControl
-            ariaLabel="Telemetry source"
-            value={settings.source}
-            disabled={busy !== null}
-            onValueChange={(s) => s !== settings.source && onApply({ source: s }, "Source")}
-            options={[
-              { value: "udp", label: "PlayStation" },
-              { value: "sim", label: "Simulated" },
-            ]}
-          />
-        </div>
-        <div>
-          <span className="mb-1 block text-xs text-ink-dim">Packet format</span>
-          <SegmentedControl
-            ariaLabel="Packet format"
-            value={settings.packet_format}
-            disabled={busy !== null}
-            onValueChange={(f) =>
-              f !== settings.packet_format &&
-              onApply({ packet_format: f as AdminSettings["packet_format"] }, "Packet format")
-            }
-            options={[
-              { value: "A", label: "A" },
-              { value: "B", label: "B" },
-              { value: "~", label: "~" },
-              { value: "C", label: "C" },
-            ]}
-          />
-          <p className="mt-1 text-[11px] text-ink-dim">
-            C is richest (needs GT7 v1.68+); use A for older game versions.
-          </p>
-        </div>
-        <div>
-          <span className="mb-1 block text-xs text-ink-dim">Log level</span>
-          <Select
-            ariaLabel="Log level"
-            value={settings.log_level}
-            onValueChange={(l) =>
-              onApply({ log_level: l as AdminSettings["log_level"] }, "Log level")
-            }
-            options={LOG_LEVELS.map((l) => ({ value: l, label: l }))}
-            className="px-2 py-1.5 text-xs"
-          />
-        </div>
-      </div>
-
-      <div>
-        <label className="mb-1 block text-xs text-ink-dim" htmlFor="admin-token-field">
-          Admin token — only needed if the server sets GT7_ADMIN_TOKEN
-        </label>
-        <div className="flex gap-2">
-          <input
-            id="admin-token-field"
-            type="password"
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            placeholder="empty = server is open"
-            className="w-full rounded-md border border-edge bg-panel-2 px-3 py-1.5 font-tabular text-sm placeholder:text-ink-ghost focus:border-accent focus:outline-none"
-          />
-          <button
-            className="btn shrink-0"
-            disabled={busy !== null || token === getAdminToken()}
-            onClick={() => {
-              setAdminToken(token.trim());
-              window.location.reload();
-            }}
-          >
-            Save
-          </button>
-        </div>
-        <p className="mt-1 text-[11px] text-ink-dim">
-          Stored in this browser only; sent as X-API-Key. Live/overlay pages never need it.
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function WebhookForm({
-  settings,
-  busy,
-  onApply,
-  flash,
-  setBusy,
-}: {
-  settings: AdminSettings;
-  busy: string | null;
-  onApply: (patch: Parameters<typeof api.admin.updateSettings>[0], label: string) => void;
-  flash: (text: string, error?: boolean) => void;
-  setBusy: (b: string | null) => void;
-}) {
-  const [url, setUrl] = useState(settings.webhook_url);
-  useEffect(() => setUrl(settings.webhook_url), [settings.webhook_url]);
-
-  function toggleEvent(ev: WebhookEvent, on: boolean) {
-    const next = WEBHOOK_EVENTS.map((e) => e.value).filter((e) =>
-      e === ev ? on : settings.webhook_events.includes(e),
-    );
-    onApply({ webhook_events: next }, "Notification events");
-  }
-
-  return (
-    <div className="space-y-3 p-4">
-      <div>
-        <label className="mb-1 block text-xs text-ink-dim" htmlFor="webhook-url">
-          Webhook URL — where notifications are sent
-        </label>
-        <div className="flex gap-2">
-          <input
-            id="webhook-url"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://discord.com/api/webhooks/… (or any HTTP endpoint)"
-            className="w-full rounded-md border border-edge bg-panel-2 px-3 py-1.5 font-tabular text-sm placeholder:text-ink-ghost focus:border-accent focus:outline-none"
-          />
-          <button
-            className="btn shrink-0"
-            disabled={busy !== null || url === settings.webhook_url}
-            onClick={() => onApply({ webhook_url: url }, "Webhook")}
-          >
-            Apply
-          </button>
-          <button
-            className="btn shrink-0"
-            disabled={busy !== null || !settings.webhook_url}
-            onClick={async () => {
-              setBusy("test-webhook");
-              try {
-                await api.admin.testWebhook();
-                flash("Test notification sent");
-              } catch (e) {
-                flash(e instanceof Error ? e.message : "Webhook test failed", true);
-              } finally {
-                setBusy(null);
-              }
-            }}
-          >
-            Test
-          </button>
-        </div>
-        <p className="mt-1 text-[11px] text-ink-dim">
-          Discord webhook URLs get a rich embed; any other URL receives plain JSON. Leave
-          empty to disable all notifications.
-        </p>
-      </div>
-
-      <div>
-        <span className="mb-1 block text-xs text-ink-dim">Notify me when…</span>
-        <div className="space-y-1">
-          {WEBHOOK_EVENTS.map((ev) => (
-            <label
-              key={ev.value}
-              className="flex cursor-pointer items-baseline gap-2 text-sm"
-            >
-              <input
-                type="checkbox"
-                className="translate-y-px accent-accent"
-                checked={settings.webhook_events.includes(ev.value)}
-                disabled={busy !== null || !settings.webhook_url}
-                onChange={(e) => toggleEvent(ev.value, e.target.checked)}
-              />
-              <span>{ev.label}</span>
-              <span className="text-[11px] text-ink-dim">— {ev.hint}</span>
-            </label>
-          ))}
-        </div>
-        <p className="mt-1.5 text-[11px] text-ink-dim">
-          Overtake / position events only fire in races where GT7 reports live positions;
-          changes must hold for ~1 s so side-by-side battles don't spam.
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function RaceEngineerForm({
-  settings,
-  busy,
-  onApply,
-  flash,
-}: {
-  settings: AdminSettings;
-  busy: string | null;
-  onApply: (patch: Parameters<typeof api.admin.updateSettings>[0], label: string) => void;
-  flash: (text: string, error?: boolean) => void;
-}) {
-  const [diag, setDiag] = useState<RaceEngineerDiagnostics | null>(null);
-
-  useEffect(() => {
-    const load = () => api.admin.raceEngineer().then(setDiag).catch(() => {});
-    load();
-    const t = window.setInterval(load, 5000);
-    return () => window.clearInterval(t);
-  }, []);
-
-  function toggleCategory(category: CalloutCategory, on: boolean) {
-    const next = CALLOUT_CATEGORIES.filter((c) =>
-      c === category ? on : settings.race_engineer_categories.includes(c),
-    );
-    onApply({ race_engineer_categories: next }, "Callout categories");
-  }
-
-  return (
-    <div className="space-y-3 p-4">
-      <label className="flex cursor-pointer items-baseline gap-2 text-sm">
-        <input
-          type="checkbox"
-          className="translate-y-px accent-accent"
-          checked={settings.race_engineer}
-          disabled={busy !== null}
-          onChange={(e) => onApply({ race_engineer: e.target.checked }, "Race Engineer")}
+          placeholder="Find a setting…  (e.g. token, webhook, format)"
+          className="ml-auto w-[280px] max-w-full rounded-md border border-edge bg-panel-2 px-3 py-1.5 text-xs text-ink placeholder:text-ink-ghost focus:border-accent focus:outline-none"
         />
-        <span>Generate voice callouts</span>
-        <span className="text-[11px] text-ink-dim">
-          — detection only runs while a browser has voice enabled
-        </span>
-      </label>
+      </div>
 
-      <div>
-        <span className="mb-1 block text-xs text-ink-dim">
-          Maximum verbosity — the most any device may hear
-        </span>
-        <div className="flex gap-1">
-          {(["minimal", "race", "coach"] as Verbosity[]).map((mode) => (
+      {health.length > 0 && (
+        <div className="panel grid grid-cols-[repeat(auto-fit,minmax(200px,1fr))] overflow-hidden">
+          {health.map((h) => (
             <button
-              key={mode}
-              disabled={busy !== null || !settings.race_engineer}
-              className={`flex-1 rounded-md border px-2 py-1 text-xs capitalize ${
-                settings.race_engineer_verbosity === mode
-                  ? "border-accent/60 bg-accent/10 text-ink"
-                  : "border-edge bg-panel-2 text-ink-dim hover:text-ink"
-              }`}
-              onClick={() => onApply({ race_engineer_verbosity: mode }, "Verbosity")}
+              key={h.label}
+              onClick={() => openSettings(h.go)}
+              className="flex min-w-0 flex-col gap-1 px-4 py-3 text-left shadow-[inset_-1px_0_0_var(--color-hairline)] transition-colors hover:bg-panel-2"
             >
-              {mode}
+              <span className="section-header">{h.label}</span>
+              <span className="flex items-center gap-2 font-tabular text-[15px] font-medium">
+                <Dot tone={h.tone} size={7} />
+                {h.value}
+              </span>
+              <span className="truncate font-tabular text-[11px] text-ink-faint" title={h.meta}>
+                {h.meta}
+              </span>
             </button>
           ))}
         </div>
-        <p className="mt-1 text-[11px] text-ink-dim">
-          Each browser picks its own verbosity under this one. Lowering it here
-          puts those categories out of reach for every device — a driver set to
-          Coach still hears nothing the server does not produce.
-        </p>
-      </div>
-
-      <div>
-        <span className="mb-1 block text-xs text-ink-dim">
-          Spoken units — for braking points and speeds inside callouts
-        </span>
-        <div className="flex gap-1">
-          {(["metric", "imperial"] as SpokenUnits[]).map((unit) => (
-            <button
-              key={unit}
-              disabled={busy !== null || !settings.race_engineer}
-              className={`flex-1 rounded-md border px-2 py-1 text-xs ${
-                settings.race_engineer_units === unit
-                  ? "border-accent/60 bg-accent/10 text-ink"
-                  : "border-edge bg-panel-2 text-ink-dim hover:text-ink"
-              }`}
-              onClick={() => onApply({ race_engineer_units: unit }, "Spoken units")}
-            >
-              {unit === "metric" ? "meters / km per hour" : "feet / miles per hour"}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div>
-        <span className="mb-1 block text-xs text-ink-dim">Categories the server emits</span>
-        <div className="grid grid-cols-3 gap-x-3">
-          {CALLOUT_CATEGORIES.map((category) => (
-            <label key={category} className="flex cursor-pointer items-baseline gap-1.5 text-xs">
-              <input
-                type="checkbox"
-                className="translate-y-px accent-accent"
-                checked={settings.race_engineer_categories.includes(category)}
-                disabled={busy !== null || !settings.race_engineer}
-                onChange={(e) => toggleCategory(category, e.target.checked)}
-              />
-              <span className="capitalize">{category}</span>
-            </label>
-          ))}
-        </div>
-      </div>
-
-      {diag && (
-        <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 border-t border-edge pt-3 font-tabular text-sm">
-          <Stat
-            k="Detection"
-            v={diag.active ? "running" : diag.enabled ? "idle" : "disabled"}
-            cls={diag.active ? "text-throttle" : undefined}
-          />
-          <Stat k="Voice-capable clients" v={String(diag.clients.length)} />
-          <Stat
-            k="Active speaker"
-            v={
-              diag.clients.find((c) => c.is_active_speaker)?.page ??
-              (diag.active_client_id ? "elsewhere" : "none")
-            }
-          />
-          <Stat k="Callouts emitted" v={String(diag.stats.emitted ?? 0)} />
-          <Stat k="Suppressed (cooldown)" v={String(diag.stats.suppressed_cooldown ?? 0)} />
-          <Stat k="Suppressed (duplicate)" v={String(diag.stats.suppressed_duplicate ?? 0)} />
-          <Stat k="Suppressed (category)" v={String(diag.stats.suppressed_category ?? 0)} />
-          <Stat
-            k="Spoken acks"
-            v={String(diag.acks.spoken ?? 0)}
-            cls={diag.acks.spoken ? "text-throttle" : undefined}
-          />
-          <Stat
-            k="Speech failures"
-            v={String(diag.acks.speech_error ?? 0)}
-            cls={diag.acks.speech_error ? "text-brake" : undefined}
-          />
-          <Stat k="Corners on reference lap" v={String(diag.corners)} />
-          <Stat k="Laps in fuel model" v={String(diag.lap_history)} />
-        </div>
-      )}
-      {diag?.last_ack_reason && (diag.acks.speech_error ?? 0) > 0 && (
-        <div className="rounded-md border border-brake/40 bg-brake/10 p-2 text-xs text-brake">
-          <span className="text-[10px] uppercase tracking-widest">Speech failing </span>
-          {diag.last_ack_reason} — the browser is receiving callouts but cannot play
-          them.
-        </div>
-      )}
-      {diag?.last_callout && (
-        <div className="rounded-md border border-edge bg-panel-2 p-2 text-xs">
-          <span className="text-[10px] uppercase tracking-widest text-ink-dim">
-            Last emitted{" "}
-          </span>
-          {diag.last_callout.text}
-        </div>
       )}
 
-      <button
-        className="btn"
-        disabled={busy !== null}
-        onClick={async () => {
-          try {
-            await api.admin.testCallout("Race engineer test callout.");
-            flash("Test callout sent to connected browsers");
-          } catch (e) {
-            flash(e instanceof Error ? e.message : "Test callout failed", true);
-          }
-        }}
-      >
-        Send test callout
-      </button>
-      <p className="text-[11px] text-ink-dim">
-        Voice plays in the browser, never on the server — no audio hardware is
-        needed on a Raspberry Pi or in Docker. Enable it on{" "}
-        <a className="text-accent hover:underline" href="/dash" target="_blank" rel="noreferrer">
-          /dash
-        </a>{" "}
-        or on the standalone{" "}
-        <a
-          className="text-accent hover:underline"
-          href="/engineer"
-          target="_blank"
-          rel="noreferrer"
-        >
-          /engineer
-        </a>{" "}
-        page.
-      </p>
-    </div>
-  );
-}
-
-// The connection string is the one thing pasted; the server splits it into
-// URL + token and only ever hands back a hint of the token. Each data type
-// the server advertises gets a toggle, all off by default — enabling sync
-// enables nothing by itself.
-const SYNC_STATE_LABEL: Record<SyncTypeStatus["state"], string> = {
-  off: "off",
-  idle: "idle",
-  syncing: "syncing…",
-  connected: "connected",
-  error: "error",
-  unsupported: "not in this logger version",
-};
-
-const SYNC_STATE_COLOR: Record<SyncTypeStatus["state"], string> = {
-  off: "text-ink-faint",
-  idle: "text-ink-dim",
-  syncing: "text-accent",
-  connected: "text-throttle",
-  error: "text-brake",
-  unsupported: "text-ink-faint",
-};
-
-// Which settings key carries a type's toggle. Only types this build can
-// send have one; the rest render disabled with a note.
-const SYNC_TOGGLE: Partial<Record<string, "sync_tracks" | "sync_sessions" | "sync_live">> = {
-  tracks: "sync_tracks",
-  sessions: "sync_sessions",
-  live: "sync_live",
-};
-
-// What the per-type "send it now" button is called, where one makes sense:
-// bundles skip the settle window, laps skip the backoff. The live stream
-// reconnects on its own the moment the car is on track; a held one is
-// released by the same button.
-const SYNC_PUSH_LABEL: Partial<Record<string, string>> = {
-  tracks: "Sync now",
-  sessions: "Flush now",
-  live: "Reconnect",
-};
-
-function inWords(seconds: number): string {
-  if (seconds < 90) return `${seconds} s`;
-  return `${Math.round(seconds / 60)} min`;
-}
-
-function whenShort(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "" : d.toLocaleString();
-}
-
-// The counters under a type's toggle, once it is active. Each type has its
-// own idea of "one upload": a bundle, a lap, a frame.
-function SyncTypeDetail({
-  name,
-  t,
-  busy,
-  push,
-}: {
-  name: string;
-  t: SyncTypeStatus;
-  busy: string | null;
-  push: (name: string) => void | Promise<void>;
-}) {
-  const due = t.due_in_s != null && t.due_in_s > 0 ? inWords(t.due_in_s) : "";
-  const live = t.live;
-  const sessions = t.sessions;
-  return (
-    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 pl-5 font-tabular text-[11px] text-ink-faint">
-      {name === "tracks" && (
-        <>
-          {t.last_ok_at && <span>last upload {whenShort(t.last_ok_at)}</span>}
-          <span>{t.uploads ?? 0} uploaded since start</span>
-          {(t.queued ?? 0) > 0 && <span className="text-accent">{t.queued} queued</span>}
-          {t.tracks?.synced != null && <span>{t.tracks.synced} synced</span>}
-          {t.tracks?.rejected ? (
-            <span className="text-brake">{t.tracks.rejected} rejected</span>
-          ) : null}
-          {t.tracks?.unconfirmed ? (
-            <span className="text-warn">{t.tracks.unconfirmed} waiting for a confirmed layout</span>
-          ) : null}
-        </>
-      )}
-      {name === "sessions" && sessions && (
-        <>
-          {t.last_ok_at && <span>last lap {whenShort(t.last_ok_at)}</span>}
-          <span>{t.uploads ?? 0} laps sent since start</span>
-          {(t.queued ?? 0) > 0 && (
-            <span className="text-accent">
-              {t.queued} queued{due ? ` · retry in ${due}` : ""}
-            </span>
-          )}
-          <span>{sessions.synced} sessions on the server</span>
-          {sessions.laps_rejected ? (
-            <span className="text-brake">{sessions.laps_rejected} laps refused</span>
-          ) : null}
-          {/* Lap analysis (#115): said only of a server that takes it, so a
-              server that predates it shows nothing new here at all. */}
-          {sessions.analysis?.offered && sessions.analysis.synced > 0 && (
-            <span title="The lap analysis of a session is sent once its drive has ended">
-              {sessions.analysis.synced} lap analyses on the server
-            </span>
-          )}
-          {sessions.analysis?.rejected ? (
-            <span className="text-brake">{sessions.analysis.rejected} lap analyses refused</span>
-          ) : null}
-          {sessions.closed ? (
-            <span className="text-warn">{sessions.closed} closed by the server</span>
-          ) : null}
-          {sessions.current && (
-            <span
-              title={
-                sessions.current.remote_id
-                  ? `Session ${sessions.current.local_id} is ${sessions.current.remote_id} on the server`
-                  : "The session is announced with its first lap"
-              }
-            >
-              this drive: {sessions.current.laps_synced} sent
-              {sessions.current.laps_queued ? `, ${sessions.current.laps_queued} waiting` : ""}
-              {sessions.current.closed ? ` · ${sessions.current.closed}` : ""}
-            </span>
-          )}
-        </>
-      )}
-      {name === "live" && live && (
-        <>
-          <span>
-            {live.streaming
-              ? `streaming at ${live.hz} Hz`
-              : live.connected
-                ? "connected, waiting for the car"
-                : t.error
-                  ? due
-                    ? `retry in ${due}`
-                    : "not connected"
-                  : "opens when the car is on track"}
-          </span>
-          {live.connected && (
-            <span>
-              {live.spectators} watching
-            </span>
-          )}
-          <span>{live.frames} frames since start</span>
-          {live.recording && <span className="text-warn">recording</span>}
-          {live.spectate_url && (
-            <a
-              className="text-accent hover:underline"
-              href={live.spectate_url}
-              target="_blank"
-              rel="noreferrer"
-              title="The service's spectate page for this stream. Whether others may watch is your account's setting in the portal."
-            >
-              spectate page
-            </a>
-          )}
-        </>
-      )}
-      {SYNC_PUSH_LABEL[name] && (name !== "live" || t.error) && (
-        <button className="btn ml-auto" disabled={busy !== null} onClick={() => void push(name)}>
-          {SYNC_PUSH_LABEL[name]}
-        </button>
-      )}
-    </div>
-  );
-}
-
-function SyncForm({
-  settings,
-  busy,
-  onApply,
-  onSettings,
-  flash,
-  setBusy,
-}: {
-  settings: AdminSettings;
-  busy: string | null;
-  onApply: (
-    patch: Parameters<typeof api.admin.updateSettings>[0],
-    label: string,
-  ) => void | Promise<void>;
-  onSettings: (s: AdminSettings) => void;
-  flash: (text: string, error?: boolean) => void;
-  setBusy: (b: string | null) => void;
-}) {
-  const [server, setServer] = useState(settings.sync_url);
-  const [token, setToken] = useState("");
-  const [status, setStatus] = useState<SyncStatus | null>(null);
-  const [forgetting, setForgetting] = useState(false);
-  useEffect(() => setServer(settings.sync_url), [settings.sync_url]);
-
-  const load = useCallback(() => {
-    api.admin.sync().then(setStatus).catch(() => {});
-  }, []);
-
-  // The toggles read the polled status, not the settings snapshot: the
-  // server flips a type off by itself on a 403, and a checkbox that stayed
-  // ticked next to "off: server no longer accepts this" would be a lie.
-  async function toggle(patch: Parameters<typeof api.admin.updateSettings>[0], label: string) {
-    await onApply(patch, label);
-    load();
-  }
-
-  useEffect(() => {
-    load();
-    const t = window.setInterval(load, 5000);
-    return () => window.clearInterval(t);
-  }, [load]);
-
-  async function test(label = "Test connection") {
-    setBusy(label);
-    try {
-      const st = await api.admin.syncTest();
-      setStatus(st);
-      const offered = Object.keys(st.capabilities?.types ?? {});
-      flash(
-        `Connected to ${st.capabilities?.server || st.url}` +
-          (offered.length ? ` — accepts ${offered.join(", ")}` : " — accepts no data types"),
-      );
-    } catch (e) {
-      load();
-      flash(e instanceof Error ? e.message : "Sync test failed", true);
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  // The address field also takes a whole connection string (the one-paste
-  // form the portal shows): the server splits it into address and token.
-  async function saveServer() {
-    const text = server.trim();
-    const withToken = text.includes("?");
-    setBusy("Sync server");
-    try {
-      const s = await api.admin.updateSettings({ sync_url: text });
-      onSettings(s);
-      if (!withToken) {
-        flash(`Sync server set to ${s.sync_url}`);
-        load();
-        setBusy(null);
-        return;
-      }
-      flash(`Sync server set to ${s.sync_url} and token stored`);
-    } catch (e) {
-      flash(e instanceof Error ? e.message : "Server address rejected", true);
-      setBusy(null);
-      return;
-    }
-    await test("Sync server");
-  }
-
-  async function saveToken() {
-    const text = token.trim();
-    if (!text) return;
-    setBusy("Sync token");
-    try {
-      onSettings(await api.admin.updateSettings({ sync_token: text }));
-      setToken("");
-    } catch (e) {
-      flash(e instanceof Error ? e.message : "Token rejected", true);
-      setBusy(null);
-      return;
-    }
-    await test("Sync token");
-  }
-
-  async function push(name: string) {
-    const label = SYNC_PUSH_LABEL[name] ?? "Sync now";
-    setBusy(label);
-    try {
-      setStatus(await api.admin.syncPush(name));
-      flash(
-        name === "tracks"
-          ? "Every eligible bundle queued"
-          : name === "sessions"
-            ? "Queued laps sending now"
-            : "Live stream reconnecting on the next packet",
-      );
-    } catch (e) {
-      flash(e instanceof Error ? e.message : "Sync push failed", true);
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  const types = status ? Object.entries(status.types) : [];
-  const checked = status?.capabilities != null;
-
-  return (
-    <div className="space-y-4 p-4">
-      <div>
-        <label className="mb-1 block text-xs text-ink-dim" htmlFor="sync-server">
-          Server address — the sync service this installation contributes to
-        </label>
-        <div className="flex gap-2">
-          <input
-            id="sync-server"
-            autoComplete="off"
-            value={server}
-            onChange={(e) => setServer(e.target.value)}
-            placeholder="sync.gt7-datalogger.com"
-            className="w-full rounded-md border border-edge bg-panel-2 px-3 py-1.5 font-tabular text-sm placeholder:text-ink-ghost focus:border-accent focus:outline-none"
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && server.trim() !== settings.sync_url) void saveServer();
-            }}
-          />
-          <button
-            className="btn shrink-0"
-            disabled={busy !== null || server.trim() === settings.sync_url}
-            onClick={() => void saveServer()}
-          >
-            Apply
-          </button>
-        </div>
-        <p className="mt-1 text-[11px] text-ink-dim">
-          A host name is read as https. Use <span className="font-tabular">http://</span> (or{" "}
-          <span className="font-tabular">gt7sync+http://</span>) for a server of your own on
-          the LAN; empty = the hosted service. Pasting the{" "}
-          <span className="font-tabular">gt7sync://…?token=…</span> string the portal shows
-          fills in the token below too. Pulling shared bundles (Tracks view) needs none of
-          this — the sync service is for contributing your own surveys back.
-        </p>
-      </div>
-
-      <div>
-        <label className="mb-1 block text-xs text-ink-dim" htmlFor="sync-token">
-          Token — from the sync service&apos;s portal; identifies your account
-        </label>
-        <div className="flex gap-2">
-          <input
-            id="sync-token"
-            type="password"
-            autoComplete="off"
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            placeholder={
-              settings.sync_token_set
-                ? `stored (${settings.sync_token_hint}) — paste a new one to replace it`
-                : "paste the token here"
-            }
-            className="w-full rounded-md border border-edge bg-panel-2 px-3 py-1.5 font-tabular text-sm placeholder:text-ink-ghost focus:border-accent focus:outline-none"
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void saveToken();
-            }}
-          />
-          <button
-            className="btn shrink-0"
-            disabled={busy !== null || !token.trim()}
-            onClick={() => void saveToken()}
-          >
-            Save
-          </button>
-          <button
-            className="btn shrink-0"
-            disabled={busy !== null || !settings.sync_token_set}
-            onClick={() => void test()}
-          >
-            Test connection
-          </button>
-        </div>
-        <p className="mt-1 text-[11px] text-ink-dim">
-          {settings.sync_token_set ? (
-            <>
-              Stored as <span className="font-tabular text-ink">{settings.sync_token_hint}</span>{" "}
-              and sent only as a header — it is never shown again.{" "}
-              <button
-                className="text-accent hover:underline"
-                disabled={busy !== null}
-                onClick={() => setForgetting(true)}
-              >
-                Forget it
-              </button>
-            </>
-          ) : (
-            <>Kept apart from the address, masked here, never in a URL and never in the logs.</>
-          )}
-        </p>
-      </div>
-
-      <div>
-        {status?.capabilities_error && (
-          <p className="mt-1 text-[11px] text-brake">
-            Last check{status.checked_at ? ` at ${whenShort(status.checked_at)}` : ""}:{" "}
-            {status.capabilities_error}
-          </p>
-        )}
-        {checked && status?.capabilities && (
-          <p className="mt-1 text-[11px] text-ink-dim">
-            Server {status.capabilities.server || status.url}
-            {status.capabilities.version && ` v${status.capabilities.version}`} · checked{" "}
-            {whenShort(status.checked_at)} · accepts{" "}
-            {Object.keys(status.capabilities.types).join(", ") || "no data types"}
-          </p>
-        )}
-      </div>
-
-      <label className="flex cursor-pointer items-baseline gap-2 text-sm">
-        <input
-          type="checkbox"
-          className="translate-y-px accent-accent"
-          checked={status?.enabled ?? settings.sync_enabled}
-          disabled={busy !== null || !settings.sync_token_set}
-          onChange={(e) => void toggle({ sync_enabled: e.target.checked }, "Sync")}
-        />
-        <span>Enable sync</span>
-        <span className="text-[11px] text-ink-dim">
-          — the master switch; each data type below is still off until you turn it on
-        </span>
-      </label>
-
-      <div>
-        <span className="mb-1 block text-xs text-ink-dim">
-          What to send{checked ? "" : " — test the connection to see what the server accepts"}
-        </span>
-        <div className="space-y-2">
-          {types.map(([name, t]) => {
-            const key = SYNC_TOGGLE[name];
-            const on = key ? t.enabled : false;
-            const disabled =
-              busy !== null || !settings.sync_enabled || !key || !t.supported ||
-              t.offered === false;
-            return (
-              <div key={name} className="rounded-lg border border-edge px-3 py-2">
-                <label className="flex cursor-pointer items-baseline gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    className="translate-y-px accent-accent"
-                    checked={on}
-                    disabled={disabled}
-                    onChange={(e) => {
-                      if (key) void toggle({ [key]: e.target.checked }, `Sync ${name}`);
-                    }}
-                  />
-                  <span className="capitalize">{name}</span>
-                  <span className={`text-[11px] ${t.error ? "text-brake" : SYNC_STATE_COLOR[t.state]}`}>
-                    — {SYNC_STATE_LABEL[t.state]}
-                    {t.error ? `: ${t.error}` : ""}
-                  </span>
-                  {t.offered === false && t.supported && (
-                    <span className="text-[11px] text-warn">· the server does not accept this</span>
-                  )}
-                  {t.offered === null && t.supported && (
-                    <span className="text-[11px] text-ink-faint">· server not checked yet</span>
-                  )}
-                </label>
-                <p className="mt-0.5 pl-5 text-[11px] text-ink-dim">{t.description}</p>
-                {t.active && <SyncTypeDetail name={name} t={t} busy={busy} push={push} />}
-              </div>
-            );
-          })}
-          {status && types.length === 0 && (
-            <div className="text-xs text-ink-dim">
-              No data types to send. Test the connection to ask the server what it accepts.
+      <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-[minmax(180px,208px)_minmax(0,1fr)]">
+        <nav aria-label="Settings sections" className="flex flex-col gap-3.5 md:sticky md:top-3">
+          {rail.map((g) => (
+            <div key={g.group} className="flex flex-col gap-0.5">
+              <span className="section-header px-2.5 pb-1">{g.group}</span>
+              {g.items.map((it) => {
+                const active = it.id === section;
+                const m = meta[it.id];
+                return (
+                  <button
+                    key={it.id}
+                    onClick={() => openSettings(it.id)}
+                    aria-current={active ? "page" : undefined}
+                    className={`flex items-center gap-2 rounded px-2.5 py-1.5 text-left text-[12.5px] transition-colors ${
+                      active ? "bg-accent/16 text-accent-300" : "text-ink-muted hover:text-ink"
+                    }`}
+                  >
+                    <span className="flex-1">{it.label}</span>
+                    {m && (
+                      <span className={`flex items-center gap-[5px] font-tabular text-[10.5px] ${TONE_TEXT[m[1]]}`}>
+                        <Dot tone={m[1]} size={5} />
+                        {m[0]}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
+          ))}
+          {rail.length === 0 && (
+            <span className="px-2.5 text-[11px] text-ink-faint">No setting matches “{query.trim()}”.</span>
           )}
-        </div>
-        <p className="mt-1.5 text-[11px] text-ink-dim">
-          Nothing is sent for a type that is off. A changed bundle is uploaded once it has
-          been left alone for ten minutes — a running survey keeps resetting that clock, so
-          a run goes up once, after it stops and the corner labelling that follows it. A
-          lap goes as soon as it is saved, the session with its first lap, and laps queue
-          while the service is away. The live stream holds one socket while the car is on
-          track and sends where it is a few times a second, never a backlog. Everything
-          runs in the background with retry and backoff and never blocks recording. A type
-          the server switches off is turned off here too, and says so.
-        </p>
+        </nav>
+
+        <section className="flex min-w-0 flex-col gap-3">{renderSection()}</section>
       </div>
 
-      <ConfirmDialog
-        open={forgetting}
-        title="Forget the sync token?"
-        body="Sync stops until a new connection string is pasted. The token cannot be shown again — the service only reveals it once, when it is created."
-        confirmLabel="Forget token"
-        danger
-        onConfirm={() => {
-          setForgetting(false);
-          onApply({ sync_token: "" }, "Sync token");
-        }}
-        onCancel={() => setForgetting(false)}
+      <PendingBar
+        keys={pending}
+        applying={applying}
+        onDiscard={() => setEdits({})}
+        onApply={() => void apply()}
       />
     </div>
   );
 }
 
-function LogViewer() {
-  const [logs, setLogs] = useState<LogRecord[]>([]);
-  const [level, setLevel] = useState<string>("");
-  const [paused, setPaused] = useState(false);
-  const scroller = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    const load = () => {
-      if (paused) return;
-      api.admin.logs(300, level || undefined).then((ls) => {
-        if (cancelled) return;
-        setLogs(ls);
-        const el = scroller.current;
-        if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 60) {
-          requestAnimationFrame(() => el.scrollTo({ top: el.scrollHeight }));
-        }
-      }).catch(() => {});
-    };
-    load();
-    const t = window.setInterval(load, 2000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(t);
-    };
-  }, [level, paused]);
-
+function SettingsUnavailable({ error, locked }: { error: Error | null; locked: string | null }) {
+  if (locked) {
+    return (
+      <SectionPanel title="Settings are locked on this server" description={locked}>
+        <div className="flex flex-col gap-1.5 px-[18px] py-3.5">
+          <TokenField label="Unlock settings" placeholder="the server's GT7_ADMIN_TOKEN" />
+          <span className="text-[11px] text-ink-dim">
+            Stored in this browser only. Live, overlay and dash pages work without it.
+          </span>
+        </div>
+      </SectionPanel>
+    );
+  }
   return (
-    <div>
-      <div className="flex flex-wrap items-center gap-2 px-4 py-2">
-        <Select
-          ariaLabel="Log level filter"
-          value={level || "all"}
-          onValueChange={(v) => setLevel(v === "all" ? "" : v)}
-          options={[
-            { value: "all", label: "All levels" },
-            ...LOG_LEVELS.map((l) => ({ value: l, label: `${l}+` })),
-          ]}
-          className="px-2 py-1 text-xs"
-        />
-        <button className="btn" onClick={() => setPaused((p) => !p)}>
-          {paused ? "Resume" : "Pause"}
-        </button>
-        <button
-          className="btn"
-          onClick={() => api.admin.clearLogs().then(() => setLogs([]))}
-        >
-          Clear
-        </button>
-        <span className="ml-auto text-[11px] text-ink-dim">
-          {logs.length} entries · refreshes every 2 s
+    <div className="panel px-[18px] py-3.5 text-sm text-ink-dim">
+      {error ? (
+        <span className="text-warn">
+          Backend unreachable — could not load settings
+          {error instanceof ApiError ? ` (HTTP ${error.status})` : ""}.
         </span>
-      </div>
-      <div className="rule" />
-      <div
-        ref={scroller}
-        className="h-72 overflow-y-auto px-3 py-2 font-mono text-[10.5px] leading-5"
-      >
-        {logs.length === 0 && <div className="p-2 text-ink-faint">No log entries.</div>}
-        {logs.map((r, i) => (
-          <div key={`${r.ts}-${i}`} className="flex gap-2 whitespace-pre-wrap break-all px-1 hover:bg-panel-2">
-            <span className="shrink-0 text-ink-faint">{r.ts.slice(11, 19)}</span>
-            <span className={`w-16 shrink-0 ${LEVEL_COLORS[r.level] ?? "text-ink"}`}>{r.level}</span>
-            <span className="shrink-0 text-ink-faint">{r.logger}</span>
-            <span>{r.message}</span>
-          </div>
-        ))}
-      </div>
+      ) : (
+        "Loading…"
+      )}
     </div>
-  );
-}
-
-function Panel({
-  title,
-  subtitle,
-  children,
-}: {
-  title: string;
-  subtitle?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div id={`settings-${title.toLowerCase().replace(/ /g, "-")}`} className="panel min-w-0 scroll-mt-3">
-      <div className="flex items-baseline gap-2 px-4 py-2.5">
-        <span className="section-header">{title}</span>
-        {subtitle && <span className="text-[10.5px] text-ink-faint">{subtitle}</span>}
-      </div>
-      <div className="rule" />
-      {children}
-    </div>
-  );
-}
-
-function Stat({ k, v, cls }: { k: string; v: string; cls?: string }) {
-  return (
-    <>
-      <span className="text-ink-faint">{k}</span>
-      <span className={`text-right ${cls ?? ""}`}>{v}</span>
-    </>
   );
 }
