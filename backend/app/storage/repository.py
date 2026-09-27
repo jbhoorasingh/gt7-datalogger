@@ -1207,6 +1207,7 @@ class Repository:
         layout_id: int,
         name: str | None = None,
         config: dict[str, Any] | None = None,
+        kind: str | None = None,
     ) -> dict[str, Any] | None:
         async with self._sf() as db:
             row = await db.get(LayoutRow, layout_id)
@@ -1214,6 +1215,8 @@ class Repository:
                 return None
             if name is not None:
                 row.name = name
+            if kind is not None:
+                row.kind = kind
             if config is not None:
                 row.config_json = json.dumps(config, separators=(",", ":"))
             row.updated_at = datetime.now(UTC).isoformat()

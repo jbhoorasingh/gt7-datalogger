@@ -129,3 +129,45 @@ async def test_numeric_name_lookup_falls_back(client) -> None:
     assert resp.status_code == 200
     # id lookup wins when the id exists; otherwise the name matches
     assert resp.json()["id"] == created["id"] or resp.json()["name"] == "42"
+
+
+async def test_switching_kind_keeps_everything_else(client) -> None:
+    """Kind is only the picker a layout lists under; a PUT can flip it alone."""
+    created = (
+        await client.post(
+            "/api/layouts", json={"name": "wheel", "kind": "overlay", "config": config()}
+        )
+    ).json()
+
+    resp = await client.put(f"/api/layouts/{created['id']}", json={"kind": "dash"})
+    assert resp.status_code == 200
+    updated = resp.json()
+    assert updated["kind"] == "dash"
+    assert updated["name"] == "wheel"
+    assert updated["config"] == created["config"]
+    # persisted, and the name lookup that ?layout= uses still resolves it
+    fetched = (await client.get("/api/layouts/wheel")).json()
+    assert fetched["id"] == created["id"]
+    assert fetched["kind"] == "dash"
+
+    # kind travels with a name/config change in one request too
+    resp = await client.put(
+        f"/api/layouts/{created['id']}",
+        json={"name": "wheel 2", "kind": "overlay", "config": config(cols=10)},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["kind"] == "overlay"
+    assert resp.json()["config"]["grid"]["cols"] == 10
+
+    # omitting kind leaves it alone
+    resp = await client.put(f"/api/layouts/{created['id']}", json={"name": "wheel 3"})
+    assert resp.json()["kind"] == "overlay"
+
+
+async def test_rejects_unknown_kind(client) -> None:
+    created = (
+        await client.post("/api/layouts", json={"name": "k", "config": config()})
+    ).json()
+    resp = await client.put(f"/api/layouts/{created['id']}", json={"kind": "hud"})
+    assert resp.status_code == 422
+    assert (await client.get(f"/api/layouts/{created['id']}")).json()["kind"] == "overlay"

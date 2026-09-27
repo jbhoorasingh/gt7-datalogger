@@ -24,7 +24,7 @@ import { Tip } from "@/components/ui/Tooltip";
 import { api, ApiError } from "@/lib/api";
 import { FASTEST_COLOR, lapColorMap } from "@/lib/colors";
 import { countingLaps, formatSpread, lapConsistency } from "@/lib/consistency";
-import { formatLapTime, formatSpeed, formatTime } from "@/lib/format";
+import { formatDelta, formatLapTime, formatSpeed, formatTime } from "@/lib/format";
 import { openInAnalysis } from "@/lib/router";
 import {
   constantColumns,
@@ -485,6 +485,7 @@ export function SessionsView({ subTab = "sessions" }: { subTab?: SubTab }) {
                     onExport={exportLap}
                     onDelete={(id) => setDeletingLaps([id])}
                     onRule={(lap, ruling) => ruleLap(current.id, lap, ruling)}
+                    live={recordingId === current.id}
                   />
                 </>
               )}
@@ -1117,6 +1118,7 @@ function LapTable({
   onExport,
   onDelete,
   onRule,
+  live,
 }: {
   session: SessionSummary;
   laps: LapSummary[];
@@ -1131,6 +1133,8 @@ function LapTable({
   onExport: (id: number) => void;
   onDelete: (id: number) => void;
   onRule: (lap: LapSummary, ruling: LapRuling) => void;
+  // This is the session being recorded right now: pin the lap in progress.
+  live: boolean;
 }) {
   const bestId = bestLapId(laps);
   const best = laps.find((l) => l.id === bestId);
@@ -1256,6 +1260,7 @@ function LapTable({
             </tr>
           </thead>
           <tbody>
+            {live && <InProgressRow laps={laps} trailing={columns.length + 1} />}
             {rows.map((lap) => {
               const counts = lap.counts_for_best !== false;
               const isBest = lap.id === bestId && counts;
@@ -1426,6 +1431,89 @@ function LapTable({
       </div>
     </div>
   );
+}
+
+// No frame for this long and the lap in progress is dropped from the table —
+// the same grace the Live view gives before it hands over to "no telemetry".
+const IN_PROGRESS_STALL_MS = 5000;
+
+// The lap being driven, pinned above the completed laps whatever the sort —
+// the Sessions twin of the Live view's laps rail. It is not a lap yet (no id,
+// nothing to tick, export or rule on), so it has no checkbox and no menu.
+//
+// Time and delta change at frame rate, so they are written straight into the
+// DOM from an animation-frame loop over liveFrameRef; React state holds only
+// the lap number, which changes once a lap, so the table never re-renders at
+// frame rate. The row drops out when the stream stalls, when the car leaves
+// the track, and once its lap number is in the table: the lapEpoch refresh
+// that brings the completed lap in hands the row on to the next one, and a
+// finished race (GT7 stops counting laps) leaves nothing to pin.
+function InProgressRow({ laps, trailing }: { laps: LapSummary[]; trailing: number }) {
+  const lastDone = laps.reduce((n, l) => Math.max(n, l.number), 0);
+  const [lap, setLap] = useState<number | null>(null);
+  const timeRef = useRef<HTMLTableCellElement>(null);
+  const deltaRef = useRef<HTMLTableCellElement>(null);
+
+  useEffect(() => {
+    let raf = 0;
+    let written = -1; // liveFrameRef.at of the frame last written out
+    const tick = () => {
+      raf = requestAnimationFrame(tick);
+      const f = liveFrameRef.current;
+      const showing =
+        f != null &&
+        performance.now() - liveFrameRef.at <= IN_PROGRESS_STALL_MS &&
+        f.on_track &&
+        f.lap_elapsed_ms >= 0 &&
+        f.current_lap > lastDone;
+      // Bails out without a render while the number is unchanged.
+      setLap(showing ? f.current_lap : null);
+      if (!showing || liveFrameRef.at === written) return;
+      written = liveFrameRef.at;
+      if (timeRef.current) timeRef.current.textContent = formatLapTime(f.lap_elapsed_ms);
+      if (deltaRef.current) {
+        deltaRef.current.textContent = f.delta_ms == null ? "—" : formatDelta(f.delta_ms);
+        deltaRef.current.className = `px-2 py-[7px] ${liveDeltaColor(f.delta_ms)}`;
+      }
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [lastDone]);
+
+  if (lap == null) return null;
+  // First paint straight from the ref; the loop takes over from the next frame.
+  const f = liveFrameRef.current;
+  const delta = f?.delta_ms ?? null;
+  return (
+    <tr
+      className="rule-row bg-accent/5"
+      title="The lap being driven — it joins the table when it completes"
+    >
+      <td className="py-[7px] pl-4 pr-0" />
+      <td className="whitespace-nowrap px-2 py-[7px]">
+        <span className="inline-flex items-center gap-1.5">
+          <span className="h-1.5 w-1.5 shrink-0 animate-pulse-dot rounded-full bg-accent" />
+          {lap}
+          <span className="rounded-lg border border-edge px-1.5 text-[10px] text-ink-faint">
+            in progress
+          </span>
+        </span>
+      </td>
+      <td ref={timeRef} className="px-2 py-[7px] text-ink">
+        {formatLapTime(f?.lap_elapsed_ms)}
+      </td>
+      <td ref={deltaRef} className={`px-2 py-[7px] ${liveDeltaColor(delta)}`}>
+        {delta == null ? "—" : formatDelta(delta)}
+      </td>
+      <td colSpan={trailing} />
+    </tr>
+  );
+}
+
+// Live gap to the session best: green while ahead, red while behind — the
+// Live view's convention, not the table's "+0.3 s is near enough" shading.
+function liveDeltaColor(ms: number | null): string {
+  return ms == null ? "text-ink-ghost" : ms <= 0 ? "text-throttle" : "text-brake";
 }
 
 // Off-track excursions ride along with the event code — they are the same

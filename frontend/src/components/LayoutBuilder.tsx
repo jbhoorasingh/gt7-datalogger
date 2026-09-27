@@ -217,8 +217,6 @@ export function useLayoutBuilder(requested: string | null) {
     () => (draft.id == null ? true : saved == null ? false : differs(draft, serverCopy(draft.id))),
     [draft, saved],
   );
-  const kindChanged = draft.id != null && serverCopy(draft.id)?.kind !== draft.kind && saved != null;
-
   // Keep the address bar on the open layout so a reload or bookmark reopens it.
   function reflect(id: number | null) {
     if (parseHash(window.location.hash).view !== "overlays") return;
@@ -313,13 +311,15 @@ export function useLayoutBuilder(requested: string | null) {
   }
 
   async function save() {
-    // The server can't change a saved layout's kind — that takes a new layout.
-    if (draft.id == null || kindChanged) {
+    if (draft.id == null) {
       setDialog("saveAs");
       return;
     }
     try {
-      const updated = await api.layouts.update(draft.id, { config: layout });
+      // Kind rides along with the config. It only picks which list (overlay
+      // or dash) the layout shows up in — /overlay?layout= and /dash?layout=
+      // render any layout — so flipping it breaks no URL already in use.
+      const updated = await api.layouts.update(draft.id, { kind: draft.kind, config: layout });
       mergeSaved(updated);
       await refreshList();
       toast(`Layout "${draft.name}" saved`, "success");
@@ -579,7 +579,6 @@ export function useLayoutBuilder(requested: string | null) {
     parked,
     dirty,
     dirtyKeys,
-    kindChanged,
     selected,
     setSelected,
     dialog,
@@ -1270,13 +1269,7 @@ export function BuilderDialogs({ b }: { b: LayoutBuilderState }) {
       <PromptDialog
         open={dialog === "saveAs" || dialog === "saveCopy"}
         title={dialog === "saveCopy" ? "Save a copy" : "Save layout"}
-        label={
-          b.kindChanged && dialog === "saveAs"
-            ? `A saved layout can't change kind — save this as a new ${
-                draft.kind === "dash" ? "driver dash" : "OBS overlay"
-              }. The name becomes part of its URL.`
-            : "Name this layout — the name becomes part of its URL."
-        }
+        label="Name this layout — the name becomes part of its URL."
         placeholder="e.g. race-strip, endurance-dash"
         onSubmit={(name) => void b.saveAs(name)}
         onCancel={close}
