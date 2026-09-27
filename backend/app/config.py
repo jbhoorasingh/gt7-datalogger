@@ -77,9 +77,11 @@ class Settings(BaseSettings):
     # A shared repository of contributed track bundles (#47): the URL of its
     # index document, or of the directory holding one ("/index.json" is
     # appended when the URL doesn't end in .json). Defaults to the project's
-    # own data repo; empty hides the pull feature entirely. Nothing is fetched
-    # until someone opens the Tracks view, and bundles pulled go through
-    # exactly the same validation and voting merge as a hand-imported file.
+    # own data repo; empty hides the pull feature entirely. A fresh
+    # installation (no bundles yet) pulls every circuit once on its first
+    # start; otherwise nothing is fetched until someone opens the Tracks view.
+    # Bundles pulled go through exactly the same validation and voting merge
+    # as a hand-imported file.
     shared_bundles_url: str = "https://jbhoorasingh.github.io/gt7-datalogger-track-data"
 
     # The sync service (#79): where this installation pushes its data, and

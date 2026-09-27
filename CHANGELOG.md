@@ -107,6 +107,17 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Added
 
+- **A fresh installation starts with every shared circuit.** On its first
+  start, an installation holding no track bundles pulls every circuit from
+  the shared track repo in the background, so the known circuits are named
+  and drawn from the first lap. It happens once. An installation already
+  holding a bundle is left alone, and one that is offline tries again at its
+  next start. **Tracks › Import ▾ › Pull all from shared** (and **Pull all**
+  in the shared list) does the same on demand. Re-pulling is safe: nobody's
+  runs are counted twice, so only what changed is added. A circuit the repo
+  serves broken is reported and the rest are still pulled. The endpoint is
+  `POST /api/track-bundles/shared/pull-all`. A blank
+  `GT7_SHARED_BUNDLES_URL` turns pulling off, the first-start pull included.
 - **"Not this" on a suggested official layout is remembered by the server.**
   Ruling a suggestion out on the Tracks page used to hide it in one browser
   only, while every other device kept offering the same guess. The rejection

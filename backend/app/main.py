@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from app import logbuffer
 from app.api import admin, layouts, routes, tracks, ws
 from app.config import Settings, get_settings
-from app.processing import car_refresh, track_seed
+from app.processing import car_refresh, shared_pull, shared_repo, track_seed
 from app.processing.cars import CarDatabase
 from app.race_engineer import VERBOSITY_MODES
 from app.service import TelemetryService
@@ -182,6 +182,57 @@ async def refresh_cars_if_stale(
         log.info("car details updated on %d existing session(s)", filled)
 
 
+# Settings key recording that this installation has had its first pull of
+# the shared track repo. Set once the pull has run (or was not needed); a
+# start that could not read the repo leaves it unset and tries again.
+SHARED_FIRST_PULL_KEY = "shared_bundles_first_pull"
+
+
+async def pull_shared_on_first_start(
+    settings: Settings,
+    repo: Repository,
+    service: TelemetryService,
+    stored: dict[str, str],
+    log: logging.Logger,
+) -> None:
+    """Pull every circuit from the shared track repo on a fresh installation.
+
+    A new logger holds no bundles, so it cannot draw a map, judge track
+    limits or name a layout until someone surveys or pulls one — and most
+    people would not know the Tracks view offers a pull. So the first start
+    does it for them, once: every circuit the repo offers, merged exactly as
+    "Pull all" would. An installation that already holds any bundle is not
+    fresh and is left alone (the Tracks view's "Pull all" is there for it).
+
+    A background task, like the car refresh: startup must not wait on the
+    network, and being offline is a normal state for a datalogger on a LAN.
+    An unreadable repo leaves the marker unset so the next start tries again;
+    a blank GT7_SHARED_BUNDLES_URL turns pulling off, this included.
+    """
+    if stored.get(SHARED_FIRST_PULL_KEY):
+        return
+    configured = settings.shared_bundles_url.strip()
+    if not configured:
+        return
+    data_dir = settings.db_path.parent
+    if shared_pull.has_bundles(data_dir):
+        await repo.set_setting(SHARED_FIRST_PULL_KEY, "not needed")
+        return
+    try:
+        result = await shared_pull.pull_all(
+            data_dir, shared_repo.index_url(configured), service.bundle_changed
+        )
+    except Exception as exc:
+        log.info("shared track bundles not pulled (%s); will try again next start", exc)
+        return
+    await repo.set_setting(SHARED_FIRST_PULL_KEY, datetime.date.today().isoformat())
+    log.info(
+        "first start: pulled %d circuit(s) from the shared track repo%s",
+        len(result["pulled"]),
+        f", {len(result['failed'])} failed" if result["failed"] else "",
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
@@ -238,6 +289,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # cancelled at shutdown rather than outliving the app it belongs to.
     refresh = asyncio.create_task(refresh_cars_if_stale(settings, repo, cars, stored, log))
     recheck = asyncio.create_task(recheck_lap_starts(repo, stored, log))
+    first_pull = asyncio.create_task(
+        pull_shared_on_first_start(settings, repo, service, stored, log)
+    )
 
     if settings.source == "udp" and not settings.ps_ip:
         log.info(
@@ -249,7 +303,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Cancelled AND awaited: a task dropped while still pending logs a
     # "Task was destroyed but it is pending" warning on the way out, which
     # looks like a fault in a shutdown that is working correctly.
-    for task in (refresh, recheck):
+    for task in (refresh, recheck, first_pull):
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task

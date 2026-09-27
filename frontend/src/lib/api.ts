@@ -20,6 +20,7 @@ import type {
   RejudgeResult,
   SessionSummary,
   StintTrend,
+  SharedPullAll,
   SuggestionRejections,
   SurveyEdge,
   SurveyDiscard,
@@ -337,6 +338,9 @@ export const api = {
     // The configured shared repo's offerings; `configured: false` hides the
     // feature. Pulling merges through exactly the same path as import (#47).
     shared: () => get<SharedBundles>("/api/track-bundles/shared"),
+    // Every circuit the shared repo offers; a circuit it serves broken is
+    // listed under `failed` and the rest still come. Safe to repeat.
+    pullAllShared: () => send<SharedPullAll>("/api/track-bundles/shared/pull-all", "POST"),
     pullShared: (slug: string, track?: string) =>
       send<BundleMergeResult>(
         `/api/track-bundles/shared/${slug}/pull${track ? `?track=${encodeURIComponent(track)}` : ""}`,

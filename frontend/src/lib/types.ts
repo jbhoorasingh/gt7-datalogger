@@ -1058,3 +1058,10 @@ export interface SuggestionRejections {
   slug: string;
   rejected: string[];
 }
+
+// What POST /api/track-bundles/shared/pull-all answers: the circuits merged
+// (added_points 0 when nothing new came) and the ones the repo served broken.
+export interface SharedPullAll {
+  pulled: { slug: string; track: string; added_points: number }[];
+  failed: { slug: string; track: string; error: string }[];
+}

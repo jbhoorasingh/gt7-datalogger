@@ -494,6 +494,26 @@ export function TracksView() {
     });
   };
 
+  // Every circuit the repo offers, in one go. Not routed through `run`: how
+  // many came and which failed is the result.
+  const onPullAllShared = async () => {
+    setBusy(true);
+    try {
+      const result = await api.bundles.pullAllShared();
+      const fresh = result.pulled.filter((p) => p.added_points > 0).length;
+      toastSuccess(
+        `Pulled ${result.pulled.length} circuit${result.pulled.length === 1 ? "" : "s"}` +
+          (fresh < result.pulled.length ? ` (${fresh} with anything new)` : ""),
+      );
+      for (const f of result.failed) toastError(`${f.track}: ${f.error}`);
+      refresh();
+    } catch (e) {
+      toastError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const onPullShared = async (slug: string) => {
     await run("Bundle pulled", async () => {
       const result = await api.bundles.pullShared(slug);
@@ -960,6 +980,12 @@ export function TracksView() {
                 disabled: !shared?.configured && !sharedError,
                 onSelect: () => setSharedOpen(true),
               },
+              {
+                label: "Pull all from shared",
+                hint: "Every circuit the shared repo offers, merged like single pulls. Safe to repeat — only what changed is added.",
+                disabled: !shared?.configured || busy,
+                onSelect: () => void onPullAllShared(),
+              },
             ]}
           />
           <input
@@ -1055,6 +1081,13 @@ export function TracksView() {
           {data && rows.length === 0 && (
             <div className="p-8 text-center text-sm text-ink-dim">
               Nothing yet. Name a track from a lap in Sessions, or run a survey.
+              {shared?.configured && (
+                <div className="mt-3">
+                  <button className="btn btn-primary" disabled={busy} onClick={() => void onPullAllShared()}>
+                    Pull all circuits from the shared repo
+                  </button>
+                </div>
+              )}
             </div>
           )}
           {rows.length > 0 && visible.length === 0 && (
@@ -1307,6 +1340,16 @@ export function TracksView() {
         onClose={() => setSharedOpen(false)}
       >
         <div className="h-full overflow-y-auto px-4 py-3">
+          {shared?.configured && shared.bundles.length > 0 && (
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className="text-xs text-ink-dim">
+                {shared.bundles.length} circuit{shared.bundles.length === 1 ? "" : "s"} on offer
+              </span>
+              <button className="btn btn-primary" disabled={busy} onClick={() => void onPullAllShared()}>
+                Pull all
+              </button>
+            </div>
+          )}
           <p className="text-[11px] text-ink-faint">
             Contributed track bundles offered by the configured shared repo. Pulling one
             merges it through the same validation and voting path as an imported file, so

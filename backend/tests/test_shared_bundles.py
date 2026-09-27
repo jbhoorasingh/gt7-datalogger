@@ -2,12 +2,14 @@
 validated, the pulled document goes through the normal import path, and the
 server never fetches anywhere the index didn't point."""
 
+import logging
+
 import httpx
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.config import Settings
-from app.main import create_app
+from app.main import SHARED_FIRST_PULL_KEY, create_app, pull_shared_on_first_start
 from app.processing import shared_repo, track_bundle, track_compile, track_corrections
 from app.processing.cars import CarDatabase
 from app.service import TelemetryService
@@ -357,3 +359,115 @@ async def test_pull_with_bad_corrections_merges_nothing(client, monkeypatch) -> 
     })
     assert (await c.post("/api/track-bundles/shared/ring/pull")).status_code == 502
     assert track_bundle.load(tmp, "Ring") is None
+
+
+# --- pull all, and the first start's pull -------------------------------------
+
+
+def _two_circuits() -> dict:
+    return {
+        INDEX_URL: _index(_entry(), _entry(track="Loop", file="loop.json")),
+        "https://bundles.example/ring.json": _foreign_bundle(n=6),
+        "https://bundles.example/loop.json": _foreign_bundle(track="Loop", n=3),
+    }
+
+
+async def test_pull_all_merges_every_circuit(client, monkeypatch) -> None:
+    c, service, tmp = client
+    _serve(monkeypatch, _two_circuits())
+    changed: list[str] = []
+    monkeypatch.setattr(service, "bundle_changed", lambda track, road=True: changed.append(track))
+    body = (await c.post("/api/track-bundles/shared/pull-all")).json()
+    assert [p["slug"] for p in body["pulled"]] == ["ring", "loop"]
+    assert body["failed"] == []
+    assert track_bundle.load(tmp, "Ring") is not None
+    assert track_bundle.load(tmp, "Loop") is not None
+    assert changed == ["Ring", "Loop"]
+
+    # Repeatable: nobody's runs are counted twice.
+    again = (await c.post("/api/track-bundles/shared/pull-all")).json()
+    assert [p["added_points"] for p in again["pulled"]] == [0, 0]
+
+
+async def test_pull_all_reports_a_broken_circuit_and_pulls_the_rest(
+    client, monkeypatch
+) -> None:
+    c, _service, tmp = client
+    docs = _two_circuits()
+    docs["https://bundles.example/ring.json"] = {"format": "not-a-bundle"}
+    _serve(monkeypatch, docs)
+    body = (await c.post("/api/track-bundles/shared/pull-all")).json()
+    assert [p["slug"] for p in body["pulled"]] == ["loop"]
+    assert [f["slug"] for f in body["failed"]] == ["ring"]
+    assert track_bundle.load(tmp, "Ring") is None
+
+
+async def test_pull_all_unreadable_index_is_502(client, monkeypatch) -> None:
+    c, _service, _tmp = client
+    _serve(monkeypatch, {})
+    assert (await c.post("/api/track-bundles/shared/pull-all")).status_code == 502
+
+
+async def test_pull_all_unconfigured_404(client, monkeypatch) -> None:
+    c, service, _tmp = client
+    monkeypatch.setattr(service.settings, "shared_bundles_url", "")
+    assert (await c.post("/api/track-bundles/shared/pull-all")).status_code == 404
+
+
+class _Settings:
+    """Just what the first-start pull reads from the repository."""
+
+    def __init__(self) -> None:
+        self.values: dict[str, str] = {}
+
+    async def set_setting(self, key: str, value: str) -> None:
+        self.values[key] = value
+
+
+async def _first_start(client, monkeypatch, stored=None):
+    _c, service, _tmp = client
+    repo = _Settings()
+    monkeypatch.setattr(service, "bundle_changed", lambda track, road=True: None)
+    await pull_shared_on_first_start(
+        service.settings, repo, service, stored or {}, logging.getLogger("t")
+    )
+    return repo.values
+
+
+async def test_first_start_pulls_every_circuit_once(client, monkeypatch) -> None:
+    _c, _service, tmp = client
+    fetched = _serve(monkeypatch, _two_circuits())
+    marked = await _first_start(client, monkeypatch)
+    assert track_bundle.load(tmp, "Ring") is not None
+    assert track_bundle.load(tmp, "Loop") is not None
+    assert SHARED_FIRST_PULL_KEY in marked
+
+    # Marked: the next start fetches nothing.
+    fetched.clear()
+    await _first_start(client, monkeypatch, stored=marked)
+    assert fetched == []
+
+
+async def test_first_start_leaves_an_installation_with_bundles_alone(
+    client, monkeypatch
+) -> None:
+    _c, _service, tmp = client
+    track_bundle.merge_document(tmp, track_bundle.validate_document(_foreign_bundle()))
+    fetched = _serve(monkeypatch, _two_circuits())
+    marked = await _first_start(client, monkeypatch)
+    assert fetched == []
+    assert marked == {SHARED_FIRST_PULL_KEY: "not needed"}
+    assert track_bundle.load(tmp, "Loop") is None
+
+
+async def test_first_start_offline_tries_again_next_time(client, monkeypatch) -> None:
+    _serve(monkeypatch, {})
+    assert await _first_start(client, monkeypatch) == {}
+
+
+async def test_first_start_respects_a_blank_repo_url(client, monkeypatch) -> None:
+    _c, service, _tmp = client
+    monkeypatch.setattr(service.settings, "shared_bundles_url", "")
+    fetched = _serve(monkeypatch, _two_circuits())
+    assert await _first_start(client, monkeypatch) == {}
+    assert fetched == []
