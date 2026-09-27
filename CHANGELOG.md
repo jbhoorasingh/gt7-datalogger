@@ -20,6 +20,14 @@ Notable changes to GT7 Datalogger. The format follows
   as a labelled dot. The fastest lap is purple everywhere. `#/admin` links
   still work.
 
+### Added
+
+- **Find console.** Settings → Connection has a **Find console** button next
+  to the console IP. It broadcasts the heartbeat for up to three seconds,
+  even when an IP is saved, and fills in the address that answers with GT7
+  telemetry; Apply saves it. The live stream is not interrupted, and a
+  console that answered only the search stays out of the recording.
+
 ### Fixed
 
 - **Menus, pit stops and pauses no longer merge or split sessions.** (#120,
