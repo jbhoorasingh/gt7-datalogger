@@ -37,6 +37,9 @@ class LayoutPayload(BaseModel):
 
 class LayoutPatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=80)
+    # Kind only decides which picker lists the layout; /overlay?layout= and
+    # /dash?layout= render any layout, so switching it breaks no saved URL.
+    kind: Literal["overlay", "dash"] | None = None
     config: dict[str, Any] | None = None
 
 
@@ -92,7 +95,9 @@ async def update_layout(
     if patch.config is not None:
         _validate_config(patch.config)
     try:
-        updated = await repo.update_layout(layout_id, name=name, config=patch.config)
+        updated = await repo.update_layout(
+            layout_id, name=name, kind=patch.kind, config=patch.config
+        )
     except IntegrityError as exc:
         raise HTTPException(409, f'a layout named "{name}" already exists') from exc
     if updated is None:

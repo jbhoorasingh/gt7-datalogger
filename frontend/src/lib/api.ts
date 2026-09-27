@@ -373,7 +373,10 @@ export const api = {
       get<LayoutSummary>(`/api/layouts/${encodeURIComponent(String(ref))}`),
     create: (name: string, kind: "overlay" | "dash", config: LayoutConfig) =>
       send<LayoutSummary>("/api/layouts", "POST", { name, kind, config }),
-    update: (id: number, patch: { name?: string; config?: LayoutConfig }) =>
+    update: (
+      id: number,
+      patch: { name?: string; kind?: "overlay" | "dash"; config?: LayoutConfig },
+    ) =>
       send<LayoutSummary>(`/api/layouts/${id}`, "PUT", patch),
     remove: (id: number) => send<{ status: string }>(`/api/layouts/${id}`, "DELETE"),
   },
