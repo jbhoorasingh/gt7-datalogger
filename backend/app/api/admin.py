@@ -402,6 +402,13 @@ async def restart_source(request: Request) -> dict[str, Any]:
     return await svc(request).status()
 
 
+@router.post("/discover-console")
+async def discover_console(request: Request) -> dict[str, Any]:
+    """Find console: broadcast the heartbeat for a few seconds and report
+    which address answers with GT7 telemetry, without saving it."""
+    return await svc(request).discover_console()
+
+
 @router.post("/clear-data")
 async def clear_data(request: Request) -> dict[str, str]:
     service = svc(request)

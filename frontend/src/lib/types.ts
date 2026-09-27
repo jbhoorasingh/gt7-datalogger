@@ -1030,3 +1030,12 @@ export type WsMessage =
   | { type: "voice_callout"; data: VoiceCallout }
   | { type: "voice_output_status"; data: { active_client_id: string } }
   | { type: "race_engineer_status"; data: RaceEngineerStatus };
+
+// Find console (POST /api/admin/discover-console): which address answered a
+// broadcast heartbeat with GT7 telemetry. Reported only — nothing is saved.
+// `reason` says why no search ran (the simulator, a stopped listener).
+export interface ConsoleDiscovery {
+  found: boolean;
+  ip: string | null;
+  reason?: string;
+}

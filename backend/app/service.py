@@ -359,6 +359,21 @@ class TelemetryService:
     async def restart_source(self) -> None:
         await self.switch_source(self.settings.source)
 
+    async def discover_console(self) -> dict[str, Any]:
+        """Find console: which address answers a broadcast heartbeat.
+
+        Only reports — the saved IP is the user's to change (the Settings
+        page fills its draft and waits for Apply). The simulator has no
+        console to find, and a stopped listener has no socket to ask with;
+        both say so rather than read as "not found".
+        """
+        if not isinstance(self.source, UdpTelemetrySource):
+            return {"found": False, "ip": None, "reason": "simulated source"}
+        if not self.source.running:
+            return {"found": False, "ip": None, "reason": "listener not running"}
+        ip = await self.source.discover()
+        return {"found": ip is not None, "ip": ip}
+
     # --- pipeline callbacks -------------------------------------------------
 
     @property

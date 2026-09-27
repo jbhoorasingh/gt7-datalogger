@@ -8,6 +8,7 @@ import type {
   CoachingNotes,
   CompareResult,
   ConnectionStatus,
+  ConsoleDiscovery,
   DeviationResult,
   ExcludeReason,
   FuelMapResult,
@@ -401,6 +402,9 @@ export const api = {
     clearLogs: () => send<{ status: string }>("/api/admin/logs", "DELETE"),
     stats: () => get<AdminStats>("/api/admin/stats"),
     restartSource: () => send<ConnectionStatus>("/api/admin/restart-source", "POST"),
+    // Find console: broadcasts the heartbeat for up to ~3 s even when an IP
+    // is set, and reports who answered without saving it.
+    discoverConsole: () => send<ConsoleDiscovery>("/api/admin/discover-console", "POST"),
     clearData: () => send<{ status: string }>("/api/admin/clear-data", "POST"),
     vacuum: () => send<{ status: string }>("/api/admin/vacuum", "POST"),
     updateCars: () =>
