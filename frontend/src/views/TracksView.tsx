@@ -81,7 +81,7 @@ function SyncChip({ sync }: { sync: TrackSyncStatus }) {
     case "queued":
       label = due ? `sync in ${due}` : "sync queued";
       title =
-        "Changed since the last upload. It goes once it has been left alone for ten minutes — a running survey keeps resetting that clock — or at once from Admin → Sync → Sync now.";
+        "Changed since the last upload. It goes once it has been left alone for ten minutes — a running survey keeps resetting that clock — or at once from Settings › Sync › Sync now.";
       break;
     case "uploading":
       cls = "bg-accent/14 text-accent";
@@ -389,7 +389,7 @@ export function TracksView() {
       {data?.sync_tracks.active && data.sync_tracks.state === "error" && (
         <div className="panel border border-warn/40 px-3 py-2 text-xs text-warn">
           Track sync is not reaching the server: {data.sync_tracks.error || "unknown error"}.
-          Uploads are retried with backoff; check Admin → Sync.
+          Uploads are retried with backoff; check Settings › Sync.
         </div>
       )}
 
@@ -752,7 +752,7 @@ export function TracksView() {
           this installation is{" "}
           <span className="font-tabular">{data.source}</span>, the id stamped on every vote
           it casts so merged bundles can tell whose evidence is whose.
-          {!getAdminToken() && " Actions may need an admin token (Admin → Connection)."}
+          {!getAdminToken() && " Actions may need an admin token (Settings › Access)."}
         </p>
       )}
 

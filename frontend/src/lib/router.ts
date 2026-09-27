@@ -1,9 +1,16 @@
-// Minimal hash router: #/live, #/analysis, #/sessions, #/tracks, #/admin, with optional
+// Minimal hash router: #/live, #/analysis, #/sessions, #/tracks, #/settings, with optional
 // query params (#/analysis?session=3&laps=12,15&ref=15). The URL is the single
 // source of truth for cross-view handoff (Sessions/Live → Analysis) and makes
 // every view bookmarkable. The /overlay path is handled separately (lib/overlay).
 
-export type View = "live" | "analysis" | "sessions" | "survey" | "tracks" | "admin";
+export type View =
+  | "live"
+  | "analysis"
+  | "sessions"
+  | "survey"
+  | "tracks"
+  | "overlays"
+  | "settings";
 
 const VIEWS: readonly View[] = [
   "live",
@@ -11,7 +18,8 @@ const VIEWS: readonly View[] = [
   "sessions",
   "survey",
   "tracks",
-  "admin",
+  "overlays",
+  "settings",
 ];
 
 export interface Route {
@@ -25,6 +33,13 @@ export function parseHash(hash: string): Route {
   const path = qIndex >= 0 ? stripped.slice(0, qIndex) : stripped;
   const query = qIndex >= 0 ? stripped.slice(qIndex + 1) : "";
   const params = new URLSearchParams(query);
+  // Settings sections live in the path (#/settings/sync); Admin was renamed
+  // Settings, so old #/admin links land there too.
+  const [head, section] = path.split("/", 2);
+  if (head === "settings" || head === "admin") {
+    if (section) params.set("section", section);
+    return { view: "settings", params };
+  }
   // Bests folded into Sessions as a sub-tab; keep old #/bests links working.
   if (path === "bests") {
     params.set("sub", "bests");
@@ -41,6 +56,14 @@ export function routeHash(view: View, params?: Record<string, string>): string {
 
 export function navigate(view: View, params?: Record<string, string>): void {
   window.location.hash = routeHash(view, params);
+}
+
+export function settingsHash(section?: string): string {
+  return section ? `#/settings/${section}` : "#/settings";
+}
+
+export function openSettings(section?: string): void {
+  window.location.hash = settingsHash(section);
 }
 
 // Selection handed to the Analysis view via URL params.

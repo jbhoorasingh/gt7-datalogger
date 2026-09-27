@@ -140,8 +140,8 @@ async function fail(url: string, resp: Response): Promise<never> {
   if (resp.status === 401 || resp.status === 403) {
     throw new ApiError(
       resp.status === 401
-        ? "admin token required — set it in Admin → Connection"
-        : "admin token rejected — check it in Admin → Connection",
+        ? "admin token required — set it in Settings › Access"
+        : "admin token rejected — check it in Settings › Access",
       resp.status,
     );
   }

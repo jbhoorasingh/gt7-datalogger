@@ -1,7 +1,7 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Tip } from "@/components/ui/Tooltip";
 import { api } from "@/lib/api";
-import { navigate, type View } from "@/lib/router";
+import { navigate, openSettings, type View } from "@/lib/router";
 import { useSettings } from "@/store/settings";
 import { useTelemetry } from "@/store/telemetry";
 
@@ -11,8 +11,41 @@ const TABS: { id: View; label: string }[] = [
   { id: "sessions", label: "Sessions" },
   { id: "tracks", label: "Tracks" },
   { id: "survey", label: "Survey" },
-  { id: "admin", label: "Admin" },
+  { id: "overlays", label: "Overlays" },
+  { id: "settings", label: "Settings" },
 ];
+
+// How often the Settings tab re-checks the sync service for an error.
+const SYNC_POLL_MS = 60_000;
+
+// Whether anything in Settings wants a look: console frames dropped in
+// transit, or the sync service failing. Sync needs the admin API, so a
+// locked server simply shows no sync hint.
+function useSettingsAttention(framesDropped: number): boolean {
+  const [syncError, setSyncError] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    const check = () =>
+      api.admin
+        .sync()
+        .then((s) => {
+          if (!alive) return;
+          const failing =
+            s.enabled &&
+            (s.capabilities_error !== "" ||
+              Object.values(s.types).some((t) => t.enabled && t.state === "error"));
+          setSyncError(failing);
+        })
+        .catch(() => {});
+    check();
+    const id = window.setInterval(check, SYNC_POLL_MS);
+    return () => {
+      alive = false;
+      window.clearInterval(id);
+    };
+  }, []);
+  return framesDropped > 0 || syncError;
+}
 
 export function StatusBar({ view }: { view: View }) {
   const { status, wsConnected, setStatus } = useTelemetry();
@@ -22,17 +55,30 @@ export function StatusBar({ view }: { view: View }) {
     api.status().then(setStatus).catch(() => {});
   }, [setStatus]);
 
+  const settingsAttention = useSettingsAttention(status?.frames_dropped ?? 0);
+
   const telemetryUp = wsConnected && (status?.connected ?? false);
-  // The brand dot is decorative; reachability rides on the console-IP
-  // readout beside it, which the layout already reserves space for.
-  const sourceLabel =
-    status?.source === "sim" ? "Simulated source" : status?.console_ip || "auto-discover";
-  const sourceTitle = telemetryUp
-    ? `Receiving telemetry (${status?.console_ip})`
+  // A labelled dot, not colour alone: the words carry the state.
+  const telemetry = telemetryUp
+    ? {
+        label: status?.source === "sim" ? "Receiving · simulated" : "Receiving",
+        dot: "bg-throttle",
+        text: "text-throttle",
+        title: `Receiving telemetry from ${status?.source === "sim" ? "the simulator" : status?.console_ip}`,
+      }
     : wsConnected
-      ? "Server up, no telemetry — check console IP / UDP 33740"
-      : "Disconnected from server";
-  const sourceColor = telemetryUp ? "text-ink-faint" : wsConnected ? "text-warn" : "text-brake";
+      ? {
+          label: "No telemetry",
+          dot: "bg-warn",
+          text: "text-warn",
+          title: "Server up, no telemetry — check console IP / UDP 33740",
+        }
+      : {
+          label: "Offline",
+          dot: "bg-brake",
+          text: "text-brake",
+          title: "Disconnected from the datalogger server",
+        };
 
   return (
     <>
@@ -63,16 +109,28 @@ export function StatusBar({ view }: { view: View }) {
               }`}
             >
               {t.label}
+              {t.id === "settings" && settingsAttention && (
+                <span
+                  aria-label="needs attention"
+                  className="ml-1.5 inline-block h-[5px] w-[5px] -translate-y-px rounded-full bg-warn align-middle"
+                />
+              )}
             </button>
           ))}
         </nav>
 
         <div className="ml-auto flex items-center gap-2.5">
+          <Tip content={`${telemetry.title} — open Settings › Connection`}>
+            <button
+              onClick={() => openSettings("connection")}
+              className={`inline-flex items-center gap-1.5 text-[11px] ${telemetry.text} hover:underline`}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${telemetry.dot}`} />
+              {telemetry.label}
+            </button>
+          </Tip>
           {status && (
             <>
-              <Tip content={sourceTitle}>
-                <span className={`font-tabular text-[11px] ${sourceColor}`}>{sourceLabel}</span>
-              </Tip>
               <Tip content="Toggle lap recording">
                 <button
                   onClick={() =>

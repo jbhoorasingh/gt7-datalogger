@@ -11,12 +11,13 @@ import { useTelemetry } from "@/store/telemetry";
 // Every view is its own chunk (#33): an OBS overlay source or a phone on
 // /dash downloads only that view's code — in particular not ECharts, which
 // only the Analysis/Survey/Tracks maps use.
-const AdminView = lazy(() => import("@/views/AdminView").then((m) => ({ default: m.AdminView })));
 const AnalysisView = lazy(() => import("@/views/AnalysisView").then((m) => ({ default: m.AnalysisView })));
 const DashView = lazy(() => import("@/views/DashView").then((m) => ({ default: m.DashView })));
 const EngineerView = lazy(() => import("@/views/EngineerView").then((m) => ({ default: m.EngineerView })));
 const LiveView = lazy(() => import("@/views/LiveView").then((m) => ({ default: m.LiveView })));
+const OverlaysView = lazy(() => import("@/views/OverlaysView").then((m) => ({ default: m.OverlaysView })));
 const OverlayView = lazy(() => import("@/views/OverlayView").then((m) => ({ default: m.OverlayView })));
+const SettingsView = lazy(() => import("@/views/SettingsView").then((m) => ({ default: m.SettingsView })));
 const SessionsView = lazy(() => import("@/views/SessionsView").then((m) => ({ default: m.SessionsView })));
 const SurveyView = lazy(() => import("@/views/SurveyView").then((m) => ({ default: m.SurveyView })));
 const TracksView = lazy(() => import("@/views/TracksView").then((m) => ({ default: m.TracksView })));
@@ -82,7 +83,8 @@ export default function App() {
             {route.view === "sessions" && <SessionsView subTab={route.params.get("sub") === "bests" ? "bests" : "sessions"} />}
             {route.view === "survey" && <SurveyView />}
             {route.view === "tracks" && <TracksView />}
-            {route.view === "admin" && <AdminView />}
+            {route.view === "overlays" && <OverlaysView />}
+            {route.view === "settings" && <SettingsView section={route.params.get("section")} />}
           </Suspense>
         </main>
         <Toasts />

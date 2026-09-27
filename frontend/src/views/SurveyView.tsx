@@ -917,7 +917,7 @@ export function SurveyView() {
       {active && status != null && status.no_surface_packets > 0 && (
         <div className="rounded-lg border border-brake/50 bg-brake/10 px-3 py-2 text-sm text-brake">
           Packets carry no surface data — the console isn't answering on packet
-          format C. Check Admin → Connection (game v1.68+ required).
+          format C. Check Settings › Connection (game v1.68+ required).
         </div>
       )}
       {Object.keys(status?.unknown_flag_bits ?? {}).length > 0 && (

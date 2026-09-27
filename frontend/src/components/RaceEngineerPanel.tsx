@@ -260,7 +260,7 @@ export function RaceEngineerPanel({
                 title={
                   !onServer
                     ? "the server never produces this category — raise its maximum "
-                      + "verbosity in Admin → Race Engineer"
+                      + "verbosity in Settings › Race Engineer"
                     : CATEGORY_HINT[category]
                 }
               >
@@ -344,7 +344,7 @@ export function CalloutReference({
                 {inMode && !onServer && (
                   <span className="text-[10px] text-warn">
                     — the server never produces this: raise its maximum verbosity
-                    in Admin → Race Engineer
+                    in Settings › Race Engineer
                   </span>
                 )}
               </div>

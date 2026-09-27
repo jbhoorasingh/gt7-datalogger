@@ -33,7 +33,7 @@ export const CALLOUT_CATALOG: Record<CalloutCategory, CategoryInfo> = {
       {
         event: "test",
         example: "Race engineer test callout.",
-        when: "Admin → Race Engineer → Send test callout",
+        when: "Settings › Race Engineer › Send test callout",
       },
     ],
   },

@@ -2,7 +2,6 @@
 // viewer, and data management.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { LayoutBuilder } from "@/components/LayoutBuilder";
 import { ConfirmDialog } from "@/components/ui/Dialog";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Select } from "@/components/ui/Select";
@@ -43,7 +42,20 @@ const LEVEL_COLORS: Record<string, string> = {
   CRITICAL: "text-brake",
 };
 
-export function AdminView() {
+// Section slugs in #/settings/{section}, mapped to the panel that holds them
+// until each section gets its own page.
+const SECTION_PANEL: Record<string, string> = {
+  connection: "connection",
+  access: "connection",
+  health: "diagnostics",
+  notifications: "notifications",
+  "race-engineer": "race-engineer",
+  sync: "sync",
+  logs: "logs",
+  data: "data-management",
+};
+
+export function SettingsView({ section }: { section?: string | null }) {
   const setStatus = useTelemetry((s) => s.setStatus);
   const [settings, setSettings] = useState<AdminSettings | null>(null);
   const [settingsError, setSettingsError] = useState<Error | null>(null);
@@ -54,6 +66,11 @@ export function AdminView() {
   const flash = useCallback((text: string, error = false) => {
     toast(text, error ? "error" : "success");
   }, []);
+
+  useEffect(() => {
+    const panel = section ? SECTION_PANEL[section] : undefined;
+    if (panel) document.getElementById(`settings-${panel}`)?.scrollIntoView({ block: "start" });
+  }, [section]);
 
   const refreshStats = useCallback(() => {
     api.admin.stats().then((s) => {
@@ -211,14 +228,6 @@ export function AdminView() {
         ) : (
           <div className="p-4 text-sm text-ink-dim">Loading…</div>
         )}
-      </Panel>
-
-      {/* Overlay & dashboard layout builder */}
-      <Panel
-        title="Overlay & dashboard builder"
-        subtitle="design OBS overlays and driver dashboards"
-      >
-        <LayoutBuilder flash={flash} />
       </Panel>
 
       {/* Logs */}
@@ -1279,7 +1288,7 @@ function Panel({
   children: React.ReactNode;
 }) {
   return (
-    <div className="panel min-w-0">
+    <div id={`settings-${title.toLowerCase().replace(/ /g, "-")}`} className="panel min-w-0 scroll-mt-3">
       <div className="flex items-baseline gap-2 px-4 py-2.5">
         <span className="section-header">{title}</span>
         {subtitle && <span className="text-[10.5px] text-ink-faint">{subtitle}</span>}
