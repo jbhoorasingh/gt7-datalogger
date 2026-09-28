@@ -49,9 +49,9 @@ Check, in this order:
 
 ## Output
 
-Write a report listing each finding with its severity (CRITICAL, HIGH,
-MEDIUM, LOW), file and line, how it could be exploited, and the fix. Put
-it in the pull request description. Say plainly when nothing was found.
+Write a report listing each finding with its severity (CRITICAL,
+MEDIUM or LOW), file and line, how it could be exploited, and the fix.
+Return the report to the user. Say plainly when nothing was found.
 
 Fix a finding in code only when the fix is small, clearly correct and
 covered by an existing or new test under `backend/tests` or `frontend`.
