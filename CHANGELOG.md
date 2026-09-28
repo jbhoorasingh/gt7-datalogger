@@ -22,6 +22,11 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Fixed
 
+- **The fastest lap is purple everywhere.** The overlay and dash times
+  widget, the Sessions list and the Bests board still drew it in the accent
+  blue. On the Bests board a slower time's gap is neutral grey rather than
+  red. A `fastest` colour joins the theme, with the same value as the
+  charts' `FASTEST_COLOR`.
 - **The position widget no longer reads "P-1/0" outside a race.** GT7 sends
   -1 and a field of 0 in practice, time trial and menus. The widget now shows
   a dash until there is a real position.

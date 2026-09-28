@@ -653,7 +653,7 @@ function SessionList({
                   {recordingId === s.id && <RecordingDot />}
                   <span className="truncate text-[12.5px] font-medium">{s.car_name}</span>
                 </span>
-                <span className="text-right font-tabular text-xs text-accent">
+                <span className="text-right font-tabular text-xs text-fastest">
                   {s.best_lap_time_ms != null ? formatLapTime(s.best_lap_time_ms) : "–"}
                 </span>
                 <span className="flex min-w-0 items-center gap-1.5">

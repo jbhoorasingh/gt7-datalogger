@@ -36,6 +36,9 @@
   --color-brake: #f47272;
   --color-coast: #5b93f5;
   --color-warn: #f5b14e;
+  /* The fastest lap, wherever a lap time is listed or charted. Same value
+     as FASTEST_COLOR in lib/colors.ts, which the charts read. */
+  --color-fastest: #a855f7;
 
   --radius-panel: 8px;
 }

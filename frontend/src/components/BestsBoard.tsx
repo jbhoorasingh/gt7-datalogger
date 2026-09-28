@@ -59,7 +59,7 @@ function CircuitBests({ track, rows }: { track: string; rows: PersonalBest[] }) 
     <div className="panel">
       <div className="flex items-baseline gap-2.5 px-4 py-2.5">
         <span className="text-[13.5px] font-medium">{track}</span>
-        <span className="ml-auto font-tabular text-[13px] text-accent">
+        <span className="ml-auto font-tabular text-[13px] text-fastest">
           {formatLapTime(fastest)}
         </span>
       </div>
@@ -96,10 +96,10 @@ function CircuitBests({ track, rows }: { track: string; rows: PersonalBest[] }) 
                     {formatTimeShort(row.finished_at)}
                   </span>
                 </span>
-                <span className={gap === 0 ? "text-throttle" : "text-brake"}>
+                <span className={gap === 0 ? "text-fastest" : "text-ink-dim"}>
                   {gap === 0 ? "best" : `+${(gap / 1000).toFixed(3)}`}
                 </span>
-                <span className={gap === 0 ? "text-accent" : "text-ink"}>
+                <span className={gap === 0 ? "text-fastest" : "text-ink"}>
                   {formatLapTime(row.time_ms)}
                 </span>
                 <Tip content="Open this lap in the Analysis view">

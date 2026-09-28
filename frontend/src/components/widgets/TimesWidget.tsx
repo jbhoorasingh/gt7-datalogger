@@ -11,7 +11,7 @@ export function TimesWidget({ frame, variant }: WidgetRenderProps) {
     return (
       <div className="flex flex-col items-center justify-center">
         <div
-          className={`text-3xl font-bold leading-none ${isLast ? "" : "text-accent"}`}
+          className={`text-3xl font-bold leading-none ${isLast ? "" : "text-fastest"}`}
         >
           {formatLapTime(ms)}
         </div>
@@ -31,7 +31,7 @@ export function TimesWidget({ frame, variant }: WidgetRenderProps) {
       </div>
       <div>
         <span className="text-ink-dim">BEST </span>
-        <span className="text-accent">{formatLapTime(frame.best_lap_ms)}</span>
+        <span className="text-fastest">{formatLapTime(frame.best_lap_ms)}</span>
       </div>
       <div>
         <span className="text-ink-dim">LAST </span>
