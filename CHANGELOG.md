@@ -5,6 +5,8 @@ Notable changes to GT7 Datalogger. The format follows
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-28
+
 ### Changed
 
 - **The session being recorded can be deleted once recording is paused.**
@@ -29,9 +31,61 @@ Notable changes to GT7 Datalogger. The format follows
   unreachable server and a silent console. The status bar shows telemetry
   as a labelled dot. The fastest lap is purple everywhere. `#/admin` links
   still work.
+- **The simulated car has a heading.** The simulator sent every packet with
+  a velocity of `(speed, 0, 0)` and no orientation, whichever way the car was
+  going. It now sends the velocity along the path it is driving and the
+  car's orientation as GT7 does, turned from the path by a body slip that
+  points the nose out of a slow corner and into a fast one, so the body slip
+  channel can be seen in sim mode. `build_packet` takes an `orientation`.
+- **The Race Engineer's coaching compares laps by place, and knows which
+  corner a braking zone belongs to.** (#110) Two things were wrong with
+  "you braked twelve metres earlier into turn five". The laps were compared
+  at equal *distance*, and a lap's own distance drifts from another's by a
+  median 2.9 m and up to 64 m — the Analysis view has lined laps up by
+  position since 0.6, the engineer had not. And the braking point was "the
+  first brake application in the 250 m before the corner's entry", which
+  through a sequence is often the corner before's: on the best laps of nine
+  stored sessions it disagreed with where the corner's braking zone began at
+  41 of 105 corners. Coaching now puts every lap on the reference lap's
+  axis before comparing (off the event loop, at the lap boundary), and takes
+  what a lap did at a corner from `processing/corner_metrics` — each brake
+  application belongs to one corner, the first apex its midpoint has not
+  reached, and a corner's braking zone is the one that took the most speed
+  off. The lap analysis document uses the same definitions, so the two
+  cannot disagree. Replayed over 21 stored sessions the number of coaching
+  notes is unchanged (120) and 59 are word for word the same; gone are the
+  likes of "you are braking early into turn ten, about two hundred thirteen
+  meters". Thresholds for what is worth saying are unchanged.
+- **SQLAlchemy 2.1 or newer is required.** The repository layer's `Select`
+  and `Row` annotations follow 2.1's variadic generics (a five-column
+  projection is `Row[int, int, int, bool, bool]`; a row of any shape is
+  `Row[*tuple[Any, ...]]`). No query changed.
+- **Compiled borders are smoothed.** A border record sits on a 1 m grid, and
+  an `edge` record and a `straddle` record of the same kerb disagree by up to
+  a metre about where it is, so an ordered border stepped sideways wherever
+  the kind changed — nicks in the drawn line, and a road whose edge moved a
+  metre in a metre. The compiler now smooths each surveyed run with Taubin's
+  λ|μ pass, which does not pull curves towards their inside the way an
+  average does: against corners whose true border is known it stays within
+  0.35 m on everything from a 3 m kerb to an 80 m sweeper, where a ±8 m
+  moving average cuts 2 m off the kerb. Ends of a run stay where the survey
+  stopped, nothing is smoothed across a gap, no vertex moves more than
+  0.75 m from its record (under `track_limits`' edge margin), and the bundle
+  itself is never rewritten. Over the 24 circuits in the shared map: 3 103
+  kinks to 19, every gap span unchanged, coverage within 0.3 of a point.
+  `compile_bundle(doc, smooth=False)` compiles the evidence exactly as
+  recorded, and the document's new `smoothing` key says which it got.
+  Compiled format 3, so every stored compile is rebuilt once.
 
 ### Fixed
 
+- **A lap's top speed is a speed.** Its `gearing.top_speed` was written
+  from `transmission_top_speed`, which GT7 sends as a ratio (2.3 for a tuned
+  AE86), so the gearing panel's "est. @ redline" column read 1–2 km/h for
+  every real recording. It now comes from GT7's own estimate,
+  `calculated_max_speed`, on both the live and salvaged lap paths (#128).
+  The simulator had hidden this by sending 290 in the ratio field. Laps
+  recorded before keep the ratio in their stored gearing.
 - **"Delete all recorded data" while recording no longer strands the next
   laps.** It cleared the tables but left the recorder holding the wiped
   session, so the laps driven next were saved against a session that no
@@ -321,54 +375,6 @@ Notable changes to GT7 Datalogger. The format follows
   (the track-data pack's import script). The compiled document is version 4
   and says what was done under `corrections`; the Shared bundles panel marks
   a circuit the repo corrects, and the pull's toast says what was applied.
-
-### Changed
-
-- **The simulated car has a heading.** The simulator sent every packet with
-  a velocity of `(speed, 0, 0)` and no orientation, whichever way the car was
-  going. It now sends the velocity along the path it is driving and the
-  car's orientation as GT7 does, turned from the path by a body slip that
-  points the nose out of a slow corner and into a fast one, so the body slip
-  channel can be seen in sim mode. `build_packet` takes an `orientation`.
-- **The Race Engineer's coaching compares laps by place, and knows which
-  corner a braking zone belongs to.** (#110) Two things were wrong with
-  "you braked twelve metres earlier into turn five". The laps were compared
-  at equal *distance*, and a lap's own distance drifts from another's by a
-  median 2.9 m and up to 64 m — the Analysis view has lined laps up by
-  position since 0.6, the engineer had not. And the braking point was "the
-  first brake application in the 250 m before the corner's entry", which
-  through a sequence is often the corner before's: on the best laps of nine
-  stored sessions it disagreed with where the corner's braking zone began at
-  41 of 105 corners. Coaching now puts every lap on the reference lap's
-  axis before comparing (off the event loop, at the lap boundary), and takes
-  what a lap did at a corner from `processing/corner_metrics` — each brake
-  application belongs to one corner, the first apex its midpoint has not
-  reached, and a corner's braking zone is the one that took the most speed
-  off. The lap analysis document uses the same definitions, so the two
-  cannot disagree. Replayed over 21 stored sessions the number of coaching
-  notes is unchanged (120) and 59 are word for word the same; gone are the
-  likes of "you are braking early into turn ten, about two hundred thirteen
-  meters". Thresholds for what is worth saying are unchanged.
-- **SQLAlchemy 2.1 or newer is required.** The repository layer's `Select`
-  and `Row` annotations follow 2.1's variadic generics (a five-column
-  projection is `Row[int, int, int, bool, bool]`; a row of any shape is
-  `Row[*tuple[Any, ...]]`). No query changed.
-- **Compiled borders are smoothed.** A border record sits on a 1 m grid, and
-  an `edge` record and a `straddle` record of the same kerb disagree by up to
-  a metre about where it is, so an ordered border stepped sideways wherever
-  the kind changed — nicks in the drawn line, and a road whose edge moved a
-  metre in a metre. The compiler now smooths each surveyed run with Taubin's
-  λ|μ pass, which does not pull curves towards their inside the way an
-  average does: against corners whose true border is known it stays within
-  0.35 m on everything from a 3 m kerb to an 80 m sweeper, where a ±8 m
-  moving average cuts 2 m off the kerb. Ends of a run stay where the survey
-  stopped, nothing is smoothed across a gap, no vertex moves more than
-  0.75 m from its record (under `track_limits`' edge margin), and the bundle
-  itself is never rewritten. Over the 24 circuits in the shared map: 3 103
-  kinks to 19, every gap span unchanged, coverage within 0.3 of a point.
-  `compile_bundle(doc, smooth=False)` compiles the evidence exactly as
-  recorded, and the document's new `smoothing` key says which it got.
-  Compiled format 3, so every stored compile is rebuilt once.
 
 ## [0.6.2] - 2026-09-19
 
