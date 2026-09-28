@@ -22,6 +22,9 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Fixed
 
+- **The position widget no longer reads "P-1/0" outside a race.** GT7 sends
+  -1 and a field of 0 in practice, time trial and menus. The widget now shows
+  a dash until there is a real position.
 - **Pitting on a lap's last stretch no longer splits the race.** GT7
   reports the line crossing into the next lap while the car is in the pit
   lane, where it is not "on track". The lap was salvaged from its GT7 time,
