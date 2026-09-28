@@ -86,8 +86,7 @@ with event counts (`2L·1S·4B` = lockups · wheelspins · bottoming):
 
 ![Tracks view](screenshots/tracks.png)
 
-*Screenshots were captured against the built-in simulated telemetry source, except the
-Tracks view, which shows real recorded sessions — an empty one would say nothing.*
+*Screenshots were captured against the built-in simulated telemetry source on a scratch database, with the circuits pulled from the shared track repo.*
 
 ## How it works
 

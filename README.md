@@ -499,5 +499,4 @@ what is surveyed, what is named, and what the official layout is:
 
 ![Tracks view](docs/screenshots/tracks.png)
 
-*Screenshots were captured against the built-in simulated telemetry source, except the
-Tracks view, which shows real recorded sessions — an empty one would say nothing.*
+*Screenshots were captured against the built-in simulated telemetry source on a scratch database, with the circuits pulled from the shared track repo.*

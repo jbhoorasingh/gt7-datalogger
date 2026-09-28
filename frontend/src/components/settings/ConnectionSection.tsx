@@ -10,7 +10,7 @@ const NOT_FOUND =
 const FORMATS: { value: AdminSettings["packet_format"]; tag: string; desc: string }[] = [
   { value: "A", tag: "GT7 < 1.42", desc: "Core channels only." },
   { value: "B", tag: "1.42+", desc: "Adds wheel rotation, sway." },
-  { value: "~", tag: "1.42+", desc: "B plus car-local velocity." },
+  { value: "~", tag: "1.42+", desc: "B plus filtered inputs & torque vectors." },
   { value: "C", tag: "1.68+ · best", desc: "Everything, incl. surface & positions." },
 ];
 
