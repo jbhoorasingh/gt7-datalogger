@@ -39,7 +39,7 @@ Dropped datagrams therefore widen the time/distance steps instead of silently
 compressing the axes. The pid tracker also advances on paused, off-track and loading
 packets, so resuming sees a ~1-frame gap — inactive frames add no lap time or distance. Frames
 lost in transit are counted and reported as `frames_dropped` in `/api/status` and
-the Admin diagnostics.
+Settings › Health.
 
 Input metrics (full-throttle %, braking %, coasting %, tire spin, TCS/ASM activity)
 are **time-weighted** using the `t` deltas, so a sample recorded after a gap counts
@@ -128,7 +128,7 @@ replays never provide.
 
 Note what salvage deliberately does not fix: telemetry cannot tell a salvaged replay
 of someone else's lap from your own driving — that is what the Sessions view's
-[exclude-from-bests toggle](../guide/sessions-view.md#excluding-a-session-from-bests)
+[Exclude from bests](../guide/sessions-view.md#excluding-a-session-from-bests)
 is for. `GT7_SIM_SCENARIO=leader_replay` stages exactly this stream (pre-roll, one
 flying lap as lap 0 with a running packet-C clock, then `LOADING`) for testing the
 path without a console.
@@ -172,7 +172,7 @@ When a new session starts, the previous one is closed first:
   don't pile up as empty rows. [Replay salvage](#replay-salvage) runs first, so a
   replay session whose only lap ended exactly at the line is saved, not swept away;
 - a session with laps triggers the `session_summary`
-  [webhook notification](../guide/admin.md#notifications) (car, track, laps, best lap,
+  [webhook notification](../guide/settings.md#notifications) (car, track, laps, best lap,
   fuel used).
 
 On the **first completed lap** of a session, the lap's geometry is compared against the

@@ -1,35 +1,66 @@
 # Sessions view
 
 `#/sessions` — your lap archive. Sessions are created automatically (split on car change
-or race restart — see [Lap detection & sessions](../internals/lap-detection.md)) and
-listed newest first.
+or race restart — see [Lap detection & sessions](../internals/lap-detection.md)).
 
 ![Sessions view](../screenshots/sessions.png)
 
-## Session rows
+The view is master–detail: the session list on the left, the chosen session on the
+right. Two sub-tabs sit top left — **Sessions** and **Bests** (the
+[Bests board](bests-view.md)) — with the category chips, a search box and the
+[header actions](#header-actions) beside them.
 
-Each row shows the session id, car, start time, lap count, best lap, a **lap-time
-sparkline** (chronological lap times with the best lap dotted in accent), and the track.
-Under the sparkline is the session's **consistency**: `±0.42 s · 0.4%` is the standard
-deviation of the lap times and that as a percentage of the median lap. It is taken over
-the laps that [count toward bests](#excluding-a-lap-from-bests) only, needs three of
-them, and is green under 0.5 %, amber from 1.5 %. Analysis shows the same figure with
-the [lap-time chart](analysis-view.md#side-panels) behind it.
+## Session list
 
-The track is shown as:
+Sessions are listed newest first and grouped by date (*Today*, *Yesterday*, the
+weekday for the rest of the week, a date before that). Each entry shows the car, its
+best lap, the track, the session id and start time, and the lap count. The session
+being recorded carries a pulsing red dot.
 
-- a track **badge** when the track is known;
-- a dashed **name track…** button when it isn't. Naming it fingerprints the circuit from
-  the session's first lap, and **every future session on that track is tagged
-  automatically** — see [Track identification](../internals/track-identification.md).
+The track is shown as a **badge** when it is known, and as *unnamed circuit* when it
+isn't.
 
-Click a row (or the chevron) to expand its lap table; **Analyze** opens the session in
-Analysis with *latest vs best* selected.
+**Filter by car, circuit or #tag** narrows the list as you type; `#wet` matches the
+tag.
+
+## Session detail
+
+The header of the chosen session holds:
+
+- the session id, start time (and *recording now* for the live session), the car and
+  its published figures (manufacturer, drivetrain, aspiration, power, weight, PP —
+  hover for the full list);
+- the track badge, or a dashed **name track…** button when the track is unknown.
+  Naming it fingerprints the circuit from the session's first lap, and **every future
+  session on that track is tagged automatically** — see
+  [Track identification](../internals/track-identification.md);
+- chips for the class, the [race result](#race-results), *excluded from bests*, and
+  the [tags](#notes-tags), with **+ tag** and **+ note**;
+- **Analyze session** — opens the session in Analysis, where you pick the laps to
+  compare;
+- **Export ▾** — [Session ZIP, Session analysis, All laps · CSV](#exports);
+- **⋯** — **Exclude from bests** / **Include in bests**, **Name track…** (when the
+  track is unknown), and **Delete session…**.
+
+Under it, a **stat strip**: **Best** (and which lap), **Average** of the counting
+laps, **Consistency**, **Within 0.5 s** (how many counting laps are within half a
+second of the best), and **Fuel** per lap — with the fuel left in the tank for the
+session you are driving.
+
+**Consistency** is the standard deviation of the lap times, taken over the laps that
+[count toward bests](#excluding-a-lap-from-bests) only; it needs three of them.
+
+Then the **Lap time by lap** chart — every lap's time in order, the best in purple, a
+dashed median line and the spread band; its footer gives the spread as a percentage
+of the median. It is the same chart as
+[Analysis's](analysis-view.md#side-panels). Clicking a point ticks that lap in the
+table below.
 
 ## Category filter
 
 When GT7 broadcasts the car's class (packet C — "Gr.3", "Gr.4", "N300"…), it appears as
-a chip on each row and a filter strip above the list: *show me only the Gr.3 runs*. Only
+a chip on the session and in a strip of filter chips at the top: *show me only the
+Gr.3 runs*. The same chips filter the Bests sub-tab. Only
 classes actually present are offered, so the strip disappears entirely on a history
 recorded before packet C, and **All** is the only way back to sessions that have no
 class at all. A session whose own class is blank — its very first packet was a narrower
@@ -37,8 +68,8 @@ format — takes the class its laps recorded.
 
 ## Race results
 
-A session that saw the checkered flag carries its result: a **P3/12**-style chip on the
-row, with the race length and — when it can be known — the total race time in the
+A session that saw the checkered flag carries its result: a **P3/12**-style chip in the
+header, with the race length and — when it can be known — the total race time in the
 chip's tooltip. The result is written once, at the moment GT7's lap counter passes the
 race distance, so it means *position at the finish*:
 
@@ -59,15 +90,14 @@ the **Race position** channel in [Analysis](analysis-view.md#channel-picker).
 
 ## Notes & tags
 
-Expanding a session reveals an editor for two user-set fields:
+The session header edits two user-set fields in place:
 
 - **Notes** — free text, up to 500 characters: setup changes, conditions, what to try
-  next. A session with a note shows a ✎ marker on its row; hover it to read the note
-  without expanding.
-- **Tags** — short repeatable labels ("wet", "race sim", "testing new diff"), added
-  with **Enter** or the **add** button and removed from their chips. Tags appear on the
-  session row, and once any exist a **Tag** filter strip joins the category filter above
-  the list — the two combine, so *Gr.3 + wet* is one click each.
+  next. **+ note** opens the editor; **Save note** saves it, Escape cancels. A saved
+  note shows under the car line; click it to edit.
+- **Tags** — short repeatable labels ("wet", "race sim", "testing new diff"). **+ tag**
+  opens a field; Enter adds the tag. Click a tag to filter the list by it (`#wet`),
+  and its **×** to remove it.
 
 Tags are deduplicated case-insensitively, limited to 40 characters, and may not contain
 commas. Both fields save through the same admin-gated PATCH as the bests toggle below,
@@ -75,7 +105,8 @@ and editing one never disturbs the other.
 
 ## Excluding a session from bests
 
-Each session offers an **exclude from bests** toggle. It exists because of replays:
+Each session's **⋯** menu offers **Exclude from bests** (and **Include in bests** to
+undo it); an excluded session says so with a chip in its header. It exists because of replays:
 GT7 streams a replay exactly like driving — no flag distinguishes them — so watching
 the time-trial leader's lap [records it](../internals/lap-detection.md#replay-salvage)
 into *your* history, and nothing in the telemetry can tell that lap from one you
@@ -92,39 +123,54 @@ replay — but it never owns a Bests row and never provides the
 
 The session toggle is for laps that aren't yours. For your own laps that shouldn't
 stand — an off-track moment, contact, a restart, a lap you know was dirty — each row of
-the lap table has a **Counts** checkbox. Untick it and the lap leaves every best at
-once: the session best, the [Bests board](bests-view.md), the
-[class benchmark](analysis-view.md#side-panels), and the Race Engineer's pace and
-coaching comparisons. A **why?** picker appears beside it — *off-track*, *contact*,
+the lap table has **Exclude from bests** in its **⋯** menu (or tick several laps and
+use the bulk bar). The lap leaves every best at once: the session best, the
+[Bests board](bests-view.md), the [class benchmark](analysis-view.md#side-panels),
+and the Race Engineer's pace and coaching comparisons. The lap is dimmed and an
+**excluded · why?** picker appears beside its number — *off-track*, *contact*,
 *restart*, *dirty* or *pit-out* — and the Bests board shows that reason next to the
 time it replaced.
 
-The checkbox works the other way too. The
+It works the other way too. The
 [partial-lap guard](../internals/lap-detection.md#best-lap-tracking) marks laps it
 thinks covered only part of the track as **partial** — and so is lap 1 of a race, which
 [starts from the grid](../internals/lap-detection.md#where-a-lap-begins), not the line,
-so its time is not a lap time. If the guard got one wrong, tick it and the lap counts
-(**kept**). Ticking or unticking a lap back to what the guard says hands
-it back to the guard, so a lap you excluded and then re-ticked follows the guard again
-rather than staying pinned.
+so its time is not a lap time. If the guard got one wrong, **Count for bests** in the
+lap's **⋯** menu makes it count (**kept**). Setting a lap back to what the guard says
+hands it back to the guard, so a lap you excluded and then counted again follows the
+guard again rather than staying pinned.
 
-An excluded lap keeps its row, its telemetry and its place in Analysis, and its Δ
-column still shows how it compared (signed, because a lap that doesn't count can be
-quicker than the best). If the lap belongs to the session you are driving right now,
-the live session best and the Δ-best reference move with it immediately. The checkbox
+An excluded lap keeps its row, its telemetry and its place in Analysis. If the lap belongs to the session you are driving right now,
+the live session best and the Δ-best reference move with it immediately. The ruling
 is admin-gated when `GT7_ADMIN_TOKEN` is set.
 
 ## Lap table
 
-Per lap: time (best in accent), Δ to session best, whether it **counts** toward bests
-(see above), fuel used, full-throttle %, full-brake %, coasting %, tire-spin %, events,
-and max speed.
+Per lap: its colour (the same colour it gets in Analysis charts and maps; the fastest
+lap is purple), number, time, **Δ best** (to the session best), position (races
+only), fuel used, full-throttle %, full-brake %, coasting %, tire-spin %, events, and
+max speed. **Newest first** / **Fastest first** sorts it.
+
+**Columns that never change are hidden.** A column that reads the same on every
+counting lap — the same fuel use on a fixed-fuel run, 0 % spin — is dropped, and a
+line above the table lists what was hidden and its value (*Same on every lap, hidden:
+fuel 1.80 L · spin 0%*). **Columns…** shows or hides any column by hand;
+**Automatic — hide what never changes** goes back to the default.
+
+A lap that does not count toward bests is dimmed and labelled: *partial*, *kept*, or
+*excluded · reason* (see [above](#excluding-a-lap-from-bests)). A salvaged lap
+carries **⟲**.
+
+**The lap in progress.** While you are driving the session, the lap being driven is
+pinned above the completed laps (*in progress*), its time and Δ to the session best
+ticking live. It joins the table as a normal row when it completes.
 
 The **Events** column is a compact code — `2L·1S·3B·1K` means 2 lockups, 1 wheelspin,
 3 suspension bottomings, 1 kerb strike; `–` means a clean lap.
 
-The **Off-track** column can carry two figures, because two different judges
-watch the lap. The first counts excursions by GT7's own per-wheel surface
+Off-track excursions ride in the same column, as red `⚠` counts, and can carry two
+figures, because two different judges watch the lap (hover for the words). The first
+counts excursions by GT7's own per-wheel surface
 flags (three or more wheels on the loose) — which are blind to paved run-off:
 running wide over asphalt reads as tarmac and stays "clean". The second
 appears once the circuit has been [surveyed](tracks-view.md) well enough
@@ -146,22 +192,30 @@ The surface-flag verdict is GT7's own and never moves. **Re-check laps** on
 the [Tracks view](tracks-view.md) forces the pass and says how many verdicts
 changed.
 
-Row actions:
+**Tick laps** (the checkboxes, or click a row) to act on several at once: a bar
+appears at the bottom with **Exclude from bests**, **Export laps** (one JSON file per
+lap) and **Delete…**. Ticking is only for acting on laps — Analysis always opens the
+whole session, and the comparison is picked there.
+
+Each row's **⋯** menu:
 
 | Action | What it does |
 | --- | --- |
-| **compare** | opens Analysis with this lap vs the session's best (best as reference) |
-| **set ref** | opens Analysis with this lap as the reference |
-| **json** | downloads the lap as `gt7-lap-<id>.json` — the full 60 Hz recording, shareable and re-importable |
-| **csv** | downloads a **MoTeC-compatible CSV** for MoTeC i2 or Excel |
-| **delete** | removes the lap and its telemetry (confirmed, irreversible) |
+| **Open in Analysis** | opens Analysis with this lap vs the session's best (best as reference) |
+| **Set as reference** | opens Analysis with this lap as the reference |
+| **Export JSON** | downloads the lap as `gt7-lap-<id>.json` — the full 60 Hz recording, shareable and re-importable |
+| **Export CSV** | downloads a **MoTeC-compatible CSV** for MoTeC i2 or Excel |
+| **Exclude from bests** / **Count for bests** | see [above](#excluding-a-lap-from-bests) |
+| **Delete…** | removes the lap and its telemetry (confirmed, irreversible) |
 
-**Export session** at the bottom of an expanded session downloads the whole session as
+## Exports
+
+**Export ▾ → Session ZIP** in the session header downloads the whole session as
 `gt7-session-<id>.zip`: every lap's `.json` file plus a `session.json` with the car,
 circuit, tags, note and race result — a backup or a hand-off in one click. See
 [Session archive](../reference/lap-file-format.md#session-archive-zip).
 
-**Export analysis** beside it downloads `gt7-session-<id>-analysis.json`, the
+**Export ▾ → Session analysis** downloads `gt7-session-<id>-analysis.json`, the
 session's **lap analysis**: every lap measured corner by corner against the session's
 best lap, in one small file. For each corner of each lap it says where the brake went
 on and came off, how hard it was pressed and whether it was still on when the car
@@ -177,7 +231,9 @@ are tens of megabytes, with every number labelled. The same file is inside the
 session ZIP as `analysis.json`. See
 [Lap analysis format](../reference/lap-analysis-format.md).
 
-**Delete session** removes the session and all its laps. The session **being
+**Export ▾ → All laps · CSV** downloads one MoTeC-compatible CSV per lap.
+
+**⋯ → Delete session…** removes the session and all its laps. The session **being
 recorded** cannot be deleted — laps driven afterwards would be saved against a
 session that no longer exists — and the view says so if you try. It can be deleted
 once the next session has started.
@@ -198,7 +254,7 @@ once the next session has started.
 
 ## Recording control
 
-The **● REC / ○ Paused** toggle in the status bar pauses lap recording globally — the
+The **● REC / paused** toggle in the status bar pauses lap recording globally — the
 live view keeps streaming, but nothing is written to the database until you resume.
 
 See [Lap file format](../reference/lap-file-format.md) for what's inside the JSON and

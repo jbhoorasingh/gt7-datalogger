@@ -17,31 +17,32 @@ or on a Windows PC. Nothing is uploaded, and no microphone permission is request
 ## Turning it on
 
 1. Open the driver dashboard (`/dash`) or the standalone page (`/engineer`).
-2. Click **Enable Race Engineer**.
+2. Tap **Turn on voice**.
 3. You should hear *"Race engineer enabled."*
 
-The click matters: browsers only allow audio after a user interaction, and a saved
+The tap matters: browsers only allow audio after a user interaction, and a saved
 preference does **not** carry that permission across a browser restart. Race Engineer
-therefore always waits for one click per page load before it speaks.
+therefore always waits for one tap per page load before it speaks.
 
-The panel distinguishes four separate things, which is usually enough to diagnose a
-silent setup:
+The `/engineer` page says in one line whether this device is going to speak —
+*Speaking on this device*, *Voice is off*, *Speaking on another device*, or *Speech is
+failing* — with the one button that changes it, and four checks under it, which is
+usually enough to diagnose a silent setup:
 
-| Row | Meaning |
+| Check | Meaning |
 | --- | --- |
-| Voice preference | you have enabled voice on this device |
-| Browser audio | speech synthesis exists and the test utterance went through |
-| Active speaker | this device is the one allowed to speak |
-| Connection | the WebSocket to the datalogger is up |
-| Server callouts | the backend is generating callouts |
-| Coaching | whether enough laps have been driven for lap-vs-lap coaching (Coach mode only) |
+| Server | the WebSocket to the datalogger is up |
+| Callouts | the backend is generating callouts (*running · N received*, *idle*, or *off on the server*) |
+| Browser audio | speech synthesis exists and has been unlocked: *needs a tap*, *armed*, *speaking*, or *N failed* |
+| Speaker | which device is the one allowed to speak: *this device*, *another · /dash*, or *none* |
 
 ## One speaker at a time
 
 You may have the dashboard open on a laptop, a phone, an OBS browser source and the
-admin page at once. Only **one** browser speaks — the one that claimed voice output
-(**Use this device for voice output**). Everything else still receives the callouts
-and can show them as on-screen captions, but stays silent.
+Settings page at once. Only **one** browser speaks — the one that last turned voice
+on (**Speak here instead** on `/engineer` takes it over from another device).
+Everything else still receives the callouts and can show them as on-screen captions,
+but stays silent.
 
 Only `/dash` and `/engineer` may claim voice at all. The OBS overlay (`/overlay`)
 never speaks, so adding overlay sources can't turn your stream into a chorus.
@@ -52,12 +53,19 @@ its own.
 
 ## The `/engineer` page
 
-`/engineer` is a minimal standalone surface: connection state, the voice controls,
-and a running list of recent callouts. It is intended for
+`/engineer` is a minimal standalone surface: the voice state and its checks, the
+**Last callout** (with **Replay**), **What you'll hear** (this device's verbosity and
+categories), **Voice** (voice, volume, rate, pitch, **On-screen captions** and **Quiet
+when tab is hidden**), and **Callouts this session** — every callout received, shown
+even when this device is not the one speaking. It is intended for
 
 - a phone or tablet propped next to the wheel,
 - an OBS browser source that provides stream audio,
 - troubleshooting voice output without the dashboard in the way.
+
+The Voice dropdown groups voices into **On-device (recommended)** and **Network — may
+not start**: a network-backed voice can accept a callout and then never start
+speaking.
 
 ## What it says, and how much
 
@@ -75,25 +83,27 @@ the pace you have already proven in this car, on this track.
 Default is **Race**, which averages one to three spoken messages per lap.
 
 Individual categories can be switched off on top of that (`system`, `lap`, `pace`,
-`race`, `position`, `fuel`, `strategy`, `engine`, `tires`, `chassis`, `coaching`).
+`race`, `position`, `fuel`, `strategy`, `engine`, `tires`, `chassis`, `coaching`) —
+tap one under **What you'll hear** to mute it on this device.
 
 Braking points and speeds are spoken in **meters and km/h** by default; switch to
-feet and mph in **Admin → Race Engineer** (`GT7_RACE_ENGINEER_UNITS`). This is a
+feet and mph in **Settings › Race Engineer** (`GT7_RACE_ENGINEER_UNITS`). This is a
 server setting rather than a per-device one, because the callout is worded before it
 reaches a browser.
 
-The server has its own verbosity and category settings in **Admin → Race Engineer**,
+The server has its own verbosity and category settings in
+[**Settings › Race Engineer**](settings.md#race-engineer),
 and they are a **ceiling**, not a default: a category the server does not produce
 never reaches any browser, so a device set to *Coach* hears nothing extra if the
 server is capped at *Race*. Out of the box the server is set to *Coach* — it produces
-everything and each device decides what it wants — and the panel dims (with the
-reason) any category the server has been capped below.
+everything and each device decides what it wants — and `/engineer` greys out (with
+the reason) any category the server has been capped below.
 
 ## What each category says
 
 Every callout belongs to one category, and every category can be switched off.
-The same table is in the Race Engineer panel under **What each category says**, so
-you never have to guess what a toggle controls.
+Sample callouts for each are on the `/engineer` page under **Sample callouts per
+category**, so you never have to guess what a toggle controls.
 
 | Category | Says | Example |
 | --- | --- | --- |
@@ -151,7 +161,8 @@ fastest remaining full lap takes the best.
 **Coaching waits for this.** Braking points, corner losses and repeated-mistake
 callouts compare laps *by position on the track*, which is meaningless until several
 laps agree on the distance — usually by lap three. Until then the coaching category
-is simply quiet, and the panel says **Coaching: needs a few laps**.
+is simply quiet, and `/engineer` says *Coaching needs a few laps that agree on the
+track distance first*.
 
 ## When it stays quiet
 
@@ -166,21 +177,21 @@ simply dropped.
 Race Engineer reports where it stopped, so silence is diagnosable rather than
 mysterious. Check in this order:
 
-1. **The panel's status rows.** `Browser audio` says `needs a click`, `armed`,
-   `speaking`, or `N failed`; `Active speaker` says whether this device is the one
-   allowed to talk. If speech is failing, a red banner names the reason the speech
-   engine gave.
-2. **Admin → Race Engineer.** `Callouts emitted` counts what the backend produced;
-   `Spoken acks` and `Speech failures` count what the browser did with them. Emitted
-   but failing means the problem is entirely in the browser; nothing emitted means
-   the detectors have not fired yet.
+1. **The `/engineer` checks.** `Browser audio` says `needs a tap`, `armed`,
+   `speaking`, or `N failed`; `Speaker` says whether this device is the one allowed
+   to talk. If speech is failing, the page says *Speech is failing* and names the
+   reason the speech engine gave.
+2. **Settings › Race Engineer.** `Emitted` counts what the backend produced;
+   `Speech failures` (and, under **More diagnostics**, `Spoken acks`) count what the
+   browser did with them. Emitted but failing means the problem is entirely in the
+   browser; nothing emitted means the detectors have not fired yet.
 3. **The server log** logs a warning with the same reason on every failed callout.
 
 What the common reasons mean:
 
 | Reason | What to do |
 | --- | --- |
-| `the browser blocked audio` | The click did not count as permission. Press **Test voice**. |
+| `the browser blocked audio` | The tap did not count as permission. Press **Test voice**. |
 | `no response from the speech engine` | The engine accepted the message and did nothing. The reason names how many voices the browser has: **0 voices** means the browser has nothing to speak with (Chrome on Linux needs a speech engine such as `speech-dispatcher`); with voices present, reload the page — the engine can wedge. |
 | `no audio output device` / `the audio device is busy` | The browser's output device is unavailable — check the system output, and that the page is not muted in the OS mixer. |
 | `no voice installed for this language` | Pick a specific voice in the Voice dropdown. |
@@ -214,7 +225,7 @@ appear as on-screen captions — nothing else degrades.
 
 ## Testing without driving
 
-**Admin → Race Engineer → Send test callout** pushes a callout to every connected
+**Settings › Race Engineer → Send test callout** pushes a callout to every connected
 browser, which is the quickest way to prove the whole path (server → WebSocket →
 queue → speech) works.
 

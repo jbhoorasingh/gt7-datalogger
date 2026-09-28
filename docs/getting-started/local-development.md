@@ -81,8 +81,8 @@ backend/
   tests/
 frontend/
   src/
-    views/        # Live, Analysis, Sessions, Overlay, Admin
-    components/   # charts, overlay builder, UI primitives
+    views/        # Live, Analysis, Sessions, Tracks, Survey, Overlays, Settings, Dash, Engineer
+    components/   # charts, layout builder, settings sections, error pages, UI primitives
     lib/          # API client, channels, strategy math, overlay config
     store/        # settings, telemetry, analysis state
 docs/             # this documentation site (MkDocs)

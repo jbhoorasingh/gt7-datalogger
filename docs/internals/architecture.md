@@ -62,7 +62,7 @@ Five tables:
 | `laps` | one row per lap: timing, per-lap metrics, detected events (JSON), gearing (JSON), and the **full 60 Hz sample series** (JSON) |
 | `tracks` | named track signatures for auto-identification (length + bounding box) |
 | `layouts` | saved overlay/dashboard grid configs (JSON) |
-| `settings` | runtime overrides set from the Admin view (console IP, source, log level, webhook URL) |
+| `settings` | runtime overrides set from the Settings view (console IP, source, log level, webhook URL) |
 
 ### Schema evolution
 

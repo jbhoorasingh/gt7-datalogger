@@ -11,7 +11,7 @@ The console only streams to a client that keeps asking for data:
    character — to the console's port **33739** every **1.6 s**. (GT7 stops sending
    after ~100 packets without a heartbeat.) The character selects the packet format:
    `A`, `B`, `~`, or `C` (see [packet formats](#packet-formats) below); the
-   datalogger sends `C` by default (`GT7_PACKET_FORMAT`, changeable live in Admin).
+   datalogger sends `C` by default (`GT7_PACKET_FORMAT`, changeable live in Settings › Connection).
 2. The heartbeat is addressed to `GT7_PS_IP` if configured. If not, it is
    **broadcast** (`255.255.255.255`), and the console's address is learned from the
    source address of the first telemetry packet that arrives — that's the
@@ -33,7 +33,7 @@ the datagram length, so whatever the console answers is decoded correctly:
 
 The extended fields are parsed into the typed packet model (as `None` when the
 console sends a smaller format). Older game versions only answer the `A` heartbeat —
-set **Packet format** to `A` in the Admin view if no data arrives.
+set **Packet format** to `A` in Settings › Connection if no data arrives.
 
 ## Decryption
 
@@ -119,7 +119,7 @@ ordered consumer:
 
 If the queue ever fills (slow disk), the **oldest** packet is dropped so the live view
 never lags behind reality. Received/dropped/decode-error counters are visible in
-`GET /api/status` and the Admin view.
+`GET /api/status` and Settings › Health.
 
 !!! info "Protocol references"
     The GT7 telemetry format is community-reverse-engineered. Useful companion

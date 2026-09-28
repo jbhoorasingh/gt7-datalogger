@@ -64,13 +64,13 @@ nav:
       - Live view: guide/live-view.md
       - Analysis view: guide/analysis-view.md
       - Sessions view: guide/sessions-view.md
-      - Bests view: guide/bests-view.md
+      - Bests board: guide/bests-view.md
       - Tracks view: guide/tracks-view.md
-      - Overlay & streaming: guide/overlay.md
+      - Overlays & streaming: guide/overlay.md
       - Driver dashboard: guide/dash.md
       - Race Engineer (voice): guide/race-engineer.md
       - Widget reference: guide/widgets.md
-      - Admin view: guide/admin.md
+      - Settings: guide/settings.md
   - How it works:
       - Architecture: internals/architecture.md
       - Telemetry capture: internals/telemetry-capture.md

@@ -27,9 +27,11 @@ per-feature guides, how every calculation works, and the API reference.
 
 ### Live
 
-- **Live view** — large readouts for speed, gear, RPM (with limiter flash), throttle/brake,
-  boost, fuel, tire temps, race position, lap delta, and a live feed of completed laps
-  (click any lap to open it in Analysis).
+- **Live view** — shift lights (with limiter flash), large speed / gear / live-delta
+  readouts, current / last / best / predicted lap, a rolling throttle/brake trace,
+  boost, fuel, tire temps, race position, an alert strip, and a rail of this session's
+  laps with the lap in progress pinned on top (click any lap to open it in Analysis).
+  A Race Engineer chip and a Driver dash link sit in the context strip.
 - **Driver-aid indicators** — TCS / ASM / handbrake pills that light while the aid is
   intervening, and engine temperature warning colors for long stints.
 - **Live race strategy** — fuel-to-empty countdown, pit-window lap, and race-distance fuel
@@ -71,24 +73,29 @@ per-feature guides, how every calculation works, and the API reference.
 
 ### Sessions
 
-- Browse historical sessions with lap-time **sparklines**, per-lap metrics (fuel, full
-  throttle, full brake, coasting, tire spin, events, max speed), stable per-lap colors
-  shared with every chart, and per-lap **compare / set-reference** shortcuts into Analysis.
+- Browse historical sessions master–detail: a date-grouped list, and for the chosen
+  session a stat strip (best, average, consistency, laps near best, fuel per lap), a
+  lap-time chart, and a lap table with per-lap metrics (fuel, full throttle, full
+  brake, coasting, tire spin, events, max speed). Columns that never change are hidden
+  automatically, the lap in progress is pinned live, and stable per-lap colors are
+  shared with every chart. Each lap's **⋯** menu opens it in Analysis or sets it as the
+  reference; tick laps to exclude, export or delete them in bulk.
 - Export/import laps as JSON, **CSV / MoTeC-compatible export** for MoTeC i2 or Excel,
-  delete laps or whole sessions, manual "log lap now", and a record on/off toggle.
+  a whole session as a ZIP, delete laps or whole sessions, manual "log lap now", and a
+  record on/off toggle.
 - **Track auto-identification** — 78 GT7 configurations are recognised out of the box,
   from signatures shipped with the app, so a fresh install tags sessions on the first
   lap without you naming anything. Naming a circuit yourself always outranks a shipped
   name, surveyed circuits identify themselves from their borders, and a lap driven the
   wrong way round a layout is tagged as its reverse rather than as the layout itself.
-- **Personal-bests board** — a **Bests** tab with each circuit's fastest counting lap
+- **Personal-bests board** — a **Bests** sub-tab in Sessions with each circuit's fastest counting lap
   per car across every session: time, gap to the circuit's outright best, class chip
   and filter, and one click into Analysis. Sessions can be excluded from bests —
   replays record other drivers' laps, and telemetry can't tell them from yours.
 
-### Overlay & streaming
+### Overlays & streaming
 
-- **Drag-and-drop overlay builder** (Admin view) with a live canvas: place 15 widgets
+- **Drag-and-drop overlay builder** (its own **Overlays** tab) with a live canvas: place 15 widgets
   (gear, speed, RPM, inputs, lap times, big delta, race position, tires, fuel, fuel
   strategy, in-game clock, engine temps, driver aids, boost, race alerts) freely on a
   snapping grid, size each from 1×1 to 4×4 cells, and pick a **visual style per widget**
@@ -98,7 +105,7 @@ per-feature guides, how every calculation works, and the API reference.
   export/import included; legacy URL-param overlays keep working unchanged.
 - **Driver dashboard / race engineer screen** at `/dash` for a second display: built-in
   *Race engineer* and *Endurance* presets with fuel & pit-window projections, live
-  delta, tire/engine health, and **flashing alert banners** (low fuel, pit window,
+  delta, tire/engine health, and a full-width **alert banner** (low fuel, pit window,
   overheating, oil pressure).
 - **Canvas size presets** — 1920×1080, 1920×260 strip, 1080×1920 (TikTok / Shorts),
   720×1280, or any custom size; the overlay renders at exactly those pixels.
@@ -120,10 +127,13 @@ per-feature guides, how every calculation works, and the API reference.
   including lockups, wheelspin, kerb strikes, and aid activity — so everything can be
   developed and demoed without a PlayStation. Scenarios (`GT7_SIM_SCENARIO`) stage
   races, fuel shortages, engine trouble, and a `leader_replay` for the salvage path.
-- **Admin view** — set the PlayStation IP and telemetry source at runtime with no restart
-  (persisted in the database), live log viewer with level filtering, connection
-  diagnostics, database stats with compact/clear actions, and one-click car-database
-  updates.
+- **Settings view** — set the PlayStation IP (or **Find console** on the network),
+  telemetry source and packet format at runtime with no restart (persisted in the
+  database). Edits are buffered and sent together with **Apply changes**. Sections for
+  Connection, Sync, Race Engineer, Notifications, Overlays & dashboards, Health, Logs,
+  Access and Data, a health strip across the top, and a search box: live log viewer
+  with level filtering and download, connection diagnostics, one-click car-database
+  updates, JSON/CSV backups of every lap, and compact / delete-everything actions.
 - **Race Engineer voice callouts** — spoken lap times, personal bests, fuel range, pit
   windows, position changes, engine warnings and corner coaching, generated on the
   backend and **spoken by the browser** (`/dash` or `/engineer`) — no speaker, audio
@@ -132,11 +142,12 @@ per-feature guides, how every calculation works, and the API reference.
 - **Webhook / Discord notifications** — personal bests, session summaries, overtakes,
   positions lost, and off-road excursions posted to any webhook URL (Discord URLs get
   a rich embed, others plain JSON), each event individually toggleable.
-- **Sync client** — point the app at a sync service and the survey bundles of circuits
-  with a confirmed layout upload themselves once a run has settled, corner labels
-  included, in the background with retry and backoff. Per-type toggles, all off by default; the
-  token is stored apart, masked, and never logged. Only `tracks` is sent so far —
-  `sessions` and `live` reuse the same plumbing when their server halves land.
+- **Sync client** — paste a sync service token and choose what to send: **tracks**
+  (survey bundles of circuits with a confirmed layout, uploaded once a run has
+  settled, corner labels included), **sessions** (your laps as you drive, as a private
+  cloud copy) and **live** (the car's position for the service's spectate page). In
+  the background with retry and backoff; per-type toggles, all off by default; the
+  token is stored apart, masked, and never logged.
 - Configurable units (km/h / mph), persisted in the browser; dark-themed responsive UI
   built on accessible primitives with a colorblind-validated chart palette.
 
@@ -382,7 +393,7 @@ pytest
 ## Configuration
 
 The console IP, telemetry source, and log level can be changed at runtime from the
-**Admin** view; those values persist in the database and override the environment on
+**Settings** view; those values persist in the database and override the environment on
 the next start. Everything else is environment variables (or a `.env` file in the
 working directory):
 
@@ -395,7 +406,7 @@ working directory):
 | `GT7_CARS_CSV` | *(empty)* | Deprecated pre-0.6 `id,name` CSV. Set = read cars from here instead, names only. Kept for one release |
 | `GT7_TRACK_SIGNATURES_JSON` | *(bundled)* | Shipped track signatures, synced into the `tracks` table at startup so a fresh install recognises circuits it has never seen driven. Resolves from the package, so it works whatever directory you start from. Blank turns seeding off |
 | `GT7_WS_RATE` | `30` | Live stream rate to the browser (Hz) |
-| `GT7_WEBHOOK_URL` | *(empty)* | Webhook for PB / session notifications (also settable in Admin) |
+| `GT7_WEBHOOK_URL` | *(empty)* | Webhook for PB / session notifications (also settable in Settings › Notifications) |
 | `GT7_HTTP_PORT` | `8000` | HTTP port |
 
 ### Car data
@@ -406,7 +417,7 @@ on first run, then weekly — and picks up cars added since the release was cut.
 best-effort: if the check fails, the bundled inventory is what you keep.
 
 To refresh right now rather than waiting for the weekly check, use
-**Admin → Update car database**, or from the command line:
+**Settings › Health → Update car database**, or from the command line:
 
 ```bash
 python backend/scripts/update_cars.py
@@ -417,7 +428,7 @@ a release), use `python backend/scripts/build_car_metadata.py`.
 
 ## Lap files
 
-Laps export/import as JSON (`Sessions → export` / `Import lap…`) with a versioned format
+Laps export/import as JSON (a lap's **⋯ → Export JSON** in Sessions / **Import lap…**) with a versioned format
 (v2) containing lap metadata, detected events, gearing, and the full 60 Hz sample series
 (speed, inputs, position, fuel, per-wheel slip, tire temps, suspension, driver aids, …),
 so laps can be shared or backed up. v1 files from older versions import cleanly — the
@@ -425,7 +436,8 @@ newer channels are simply absent and the charts skip them.
 
 ## Troubleshooting
 
-- **"Server up, no telemetry" (amber dot)** — check `GT7_PS_IP`, make sure the PlayStation
+- **"Server up, no telemetry"** (the status bar says *No telemetry*) — check the console
+  IP in **Settings › Connection** (or `GT7_PS_IP`), make sure the PlayStation
   and server are on the same network, and that UDP port 33740 isn't blocked by a firewall.
 - **Wrong/garbled data (decode errors in `/api/status`)** — another tool may be consuming
   the stream, or the packet format changed after a game update.
@@ -449,12 +461,12 @@ newer channels are simply absent and the charts skip them.
   — this project's own track data, kept separate because it changes every time somebody
   drives: surveyed border geometry for GT7 circuits, the catalog of all 121
   configurations, and the generated `signatures.json` this app vendors. The app can pull
-  contributed bundles from it directly (**Tracks → Shared bundles**) and, connected to a
-  sync service (**Admin → Sync**), push its own surveys back once a run has settled.
+  contributed bundles from it directly (**Tracks → Import ▾ → Pull from shared**) and,
+  connected to a sync service (**Settings › Sync**), push its own surveys back once a run has settled.
 
 ## Screenshots
 
-**Live view** — race readouts, driver-aid pills, strategy, and the clickable lap feed:
+**Live view** — race readouts, driver-aid pills, strategy, and the clickable laps rail:
 
 ![Live view](docs/screenshots/live.png)
 
@@ -463,8 +475,8 @@ Corner Detail widget, and the gearing panel:
 
 ![Analysis view](docs/screenshots/analysis.png)
 
-**Sessions view** — lap-time sparklines and per-lap metrics with event counts
-(`2L·1S·4B` = lockups · wheelspins · bottoming):
+**Sessions view** — the session list, stat strip, lap-time chart and per-lap metrics
+with event counts (`2L·1S·4B` = lockups · wheelspins · bottoming):
 
 ![Sessions view](docs/screenshots/sessions.png)
 
@@ -472,13 +484,13 @@ Corner Detail widget, and the gearing panel:
 
 ![Overlay strip](docs/screenshots/overlay.png)
 
-**Overlay & dashboard builder** — drag widgets on a snapping grid, resize with the
+**Overlays tab** — the layout builder: drag widgets on a snapping grid, resize with the
 corner handle, pick a visual style per widget, and save named layouts to the server:
 
 ![Layout builder](docs/screenshots/builder.png)
 
 **Driver dashboard** (`/dash`) — the Race engineer preset on a second display: fuel and
-pit-window projections, live delta, tires, engine health, and an alert banner row:
+pit-window projections, live delta, tires, engine health, and an alert banner:
 
 ![Driver dashboard](docs/screenshots/dash.png)
 

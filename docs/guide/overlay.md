@@ -1,4 +1,4 @@
-# Overlay & streaming
+# Overlays & streaming
 
 The overlay is a standalone, chrome-less telemetry page at **`/overlay`** designed to be
 added as an **OBS Browser source**, opened in TikTok LIVE Studio, or loaded on a phone /
@@ -18,41 +18,65 @@ http://<host>:8000/overlay?layout=race-strip
 
 ## Building a layout
 
-![Layout builder](../screenshots/builder.png)
+![Layout builder in the Overlays tab](../screenshots/builder.png)
 
-Open **Admin → Overlay & dashboard builder**. One-click starting points:
+Open the **Overlays** tab (`#/overlays`). The left column lists your saved
+**Layouts** (with **New**) and **Start from a preset**; the canvas and its URL are in
+the middle; the selected widget and the widget palette are on the right.
 
-- **OBS strip** — transparent 1920×260 bottom strip
-- **Race engineer dash** / **Endurance dash** — full-screen [driver dashboards](dash.md)
+One-click starting points:
+
+- **Race engineer** / **Endurance** — full-screen [driver dashboards](dash.md)
+- **Minimal strip** — a transparent 1920×260 OBS bottom strip
+- **Import JSON…** — a layout file, as a new draft
+
+The toolbar above the canvas names the layout and sets its **kind** — **OBS overlay**
+or **Driver dash** — and its **canvas size**. It also says where the layout stands:
+*Not saved yet*, *Unsaved — OBS still shows the saved version*, or *Saved · live in
+OBS*.
 
 Then work directly on the canvas:
 
 - **Drag** a widget to move it — the ghost outline snaps to the grid and turns red on a
-  collision.
+  collision. Arrow keys nudge the selected widget; Delete removes it.
 - **Drag the corner handle** to step through the widget's allowed footprints (1×1, 1×2,
   2×2, 4×4, …, depending on the widget).
-- **Click** a widget to open its inspector: visual **style**, **size**, **fine scale**
-  (50–200 %), or remove it.
-- **Add widgets** from the grouped palette (driving / timing / race / car health /
-  strategy); the same widget can appear more than once with different styles.
+- **Click** a widget to edit it under **Selected widget**: visual **style**, **size
+  (cells)**, **fine scale** (50–200 %), **Duplicate** or **Remove**.
+- **Add widget** from the grouped palette (driving / timing / race / car health /
+  strategy); a widget is placed in the first free spot. A widget already on the canvas
+  is greyed out in the palette — select it and **Duplicate** to add another, with a
+  different style if you like.
 
-Canvas options:
+The canvas previews with live telemetry, or with the demo lap when nothing is live.
 
-- **Canvas size** — *Fill screen*, or exact-pixel presets: 1920×1080, 1920×260 strip,
-  1080×1920 (TikTok / Shorts), 720×1280, or any custom size. The overlay renders at
-  exactly those pixels.
+Canvas options (**Canvas & page**, under the canvas):
+
+- **Canvas size** — in the toolbar: *Fill*, or exact-pixel presets: 1920×1080, Strip
+  1920×260, 1080×1920 (TikTok / Shorts), 720×1280, Tablet 1280×800 — or any **Custom
+  size**. The overlay renders at exactly those pixels.
 - **Grid** — columns × rows (up to 24×24) and the gap between cells.
-- **Page behind the widgets** — *Transparent* (OBS Browser sources with alpha), *Green
-  screen* (#00FF00 — chroma-key it in apps without alpha support), or *Solid dark*
+- **Edge padding** — horizontal and vertical inset.
+- **Page behind** — *Transparent* (OBS Browser sources with alpha), *Green screen*
+  (#00FF00 — chroma-key it in apps without alpha support), or *Solid dark*
   (phones/tablets).
-- **Background** — card opacity (0 = bare floating widgets), edge padding.
+- **Card background** — card opacity (0 = bare floating widgets).
+- **Placeholder data when no telemetry** — see [below](#placeholder-mode).
 
-**Saving** — *Save as…* stores the layout on the server under a name; the name becomes
-part of the URL (`/overlay?layout=<name>`). Rename, delete, and *Save copy* are one
-click away, and the builder lists every saved layout for quick switching. Layouts can
-also be exported/imported as JSON files — old URL-style overlay configs import too and
-are converted to grid layouts automatically. Presets saved by the previous builder
-version are detected on first visit and can be imported in bulk.
+**Saving** — **Save layout…** stores the layout on the server under a name; the name
+becomes part of the URL (`/overlay?layout=<name>`). Unsaved edits are marked with a
+dot in the Layouts list, and **Discard** throws them away. **Rename…**, **Save
+copy…**, **Export JSON** and **Delete…** sit under the Layouts list. Old URL-style
+overlay configs import too and are converted to grid layouts automatically. Presets
+saved by the previous builder version are detected on first visit and can be imported
+in bulk (**Import as server layouts**).
+
+**Use it** — once saved, the bar under the canvas shows the layout's URL with **Copy
+URL** and **Open preview**, and says how to add it to OBS (or, for a dash, to a phone
+or tablet).
+
+[Settings › Overlays & dashboards](settings.md#overlays-dashboards) lists every saved
+layout with its URL, for copying without opening the builder.
 
 ## Widgets & styles
 
@@ -82,7 +106,7 @@ each track condition — are in the [widget reference](widgets.md).
 
 ## Setting up OBS
 
-1. Build and **save** your layout, then copy the *Other devices* URL.
+1. Build and **save** your layout, then **Copy URL** under the canvas.
 2. In OBS: **Sources → + → Browser**, paste the URL.
 3. Set the source's width/height to **the same canvas size** you picked in the builder.
 4. Done — the transparent page mode gives you clean alpha compositing. If your app
@@ -94,7 +118,8 @@ until telemetry resumes.
 
 ## Placeholder mode
 
-The **placeholder data** checkbox (or `demo=1` on any overlay/dash URL) shows an
+The **Placeholder data when no telemetry** switch (or `demo=1` on any overlay/dash
+URL) shows an
 animated fake lap **only while no real telemetry is arriving**, with a small amber
 *placeholder* tag. The fake lap's fuel slowly drains so the strategy and alert widgets
 get exercised too. The moment real data resumes it switches back automatically — safe

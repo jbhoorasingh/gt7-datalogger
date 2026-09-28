@@ -8,9 +8,9 @@ how slow the car got, when the throttle came back, what line it took and what al
 that cost against the session's best lap.
 
 One JSON document per session, served by `GET /api/sessions/{id}/analysis.json`
-(**Sessions → Export analysis**) and included in the
+(**Sessions → Export ▾ → Session analysis**) and included in the
 [session archive](lap-file-format.md#session-archive-zip) as `analysis.json`. With
-the `sessions` [sync](../guide/admin.md) on, it is also sent to the sync service when
+the `sessions` [sync](../guide/settings.md#sync) on, it is also sent to the sync service when
 a drive ends, if the service says it takes it. It is compiled from the stored laps
 each time it is asked for and never stored itself: a lap ruled in or out of the bests
 changes the reference lap, and with it every figure.

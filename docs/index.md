@@ -32,36 +32,45 @@ Open <http://localhost:8000> and start driving. No PlayStation handy? Run
 `GT7_SOURCE=sim docker compose up --build` for a fully simulated demo.
 → [Full quick-start guide](getting-started/quick-start.md)
 
-## The four views
+## The views
+
+The web UI's tabs are **Live · Analysis · Sessions · Tracks · Survey · Overlays ·
+Settings**, plus two full-screen pages for a second screen: `/dash` and `/engineer`.
 
 <div class="grid cards" markdown>
 
-- **[Live view](guide/live-view.md)** — big race readouts: speed, gear, RPM with limiter
-  flash, inputs, tires, fuel, delta, driver-aid pills, live strategy, and a clickable
-  feed of completed laps.
+- **[Live view](guide/live-view.md)** — big race readouts: shift lights, speed, gear,
+  live delta, timing, an input trace, fuel strategy, tires, driver-aid pills, alerts,
+  and a clickable rail of this session's laps.
 
 - **[Analysis view](guide/analysis-view.md)** — overlay multiple laps against a
   reference: ~20 telemetry channels, time-diff over distance, synced cursors, race line
   map, corner detail widget, detected events, and a gearing panel.
 
-- **[Sessions view](guide/sessions-view.md)** — browse history with lap-time sparklines
-  and per-lap metrics; export laps as JSON or CSV/MoTeC, import shared laps, manage
-  recording.
+- **[Sessions view](guide/sessions-view.md)** — browse history session by session:
+  stats, a lap-time chart and per-lap metrics; export laps as JSON or CSV/MoTeC,
+  import shared laps, and the [Bests board](guide/bests-view.md).
 
-- **[Overlay & streaming](guide/overlay.md)** — build a custom overlay for OBS, a phone
-  dashboard, or a pit-wall tablet: pick and scale widgets, choose layouts and canvas
-  sizes, save named presets.
+- **[Tracks view](guide/tracks-view.md)** — what each circuit has (a name, a survey,
+  an official layout, labelled corners), what is missing, and the fix for each.
+
+- **[Overlays & streaming](guide/overlay.md)** — build a custom overlay for OBS, a
+  phone dashboard, or a pit-wall tablet: place and style widgets on a grid, pick a
+  canvas size, save named layouts.
+
+- **[Settings](guide/settings.md)** — connection, sync, Race Engineer, notifications,
+  health, logs, access and data, changed at runtime with no restart.
 
 </div>
 
 ## Screenshots
 
-**Live view** — race readouts, driver-aid pills, strategy, and the clickable lap feed:
+**Live view** — race readouts, driver-aid pills, strategy, and the clickable laps rail:
 
 ![Live view](screenshots/live.png)
 
-**Sessions view** — lap-time sparklines and per-lap metrics with event counts
-(`2L·1S·4B` = lockups · wheelspins · bottoming):
+**Sessions view** — the session list, stat strip, lap-time chart and per-lap metrics
+with event counts (`2L·1S·4B` = lockups · wheelspins · bottoming):
 
 ![Sessions view](screenshots/sessions.png)
 
