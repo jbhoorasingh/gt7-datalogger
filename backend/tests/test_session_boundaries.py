@@ -166,3 +166,34 @@ async def test_off_track_finish_preserves_result_when_final_lap_cannot_be_saved(
     assert [(sid, result.final_position) for sid, result in r.results] == [(1, 7)]
     await r.feed(12, flags=0, last_ms=last_ms, position=8)
     assert len(r.results) == 1
+
+
+async def test_pit_in_on_the_final_straight_keeps_the_session():
+    """Pitting on a lap's last stretch: GT7 reports the line crossing into
+    the next lap while the car is in the pit lane, where it is not "on
+    track". The lap is salvaged from its GT7 time, and the drive goes on in
+    the SAME session. Salvage used to end the session every time — right
+    for a replay whose stream broke off, wrong for a pit stop."""
+    r = Recording()
+    for _ in range(600):
+        await r.feed(6)
+    for _ in range(3):
+        await r.feed(7, flags=0, last_ms=10_000)
+    assert [(sid, lap.number, lap.salvaged) for sid, lap in r.laps] == [(1, 6, True)]
+    await r.feed(7)
+    await r.feed(7)
+    await r.feed(8, last_ms=106_000)
+    assert len(r.sessions) == 1
+    assert [(sid, lap.number) for sid, lap in r.laps] == [(1, 6), (1, 7)]
+
+
+async def test_replay_ending_in_a_menu_still_gets_its_own_session():
+    """The counter jumping anywhere but the next lap is still a broken-off
+    stream: what follows is a different stint."""
+    r = Recording()
+    for _ in range(600):
+        await r.feed(3)
+    await r.feed(0, flags=0, last_ms=10_000)
+    assert [(sid, lap.number, lap.salvaged) for sid, lap in r.laps] == [(1, 3, True)]
+    await r.feed(1)
+    assert len(r.sessions) == 2

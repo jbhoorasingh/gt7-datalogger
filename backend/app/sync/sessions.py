@@ -211,10 +211,21 @@ class SessionsAdapter:
         started_at: str,
         source_id: str = "",
     ) -> None:
-        """A local session opened. Nothing is sent until its first lap."""
-        rec = self._record(local_id)
+        """A local session opened. Nothing is sent until its first lap.
+
+        Always a fresh record. A session that opens is new by definition, so
+        a record already held under its id belongs to an older session that
+        was deleted without a word to sync. Reusing it would send the new
+        drive's laps into the old one's server session, replacing laps of a
+        drive that has nothing to do with them.
+        """
+        stale = local_id in self._sessions
+        rec = self._sessions[local_id] = SessionSync(local_id=local_id)
         rec.car, rec.car_id, rec.started_at, rec.source_id = car, car_id, started_at, source_id
         self._current = local_id
+        if stale:
+            log.warning("sync: session %d reused a local id; its old record is dropped", local_id)
+            self._write_state()
 
     def lap_saved(
         self,
@@ -287,6 +298,15 @@ class SessionsAdapter:
             self._write_state()
         if self._current == local_id:
             self._current = None
+
+    def forget_all(self) -> None:
+        """Every local session was deleted: nothing queued is sent, and no
+        later session can be mistaken for one of them. The copies already on
+        the server are left alone; deleting them is the service's business."""
+        if self._sessions:
+            self._sessions.clear()
+            self._write_state()
+        self._current = None
 
     # --- the adapter protocol -----------------------------------------------
 

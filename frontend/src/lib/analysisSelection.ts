@@ -10,7 +10,7 @@
 // session is in that state until its first lap is finished, which is exactly
 // when someone who has just started driving looks.
 
-import type { LapSummary } from "@/lib/types";
+import type { LapSummary, SessionSummary } from "@/lib/types";
 
 /** The lap a session is measured against: its quickest that counts towards
  *  the bests, or its quickest of any kind when none does. */
@@ -51,4 +51,18 @@ export function resolveSelected(current: number[], rule: SelectionRule): number[
 export function resolveReference(current: number | null, rule: SelectionRule): number | null {
   if (rule.manual && current != null && rule.keep(current)) return current;
   return quickestCounting(rule.laps)?.id ?? null;
+}
+
+/**
+ * The session Analysis opens on, once the list has loaded: the one it had,
+ * if that session still exists, otherwise the newest with laps to chart.
+ *
+ * "Still exists" is the part that was missing. The tab remembers the last
+ * session across visits, and a session deleted since (or wiped by "Delete
+ * all recorded data") left the view on an id with nothing behind it, so a
+ * newer session never appeared until it was opened from Sessions.
+ */
+export function openingSession(current: number | null, sessions: SessionSummary[]): number | null {
+  if (current != null && sessions.some((s) => s.id === current)) return current;
+  return sessions.find((s) => s.lap_count > 0)?.id ?? sessions[0]?.id ?? null;
 }

@@ -414,6 +414,7 @@ async def clear_data(request: Request) -> dict[str, str]:
     service = svc(request)
     await service.repo.clear_all()
     service.session_id = None
+    service.sync.sessions.forget_all()
     log.warning("all recorded sessions and laps deleted via admin")
     return {"status": "cleared"}
 

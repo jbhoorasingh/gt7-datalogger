@@ -830,3 +830,57 @@ def test_a_state_file_from_before_the_document_owes_none(tmp_path) -> None:
     assert rec.analysis_pending is False
     assert rec.pending is False
     assert rec.analysis_status == ""
+
+
+# --- deleted sessions are forgotten, and their ids never come back -------------
+
+
+def _api(svc: TelemetryService) -> AsyncClient:
+    app = create_app()
+    app.router.lifespan_context = None  # type: ignore[assignment]
+    app.state.service = svc
+    return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
+
+
+async def test_after_delete_all_the_next_drive_is_a_new_server_session(service, fake) -> None:
+    """The incident this guards: a qualifier synced as session 1, "Delete all
+    recorded data", then the race. SQLite handed the race id 1 again, the
+    sync client still held a record under 1, and the race's laps replaced
+    the qualifier's on the server."""
+    svc = service
+    first = await drive(svc, 2)
+    await svc.sync.sessions.wait_idle()
+    async with _api(svc) as c:
+        assert (await c.post("/api/admin/clear-data")).status_code == 200
+    assert svc.sync.sessions.status()["sessions"]["current"] is None
+
+    second = await drive(svc, 1)
+    await svc.sync.sessions.wait_idle()
+    assert second != first  # AUTOINCREMENT: never the same id twice
+    laps = [r.url.path for r in fake.calls("POST") if r.url.path.endswith("/laps")]
+    assert laps[-1] == "/v1/sessions/ses_00000000000000000002/laps"
+    assert laps.count("/v1/sessions/ses_00000000000000000001/laps") == 2
+
+
+async def test_deleting_a_session_forgets_it_and_its_id_is_not_reused(service, fake) -> None:
+    svc = service
+    old = await drive(svc, 1)
+    current = await drive(svc, 1)
+    await svc.sync.sessions.wait_idle()
+    async with _api(svc) as c:
+        assert (await c.delete(f"/api/sessions/{old}")).status_code == 200
+    assert old not in svc.sync.sessions._sessions
+    assert current in svc.sync.sessions._sessions
+
+
+async def test_a_session_that_opens_gets_a_fresh_sync_record(service, fake) -> None:
+    """Belt and braces: whatever is held under an id when a session opens
+    with it belongs to a session that no longer exists."""
+    svc = service
+    adapter = svc.sync.sessions
+    local = await drive(svc, 1)
+    await adapter.wait_idle()
+    assert adapter._sessions[local].remote_id
+    adapter.session_started(local, car="x", car_id=1, started_at="2026-09-18T10:00:00Z")
+    assert adapter._sessions[local].remote_id == ""
+    assert adapter._sessions[local].laps == {}

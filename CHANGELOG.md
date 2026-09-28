@@ -22,6 +22,27 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Fixed
 
+- **Pitting on a lap's last stretch no longer splits the race.** GT7
+  reports the line crossing into the next lap while the car is in the pit
+  lane, where it is not "on track". The lap was salvaged from its GT7 time,
+  which is right, but every salvaged lap also ended the session. That rule is
+  for a replay whose stream breaks off, and here it opened a new session for
+  the rest of the race. The next lap number in the same car now keeps the
+  session going. A replay, where the counter jumps elsewhere or the car
+  changes, still gets its own session.
+- **A deleted session's id is never given to a new one.** SQLite numbered a
+  new session one past the largest id left, so after "Delete all recorded
+  data", or deleting the newest session, the next drive reused an old id.
+  The sync client still held a record under that id, so a race's laps were
+  sent into the deleted qualifier's server session and replaced its laps.
+  Session ids now use AUTOINCREMENT (migration 0011, a rebuild of the small
+  `sessions` table). Deleting a session, or everything, now also clears the
+  sync client's record of it, and a session that opens always starts a
+  fresh sync record.
+- **Analysis no longer sticks on a session that has been deleted.** The tab
+  remembers the last session it showed. If that session had since been
+  deleted, a newer one never appeared until it was opened from Sessions. It
+  now falls back to the newest session with laps.
 - **Menus, pit stops and pauses no longer merge or split sessions.** (#120,
   contributed by @NikiforovG) GT7 keeps streaming while the car is not being
   driven, and those packets carry lap counters of their own: 0 or -1 in a

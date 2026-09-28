@@ -658,12 +658,23 @@ class LapProcessor:
                 )
                 if interrupted and len(self._samples["t"]) >= self.min_lap_ticks:
                     finished = self._samples
+                    # The next lap number in the same car is an ordinary
+                    # line crossing that GT7 reported from the pit lane,
+                    # where the car is not "on track". The stream did not
+                    # break off: the drive goes on in the same session.
+                    pit_crossing = (
+                        self._current_lap > 0
+                        and p.car_id == self._session.car_id
+                        and p.current_lap == self._current_lap + 1
+                    )
                     lap = self._build_salvaged_lap(
                         self._current_lap, finished, self._gt_clock, p
                     )
                     if lap is not None:
                         self._reset_lap_buffer(p)
-                        await self._emit_salvaged(lap, len(finished["t"]))
+                        await self._emit_salvaged(
+                            lap, len(finished["t"]), end_session=not pit_crossing
+                        )
                 elif not interrupted:
                     self._last_packet = p
             self._clock_offset_ms = None
@@ -971,8 +982,15 @@ class LapProcessor:
         lap.compute_metrics()
         return lap
 
-    async def _emit_salvaged(self, lap: CompletedLap, buffered_ticks: int) -> None:
-        """Emission mirrors the completing path; only the provenance differs."""
+    async def _emit_salvaged(
+        self, lap: CompletedLap, buffered_ticks: int, end_session: bool = True
+    ) -> None:
+        """Emission mirrors the completing path; only the provenance differs.
+
+        `end_session=False` is for a lap salvaged only because its line
+        crossing arrived on a pit-lane packet: the drive did not break off,
+        so the session goes on (the reasoning below is about replays).
+        """
         assert self._session is not None
         self._session.lap_count += 1
         self._apply_span_guard(lap, lap.samples)
@@ -991,7 +1009,8 @@ class LapProcessor:
         # and excluding that session from bests (#26) would take their own
         # driving with it — while a second replay would inherit the first
         # one's circuit label and lap number.
-        self._session = None
+        if end_session:
+            self._session = None
 
     def _log_discard(
         self, prev_lap: int, samples: dict[str, list[float]], p: TelemetryPacket

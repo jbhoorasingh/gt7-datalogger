@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { quickestCounting, resolveReference, resolveSelected } from "@/lib/analysisSelection";
-import type { LapSummary } from "@/lib/types";
+import { openingSession, quickestCounting, resolveReference, resolveSelected } from "@/lib/analysisSelection";
+import type { LapSummary, SessionSummary } from "@/lib/types";
 
 function lap(id: number, time_ms: number, counts = true): LapSummary {
   return { id, number: id, time_ms, counts_for_best: counts } as LapSummary;
@@ -96,5 +96,32 @@ describe("a session with laps", () => {
   it("falls back to latest against best when nothing chosen is left", () => {
     const rule = { laps: OWN, manual: true, keep: ownOnly(OWN) };
     expect(resolveSelected([98, 99], rule)).toEqual([13, 12]);
+  });
+});
+
+describe("openingSession", () => {
+  const session = (id: number, lap_count: number) => ({ id, lap_count }) as SessionSummary;
+  // Newest first, as the API lists them: a session still being driven with
+  // no lap yet, then two with laps.
+  const LIST = [session(9, 0), session(8, 4), session(7, 2)];
+
+  it("keeps the session it had while that session exists", () => {
+    expect(openingSession(7, LIST)).toBe(7);
+  });
+
+  it("opens the newest session with laps when it had none", () => {
+    expect(openingSession(null, LIST)).toBe(8);
+  });
+
+  it("does not stay on a session that has since been deleted", () => {
+    expect(openingSession(3, LIST)).toBe(8);
+  });
+
+  it("falls back to the newest session when none has a lap", () => {
+    expect(openingSession(3, [session(2, 0), session(1, 0)])).toBe(2);
+  });
+
+  it("is nothing when there are no sessions", () => {
+    expect(openingSession(3, [])).toBeNull();
   });
 });

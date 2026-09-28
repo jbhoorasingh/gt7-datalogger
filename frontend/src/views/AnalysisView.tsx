@@ -29,7 +29,7 @@ import { LargeDialog } from "@/components/ui/Dialog";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Select } from "@/components/ui/Select";
 import { Tip } from "@/components/ui/Tooltip";
-import { quickestCounting, resolveReference, resolveSelected } from "@/lib/analysisSelection";
+import { openingSession, quickestCounting, resolveReference, resolveSelected } from "@/lib/analysisSelection";
 import { api } from "@/lib/api";
 import {
   CHANNEL_BY_KEY,
@@ -221,8 +221,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
   useEffect(() => {
     api.sessions().then((s) => {
       setSessions(s);
-      // Default to the newest session that actually has laps to chart.
-      setSessionId((cur) => cur ?? s.find((x) => x.lap_count > 0)?.id ?? s[0]?.id ?? null);
+      setSessionId((cur) => openingSession(cur, s));
     }).catch(() => setError("Could not load sessions"));
   }, [lapEpoch]);
 

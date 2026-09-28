@@ -70,6 +70,9 @@ async def delete_session(request: Request, session_id: int) -> dict[str, str]:
                 detail="Cannot delete the current session. Start a new session first.",
             )
         await service.repo.delete_session(session_id)
+    # Nothing of it is sent any more, and a record left behind would outlive
+    # the id it is filed under (the dropped-empty path already does this).
+    service.sync.sessions.forget(session_id)
     return {"status": "deleted"}
 
 

@@ -46,6 +46,10 @@ class Base(DeclarativeBase):
 
 class SessionRow(Base):
     __tablename__ = "sessions"
+    # An id is used once for the life of the database, deletes included
+    # (migration 0011): the sync client and the Analysis view remember
+    # sessions by id.
+    __table_args__ = {"sqlite_autoincrement": True}
 
     id: Mapped[int] = mapped_column(primary_key=True)
     started_at: Mapped[str]
