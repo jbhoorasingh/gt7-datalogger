@@ -207,7 +207,7 @@ numbers:
 - **Dropping a lap promotes the fastest remaining full lap**, rather than blanking the
   best until the next one arrives.
 
-**Manual rulings sit on top** (#74). A user can exclude a lap the guard accepts
+**Exclusions and manual rulings sit on top** (#74). A user can exclude a lap the guard accepts
 (off-track, contact, a dirty lap) or count one it rejected. The ruling lives in its
 own column, `best_override`, beside the guard's verdict (`full_lap`, stored in the
 `counts_for_best` column it has always used); `counts_for_best` on the ORM is
@@ -220,6 +220,30 @@ and `session_best_before_ms` are computed from the guard's partial set *adjusted
 the rulings, and a lap number re-driven after a rewind drops the ruling made on the lap
 it replaced. Track identification still prefers `full_lap` — an excluded off-track lap
 covered the route.
+
+**Race starts.** Lap 1 is excluded with `best_override=false` and
+`exclude_reason="race-start"` when a sampled packet reports `total_laps > 0`,
+`race_position >= 1` and `total_positions >= 2`. This applies to standing and
+rolling starts, including salvaged lap 1 recordings. Race evidence is kept for the
+current lap and cleared with its buffer; a boundary packet with missing metadata
+does not erase it. Lap number alone, low speed and being the first recorded lap
+are insufficient. Qualifying and unknown contexts retain the normal checks.
+
+`CompletedLap` carries `full_lap`, `best_override` and `exclude_reason` separately;
+its `counts_for_best` property resolves them the same way as the database. A full
+race opening lap can therefore remain useful for track identification while staying
+out of bests, delta references, coaching comparisons and consistency. The existing
+consistency calculation is unchanged. Manual rulings can include the lap again;
+clearing the ruling restores the geometry verdict.
+
+The startup recheck also excludes stored lap 1s belonging to sessions with a
+positive race distance and a valid recorded finish in a field of at least two.
+Only rows without an existing override are changed. Geometry uses the existing
+`lap_start_check` marker; the SQL exclusion update has its own `race_start_check`
+marker. An installation that completed the geometry scan runs only the SQL update.
+Each marker is saved after its operation succeeds, so a failure retries only the
+unfinished work. The race-start marker also prevents reapplying the update after
+a user clears an exclusion.
 
 Calibrated against 850 recorded laps of real driving:
 

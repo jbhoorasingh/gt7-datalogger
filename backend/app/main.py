@@ -124,27 +124,40 @@ async def sync_car_inventory(
 # starts (see Repository.recheck_lap_starts). Bump the value to run it again.
 LAP_START_CHECK_KEY = "lap_start_check"
 LAP_START_CHECK_VERSION = "1"
+RACE_START_CHECK_KEY = "race_start_check"
+RACE_START_CHECK_VERSION = "1"
 
 
 async def recheck_lap_starts(
     repo: Repository, stored: dict[str, str], log: logging.Logger
 ) -> None:
-    """Judge laps recorded before the start-at-the-line check, once.
+    """Run the geometry scan and race-start update with independent markers.
 
-    A background task: it decodes every stored lap, which on a Raspberry Pi
-    with a long history is minutes of work that startup must not wait for.
-    A failure leaves the marker unset, so the next start tries again.
+    Decoding the stored telemetry can take minutes on a Raspberry Pi. Its
+    marker survives a failed SQL backfill so only the failed work is retried.
     """
-    if stored.get(LAP_START_CHECK_KEY) == LAP_START_CHECK_VERSION:
+    if stored.get(LAP_START_CHECK_KEY) != LAP_START_CHECK_VERSION:
+        try:
+            marked = await repo.recheck_lap_starts()
+            await repo.set_setting(LAP_START_CHECK_KEY, LAP_START_CHECK_VERSION)
+        except Exception:
+            log.exception("stored lap geometry could not be checked; retrying next start")
+        else:
+            if marked:
+                log.info(
+                    "%d stored lap(s) began away from the start/finish line: now partial", marked
+                )
+
+    if stored.get(RACE_START_CHECK_KEY) == RACE_START_CHECK_VERSION:
         return
     try:
-        marked = await repo.recheck_lap_starts()
-        await repo.set_setting(LAP_START_CHECK_KEY, LAP_START_CHECK_VERSION)
+        excluded = await repo.exclude_recorded_race_starts()
+        await repo.set_setting(RACE_START_CHECK_KEY, RACE_START_CHECK_VERSION)
     except Exception:
-        log.exception("stored laps could not be checked for grid starts; retrying next start")
+        log.exception("recorded race starts could not be excluded; retrying next start")
         return
-    if marked:
-        log.info("%d stored lap(s) began away from the start/finish line: now partial", marked)
+    if excluded:
+        log.info("%d recorded race opening lap(s) excluded from bests", excluded)
 
 
 async def refresh_cars_if_stale(

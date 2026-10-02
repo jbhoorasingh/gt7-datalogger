@@ -39,6 +39,7 @@ import {
 } from "@/lib/sessionList";
 import {
   EXCLUDE_REASONS,
+  excludeReasonLabel,
   type ExcludeReason,
   type LapSummary,
   notCountingLabel,
@@ -1085,6 +1086,9 @@ function StatStrip({ laps, recording }: { laps: LapSummary[]; recording: boolean
 
 /** Tooltip for a lap's bests ruling, in words: what decided it. */
 function countsHint(lap: LapSummary): string {
+  if (lap.best_override === false && lap.exclude_reason === "race-start") {
+    return "Race opening lap — excluded from bests and consistency because of its starting conditions; count it again to include it";
+  }
   if (lap.best_override === false) {
     return "Excluded from bests by hand — count it again to put it back";
   }
@@ -1322,7 +1326,7 @@ function LapTable({
                             placeholder="excluded · why?"
                             options={EXCLUDE_REASONS.map((r) => ({
                               value: r,
-                              label: `excluded · ${r}`,
+                              label: `excluded · ${excludeReasonLabel(r)}`,
                             }))}
                             onValueChange={(r) =>
                               onRule(lap, {

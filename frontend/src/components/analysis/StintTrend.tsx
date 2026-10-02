@@ -20,7 +20,7 @@ import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Tip } from "@/components/ui/Tooltip";
 import { formatLapTime } from "@/lib/format";
 import { formatDrift, formatWarming, stintScale, stintSpan, type StintPoint } from "@/lib/stint";
-import type { StintLap, StintTrend } from "@/lib/types";
+import { excludeReasonLabel, type StintLap, type StintTrend } from "@/lib/types";
 
 const DIM = "#5b6370";
 // Two warm colours for two temperatures. Not the blue the rest of the app
@@ -54,7 +54,7 @@ interface PointDatum {
 
 function whyNot(lap: StintLap): string {
   if (lap.pit) return "pit lap";
-  if (lap.exclude_reason) return `excluded · ${lap.exclude_reason}`;
+  if (lap.exclude_reason) return `excluded · ${excludeReasonLabel(lap.exclude_reason)}`;
   return lap.counts ? "" : "partial";
 }
 

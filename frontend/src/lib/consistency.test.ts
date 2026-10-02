@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { consistencyBand, formatSpread, lapConsistency, median } from "./consistency";
-import type { LapSummary } from "./types";
+import { notCountingLabel, type LapSummary } from "./types";
 
 function lap(time_ms: number, extra: Partial<LapSummary> = {}): LapSummary {
   return { id: time_ms, session_id: 1, number: 1, time_ms, ...extra } as LapSummary;
@@ -33,6 +33,19 @@ describe("lapConsistency", () => {
     const c = lapConsistency(laps)!;
     expect(c.laps).toBe(3);
     expect(c.stdMs).toBeCloseTo(200, 6);
+  });
+
+  it("leaves a complete race opening lap out of consistency and labels the reason", () => {
+    const start = lap(95_000, {
+      counts_for_best: false,
+      full_lap: true,
+      best_override: false,
+      exclude_reason: "race-start",
+    });
+    const c = lapConsistency([start, lap(90_000), lap(90_200), lap(90_400)])!;
+    expect(c.laps).toBe(3);
+    expect(c.stdMs).toBeCloseTo(200, 6);
+    expect(notCountingLabel(start)).toBe("excluded · race start");
   });
 
   it("treats a lap with no verdict recorded as one that counts", () => {

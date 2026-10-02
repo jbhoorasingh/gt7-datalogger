@@ -287,6 +287,9 @@ class Repository:
     ) -> int:
         """Store a completed lap. The override arguments exist for import,
         which carries a verdict the user already made elsewhere (#74)."""
+        if best_override is None:
+            best_override = lap.best_override
+            exclude_reason = lap.exclude_reason
         async with self._sf() as db:
             row = LapRow(
                 session_id=session_id,
@@ -308,11 +311,7 @@ class Repository:
                 tod_ms=lap.tod_ms,
                 tcs_active_pct=lap.tcs_active_pct,
                 asm_active_pct=lap.asm_active_pct,
-                # A lap is saved the moment it completes, before anyone could
-                # have overridden it, so the processor's verdict IS the
-                # heuristic's here (the processor forgets an override when a
-                # lap number is re-driven).
-                full_lap=lap.counts_for_best,
+                full_lap=lap.full_lap,
                 best_override=best_override,
                 exclude_reason=exclude_reason if best_override is False else "",
                 off_track_count=lap.off_track_count,
@@ -684,6 +683,26 @@ class Repository:
                 .values(full_lap=LapRow.number.notin_(numbers) if numbers else True)
             )
             await db.commit()
+
+    async def exclude_recorded_race_starts(self) -> int:
+        """Exclude opening laps of confirmed races without changing existing rulings."""
+        races = select(SessionRow.id).where(
+            SessionRow.race_laps > 0,
+            SessionRow.final_position >= 1,
+            SessionRow.final_total_positions >= 2,
+        )
+        async with self._sf() as db:
+            result = await db.execute(
+                update(LapRow)
+                .where(
+                    LapRow.session_id.in_(races),
+                    LapRow.number == 1,
+                    LapRow.best_override.is_(None),
+                )
+                .values(best_override=False, exclude_reason="race-start")
+            )
+            await db.commit()
+            return cast(CursorResult[Any], result).rowcount or 0
 
     async def recheck_lap_starts(self) -> int:
         """Mark stored laps that did not begin at the start/finish line — a
@@ -1306,7 +1325,7 @@ class Repository:
         # excluded dirty lap. Files written before the override existed
         # carry only counts_for_best, which was the heuristic's verdict then.
         full_lap = lap.get("full_lap")
-        completed.counts_for_best = bool(
+        completed.full_lap = bool(
             full_lap if full_lap is not None else lap.get("counts_for_best", True)
         )
         override = lap.get("best_override")

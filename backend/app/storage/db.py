@@ -34,10 +34,8 @@ log = logging.getLogger(__name__)
 # brought up to that shape (see _catch_up_legacy).
 BASELINE_REVISION = "0001_baseline"
 
-# Why a lap was excluded from bests by hand (#74). A closed list rather than
-# free text: the Bests board shows it beside a missing time, and five words
-# everyone reads the same way beat a note nobody wrote the same way twice.
-ExcludeReason = Literal["off-track", "contact", "restart", "dirty", "pit-out"]
+# Reasons shown beside excluded times, including automatic race-start exclusions.
+ExcludeReason = Literal["off-track", "contact", "restart", "dirty", "pit-out", "race-start"]
 
 
 class Base(DeclarativeBase):
@@ -207,13 +205,13 @@ class LapRow(Base):
     # this lap cover the track" (track identification wants exactly that);
     # read `counts_for_best` below for "does this lap count".
     full_lap: Mapped[bool] = mapped_column("counts_for_best", default=True)
-    # The user's call, which outranks the heuristic both ways (#74): False
+    # An explicit ruling or automatic race-start exclusion (#74): False
     # keeps an off-track or contact lap off every best, True keeps a lap the
     # heuristic misjudged on them. NULL = defer to full_lap. A separate column
     # rather than a write into full_lap, so the heuristic's re-flagging can
     # never clobber it and clearing it restores exactly what the heuristic said.
     best_override: Mapped[bool | None] = mapped_column(default=None)
-    # Why a lap was excluded — off-track / contact / restart / dirty / pit-out
+    # Why a lap was excluded (including race-start)
     # (ExcludeReason) — so the Bests board can say why a time is missing.
     # Empty unless best_override is False.
     exclude_reason: Mapped[str] = mapped_column(default="")

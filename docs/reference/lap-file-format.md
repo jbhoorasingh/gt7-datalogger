@@ -62,7 +62,8 @@ when exported again).
 - **Verdicts are carried, not re-derived**: `salvaged`, `full_lap` and any
   `best_override` / `exclude_reason`. The span guard needs the rest of the session to
   judge a lap, which an import doesn't have — so a pit out-lap stays partial and an
-  excluded lap stays excluded. Files written before these fields existed fall back to
+  excluded lap stays excluded, including a `race-start` exclusion. Files written before
+  these fields existed fall back to
   `counts_for_best`, which was the span guard's verdict at the time.
 - **v1 files** (from older versions) import cleanly — the newer per-corner channels are
   simply absent and the charts skip them; events stay empty since the columns they need

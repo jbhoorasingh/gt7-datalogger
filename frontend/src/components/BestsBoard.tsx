@@ -9,7 +9,7 @@
 import { Tip } from "@/components/ui/Tooltip";
 import { formatLapTime, formatTime, formatTimeShort } from "@/lib/format";
 import { openInAnalysis } from "@/lib/router";
-import type { PersonalBest } from "@/lib/types";
+import { excludeReasonLabel, type PersonalBest } from "@/lib/types";
 
 export function BestsBoard({ bests }: { bests: PersonalBest[] | null }) {
   if (bests == null) {
@@ -140,14 +140,14 @@ function ExcludedHint({ row }: { row: PersonalBest }) {
           <span>Quicker laps excluded from bests (Sessions → lap table):</span>
           {excluded.map((lap) => (
             <span key={lap.lap_id} className="font-tabular">
-              {formatLapTime(lap.time_ms)} — {lap.reason || "no reason given"}
+              {formatLapTime(lap.time_ms)} — {excludeReasonLabel(lap.reason) || "no reason given"}
             </span>
           ))}
         </div>
       }
     >
       <span tabIndex={0} className="text-ink-faint">
-        ⊘ {formatLapTime(first.time_ms)} {first.reason || "excluded"}
+        ⊘ {formatLapTime(first.time_ms)} {excludeReasonLabel(first.reason) || "excluded"}
         {excluded.length > 1 && ` +${excluded.length - 1}`}
       </span>
     </Tip>

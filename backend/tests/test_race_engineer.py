@@ -51,7 +51,7 @@ def completed_lap(
         samples={"t": [], "dist": []},
         fuel_start=10.0,
         fuel_end=10.0 - fuel_consumed,
-        counts_for_best=counts_for_best,
+        full_lap=counts_for_best,
     )
     lap.fuel_consumed = fuel_consumed
     lap.span_confirmed = True  # a lap the logger saw whole; kwargs can override

@@ -65,7 +65,7 @@ def make_lap(
         fuel_end=99.0,
     )
     lap.car_category = category
-    lap.counts_for_best = counts
+    lap.full_lap = counts
     lap.salvaged = salvaged
     return lap
 
