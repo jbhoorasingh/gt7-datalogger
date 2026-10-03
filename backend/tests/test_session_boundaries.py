@@ -197,3 +197,57 @@ async def test_replay_ending_in_a_menu_still_gets_its_own_session():
     assert [(sid, lap.number, lap.salvaged) for sid, lap in r.laps] == [(1, 3, True)]
     await r.feed(1)
     assert len(r.sessions) == 2
+
+
+@pytest.mark.parametrize("flags", [LOADING, 0])
+@pytest.mark.parametrize("inactive_lap", [-1, 0, 6, 7])
+async def test_pit_salvage_waits_for_driving_to_confirm_continuation(flags, inactive_lap):
+    r = Recording()
+    for _ in range(600):
+        await r.feed(6)
+    for _ in range(3):
+        await r.feed(inactive_lap, flags=flags, total=0, last_ms=10_000)
+    await r.feed(7, flags=PAUSED, total=0)
+    await r.feed(7, last_ms=10_000)
+    await r.feed(7)
+    await r.feed(8, last_ms=106_000, total=7, position=3)
+    assert len(r.sessions) == 1
+    assert [(sid, lap.number) for sid, lap in r.laps] == [(1, 6), (1, 7)]
+    assert [(sid, result.final_position) for sid, result in r.results] == [(1, 3)]
+    assert r.sessions[0].lap_count == 2
+
+
+@pytest.mark.parametrize("flags", [LOADING, 0])
+@pytest.mark.parametrize("next_lap, next_car", [(0, 100), (1, 100), (6, 100), (7, 200)])
+async def test_salvage_still_separates_driving_that_does_not_continue(flags, next_lap, next_car):
+    r = Recording()
+    for _ in range(600):
+        await r.feed(6)
+    await r.feed(0, flags=flags, total=0, last_ms=10_000)
+    await r.feed(next_lap, car=next_car)
+    assert len(r.sessions) == 2
+    assert [(sid, lap.number, lap.salvaged) for sid, lap in r.laps] == [(1, 6, True)]
+    assert r.sessions[-1].car_id == next_car
+
+
+async def test_loading_salvage_at_finish_keeps_result_in_original_session():
+    r = Recording()
+    for _ in range(600):
+        await r.feed(11)
+    await r.feed(12, flags=LOADING, last_ms=10_000)
+    for _ in range(3):
+        await r.feed(12, flags=0, last_ms=10_000, position=7)
+    assert len(r.sessions) == 1
+    assert [(sid, lap.number) for sid, lap in r.laps] == [(1, 11)]
+    assert [(sid, result.final_position) for sid, result in r.results] == [(1, 7)]
+    assert r.processor.live_lap_samples["t"] == []
+
+
+async def test_loading_salvage_of_lap_zero_replay_does_not_merge_with_lap_one():
+    r = Recording()
+    for _ in range(600):
+        await r.feed(0, total=0)
+    await r.feed(0, flags=LOADING, total=0, last_ms=10_000)
+    await r.feed(1, total=0)
+    assert len(r.sessions) == 2
+    assert [(sid, lap.number) for sid, lap in r.laps] == [(1, 0)]
