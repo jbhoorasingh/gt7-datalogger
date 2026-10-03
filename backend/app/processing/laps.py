@@ -516,8 +516,8 @@ class LapProcessor:
     """Consumes packets, emits completed laps and session boundaries.
 
     A new session starts when the car changes, when the lap counter resets
-    (race restart / return to track), or after a lap is salvaged (see below —
-    the stream that produced it broke off, so what follows is a new stint).
+    (race restart / return to track), or after a salvaged lap unless driving
+    resumes in the same car on the next lap (a pit-lane crossing).
     A lap normally commits when the counter steps to prev+1 — but a stream
     can end AT the finish line (watching the time-trial leader's replay does
     exactly that), so a buffered lap the counter abandoned is salvaged
@@ -533,6 +533,7 @@ class LapProcessor:
     min_lap_ticks: int = MIN_LAP_TICKS
 
     _session: SessionInfo | None = None
+    _awaiting_salvage_continuation: bool = False
     _current_lap: int = -1
     _samples: dict[str, list[float]] = field(default_factory=new_sample_store)
     # GT7's per-tick lap clock (packet C), kept parallel to _samples: the
@@ -639,7 +640,7 @@ class LapProcessor:
                 lap = self._build_salvaged_lap(self._current_lap, finished, self._gt_clock, p)
                 if lap is not None:
                     self._reset_lap_buffer(p)
-                    await self._emit_salvaged(lap, len(finished["t"]))
+                    await self._emit_salvaged(lap, len(finished["t"]), check_continuation=True)
             return
 
         finish_boundary = (
@@ -658,27 +659,34 @@ class LapProcessor:
                 )
                 if interrupted and len(self._samples["t"]) >= self.min_lap_ticks:
                     finished = self._samples
-                    # The next lap number in the same car is an ordinary
-                    # line crossing that GT7 reported from the pit lane,
-                    # where the car is not "on track". The stream did not
-                    # break off: the drive goes on in the same session.
-                    pit_crossing = (
-                        self._current_lap > 0
-                        and p.car_id == self._session.car_id
-                        and p.current_lap == self._current_lap + 1
-                    )
                     lap = self._build_salvaged_lap(
                         self._current_lap, finished, self._gt_clock, p
                     )
                     if lap is not None:
                         self._reset_lap_buffer(p)
                         await self._emit_salvaged(
-                            lap, len(finished["t"]), end_session=not pit_crossing
+                            lap, len(finished["t"]), check_continuation=True
                         )
                 elif not interrupted:
                     self._last_packet = p
             self._clock_offset_ms = None
             return
+
+        if self._awaiting_salvage_continuation:
+            self._awaiting_salvage_continuation = False
+            continues = (
+                self._session is not None
+                and self._current_lap > 0
+                and p.car_id == self._session.car_id
+                and p.current_lap == self._current_lap + 1
+            )
+            log.info(
+                "session after salvage: %s (car=%d, lap=%d -> %d, packet=%d)",
+                "continued" if continues else "ended",
+                p.car_id, self._current_lap, p.current_lap, p.packet_id,
+            )
+            if not continues:
+                self._session = None
 
         # A car change or lap reset is about to tear the session down with a
         # full lap still buffered: the ending-at-the-line case again, seen
@@ -983,33 +991,26 @@ class LapProcessor:
         return lap
 
     async def _emit_salvaged(
-        self, lap: CompletedLap, buffered_ticks: int, end_session: bool = True
+        self, lap: CompletedLap, buffered_ticks: int, check_continuation: bool = False
     ) -> None:
         """Emission mirrors the completing path; only the provenance differs.
 
-        `end_session=False` is for a lap salvaged only because its line
-        crossing arrived on a pit-lane packet: the drive did not break off,
-        so the session goes on (the reasoning below is about replays).
+        Inactive packets can blank the lap counter during a pit stop.
+        Check continuity when driving resumes, before ending that session.
         """
         assert self._session is not None
         self._session.lap_count += 1
         self._apply_span_guard(lap, lap.samples)
+        self._awaiting_salvage_continuation = check_continuation
         log.info(
             "salvaged lap %d: %d ticks, %d ms (%d pre-roll ticks trimmed)",
             lap.number, lap.total_ticks, lap.time_ms, buffered_ticks - lap.total_ticks,
         )
         await self.on_lap(lap)
-        # A salvaged lap means its stream broke off, so whatever streams next
-        # — another replay, the user's own driving in the same car — is a
-        # different stint and gets its own session. Nothing else would ever
-        # separate them: a lap-0 replay parks the counter at 0, so the
-        # lap_reset that normally splits sessions (it requires a counter
-        # coming down from >0) can never fire. Without the split, the user's
-        # laps after watching a replay would land in the replay's session,
-        # and excluding that session from bests (#26) would take their own
-        # driving with it — while a second replay would inherit the first
-        # one's circuit label and lap number.
-        if end_session:
+        # Active resets already confirm a new context. Inactive transitions
+        # wait for the next driving packet to distinguish pits from replays;
+        # lap-0 replays must still split even without a counter reset (#26).
+        if not check_continuation:
             self._session = None
 
     def _log_discard(
