@@ -49,6 +49,7 @@ session you are driving.
 
 **Consistency** is the standard deviation of the lap times, taken over the laps that
 [count toward bests](#excluding-a-lap-from-bests) only; it needs three of them.
+Race opening laps labelled **excluded · race start** do not enter this figure.
 
 Then the **Lap time by lap** chart — every lap's time in order, the best in purple, a
 dashed median line and the spread band; its footer gives the spread as a percentage
@@ -128,17 +129,28 @@ use the bulk bar). The lap leaves every best at once: the session best, the
 [Bests board](bests-view.md), the [class benchmark](analysis-view.md#side-panels),
 and the Race Engineer's pace and coaching comparisons. The lap is dimmed and an
 **excluded · why?** picker appears beside its number — *off-track*, *contact*,
-*restart*, *dirty* or *pit-out* — and the Bests board shows that reason next to the
-time it replaced.
+*restart*, *dirty*, *pit-out* or *race start* — and the Bests board shows that reason
+next to the time it replaced.
 
 It works the other way too. The
 [partial-lap guard](../internals/lap-detection.md#best-lap-tracking) marks laps it
-thinks covered only part of the track as **partial** — and so is lap 1 of a race, which
-[starts from the grid](../internals/lap-detection.md#where-a-lap-begins), not the line,
-so its time is not a lap time. If the guard got one wrong, **Count for bests** in the
-lap's **⋯** menu makes it count (**kept**). Setting a lap back to what the guard says
+thinks covered only part of the track as **partial**, including laps that
+[began away from the line](../internals/lap-detection.md#where-a-lap-begins).
+If the guard got one wrong, **Count for bests** in the lap's **⋯** menu makes it count (**kept**). Setting a lap back to what the guard says
 hands it back to the guard, so a lap you excluded and then counted again follows the
 guard again rather than staying pinned.
+
+**Race opening laps** are automatically excluded with the reason **race start**,
+for both standing and rolling starts. Detection requires lap 1 and a packet during
+that lap reporting a positive race distance and a position in a field of at least
+two. A complete opening lap keeps its full-lap verdict; its starting conditions are
+why it is excluded. Qualifying lap 1 and the first recorded lap of a mid-race join
+are not excluded by this rule. If race metadata is missing, use **Exclude from
+bests**, then select **race start** yourself. **Count for bests** can include it again.
+
+Existing sessions with a recorded race result are updated once at startup, leaving
+any existing manual rulings intact. Older recordings without a confirmed result
+need a manual ruling.
 
 An excluded lap keeps its row, its telemetry and its place in Analysis. If the lap belongs to the session you are driving right now,
 the live session best and the Δ-best reference move with it immediately. The ruling

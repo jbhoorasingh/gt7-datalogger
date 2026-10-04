@@ -157,7 +157,7 @@ the app.
 | Key | |
 | --- | --- |
 | `reference` | `true` on the reference lap, absent on every other |
-| `counts_for_best` | `false` for a partial lap (a pit out-lap, a race's first lap from the grid) or one ruled out by hand; `exclude_reason` says why when a reason was given |
+| `counts_for_best` | `false` for a partial lap, a detected race opening lap (`exclude_reason: "race-start"`), or one ruled out by hand; `exclude_reason` says why when a reason was given |
 | `clean` | `true` / `false`, or `null` when neither GT7's surface flags nor the survey could judge the lap |
 | `off_track`, `off_survey` | excursions counted by GT7's surface flags and by the surveyed edges; **absent** when that judge had nothing to go on |
 | `shifts` | each gear's upshifts over the lap, and the engine speed they were made at |

@@ -7,10 +7,13 @@ since the previous one, so its time and distance must start from the same
 guess at where the line was.
 """
 
+import logging
 import math
+from dataclasses import replace
 
 import pytest
 
+from app.main import LAP_START_CHECK_KEY, LAP_START_CHECK_VERSION, recheck_lap_starts
 from app.processing.cars import Car
 from app.processing.laps import (
     CompletedLap,
@@ -196,7 +199,7 @@ async def recorded_laps(start_lap1: float) -> list[CompletedLap]:
     proc = LapProcessor(on_lap=c.on_lap, on_session=c.on_session, min_lap_ticks=1)
     await race(proc, Driver(), start_lap1, ms((FULL - start_lap1) / OMEGA), laps=3)
     for lap in c.laps:
-        lap.counts_for_best = True  # as a recorder without the check stored them
+        lap.full_lap = True  # as a recorder without the check stored them
     return c.laps
 
 
@@ -247,3 +250,155 @@ async def test_a_last_lap_is_judged_against_a_lap_that_began_at_the_line(repo) -
     flags = await full_laps(repo, ids)
     assert flags[4] is True  # judged against lap 3, not the mid-lap start
     assert flags[2] is False  # and lap 2 itself did not start at the line
+
+
+@pytest.mark.parametrize("start", [0.0, -60 / RADIUS, 40 / RADIUS])
+async def test_race_opening_lap_is_excluded_even_when_it_covers_the_track(setup, start):
+    proc, c, driver = setup
+    for p in driver.lap(1, start=start):
+        await proc.feed(replace(p, total_laps=3, race_position=4, total_positions=12))
+    # The boundary packet need not retain the race metadata.
+    await proc.feed(driver.cross(2, ms(LAP_S) - 500))
+    first = c.laps[0]
+    assert first.counts_for_best is False
+    assert first.best_override is False
+    assert first.exclude_reason == "race-start"
+    assert first.full_lap is (start == 0.0)
+    assert proc.session.best_lap_time_ms == -1
+    assert proc.excluded_lap_numbers() == {1}
+
+    await drive(proc, driver.lap(2))
+    await proc.feed(driver.cross(3, ms(LAP_S)))
+    assert c.laps[-1].counts_for_best is True
+    assert proc.session.best_lap_time_ms == ms(LAP_S)
+    assert proc.excluded_lap_numbers() == {1}
+
+    proc.set_best_override(1, True)
+    assert proc.session.best_lap_time_ms == ms(LAP_S) - 500
+
+
+@pytest.mark.parametrize(
+    ("number", "race_laps", "position", "field"),
+    [(1, 0, -1, -1), (1, 0, 4, 12), (1, 3, -1, -1), (4, 10, 4, 12)],
+)
+async def test_qualifying_unknown_context_and_mid_race_laps_still_count(
+    setup, number, race_laps, position, field
+):
+    proc, c, driver = setup
+    for p in driver.lap(number):
+        await proc.feed(replace(
+            p, total_laps=race_laps, race_position=position, total_positions=field
+        ))
+    await proc.feed(driver.cross(number + 1, ms(LAP_S)))
+    assert c.laps[0].counts_for_best is True
+
+
+async def test_old_race_starts_are_excluded_once_without_overwriting_rulings(repo, monkeypatch):
+    races = []
+    for override in (None, True, False):
+        ids = await store(repo, await recorded_laps(0.0))
+        first = await repo.get_lap(ids[1])
+        await repo.record_race_result(first["session_id"], 3, 12, 3)
+        if override is not None:
+            await repo.set_lap_best_override(ids[1], override, "contact" if not override else "")
+        races.append(ids)
+    qualifying = await store(repo, await recorded_laps(0.0))
+    mid_race = await store(repo, await recorded_laps(0.0), numbers=[2, 3])
+    mid = await repo.get_lap(mid_race[2])
+    await repo.record_race_result(mid["session_id"], 3, 12, 3)
+
+    sample_reads = []
+    read_samples = repo.lap_samples_json
+
+    async def record_sample_read(lap_id):
+        sample_reads.append(lap_id)
+        return await read_samples(lap_id)
+
+    monkeypatch.setattr(repo, "lap_samples_json", record_sample_read)
+    await repo.set_setting(LAP_START_CHECK_KEY, "1")
+    await recheck_lap_starts(repo, await repo.get_settings(), logging.getLogger(__name__))
+    assert sample_reads == []
+    first = await repo.get_lap(races[0][1])
+    assert first["counts_for_best"] is False
+    assert first["full_lap"] is True
+    assert first["exclude_reason"] == "race-start"
+    assert (await repo.get_lap(races[1][1]))["counts_for_best"] is True
+    assert (await repo.get_lap(races[2][1]))["exclude_reason"] == "contact"
+    assert (await repo.get_lap(qualifying[1]))["counts_for_best"] is True
+    assert (await repo.get_lap(mid_race[2]))["counts_for_best"] is True
+
+    # Clearing the exclusion must survive the next startup.
+    await repo.set_lap_best_override(races[0][1], None)
+    await recheck_lap_starts(
+        repo, await repo.get_settings(), logging.getLogger(__name__)
+    )
+    assert (await repo.get_lap(races[0][1]))["counts_for_best"] is True
+
+
+async def test_salvaged_race_start_does_not_leak_into_next_qualifying_session(setup):
+    proc, c, driver = setup
+    for p in driver.lap(1):
+        await proc.feed(replace(p, total_laps=3, race_position=4, total_positions=12))
+    await proc.feed(driver.cross(0, ms(LAP_S)))
+    first = c.laps[0]
+    assert first.salvaged is True
+    assert first.counts_for_best is False
+    assert first.exclude_reason == "race-start"
+
+    await drive(proc, driver.lap(1))
+    await proc.feed(driver.cross(2, ms(LAP_S)))
+    qualifying = c.laps[-1]
+    assert qualifying.counts_for_best is True
+    assert qualifying.best_override is None
+    assert qualifying.exclude_reason == ""
+
+
+async def test_failed_race_start_update_retries_without_repeating_geometry(repo, monkeypatch):
+    ids = await store(repo, await recorded_laps(0.0))
+    first = await repo.get_lap(ids[1])
+    await repo.record_race_result(first["session_id"], 3, 12, 3)
+    update_race_starts = repo.exclude_recorded_race_starts
+
+    async def fail_update():
+        raise RuntimeError("temporary storage failure")
+
+    monkeypatch.setattr(repo, "exclude_recorded_race_starts", fail_update)
+    await recheck_lap_starts(repo, {}, logging.getLogger(__name__))
+    stored = await repo.get_settings()
+    assert stored.get(LAP_START_CHECK_KEY) == LAP_START_CHECK_VERSION
+    assert (await repo.get_lap(ids[1]))["counts_for_best"] is True
+
+    sample_reads = []
+    read_samples = repo.lap_samples_json
+
+    async def record_sample_read(lap_id):
+        sample_reads.append(lap_id)
+        return await read_samples(lap_id)
+
+    monkeypatch.setattr(repo, "lap_samples_json", record_sample_read)
+    monkeypatch.setattr(repo, "exclude_recorded_race_starts", update_race_starts)
+    await recheck_lap_starts(repo, stored, logging.getLogger(__name__))
+    assert sample_reads == []
+    assert (await repo.get_lap(ids[1]))["exclude_reason"] == "race-start"
+
+
+async def test_geometry_retry_keeps_a_completed_race_start_update(repo, monkeypatch):
+    ids = await store(repo, await recorded_laps(0.0))
+    first = await repo.get_lap(ids[1])
+    await repo.record_race_result(first["session_id"], 3, 12, 3)
+    scan_geometry = repo.recheck_lap_starts
+
+    async def fail_scan():
+        raise RuntimeError("temporary geometry failure")
+
+    monkeypatch.setattr(repo, "recheck_lap_starts", fail_scan)
+    await recheck_lap_starts(repo, {}, logging.getLogger(__name__))
+    stored = await repo.get_settings()
+    assert LAP_START_CHECK_KEY not in stored
+    assert (await repo.get_lap(ids[1]))["exclude_reason"] == "race-start"
+
+    await repo.set_lap_best_override(ids[1], None)
+    monkeypatch.setattr(repo, "recheck_lap_starts", scan_geometry)
+    await recheck_lap_starts(repo, stored, logging.getLogger(__name__))
+    assert (await repo.get_settings())[LAP_START_CHECK_KEY] == LAP_START_CHECK_VERSION
+    assert (await repo.get_lap(ids[1]))["counts_for_best"] is True

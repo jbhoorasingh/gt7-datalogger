@@ -403,9 +403,11 @@ class CompletedLap:
     # Static per lap: {"ratios": [...], "top_speed": float, "rpm_alert": float}
     gearing: dict[str, object] | None = None
     events: list[dict[str, object]] = field(default_factory=list)
-    # Partial-lap flags (see FULL_LAP_SPAN_RATIO): whether this lap may set
-    # the session best, and whether it proved the previous best was partial.
-    counts_for_best: bool = True
+    # Geometry and eligibility are separate: a complete race opening lap
+    # keeps its full-lap verdict while excluded from pace comparisons.
+    full_lap: bool = True
+    best_override: bool | None = None
+    exclude_reason: str = ""
     invalidated_best: bool = False
     # Lap numbers in this session that now look partial — re-flagged in the DB
     # when `invalidated_best` fires. Only the short ones: a longer lap does not
@@ -433,6 +435,10 @@ class CompletedLap:
     # Race position when this lap completed (#60): the last valid reading GT7
     # made during the lap. -1 = no position reporting (time trial, practice).
     race_position: int = -1
+
+    @property
+    def counts_for_best(self) -> bool:
+        return self.full_lap if self.best_override is None else self.best_override
 
     def compute_metrics(self) -> None:
         # Imported laps from older export versions may lack the newer columns;
@@ -551,7 +557,7 @@ class LapProcessor:
     # the fastest remaining real lap, not blank the best until the next one.
     _laps: list[tuple[int, float, int]] = field(default_factory=list)
     _partial: set[int] = field(default_factory=set)
-    # The user's rulings on this session's laps, by lap number (#74): True
+    # Rulings and race-start exclusions, by lap number (#74): True
     # counts whatever the span says, False never counts. Applied on top of
     # _partial wherever the best is worked out, and never folded into it —
     # the heuristic's own set is what the stored rows are re-flagged by.
@@ -581,6 +587,7 @@ class LapProcessor:
     # the completed lap, the last one of the session is the fallback for the
     # final result if the flag packet itself reads -1.
     _lap_position: int = -1
+    _lap_is_race: bool = False
     _session_position: int = -1
     _session_total_positions: int = -1
     # The checkered-flag edge fires once per session, however long the
@@ -801,6 +808,7 @@ class LapProcessor:
         fuel_start = self._fuel_start
         engine = (self._max_water, self._max_oil, self._min_oil_pressure)
         lap_position = self._lap_position
+        race_start = prev == 1 and self._lap_is_race
 
         # A transition that abandons the buffer instead of completing it — a
         # jump to -1, a forward jump past prev+1, an out-lap's 0 -> 1 — can
@@ -841,6 +849,8 @@ class LapProcessor:
                 fuel_end=p.fuel_level,
                 tod_ms=p.day_progression_ms,
                 race_position=lap_position,
+                best_override=False if race_start else None,
+                exclude_reason="race-start" if race_start else "",
             )
             lap.max_water_temp = round(engine[0], 1)
             lap.max_oil_temp = round(engine[1], 1)
@@ -887,6 +897,7 @@ class LapProcessor:
         self._max_oil = 0.0
         self._min_oil_pressure = -1.0
         self._lap_position = -1
+        self._lap_is_race = False
 
     def _salvage_candidates(self, p: TelemetryPacket) -> list[int]:
         """Lap times GT7 itself has vouched for, deduped (#26).
@@ -970,6 +981,8 @@ class LapProcessor:
             tod_ms=src.day_progression_ms,
             salvaged=True,
             race_position=self._lap_position,
+            best_override=False if prev_lap == 1 and self._lap_is_race else None,
+            exclude_reason="race-start" if prev_lap == 1 and self._lap_is_race else "",
         )
         lap.max_water_temp = round(self._max_water, 1)
         lap.max_oil_temp = round(self._max_oil, 1)
@@ -1064,6 +1077,8 @@ class LapProcessor:
         # ...and a ruling made on the lap it replaced was about that lap, not
         # this one.
         self._overrides.pop(lap.number, None)
+        if lap.best_override is not None:
+            self._overrides[lap.number] = lap.best_override
         self._off_line.discard(lap.number)
         ends = LapEnds.of(samples)
         if line is not None and ends is not None and not ends.started_at_line(*line):
@@ -1092,7 +1107,7 @@ class LapProcessor:
             else {number for number, value, _ in timed if value < full_enough}
         ) | self._off_line
 
-        lap.counts_for_best = lap.number not in partial
+        lap.full_lap = lap.number not in partial
         lap.span_confirmed = self._span_confirmed(timed, reference)
         # The set changing means an earlier verdict was wrong in one direction
         # or the other; the stored rows have to be brought back in line.
@@ -1256,6 +1271,8 @@ class LapProcessor:
         if p.race_position >= 1 and p.total_positions >= 2:
             s["race_pos"].append(float(p.race_position))
             self._lap_position = p.race_position
+            if p.total_laps > 0:
+                self._lap_is_race = True
         slip = p.body_slip_deg
         if slip is not None:
             s["body_slip"].append(round(slip, 2))

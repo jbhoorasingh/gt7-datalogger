@@ -106,16 +106,23 @@ export interface LapSummary {
   event_counts?: Record<string, number>;
 }
 
-// Why a lap was ruled out of the bests by hand (#74). Mirrors backend
+// Why a lap was excluded from bests (#74). Mirrors backend
 // ExcludeReason.
-export const EXCLUDE_REASONS = ["off-track", "contact", "restart", "dirty", "pit-out"] as const;
+export const EXCLUDE_REASONS = [
+  "off-track", "contact", "restart", "dirty", "pit-out", "race-start",
+] as const;
 export type ExcludeReason = (typeof EXCLUDE_REASONS)[number];
+
+export function excludeReasonLabel(reason: ExcludeReason | "" | undefined): string {
+  return reason === "race-start" ? "race start" : (reason ?? "");
+}
 
 /** Why a lap does not count toward bests, in a word or two; null if it does. */
 export function notCountingLabel(lap: LapSummary): string | null {
   if (lap.counts_for_best !== false) return null;
   if (lap.best_override === false) {
-    return lap.exclude_reason ? `excluded · ${lap.exclude_reason}` : "excluded";
+    const reason = excludeReasonLabel(lap.exclude_reason);
+    return reason ? `excluded · ${reason}` : "excluded";
   }
   return "partial";
 }

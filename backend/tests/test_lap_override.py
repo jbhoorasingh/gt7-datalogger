@@ -5,6 +5,8 @@ laps they stand behind. The second outranks the first in both directions,
 survives the first being re-run, and hands the lap back to it when cleared.
 """
 
+from dataclasses import replace
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -18,6 +20,7 @@ from app.service import TelemetryService
 from app.storage.db import init_db, make_engine, make_session_factory
 from app.storage.repository import Repository
 from app.telemetry.packet import build_packet, parse_packet
+from tests.circle_track import Driver
 
 ON_TRACK = int(SimulatorFlags.CAR_ON_TRACK)
 
@@ -63,7 +66,7 @@ def make_lap(number: int, time_ms: int, counts: bool = True, ticks: int = 0) -> 
         fuel_end=99.0,
     )
     lap.car_category = "Gr.3"
-    lap.counts_for_best = counts
+    lap.full_lap = counts
     lap.total_ticks = ticks
     return lap
 
@@ -364,3 +367,55 @@ def test_processor_applies_rulings_on_top_of_the_span() -> None:
     proc.set_best_override(4, None)
     assert proc.excluded_lap_numbers() == {4}
     assert proc.session.best_lap_time_ms == 90_000
+
+
+async def test_race_start_exclusion_reaches_storage_live_stats_and_export(client):
+    c, service = client
+    driver = Driver()
+    for p in driver.lap(1):
+        await service._on_packet(replace(p, total_laps=4, race_position=3, total_positions=12))
+    await service._on_packet(driver.cross(2, 37_000))
+    rows = await service.repo.list_laps(service.session_id)
+    first = rows[0]
+    assert first["counts_for_best"] is False
+    assert first["full_lap"] is True
+    assert first["best_override"] is False
+    assert first["exclude_reason"] == "race-start"
+    assert service._session_best_ms is None
+    assert service._best_ref is None
+
+    for number, time_ms in [(2, 38_000), (3, 38_200), (4, 38_400)]:
+        for p in driver.lap(number):
+            await service._on_packet(p)
+        await service._on_packet(driver.cross(number + 1, time_ms))
+    assert service._session_best_ms == 38_000
+    assert service._best_ref_lap == 2
+    document = (await c.get(f"/api/sessions/{service.session_id}/analysis.json")).json()
+    assert document["consistency"]["lap_time"]["laps"] == 3
+    assert document["consistency"]["lap_time"]["std_ms"] == 200
+
+    doc = (await c.get(f"/api/laps/{first['id']}/export")).json()
+    imported = await c.post("/api/laps/import", json=doc)
+    assert imported.status_code == 200
+    restored = (await c.get(f"/api/laps/{imported.json()['id']}?samples=false")).json()
+    assert restored["counts_for_best"] is False
+    assert restored["full_lap"] is True
+    assert restored["exclude_reason"] == "race-start"
+
+    await service.repo.mark_session_laps_partial(first["session_id"], [])
+    assert (await service.repo.get_lap(first["id"]))["counts_for_best"] is False
+    response = await c.patch(f"/api/laps/{first['id']}", json={"best_override": True})
+    assert response.json()["counts_for_best"] is True
+    assert service._session_best_ms == 37_000
+
+
+async def test_race_start_can_be_marked_manually(client):
+    c, service = client
+    _, ids = await seed(service.repo)
+    response = await c.patch(
+        f"/api/laps/{ids[1]}", json={"best_override": False, "exclude_reason": "race-start"}
+    )
+    assert response.status_code == 200
+    assert response.json()["counts_for_best"] is False
+    assert response.json()["full_lap"] is True
+    assert response.json()["exclude_reason"] == "race-start"
