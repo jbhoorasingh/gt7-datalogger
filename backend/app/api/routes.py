@@ -58,6 +58,21 @@ async def sessions(
     return await svc(request).repo.list_sessions(category.strip() or None)
 
 
+@router.get("/sessions/changes")
+async def session_changes(
+    request: Request,
+    since: int = Query(0, ge=0, description="the `revision` from the previous call; 0 = all"),
+) -> dict[str, Any]:
+    """Sessions changed since a revision, for clients that keep a copy (#142).
+
+    `sessions`: changed or new since `since` (a new lap, a ruling, a note, a
+    track name, a race result), in the shape of GET /api/sessions.
+    `ids`: every session that exists now; any other the client holds was
+    deleted. `revision`: pass it as `since` next time.
+    """
+    return await svc(request).repo.session_changes(since)
+
+
 @router.delete("/sessions/{session_id}", dependencies=[Depends(require_admin)])
 async def delete_session(request: Request, session_id: int) -> dict[str, str]:
     service = svc(request)

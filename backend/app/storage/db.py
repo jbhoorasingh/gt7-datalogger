@@ -111,6 +111,10 @@ class SessionRow(Base):
     # confidently wrong number. tod_ms is NOT a substitute — it is in-game
     # time of day and advances at the event's own rate multiplier.
     race_time_ms: Mapped[int | None] = mapped_column(default=None)
+    # Bumped by every write to the session or its laps (Repository._touch),
+    # to one more than the table's largest: what a client keeping a copy asks
+    # "what changed since N" with (#142).
+    revision: Mapped[int] = mapped_column(default=0)
 
     laps: Mapped[list[LapRow]] = relationship(
         back_populates="session", cascade="all, delete-orphan"

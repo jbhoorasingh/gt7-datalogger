@@ -14,6 +14,7 @@ from fastapi import WebSocket
 
 from app import netinfo, protocol
 from app.config import Settings
+from app.discovery import Advertiser
 from app.models import TelemetryPacket
 from app.notify import Notifier
 from app.processing import alignment, track_bundle, track_compile, track_limits, tracks
@@ -188,6 +189,8 @@ class TelemetryService:
         # What the environment said, before saved settings were laid over it
         # (main.lifespan replaces this copy): what a reset falls back to.
         self.env_settings = settings.model_copy()
+        # mDNS announcement (#142); inert until main.lifespan starts it.
+        self.discovery = Advertiser(settings)
         # Authored corners per circuit slug, read out of the track bundle
         # (#48). Cached because the bundle is a multi-megabyte document and
         # the corners in it are a few hundred bytes — parsing the whole thing

@@ -205,6 +205,24 @@ class Repository:
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._sf = session_factory
 
+    @staticmethod
+    async def _touch(db: AsyncSession, sessions: Any) -> None:
+        """Mark sessions changed: `sessions` is a list of ids or a select of
+        them. Called inside the writing transaction, so the bump commits with
+        the change it records."""
+        if isinstance(sessions, list):
+            sessions = [i for i in sessions if i is not None]
+            if not sessions:
+                return
+        nxt = select(func.coalesce(func.max(SessionRow.revision), 0) + 1).scalar_subquery()
+        await db.execute(
+            update(SessionRow).where(SessionRow.id.in_(sessions)).values(revision=nxt)
+        )
+
+    @staticmethod
+    def _lap_session(lap_ids: Any) -> Any:
+        return select(LapRow.session_id).where(LapRow.id.in_(lap_ids))
+
     async def create_session(self, info: SessionInfo, car: Car | None) -> int:
         """Open a session, denormalising what the inventory knows about the car.
 
@@ -223,6 +241,8 @@ class Repository:
                 **car_figures(car),
             )
             db.add(row)
+            await db.flush()
+            await self._touch(db, [row.id])
             await db.commit()
             return row.id
 
@@ -274,7 +294,12 @@ class Repository:
                         **(figures if any(figures.values()) else {}),
                     )
                 )
-                updated += cast(CursorResult[Any], result).rowcount or 0
+                count = cast(CursorResult[Any], result).rowcount or 0
+                if count:
+                    await self._touch(
+                        db, select(SessionRow.id).where(SessionRow.car_id == car_id)
+                    )
+                updated += count
             await db.commit()
             return updated
 
@@ -327,6 +352,7 @@ class Repository:
                 samples_json=json.dumps(lap.samples, separators=(",", ":")),
             )
             db.add(row)
+            await self._touch(db, [session_id])
             await db.commit()
             return row.id
 
@@ -395,6 +421,7 @@ class Repository:
             "final_total_positions": s.final_total_positions,
             "race_laps": s.race_laps,
             "race_time_ms": s.race_time_ms,
+            "revision": s.revision,
         }
 
     async def list_sessions(self, category: str | None = None) -> list[dict[str, Any]]:
@@ -404,6 +431,27 @@ class Repository:
             if category:
                 sessions = [s for s in sessions if s["car_category"] == category]
             return sessions
+
+    async def session_changes(self, since: int) -> dict[str, Any]:
+        """What a client holding revision `since` needs to catch up (#142).
+
+        `sessions` are the ones changed after it, in list_sessions' shape;
+        `ids` every session that still exists, so the client can drop the
+        ones deleted since; `revision` the value to ask from next time.
+        """
+        async with self._sf() as db:
+            rows = (
+                await db.execute(self._sessions_query().where(SessionRow.revision > since))
+            ).all()
+            ids = list((await db.execute(select(SessionRow.id).order_by(SessionRow.id))).scalars())
+            revision = (
+                await db.execute(select(func.coalesce(func.max(SessionRow.revision), 0)))
+            ).scalar_one()
+        return {
+            "revision": revision,
+            "sessions": [self._session_dict(*row) for row in rows],
+            "ids": ids,
+        }
 
     async def get_session(self, session_id: int) -> dict[str, Any] | None:
         """One session, in exactly the shape list_sessions gives it."""
@@ -439,6 +487,7 @@ class Repository:
                 row.tags = ",".join(tags)
             if bests_excluded is not None:
                 row.bests_excluded = bests_excluded
+            await self._touch(db, [session_id])
             await db.commit()
             return True
 
@@ -635,6 +684,7 @@ class Repository:
             row.final_total_positions = total_positions
             row.race_laps = race_laps
             row.race_time_ms = race_time
+            await self._touch(db, [session_id])
             await db.commit()
             return race_time
 
@@ -682,6 +732,7 @@ class Repository:
                 .where(LapRow.session_id == session_id)
                 .values(full_lap=LapRow.number.notin_(numbers) if numbers else True)
             )
+            await self._touch(db, [session_id])
             await db.commit()
 
     async def exclude_recorded_race_starts(self) -> int:
@@ -691,16 +742,22 @@ class Repository:
             SessionRow.final_position >= 1,
             SessionRow.final_total_positions >= 2,
         )
+        opening = (
+            LapRow.session_id.in_(races),
+            LapRow.number == 1,
+            LapRow.best_override.is_(None),
+        )
         async with self._sf() as db:
+            # Which sessions, read before the update changes the answer.
+            touched = list(
+                (await db.execute(select(LapRow.session_id).where(*opening).distinct())).scalars()
+            )
             result = await db.execute(
                 update(LapRow)
-                .where(
-                    LapRow.session_id.in_(races),
-                    LapRow.number == 1,
-                    LapRow.best_override.is_(None),
-                )
+                .where(*opening)
                 .values(best_override=False, exclude_reason="race-start")
             )
+            await self._touch(db, touched)
             await db.commit()
             return cast(CursorResult[Any], result).rowcount or 0
 
@@ -772,6 +829,9 @@ class Repository:
                 await db.execute(
                     update(LapRow).where(LapRow.id.in_(marked)).values(full_lap=False)
                 )
+                await self._touch(
+                    db, select(LapRow.session_id).where(LapRow.id.in_(marked)).distinct()
+                )
                 await db.commit()
         return len(marked)
 
@@ -791,6 +851,7 @@ class Repository:
                 .where(LapRow.id == lap_id)
                 .values(off_survey_count=off_survey_count, clean_lap=clean_lap)
             )
+            await self._touch(db, self._lap_session([lap_id]))
             await db.commit()
 
     async def set_lap_best_override(
@@ -816,6 +877,7 @@ class Repository:
                     )
                 ),
             )
+            await self._touch(db, self._lap_session([lap_id]))
             await db.commit()
             if not result.rowcount:
                 return None
@@ -953,6 +1015,8 @@ class Repository:
 
     async def delete_lap(self, lap_id: int) -> None:
         async with self._sf() as db:
+            # Touched first: once the lap is gone nothing says whose it was.
+            await self._touch(db, self._lap_session([lap_id]))
             await db.execute(delete(LapRow).where(LapRow.id == lap_id))
             await db.commit()
 
@@ -1168,6 +1232,7 @@ class Repository:
             row = await db.get(SessionRow, session_id)
             if row is not None:
                 row.track_name = track_name
+                await self._touch(db, [session_id])
                 await db.commit()
 
     # --- overlay/dashboard layouts ------------------------------------------

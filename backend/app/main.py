@@ -272,6 +272,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     service.env_settings = baseline
     app.state.service = service
     await service.start()
+    await service.discovery.start()
 
     # Deliberately not awaited: startup must not wait on gran-turismo.com, and
     # must not fail if it never answers. The task is kept so it can be
@@ -296,6 +297,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
+    await service.discovery.stop()
     await service.stop()
     await engine.dispose()
 

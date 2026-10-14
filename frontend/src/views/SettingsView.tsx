@@ -22,6 +22,7 @@ import {
 } from "@/components/settings/model";
 import { NotificationsSection } from "@/components/settings/NotificationsSection";
 import { OverlaysSection } from "@/components/settings/OverlaysSection";
+import { PhoneSection } from "@/components/settings/PhoneSection";
 import { PendingBar } from "@/components/settings/PendingBar";
 import { Dot, mb, SectionPanel, TONE_TEXT, type SectionProps, type Tone } from "@/components/settings/parts";
 import { SyncSection, syncQueued } from "@/components/settings/SyncSection";
@@ -244,6 +245,7 @@ export function SettingsView({ section: sectionParam }: { section?: string | nul
       ? [`${draft.webhook_events.length} event${draft.webhook_events.length === 1 ? "" : "s"}`, "good"]
       : ["off", "faint"];
   }
+  if (stats) meta.phone = stats.mdns ? ["announced", "good"] : ["by code", "faint"];
   if (layouts) meta.overlays = [`${layouts.length} saved`, "faint"];
   if (logErrors > 0) meta.logs = [`${logErrors} error${logErrors === 1 ? "" : "s"}`, "bad"];
   if (protection) meta.access = protection === "open" ? ["open", "warn"] : ["protected", "good"];
@@ -312,6 +314,8 @@ export function SettingsView({ section: sectionParam }: { section?: string | nul
     switch (section) {
       case "overlays":
         return <OverlaysSection layouts={layouts} reload={reloadLayouts} />;
+      case "phone":
+        return <PhoneSection stats={stats} busy={busy} run={run} />;
       case "health":
         return <HealthSection busy={busy} run={run} stats={stats} hz={hz} />;
       case "data":

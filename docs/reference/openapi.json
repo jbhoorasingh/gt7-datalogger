@@ -2975,6 +2975,52 @@
         "summary": "Sessions"
       }
     },
+    "/api/sessions/changes": {
+      "get": {
+        "description": "Sessions changed since a revision, for clients that keep a copy (#142).\n\n`sessions`: changed or new since `since` (a new lap, a ruling, a note, a\ntrack name, a race result), in the shape of GET /api/sessions.\n`ids`: every session that exists now; any other the client holds was\ndeleted. `revision`: pass it as `since` next time.",
+        "operationId": "session_changes_api_sessions_changes_get",
+        "parameters": [
+          {
+            "description": "the `revision` from the previous call; 0 = all",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "description": "the `revision` from the previous call; 0 = all",
+              "minimum": 0,
+              "title": "Since",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Session Changes Api Sessions Changes Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Session Changes"
+      }
+    },
     "/api/sessions/{session_id}": {
       "delete": {
         "operationId": "delete_session_api_sessions__session_id__delete",

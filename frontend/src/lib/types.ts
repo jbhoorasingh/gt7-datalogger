@@ -1117,7 +1117,12 @@ export interface AdminStats {
   source: ConnectionStatus;
   clients: number;
   lan_ip: string;
+  /** The port the server actually listens on (uvicorn --port wins over GT7_HTTP_PORT). */
   http_port: number;
+  /** While announced over mDNS (#142): the service name and where it points. */
+  mdns: { name: string; ip: string; port: number } | null;
+  /** GT7_MDNS: whether it should be announced at all. */
+  mdns_enabled: boolean;
 }
 
 export type WsMessage =

@@ -19,6 +19,10 @@ The console only streams to a client that keeps asking for data:
 3. If no packet arrives for **5 s** the connection is considered stale and the status
    indicator drops to "waiting for telemetry" while heartbeats continue.
 
+The console streams to **every** client that keeps sending heartbeats, not only the
+latest one. Two dataloggers on different machines can capture the same drive at once,
+and so can a datalogger and the phone app talking to the console directly (#144).
+
 ## Packet formats
 
 Four packet formats exist, each a strict superset of the previous. Parsing keys off

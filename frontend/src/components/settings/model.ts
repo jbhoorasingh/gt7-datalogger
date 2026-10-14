@@ -16,7 +16,8 @@ export type SectionId =
   | "logs"
   | "access"
   | "data"
-  | "advanced";
+  | "advanced"
+  | "phone";
 
 export interface SectionDef {
   id: SectionId;
@@ -43,6 +44,7 @@ export const SECTION_GROUPS: { group: string; items: SectionDef[] }[] = [
     group: "Streaming",
     items: [
       { id: "overlays", label: "Overlays & dashboards", keywords: "overlay obs dash layout builder widget import" },
+      { id: "phone", label: "Phone app", keywords: "phone mobile app qr code mdns bonjour discover network connect" },
     ],
   },
   {

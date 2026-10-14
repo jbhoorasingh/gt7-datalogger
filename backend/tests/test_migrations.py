@@ -149,6 +149,9 @@ async def test_pre_alembic_database_is_caught_up_and_stamped(tmp_path) -> None:
     assert laps[0]["off_survey_count"] == -1
     assert laps[0]["best_override"] is None
     assert laps[0]["exclude_reason"] == ""
+    # 0012 starts every existing session at its id, so a client pulling
+    # from revision 0 gets the whole history (#142).
+    assert sessions[0]["revision"] == 1
 
 
 async def test_legacy_catch_up_leaves_a_partly_upgraded_file_alone(tmp_path) -> None:

@@ -124,6 +124,13 @@ ENTRIES: tuple[Entry, ...] = (
         kind="int", minimum=1, maximum=60,
     ),
     Entry(
+        "mdns", "Live stream", "Announce on the LAN",
+        "Advertise this server over mDNS as `_gt7dl._tcp` so the phone app finds it "
+        "without an address. Multicast does not leave a Docker bridge network: in a "
+        "container it needs `network_mode: host`",
+        kind="bool",
+    ),
+    Entry(
         "cors_origins", "Live stream", "CORS origins",
         "Comma-separated origins allowed for cross-origin API use. Empty sends no "
         "CORS headers — the bundled UI is same-origin and needs none, and so does a "

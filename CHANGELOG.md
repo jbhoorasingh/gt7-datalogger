@@ -44,6 +44,19 @@ Notable changes to GT7 Datalogger. The format follows
   `docs/reference/schemas/ws/` along with the REST API's `openapi.json`,
   both generated from the server's models.
 
+- **Phone discovery and pull.** (#142) The server announces itself on
+  the LAN over mDNS as `_gt7dl._tcp`, carrying the protocol version
+  (`GT7_MDNS`, on by default, switchable live). The new **Phone app**
+  section in Settings shows whether it is being announced, and the server's
+  address as a QR code for networks where multicast does not reach.
+  `GET /api/sessions/changes?since=` returns the sessions changed since a
+  revision and the ids of every session that still exists, so a client
+  keeping a copy pulls only what changed. Every write to a session or its
+  laps bumps the session's new `revision`.
+- **Two receivers at once.** (#144) Documented: the console streams to
+  every client sending heartbeats, so two dataloggers, or a datalogger and
+  the phone, can capture the same drive.
+
 ### Changed
 
 - **CORS origins apply live.** `GT7_CORS_ORIGINS` is read per request, so

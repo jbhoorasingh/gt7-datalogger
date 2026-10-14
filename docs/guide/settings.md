@@ -237,6 +237,17 @@ count and URL, with **Copy URL** and **Edit** on each row. **Open builder** goes
 the [Overlays](overlay.md) tab, where layouts are built; **Import JSON…** turns a
 layout file into a new saved overlay named after the file.
 
+## Phone app
+
+How the phone app finds this server.
+
+- **Announce on the network**: advertises the server over mDNS (`GT7_MDNS`), so the
+  app lists it without an address being typed. The line beside the switch shows the
+  name and address being announced. Multicast does not leave a Docker bridge
+  network: in a container this needs `network_mode: host`.
+- **Connect by code**: the server's address on your network as a QR code, for when
+  announcing doesn't reach the phone. Scan it from the app's Connect screen.
+
 ## Health
 
 Live stats, refreshed every 5 s, in three groups:

@@ -11,7 +11,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
-from app import logbuffer, netinfo, settings_registry
+from app import discovery, logbuffer, netinfo, settings_registry
 from app.api.auth import require_admin
 from app.notify import ALL_EVENTS
 from app.processing import car_refresh
@@ -237,6 +237,8 @@ async def _apply_generic(service: TelemetryService, key: str, value: Any) -> Non
             ) from exc
     elif key == "sim_scenario" and settings.source == "sim":
         await service.restart_source()
+    elif key == "mdns":
+        await service.discovery.apply()
     log.info("setting %s changed", key)
 
 
@@ -532,7 +534,12 @@ async def stats(request: Request) -> dict[str, Any]:
         "source": await service.status(),
         "clients": service.client_count,
         "lan_ip": _lan_ip(),
-        "http_port": service.settings.http_port,
+        # The port uvicorn listens on, which --port can make differ from
+        # GT7_HTTP_PORT; what the phone's QR card must point at.
+        "http_port": discovery.served_port(service.settings),
+        # {name, ip, port} while announced over mDNS, null otherwise.
+        "mdns": service.discovery.advertised,
+        "mdns_enabled": service.settings.mdns,
     }
 
 

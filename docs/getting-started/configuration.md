@@ -39,6 +39,7 @@ The **Applies** column says when a change takes effect:
 | Variable | Default | Applies | Description |
 | --- | --- | --- | --- |
 | `GT7_WS_RATE` | `30` | live | Live stream rate (Hz) for clients that do not ask for their own — the browser UI. Capture stays at ~60 Hz; a client can request up to 60 Hz in its [hello](../reference/client-protocol.md) |
+| `GT7_MDNS` | `true` | live | Advertise this server over mDNS as `_gt7dl._tcp` so the phone app finds it without an address. Multicast does not leave a Docker bridge network: in a container it needs `network_mode: host` |
 | `GT7_CORS_ORIGINS` | *(empty)* | live | Comma-separated origins allowed for cross-origin API use. Empty sends no CORS headers — the bundled UI is same-origin and needs none, and so does a native app |
 
 ### Race Engineer

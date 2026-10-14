@@ -17,6 +17,26 @@ server's own models, so it cannot drift from what the server sends:
 Regenerate them after changing the protocol or a route with
 `python backend/scripts/export_schemas.py`; a test fails until you do.
 
+## Finding the server
+
+The server announces itself over mDNS (Bonjour) as **`_gt7dl._tcp`** unless
+`GT7_MDNS` is off. The service's address and port are the server's, and its TXT
+record carries:
+
+| Key | Value |
+| --- | --- |
+| `protocol` | the live client protocol version, `1` |
+| `version` | the server's release, e.g. `0.7.0` |
+| `ws` | the live stream's path, `/ws/live` |
+| `api` | the REST API's prefix, `/api` |
+
+Browse for it from a shell with `dns-sd -B _gt7dl._tcp` (macOS) or
+`avahi-browse -r _gt7dl._tcp` (Linux).
+
+Multicast does not leave a Docker bridge network, and some routers drop it between
+Wi-Fi and wired. **Settings › Phone app** shows the server's address as a QR code for
+those cases.
+
 ## Connecting
 
 The server is on the LAN, plain HTTP, port 8000 unless configured otherwise. There
@@ -128,6 +148,21 @@ that never sends that costs the server nothing.
 The server keeps nothing about a client between connections. After a reconnect, send
 `hello` again, then fetch over REST whatever happened in the meantime. For example,
 `GET /api/sessions/{id}/laps` for the session in the new `status`.
+
+## Keeping a copy of the history
+
+A client that stores sessions on the device asks only for what changed:
+
+1. `GET /api/sessions/changes?since=0` the first time; store `revision`.
+2. For each session in `sessions`, download `GET /api/sessions/{id}/export.zip` (every
+   lap with its samples, plus `session.json`) and replace the copy held. Use
+   `GET /api/sessions/{id}/analysis.json` for the analysis document alone.
+3. Delete any held session whose id is not in `ids`.
+4. Next time, `GET /api/sessions/changes?since=<stored revision>`.
+
+A session being recorded changes with every lap, so it comes back on each call
+until the drive ends. Pull after a `session` event, or on a timer while the app is
+open, rather than after every `lap`.
 
 ## Versioning
 

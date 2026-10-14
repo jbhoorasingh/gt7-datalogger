@@ -68,6 +68,10 @@ class Settings(BaseSettings):
     # CORS headers at all — the bundled UI is same-origin and needs none.
     cors_origins: str = ""
 
+    # Announce this server on the LAN over mDNS (_gt7dl._tcp), so the phone
+    # app finds it without an address typed in (#142).
+    mdns: bool = True
+
     # Client stream rate (Hz). Raw capture is ~60 Hz; the UI does not need all of it.
     ws_rate: int = 30
 
