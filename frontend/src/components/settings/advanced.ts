@@ -49,15 +49,18 @@ export function pendingCount(edits: ConfigEdits): number {
 /** What the control shows: the pending value, else the server's. */
 export function shownValue(row: ConfigSetting, edits: ConfigEdits): ConfigValue | null {
   if (row.key in edits.values) return edits.values[row.key];
-  if (edits.reset.includes(row.key)) return row.secret ? "" : row.default;
+  if (edits.reset.includes(row.key)) return row.secret ? "" : (row.reset_value ?? row.default);
   return row.secret ? "" : row.value;
 }
 
-/** A number field's text as a value, or null while it is not a number yet. */
+/** A number field's text as a value, or null while it is not one yet.
+ * The whole text is read (so "4e1" is 40, not 4), and an int row takes
+ * only whole numbers. */
 export function parseNumber(row: ConfigSetting, text: string): number | null {
   if (text.trim() === "") return null;
-  const n = row.kind === "int" ? Number.parseInt(text, 10) : Number.parseFloat(text);
-  return Number.isFinite(n) ? n : null;
+  const n = Number(text);
+  if (!Number.isFinite(n)) return null;
+  return row.kind === "int" && !Number.isInteger(n) ? null : n;
 }
 
 /** "next start" settings saved but not yet in effect. */

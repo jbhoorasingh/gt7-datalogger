@@ -849,6 +849,8 @@ export interface ConfigSetting {
   /** null for a secret: never sent back. */
   value: ConfigValue | null;
   default: ConfigValue | null;
+  /** What Reset hands back: the environment's value, or the default. Absent for secrets. */
+  reset_value?: ConfigValue;
   choices?: string[];
   min?: number;
   max?: number;

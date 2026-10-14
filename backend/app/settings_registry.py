@@ -452,6 +452,9 @@ def describe(
     else:
         out["value"] = to_api(entry, value)
         out["default"] = to_api(entry, default_of(entry.key))
+        # What Reset hands back: the environment's value where it sets one,
+        # which is not always the shipped default.
+        out["reset_value"] = to_api(entry, getattr(baseline, entry.key))
     return out
 
 

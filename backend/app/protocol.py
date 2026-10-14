@@ -19,9 +19,10 @@ tests validate real frames against them so the two cannot drift apart.
 from __future__ import annotations
 
 import dataclasses
+import typing
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, create_model
 
 from app.models import TelemetryPacket
 
@@ -187,8 +188,27 @@ class TelemetryFrame(_Strict):
     steer_rad: float | None
 
 
+# Every TelemetryPacket field with its type, built from the dataclass itself
+# so the schema can never fall behind the parser. Fields of the extended
+# formats default to None in the dataclass and are null in the frame below
+# the packet format that carries them.
+_PACKET_HINTS = typing.get_type_hints(TelemetryPacket)
+Packet = create_model(  # type: ignore[call-overload]
+    "Packet",
+    __config__=ConfigDict(extra="forbid"),
+    __doc__="Every parsed field of the newest packet, unrounded (app.models.TelemetryPacket).",
+    **{
+        f.name: (
+            _PACKET_HINTS[f.name],
+            ... if f.default is dataclasses.MISSING else f.default,
+        )
+        for f in dataclasses.fields(TelemetryPacket)
+    },
+)
+
+
 class FullTelemetryFrame(TelemetryFrame):
-    packet: dict[str, Any] = Field(
+    packet: Packet = Field(  # type: ignore[valid-type]
         description="Every TelemetryPacket field, unrounded; extended-format fields "
         "are null below the packet format that carries them."
     )

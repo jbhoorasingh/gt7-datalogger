@@ -55,11 +55,12 @@ describe("edits", () => {
     expect(pendingCount(setValue(NO_EDITS, r, ""))).toBe(1);
   });
 
-  it("reset replaces a typed value and shows the default", () => {
-    const r = row({ source: "saved", value: 12 });
+  it("reset replaces a typed value and shows what the server falls back to", () => {
+    const r = row({ source: "saved", value: 12, reset_value: 25 });
     const e = resetKey(setValue(NO_EDITS, r, 50), "ws_rate");
     expect(e).toEqual({ values: {}, reset: ["ws_rate"] });
-    expect(shownValue(r, e)).toBe(30);
+    // The environment's 25, not the shipped default of 30.
+    expect(shownValue(r, e)).toBe(25);
     // Typing again un-resets it.
     expect(setValue(e, r, 40).reset).toEqual([]);
   });
@@ -71,6 +72,9 @@ describe("parseNumber", () => {
     expect(parseNumber(row({ kind: "float" }), "2.5")).toBe(2.5);
     expect(parseNumber(row({}), "")).toBeNull();
     expect(parseNumber(row({}), "abc")).toBeNull();
+    expect(parseNumber(row({}), "4e1")).toBe(40);
+    expect(parseNumber(row({}), "4.5")).toBeNull();
+    expect(parseNumber(row({}), "12abc")).toBeNull();
   });
 });
 

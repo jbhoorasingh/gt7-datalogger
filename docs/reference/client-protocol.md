@@ -111,8 +111,12 @@ phone drops to 10 Hz compact frames when its dash is in the background:
   reads slowly skips frames, it never builds up a backlog.
 - **`lap`**, **`survey`**, **`voice_callout`**, **`voice_output_status`** and
   **`race_engineer_status`** are as in the [API reference](api.md#websocket-wslive).
-  Events are queued and never dropped. A client that stops reading for minutes is
-  disconnected (close code 1013) rather than missing one.
+  Events are queued, and a client that stops reading for minutes is disconnected
+  (close code 1013) rather than silently missing one. The exception is `survey`:
+  transitions can burst at 60 Hz over kerbs, so when a slow client's queue is full they
+  are dropped for that client instead. Read the survey's state back over REST
+  (`/api/survey/status`, `/api/survey/edges`) rather than relying on every transition
+  arriving.
 
 A native app that runs its own Race Engineer should leave the `voice_*` and
 `race_engineer_status` events out of its subscription. The server's Race Engineer only

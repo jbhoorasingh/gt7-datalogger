@@ -123,8 +123,14 @@ async def test_frames_match_the_published_models(service, clock) -> None:
     # extra="forbid": a field added to _live_frame without the model fails here.
     protocol.TelemetryFrame.model_validate(compact.messages("telemetry")[-1]["data"])
     frame = protocol.FullTelemetryFrame.model_validate(full.messages("telemetry")[-1]["data"])
-    assert set(frame.packet) == set(protocol.PACKET_FIELDS)
-    assert frame.packet["speed_mps"] == pytest.approx(40.0)
+    raw = full.messages("telemetry")[-1]["data"]["packet"]
+    assert set(raw) == set(protocol.PACKET_FIELDS)
+    assert frame.packet.speed_mps == pytest.approx(40.0)  # type: ignore[attr-defined]
+    # The published schema names every field with its type, not a bare object.
+    server = protocol.json_schemas()["server-message"]
+    packet = server["$defs"]["Packet"]
+    assert set(packet["properties"]) == set(protocol.PACKET_FIELDS)
+    assert packet["properties"]["speed_mps"]["type"] == "number"
 
 
 async def test_event_subscription_filters_but_status_always_arrives(service) -> None:

@@ -221,3 +221,43 @@ async def test_admin_token_set_from_admin_locks_admin(client) -> None:
     ok = await c.get("/api/admin/config", headers={"X-API-Key": "s3cret-token"})
     assert ok.status_code == 200
     assert by_key(ok.json())["admin_token"]["is_set"] is True
+
+
+async def test_a_handled_setting_refused_late_changes_nothing(client) -> None:
+    # The sync address is checked by its own handler; it must be refused
+    # before the console IP beside it is applied, not after.
+    c, service = client
+    resp = await c.put("/api/admin/config", json={
+        "values": {"ps_ip": "192.168.1.50", "ws_rate": 20, "sync_url": "gt7sync://x/?nope"},
+    })
+    assert resp.status_code == 400
+    assert service.settings.ps_ip == ""
+    assert service.settings.ws_rate == 30
+    assert await service.repo.get_settings() == {}
+
+
+async def test_a_port_in_use_is_refused_and_the_listener_restored(client) -> None:
+    import socket
+
+    c, service = client
+    await service.source.start()
+    taken = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    taken.bind(("0.0.0.0", 0))
+    try:
+        port = taken.getsockname()[1]
+        resp = await c.put("/api/admin/config", json={"values": {"telemetry_port": port}})
+        assert resp.status_code == 400
+        assert "telemetry_port" in resp.json()["detail"]
+        assert service.settings.telemetry_port == 43746
+        assert service.source.running  # listening on the old port again
+        assert "telemetry_port" not in await service.repo.get_settings()
+    finally:
+        taken.close()
+
+
+async def test_reset_value_is_the_environments(client) -> None:
+    c, _ = client
+    rows = by_key((await c.get("/api/admin/config")).json())
+    assert rows["ws_rate"]["reset_value"] == 30  # the fixture's environment
+    assert rows["packet_format"]["reset_value"] == "C"
+    assert "reset_value" not in rows["sync_token"]

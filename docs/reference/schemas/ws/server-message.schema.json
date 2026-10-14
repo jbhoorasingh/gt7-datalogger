@@ -136,10 +136,8 @@
           "type": "boolean"
         },
         "packet": {
-          "additionalProperties": true,
-          "description": "Every TelemetryPacket field, unrounded; extended-format fields are null below the packet format that carries them.",
-          "title": "Packet",
-          "type": "object"
+          "$ref": "#/$defs/Packet",
+          "description": "Every TelemetryPacket field, unrounded; extended-format fields are null below the packet format that carries them."
         },
         "paused": {
           "title": "Paused",
@@ -386,6 +384,488 @@
         "data"
       ],
       "title": "OtherMessage",
+      "type": "object"
+    },
+    "Packet": {
+      "additionalProperties": false,
+      "description": "Every parsed field of the newest packet, unrounded (app.models.TelemetryPacket).",
+      "properties": {
+        "angular_velocity_x": {
+          "title": "Angular Velocity X",
+          "type": "number"
+        },
+        "angular_velocity_y": {
+          "title": "Angular Velocity Y",
+          "type": "number"
+        },
+        "angular_velocity_z": {
+          "title": "Angular Velocity Z",
+          "type": "number"
+        },
+        "best_lap_time_ms": {
+          "title": "Best Lap Time Ms",
+          "type": "integer"
+        },
+        "body_height": {
+          "title": "Body Height",
+          "type": "number"
+        },
+        "boost": {
+          "title": "Boost",
+          "type": "number"
+        },
+        "brake": {
+          "title": "Brake",
+          "type": "integer"
+        },
+        "brake_filtered": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Brake Filtered"
+        },
+        "calculated_max_speed": {
+          "title": "Calculated Max Speed",
+          "type": "integer"
+        },
+        "car_category": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Car Category"
+        },
+        "car_id": {
+          "title": "Car Id",
+          "type": "integer"
+        },
+        "clutch": {
+          "title": "Clutch",
+          "type": "number"
+        },
+        "clutch_engagement": {
+          "title": "Clutch Engagement",
+          "type": "number"
+        },
+        "current_gear": {
+          "title": "Current Gear",
+          "type": "integer"
+        },
+        "current_lap": {
+          "title": "Current Lap",
+          "type": "integer"
+        },
+        "day_progression_ms": {
+          "title": "Day Progression Ms",
+          "type": "integer"
+        },
+        "energy_recovery": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Energy Recovery"
+        },
+        "engine_rpm": {
+          "title": "Engine Rpm",
+          "type": "number"
+        },
+        "flags": {
+          "title": "Flags",
+          "type": "integer"
+        },
+        "fuel_capacity": {
+          "title": "Fuel Capacity",
+          "type": "number"
+        },
+        "fuel_level": {
+          "title": "Fuel Level",
+          "type": "number"
+        },
+        "gear_ratios": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Gear Ratios",
+          "type": "array"
+        },
+        "heave": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Heave"
+        },
+        "lap_time_ms": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lap Time Ms"
+        },
+        "last_lap_time_ms": {
+          "title": "Last Lap Time Ms",
+          "type": "integer"
+        },
+        "oil_pressure": {
+          "title": "Oil Pressure",
+          "type": "number"
+        },
+        "oil_temp": {
+          "title": "Oil Temp",
+          "type": "number"
+        },
+        "packet_id": {
+          "title": "Packet Id",
+          "type": "integer"
+        },
+        "position_x": {
+          "title": "Position X",
+          "type": "number"
+        },
+        "position_y": {
+          "title": "Position Y",
+          "type": "number"
+        },
+        "position_z": {
+          "title": "Position Z",
+          "type": "number"
+        },
+        "race_position": {
+          "title": "Race Position",
+          "type": "integer"
+        },
+        "rel_orientation_to_north": {
+          "title": "Rel Orientation To North",
+          "type": "number"
+        },
+        "rotation_pitch": {
+          "title": "Rotation Pitch",
+          "type": "number"
+        },
+        "rotation_roll": {
+          "title": "Rotation Roll",
+          "type": "number"
+        },
+        "rotation_yaw": {
+          "title": "Rotation Yaw",
+          "type": "number"
+        },
+        "rpm_after_clutch": {
+          "title": "Rpm After Clutch",
+          "type": "number"
+        },
+        "rpm_alert_max": {
+          "title": "Rpm Alert Max",
+          "type": "number"
+        },
+        "rpm_alert_min": {
+          "title": "Rpm Alert Min",
+          "type": "number"
+        },
+        "speed_mps": {
+          "title": "Speed Mps",
+          "type": "number"
+        },
+        "suggested_gear": {
+          "title": "Suggested Gear",
+          "type": "integer"
+        },
+        "surface_types": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Surface Types"
+        },
+        "surge": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Surge"
+        },
+        "suspension_fl": {
+          "title": "Suspension Fl",
+          "type": "number"
+        },
+        "suspension_fr": {
+          "title": "Suspension Fr",
+          "type": "number"
+        },
+        "suspension_rl": {
+          "title": "Suspension Rl",
+          "type": "number"
+        },
+        "suspension_rr": {
+          "title": "Suspension Rr",
+          "type": "number"
+        },
+        "sway": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sway"
+        },
+        "throttle": {
+          "title": "Throttle",
+          "type": "integer"
+        },
+        "throttle_filtered": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Throttle Filtered"
+        },
+        "tire_radius_fl": {
+          "title": "Tire Radius Fl",
+          "type": "number"
+        },
+        "tire_radius_fr": {
+          "title": "Tire Radius Fr",
+          "type": "number"
+        },
+        "tire_radius_rl": {
+          "title": "Tire Radius Rl",
+          "type": "number"
+        },
+        "tire_radius_rr": {
+          "title": "Tire Radius Rr",
+          "type": "number"
+        },
+        "tire_temp_fl": {
+          "title": "Tire Temp Fl",
+          "type": "number"
+        },
+        "tire_temp_fr": {
+          "title": "Tire Temp Fr",
+          "type": "number"
+        },
+        "tire_temp_rl": {
+          "title": "Tire Temp Rl",
+          "type": "number"
+        },
+        "tire_temp_rr": {
+          "title": "Tire Temp Rr",
+          "type": "number"
+        },
+        "torque_vectors": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Torque Vectors"
+        },
+        "total_laps": {
+          "title": "Total Laps",
+          "type": "integer"
+        },
+        "total_positions": {
+          "title": "Total Positions",
+          "type": "integer"
+        },
+        "transmission_top_speed": {
+          "title": "Transmission Top Speed",
+          "type": "number"
+        },
+        "velocity_x": {
+          "title": "Velocity X",
+          "type": "number"
+        },
+        "velocity_y": {
+          "title": "Velocity Y",
+          "type": "number"
+        },
+        "velocity_z": {
+          "title": "Velocity Z",
+          "type": "number"
+        },
+        "water_temp": {
+          "title": "Water Temp",
+          "type": "number"
+        },
+        "wheel_rotation": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Wheel Rotation"
+        },
+        "wheel_rps_fl": {
+          "title": "Wheel Rps Fl",
+          "type": "number"
+        },
+        "wheel_rps_fr": {
+          "title": "Wheel Rps Fr",
+          "type": "number"
+        },
+        "wheel_rps_rl": {
+          "title": "Wheel Rps Rl",
+          "type": "number"
+        },
+        "wheel_rps_rr": {
+          "title": "Wheel Rps Rr",
+          "type": "number"
+        },
+        "wheel_steering_rad": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Wheel Steering Rad"
+        },
+        "wheelbase_m": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Wheelbase M"
+        }
+      },
+      "required": [
+        "packet_id",
+        "position_x",
+        "position_y",
+        "position_z",
+        "velocity_x",
+        "velocity_y",
+        "velocity_z",
+        "rotation_pitch",
+        "rotation_yaw",
+        "rotation_roll",
+        "rel_orientation_to_north",
+        "angular_velocity_x",
+        "angular_velocity_y",
+        "angular_velocity_z",
+        "body_height",
+        "engine_rpm",
+        "fuel_level",
+        "fuel_capacity",
+        "speed_mps",
+        "boost",
+        "oil_pressure",
+        "water_temp",
+        "oil_temp",
+        "tire_temp_fl",
+        "tire_temp_fr",
+        "tire_temp_rl",
+        "tire_temp_rr",
+        "current_lap",
+        "total_laps",
+        "best_lap_time_ms",
+        "last_lap_time_ms",
+        "day_progression_ms",
+        "race_position",
+        "total_positions",
+        "rpm_alert_min",
+        "rpm_alert_max",
+        "calculated_max_speed",
+        "flags",
+        "current_gear",
+        "suggested_gear",
+        "throttle",
+        "brake",
+        "wheel_rps_fl",
+        "wheel_rps_fr",
+        "wheel_rps_rl",
+        "wheel_rps_rr",
+        "tire_radius_fl",
+        "tire_radius_fr",
+        "tire_radius_rl",
+        "tire_radius_rr",
+        "suspension_fl",
+        "suspension_fr",
+        "suspension_rl",
+        "suspension_rr",
+        "clutch",
+        "clutch_engagement",
+        "rpm_after_clutch",
+        "transmission_top_speed",
+        "gear_ratios",
+        "car_id"
+      ],
+      "title": "Packet",
       "type": "object"
     },
     "ProtocolError": {

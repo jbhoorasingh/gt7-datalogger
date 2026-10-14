@@ -189,12 +189,52 @@ class ConfigPatch(BaseModel):
     reset: list[str] = Field(default_factory=list)
 
 
+# Applied before anything else in a PUT: the only settings whose live apply
+# can fail (a port another process holds), and they undo themselves when it
+# does, so a refused patch has changed nothing.
+_FALLIBLE = ("telemetry_port", "heartbeat_port")
+
+
+def _prevalidate(payload: SettingsPayload) -> None:
+    """Every check apply_settings_payload makes, made before it applies any.
+
+    The hand-built handlers validate as they go, so a bad sync address in
+    the same patch as a new console IP would otherwise land the IP and then
+    refuse. Raises the same 400s they would.
+    """
+    if payload.ps_ip and payload.ps_ip.strip() and not _looks_like_host(payload.ps_ip.strip()):
+        raise HTTPException(400, "not a valid IP address or hostname")
+    url = (payload.webhook_url or "").strip()
+    if url and not url.startswith(("http://", "https://")):
+        raise HTTPException(400, "webhook URL must start with http:// or https://")
+    try:
+        typed = (payload.sync_url or "").strip()
+        if typed and "?" in typed:
+            parse_connection_string(typed)
+        elif typed:
+            normalise_server(typed)
+        if payload.sync_token and payload.sync_token.strip():
+            check_token(payload.sync_token)
+    except BadConnectionString as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
 async def _apply_generic(service: TelemetryService, key: str, value: Any) -> None:
     """A live setting with no hand-built handler: set it, then make it count."""
     settings = service.settings
+    previous = getattr(settings, key)
     setattr(settings, key, value)
-    if key in ("telemetry_port", "heartbeat_port") and settings.source == "udp":
-        await service.restart_source()
+    if key in _FALLIBLE and settings.source == "udp":
+        try:
+            await service.restart_source()
+        except OSError as exc:
+            # Put the old port back and listen on it again: telemetry must
+            # not stay down because a new port was taken.
+            setattr(settings, key, previous)
+            await service.restart_source()
+            raise HTTPException(
+                400, f"{key}: cannot use UDP port {value}: {exc.strerror or exc}"
+            ) from exc
     elif key == "sim_scenario" and settings.source == "sim":
         await service.restart_source()
     log.info("setting %s changed", key)
@@ -230,16 +270,27 @@ async def put_config(request: Request, patch: ConfigPatch) -> dict[str, Any]:
         for k, v in wanted.items()
         if k in SettingsPayload.model_fields
     }
-    if legacy:
-        await apply_settings_payload(service, SettingsPayload(**legacy))
-    for key, value in wanted.items():
-        if key in legacy:
-            continue
-        entry = registry.BY_KEY[key]
+    payload = SettingsPayload(**legacy) if legacy else None
+    if payload is not None:
+        _prevalidate(payload)
+
+    async def apply(key: str, value: Any) -> None:
+        # Applied first, saved after: a value that fails to apply is never
+        # stored to come back at the next start.
+        if registry.BY_KEY[key].apply == "live":
+            await _apply_generic(service, key, value)
         if key not in patch.reset:
             await service.repo.set_setting(key, registry.to_store(value))
-        if entry.apply == "live":
-            await _apply_generic(service, key, value)
+
+    generic = [k for k in wanted if k not in legacy]
+    for key in generic:
+        if key in _FALLIBLE:
+            await apply(key, wanted[key])
+    if payload is not None:
+        await apply_settings_payload(service, payload)
+    for key in generic:
+        if key not in _FALLIBLE:
+            await apply(key, wanted[key])
     # Resets drop the saved row last: the hand-built handlers above save as
     # they apply, and the row must not outlive the reset.
     for key in patch.reset:
