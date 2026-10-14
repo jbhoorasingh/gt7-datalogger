@@ -42,9 +42,10 @@ version importing a file with it drops the column it does not know.
 
 The `samples` object holds the **full 60 Hz series** as parallel arrays, one per
 channel — see [Derived channels & metrics](../internals/derived-channels.md) for the
-complete column list with formulas and units (~28 columns: time, distance, speed,
+complete column list with formulas and units (38 columns: time, distance, speed,
 inputs, gear, RPM, boost, per-wheel slip, per-corner tire temps and suspension travel,
-world position, fuel, driver-aids bitmask, …). `t` and `dist` both start half a frame
+world position and elevation, fuel, driver-aids bitmask, surface, and the optional
+steering, g-force, filtered-input, race-position and body-slip columns). `t` and `dist` both start half a frame
 gap past the line ([why](../internals/lap-detection.md#where-a-lap-begins)); files
 written by earlier versions start `t` at exactly 0 and are converted when imported (and
 when exported again).

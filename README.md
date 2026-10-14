@@ -14,9 +14,10 @@ web dashboard for live driving, lap comparison, and session management.
 Maintained by [u/Rfc6878](https://www.reddit.com/user/Rfc6878/) on Reddit.
 
 Full feature parity with [snipem/gt7dashboard](https://github.com/snipem/gt7dashboard) —
-plus additional features like the analysis channel picker, Corner Detail widget, chassis
-event detection, track auto-identification, the overlay builder, and webhook
-notifications — rebuilt with a cleaner architecture and a modern UI.
+plus additional features like the lens-coloured race line map, sector times, the corner
+report card with braking points, chassis event detection, track auto-identification, the
+overlay builder, a voice race engineer, and webhook notifications — rebuilt with a cleaner
+architecture and a modern UI.
 
 **📖 Full documentation: [jbhoorasingh.github.io/gt7-datalogger](https://jbhoorasingh.github.io/gt7-datalogger/)** —
 per-feature guides, how every calculation works, and the API reference.
@@ -41,11 +42,13 @@ per-feature guides, how every calculation works, and the API reference.
 ### Analysis
 
 - **Multi-lap overlay comparison** against a selectable reference lap: time diff over
-  distance plus a **channel picker** — choose from ~20 telemetry channels grouped into
-  Driving, Tires & wheels, Chassis, and Engine (speed, throttle, brake, coasting, gear,
-  RPM, boost, yaw rate, per-wheel slip, per-corner tire temps, front/rear averages, the
-  tire-temp **F−R balance** curve, suspension travel, ride height, …). The panel set
-  persists and is encoded in the URL, so a shared link reproduces the exact view.
+  distance plus a **channel picker** — choose from 31 telemetry channels grouped into
+  Driving, Race, Engine, Tires & wheels, and Chassis (speed, throttle, brake, coasting,
+  gear, RPM, boost, steering, yaw rate, lateral / longitudinal / vertical g, body slip,
+  TCS cut and ABS release, race position, per-wheel slip, per-corner tire temps,
+  front/rear averages, the tire-temp **F−R balance** curve, suspension travel, ride
+  height, …). The panel set persists and is encoded in the URL, so a shared link
+  reproduces the exact view.
 - **Synced cursors** — hover one chart and the same distance point is highlighted
   everywhere: every panel, the race line map, and the Corner Detail widget.
 - **Corner Detail widget** — a top-down car with four corner cells that replays the
@@ -56,8 +59,34 @@ per-feature guides, how every calculation works, and the API reference.
   are detected at lap save, shaded onto the charts (on the panel that caused them), counted
   per lap in the Sessions table (`2L·1S·4B`), and summarized in the tuning panel. TCS/ASM
   activation shades the throttle/speed panels.
-- **Race line map** with throttle/brake/coast zones and speed peaks (▲) / valleys (▼),
-  drag-select **section zoom** synchronized across all charts and the map.
+- **Race line map with lenses** — the reference lap drawn as one line coloured by
+  **Inputs** (throttle / brake / coast), **Speed** bands, or **Gain / loss** against the
+  compared lap, over the surveyed road where the circuit has one. A **Layers** menu
+  switches everything else the map draws: corner numbers, the other laps with their apex
+  speeds and brake points, and markers for speed peaks (▲) / valleys (▼), kerbs, chassis
+  events, and TCS / ASM activity. **Zoom** to a corner by clicking its number (or `[` /
+  `]`), drag along the line, or ⌘/Ctrl + wheel; zoomed in, a locator inset, apex badges
+  with every lap's minimum speed, and a callout say what the compared lap did there.
+  Every chart follows the same window.
+- **Lap strip** — the lap unrolled under the map, coloured like the line, with the
+  track's sectors as **S1…Sn** buttons and the corner numbers at their apex; drag,
+  resize, or slide the zoom window on it. A compact copy stays pinned over the charts.
+- **Sector times** — every lap of the session split at the circuit's sectors (placed on
+  the Tracks page, or thirds of the lap when none are), best sector and best lap in
+  purple.
+- **Corner report card** — entry / minimum / exit speed and time lost or gained per
+  corner against the reference, with **braking columns** (brake Δ m, peak %, zone length)
+  and body-slip **balance**. Hover a row to pin both brake points on the map, click it to
+  zoom there; sort in track order or biggest loss first.
+- **Stint trend** — lap time and tyre temperatures lap over lap, split into stints at
+  pit stops, with each stint's drift as a figure (`+0.18 s/lap`).
+- **Lap playback** — play / pause, a scrub bar, and 0.25×–4× speed drive the synced
+  cursor: the dot runs round the race line and a strip of dashboard widgets replays the
+  driver's hands.
+- **Traction circle (g-g)** — lateral against longitudinal g, coloured by input zone,
+  with the other laps as faint dots.
+- **Race engineer post-lap notes** — the coaching findings as text, per lap, replayed
+  from the stored session whether or not voice was ever on.
 - **Gearing panel** — per-lap gear ratios with estimated speed at redline, tune top speed,
   and redline RPM.
 - Speed-deviation consistency chart across your best laps, relative fuel-map strategy
@@ -82,22 +111,42 @@ per-feature guides, how every calculation works, and the API reference.
   reference; tick laps to exclude, export or delete them in bulk.
 - Export/import laps as JSON, **CSV / MoTeC-compatible export** for MoTeC i2 or Excel,
   a whole session as a ZIP, delete laps or whole sessions, manual "log lap now", and a
-  record on/off toggle.
-- **Track auto-identification** — 78 GT7 configurations are recognised out of the box,
-  from signatures shipped with the app, so a fresh install tags sessions on the first
-  lap without you naming anything. Naming a circuit yourself always outranks a shipped
-  name, surveyed circuits identify themselves from their borders, and a lap driven the
-  wrong way round a layout is tagged as its reverse rather than as the layout itself.
+  record on/off toggle. **Export analysis** compiles a session into one labelled JSON
+  document — every lap measured per corner against the session's best (braking zone,
+  minimum speed, time lost, line against the reference) with no raw samples.
+- **Laps that count** — a race's opening lap is excluded from bests and consistency as
+  *race start*, a pit out-lap as partial, and any lap can be ruled in or out by hand with
+  a reason. Menus, pauses and pit stops never split or merge a session, and the session
+  being recorded can be deleted once recording is paused.
 - **Personal-bests board** — a **Bests** sub-tab in Sessions with each circuit's fastest counting lap
   per car across every session: time, gap to the circuit's outright best, class chip
   and filter, and one click into Analysis. Sessions can be excluded from bests —
   replays record other drivers' laps, and telemetry can't tell them from yours.
 
+### Tracks
+
+- **Track auto-identification** — 78 GT7 configurations are recognised out of the box,
+  from signatures shipped with the app, so a fresh install tags sessions on the first
+  lap without you naming anything. Naming a circuit yourself always outranks a shipped
+  name, surveyed circuits identify themselves from their borders, and a lap driven the
+  wrong way round a layout is tagged as its reverse rather than as the layout itself.
+- **Tracks view** — every circuit the app knows and what it has: a name, a survey, an
+  official layout, labelled corners, sectors. A **Needs you** list and a per-circuit
+  readiness checklist say what is missing and offer the fix.
+- **Survey mode** — drive the borders to capture the road; the compiled road is drawn
+  under the race line in Analysis, with unsurveyed stretches called out as gaps.
+- **Corner & sector editor** — name and number the corners, and place sector boundaries
+  by clicking the map or from a lap's split times as a race screen showed them. Both
+  travel with the circuit's bundle through export, import and sync.
+- **Shared track repo** — a fresh installation pulls every shared circuit on its first
+  start; **Import ▾ → Pull from shared** re-pulls on demand, applying the repo's
+  corrections, and the sync client pushes your own surveys back.
+
 ### Overlays & streaming
 
-- **Drag-and-drop overlay builder** (its own **Overlays** tab) with a live canvas: place 15 widgets
-  (gear, speed, RPM, inputs, lap times, big delta, race position, tires, fuel, fuel
-  strategy, in-game clock, engine temps, driver aids, boost, race alerts) freely on a
+- **Drag-and-drop overlay builder** (its own **Overlays** tab) with a live canvas: place 16 widgets
+  (gear, speed, RPM, inputs, steering wheel, lap times, big delta, race position, tires,
+  fuel, fuel strategy, in-game clock, engine temps, driver aids, boost, race alerts) freely on a
   snapping grid, size each from 1×1 to 4×4 cells, and pick a **visual style per widget**
   — digits, bar, arc gauge, or shift-light LED strip for the same metric.
 - **Server-saved named layouts** with short stable URLs (`/overlay?layout=race-strip`):
@@ -115,10 +164,12 @@ per-feature guides, how every calculation works, and the API reference.
 
 - **Robust capture** — Salsa20 decryption, heartbeat keep-alive, console auto-discovery via
   UDP broadcast, automatic reconnect, and a visible connection status indicator.
-- **Rich per-lap recording** — 60 Hz sample series for ~28 channels including per-wheel
-  slip, per-corner tire temps, suspension travel, and a driver-aids bitmask, plus per-lap
-  aggregates (aid usage %, engine health, gearing metadata).
-- **Sessions auto-split** on car change or race restart, so data never mixes.
+- **Rich per-lap recording** — 60 Hz sample series for 38 columns including per-wheel
+  slip, per-corner tire temps, suspension travel, elevation, surface, steering, g-forces,
+  body slip, and a driver-aids bitmask, plus per-lap aggregates (aid usage %, engine
+  health, gearing metadata).
+- **Sessions auto-split** on car change or race restart, so data never mixes — while
+  menus, pauses and pit stops keep the session going.
 - **Replay capture** — GT7 streams replays exactly like driving, so race replays record
   their laps, and a single-lap leaderboard replay (which ends *at* the line, before a
   lap would normally commit) is salvaged whenever GT7's own reported lap time matches
@@ -470,10 +521,15 @@ newer channels are simply absent and the charts skip them.
 
 ![Live view](docs/screenshots/live.png)
 
-**Analysis view** — channel picker, synced cursors, event bands, race line map,
-Corner Detail widget, and the gearing panel:
+**Analysis view** — the lens-coloured race line map with its Layers menu, the lap
+strip with sectors and corner numbers, lap playback, and the channel stack beneath:
 
 ![Analysis view](docs/screenshots/analysis.png)
+
+**Zoomed to a corner** — the Gain / loss lens, the locator inset, apex badges with each
+lap's minimum speed, brake-point pins, and the callout for the compared lap:
+
+![Analysis view zoomed to a corner](docs/screenshots/analysis-corner.png)
 
 **Sessions view** — the session list, stat strip, lap-time chart and per-lap metrics
 with event counts (`2L·1S·4B` = lockups · wheelspins · bottoming):
@@ -499,4 +555,4 @@ what is surveyed, what is named, and what the official layout is:
 
 ![Tracks view](docs/screenshots/tracks.png)
 
-*Screenshots were captured against the built-in simulated telemetry source on a scratch database, with the circuits pulled from the shared track repo.*
+*Screenshots were captured against the built-in simulated telemetry source on a scratch database, with the circuits pulled from the shared track repo; the Analysis screenshots show recorded laps at Mount Panorama.*

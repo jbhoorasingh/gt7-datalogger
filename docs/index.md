@@ -12,9 +12,9 @@ GT7 streams encrypted telemetry over UDP at 60 Hz while you drive. GT7 Datalogge
 
 1. **Captures** that stream — Salsa20 decryption, heartbeat keep-alive, auto-discovery,
    automatic reconnect.
-2. **Records** every lap — ~28 channels at 60 Hz including per-wheel slip, per-corner
-   tire temps, and suspension travel, plus per-lap aggregates and detected chassis
-   events (lockups, wheelspin, bottoming, kerb strikes).
+2. **Records** every lap — 38 columns at 60 Hz including per-wheel slip, per-corner
+   tire temps, suspension travel, g-forces and body slip, plus per-lap aggregates and
+   detected chassis events (lockups, wheelspin, bottoming, kerb strikes).
 3. **Serves** a web dashboard — live race readouts, multi-lap analysis with synced
    cursors and a race line map, session history, and a fully customizable OBS/phone
    overlay builder.
@@ -44,8 +44,10 @@ Settings**, plus two full-screen pages for a second screen: `/dash` and `/engine
   and a clickable rail of this session's laps.
 
 - **[Analysis view](guide/analysis-view.md)** — overlay multiple laps against a
-  reference: ~20 telemetry channels, time-diff over distance, synced cursors, race line
-  map, corner detail widget, detected events, and a gearing panel.
+  reference: 31 telemetry channels, time-diff over distance, synced cursors, a
+  lens-coloured race line map that zooms to a corner, a lap strip with sectors, sector
+  times, a corner report card with braking points, stint trend, lap playback, and
+  detected events.
 
 - **[Sessions view](guide/sessions-view.md)** — browse history session by session:
   stats, a lap-time chart and per-lap metrics; export laps as JSON or CSV/MoTeC,
@@ -64,6 +66,11 @@ Settings**, plus two full-screen pages for a second screen: `/dash` and `/engine
 </div>
 
 ## Screenshots
+
+**Analysis view zoomed to a corner** — the Gain / loss lens, the locator inset, apex
+badges with each lap's minimum speed, brake-point pins, and the callout:
+
+![Analysis view zoomed to a corner](screenshots/analysis-corner.png)
 
 **Live view** — race readouts, driver-aid pills, strategy, and the clickable laps rail:
 
@@ -86,7 +93,7 @@ with event counts (`2L·1S·4B` = lockups · wheelspins · bottoming):
 
 ![Tracks view](screenshots/tracks.png)
 
-*Screenshots were captured against the built-in simulated telemetry source on a scratch database, with the circuits pulled from the shared track repo.*
+*Screenshots were captured against the built-in simulated telemetry source on a scratch database, with the circuits pulled from the shared track repo; the Analysis screenshots show recorded laps at Mount Panorama.*
 
 ## How it works
 

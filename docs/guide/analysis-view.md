@@ -100,6 +100,8 @@ Details worth knowing:
 
 ## Corner report card
 
+![Corner report card — braking columns, speeds and time per corner against the reference](../screenshots/analysis-report.png)
+
 Below the charts, one row per corner: entry / minimum / exit speed and the time spent
 between the corner's entry and exit, for the focused lap with the reference's figures in
 small type beside it. The **Δ s** column is the time lost (red) or gained (green) through
@@ -151,6 +153,8 @@ negative figure, is the nose pushing wide. Recordings made before 0.7.0 have no 
 channel, and the columns are left out.
 
 ## Stint trend
+
+![Stint trend — lap time and tyre temperature lap over lap, with the stint's drift](../screenshots/analysis-stint.png)
 
 Every lap of the session on one chart: **lap time** as points against the left axis, the
 **tyre temperatures** as lines against the right one, lap number across. It is there to
@@ -224,6 +228,8 @@ default nine-panel stack. Laps recorded before a channel existed simply skip tha
     [Configuration](../getting-started/configuration.md).
 
 ## Sector times
+
+![Sector times — best sector and best lap in purple](../screenshots/analysis-sectors.png)
 
 Every lap of the session, split at the circuit's sectors, one row per lap in lap order.
 The best of each sector and the best lap time are purple, counting only laps that count
@@ -301,6 +307,8 @@ Dots and the Follow camera are placed at the exact cursor position, between the
 recorded 5 m steps, so the camera pans smoothly during playback.
 
 ### Zooming the map
+
+![The map zoomed to turn 2 with the Gain / loss lens: locator inset, apex badge, brake-point pins and the callout](../screenshots/analysis-corner.png)
 
 Everything shares one zoom window, so the map, the strip, the charts and the deviation
 chart always show the same stretch. On the map itself:
