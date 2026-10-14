@@ -14,13 +14,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.types import ASGIApp, Receive, Scope, Send
 
-from app import logbuffer
+from app import logbuffer, protocol, settings_registry
 from app.api import admin, layouts, routes, tracks, ws
 from app.config import Settings, get_settings
 from app.processing import car_refresh, shared_pull, shared_repo, track_seed
 from app.processing.cars import CarDatabase
-from app.race_engineer import VERBOSITY_MODES
 from app.service import TelemetryService
 from app.storage.db import init_db, make_engine, make_session_factory
 from app.storage.repository import Repository
@@ -256,37 +256,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await init_db(engine)
     repo = Repository(make_session_factory(engine))
 
-    # Settings changed via the admin page override env defaults.
+    # Settings changed via the admin page override env defaults. The copy
+    # taken first is what the environment said: what "reset to default"
+    # falls back to, and how Settings › Advanced tells the two apart.
+    baseline = settings.model_copy()
     stored = await repo.get_settings()
-    if "ps_ip" in stored:
-        settings.ps_ip = stored["ps_ip"]
-    if stored.get("source") in ("udp", "sim"):
-        settings.source = stored["source"]
-    if stored.get("packet_format") in ("A", "B", "~", "C"):
-        settings.packet_format = stored["packet_format"]
-    if "log_level" in stored:
-        logging.getLogger().setLevel(stored["log_level"])
-    if "webhook_url" in stored:
-        settings.webhook_url = stored["webhook_url"]
-    if "webhook_events" in stored:
-        settings.webhook_events = stored["webhook_events"]
-    if "race_engineer" in stored:
-        settings.race_engineer = stored["race_engineer"] == "true"
-    if stored.get("race_engineer_verbosity") in VERBOSITY_MODES:
-        settings.race_engineer_verbosity = stored["race_engineer_verbosity"]
-    if "race_engineer_categories" in stored:
-        settings.race_engineer_categories = stored["race_engineer_categories"]
-    if stored.get("race_engineer_units") in ("metric", "imperial"):
-        settings.race_engineer_units = stored["race_engineer_units"]
-    if stored.get("sync_url"):
-        settings.sync_url = stored["sync_url"]
-    if "sync_token" in stored:
-        settings.sync_token = stored["sync_token"]
-    if "sync_enabled" in stored:
-        settings.sync_enabled = stored["sync_enabled"] == "true"
-    for name in ("sync_tracks", "sync_sessions", "sync_live"):
-        if name in stored:
-            setattr(settings, name, stored[name] == "true")
+    settings_registry.apply_stored(settings, stored)
 
     await sync_track_seed(settings, repo, stored, log)
 
@@ -294,6 +269,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await sync_car_inventory(settings, repo, cars, stored, log)
 
     service = TelemetryService(settings, repo, cars)
+    service.env_settings = baseline
     app.state.service = service
     await service.start()
 
@@ -324,19 +300,55 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await engine.dispose()
 
 
+class LiveCORSMiddleware:
+    """CORSMiddleware for whatever origins are configured right now.
+
+    Reads the running settings on each request, so a change in Admin applies
+    without a restart; with no origins configured the request passes through
+    untouched, exactly as if no CORS middleware were installed.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+        self._cors: dict[str, CORSMiddleware] = {}
+
+    def _origins(self, scope: Scope) -> str:
+        service = getattr(scope["app"].state, "service", None) if "app" in scope else None
+        settings = service.settings if service is not None else get_settings()
+        return settings.cors_origins
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        spec = self._origins(scope) if scope["type"] == "http" else ""
+        origins = [o.strip() for o in spec.split(",") if o.strip()]
+        if not origins:
+            await self.app(scope, receive, send)
+            return
+        cors = self._cors.get(spec)
+        if cors is None:
+            cors = CORSMiddleware(
+                self.app,
+                allow_origins=origins,
+                allow_methods=["*"],
+                allow_headers=["*"],  # includes X-API-Key
+            )
+            self._cors = {spec: cors}  # only the current spec is ever needed
+        await cors(scope, receive, send)
+
+
 def create_app() -> FastAPI:
-    app = FastAPI(title="GT7 Datalogger", lifespan=lifespan)
-    # No CORS middleware by default: both serving modes are same-origin (the
-    # SPA is mounted below; the dev server proxies /api and /ws). Cross-origin
-    # consumers must opt in via GT7_CORS_ORIGINS.
-    origins = [o.strip() for o in get_settings().cors_origins.split(",") if o.strip()]
-    if origins:
-        app.add_middleware(
-            CORSMiddleware,
-            allow_origins=origins,
-            allow_methods=["*"],
-            allow_headers=["*"],  # includes X-API-Key
-        )
+    app = FastAPI(
+        title="GT7 Datalogger",
+        # The API's contract version, not the release: it moves with the live
+        # protocol (app.protocol), so docs/reference/openapi.json only changes
+        # when the API does.
+        version=str(protocol.PROTOCOL_VERSION),
+        lifespan=lifespan,
+    )
+    # CORS follows GT7_CORS_ORIGINS live (Settings › Advanced): empty — the
+    # default — sends no CORS headers at all, since both serving modes are
+    # same-origin (the SPA is mounted below; the dev server proxies /api and
+    # /ws) and a native app needs none.
+    app.add_middleware(LiveCORSMiddleware)
     app.include_router(routes.router)
     app.include_router(admin.router)
     app.include_router(layouts.router)

@@ -23,8 +23,32 @@ Notable changes to GT7 Datalogger. The format follows
   the key, and once it advertises `max_sectors` the next **Sync now**
   re-sends every bundle that has some, so none placed earlier is lost.
 
+- **Every setting in Settings.** (#140) A new **Advanced** section lists every
+  setting the server has, each with its environment variable, default, where
+  its value comes from (set here, the environment, or the default) and
+  whether a change applies at once or at the next start, plus a reset
+  that hands it back to the environment. The stream rate, CORS origins,
+  UDP ports, simulator scenario, sync live rate, car and track files and
+  the admin token can now be changed without editing the environment;
+  only the bind host, port and database path stay environment-only.
+  `GET`/`PUT /api/admin/config` serve it, and the configuration
+  reference's tables are generated from the same list, so the documented
+  defaults are the shipped ones.
+- **Live client protocol.** (#141) A client of `/ws/live` can open with `hello`
+  and choose its own telemetry rate (up to the full 60 Hz), a `full` frame
+  carrying every packet field, and which events it receives. The server
+  answers with `welcome` (protocol version, server version, capabilities).
+  This is what the phone app will use. Clients that say nothing,
+  the browser UI included, get exactly the stream they always did. The
+  protocol is published as JSON Schema under
+  `docs/reference/schemas/ws/` along with the REST API's `openapi.json`,
+  both generated from the server's models.
+
 ### Changed
 
+- **CORS origins apply live.** `GT7_CORS_ORIGINS` is read per request, so
+  changing it in Settings takes effect without a restart. The API reference
+  no longer claims CORS is open to every origin; it never was by default.
 - **The Analysis race line map.** (#102) The reference line is coloured by
   a lens — Inputs, Speed, or Gain / loss against the compared lap — and
   drawn as one line rather than a trail of dots. The header's row of

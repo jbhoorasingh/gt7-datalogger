@@ -57,7 +57,6 @@ class Settings(BaseSettings):
     # seeding entirely and restores the pre-#58 behaviour of naming nothing
     # until the user does.
     track_signatures_json: Path = PACKAGE_DATA / "track-signatures.json"
-    sample_lap: Path = Path("data/sample_lap.json")
 
     http_host: str = "0.0.0.0"
     http_port: int = 8000

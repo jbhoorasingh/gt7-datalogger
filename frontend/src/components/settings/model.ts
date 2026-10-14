@@ -15,7 +15,8 @@ export type SectionId =
   | "health"
   | "logs"
   | "access"
-  | "data";
+  | "data"
+  | "advanced";
 
 export interface SectionDef {
   id: SectionId;
@@ -51,6 +52,12 @@ export const SECTION_GROUPS: { group: string; items: SectionDef[] }[] = [
       { id: "logs", label: "Logs", keywords: "log level debug warning error" },
       { id: "access", label: "Access", keywords: "admin token password api key" },
       { id: "data", label: "Data", keywords: "delete compact vacuum export backup clear" },
+      {
+        id: "advanced",
+        label: "Advanced",
+        keywords:
+          "environment variables env config all settings default port cors rate hz scenario cars tracks signatures restart",
+      },
     ],
   },
 ];
@@ -62,6 +69,7 @@ const SECTION_ALIASES: Record<string, SectionId> = {
   engineer: "race-engineer",
   notify: "notifications",
   diagnostics: "health",
+  config: "advanced",
 };
 
 export function resolveSection(section: string | null | undefined): SectionId {

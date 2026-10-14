@@ -825,6 +825,43 @@ export interface AdminSettings {
   sync_live: boolean;
 }
 
+// --- Every setting (mirrors backend app/settings_registry) ------------------
+
+export type ConfigValue = string | number | boolean | string[];
+
+// One row of GET /api/admin/config: a setting with its default, where its
+// current value comes from, and when a change takes effect.
+export interface ConfigSetting {
+  key: string;
+  env: string;
+  group: string;
+  label: string;
+  /** Markdown: the documentation's sentence for it. */
+  doc: string;
+  kind: "str" | "int" | "float" | "bool" | "path" | "list";
+  /** live = at once; restart = at the next start; env = environment only. */
+  apply: "live" | "restart" | "env";
+  editable: boolean;
+  secret: boolean;
+  /** saved = set in Settings, env = set in the environment, default = neither. */
+  source: "saved" | "env" | "default";
+  restart_pending: boolean;
+  /** null for a secret: never sent back. */
+  value: ConfigValue | null;
+  default: ConfigValue | null;
+  choices?: string[];
+  min?: number;
+  max?: number;
+  // Secrets only.
+  is_set?: boolean;
+  hint?: string;
+}
+
+export interface ConfigDoc {
+  groups: string[];
+  settings: ConfigSetting[];
+}
+
 // --- Sync (mirrors backend app/sync) ----------------------------------------
 
 export type SyncState = "off" | "idle" | "syncing" | "connected" | "error" | "unsupported";

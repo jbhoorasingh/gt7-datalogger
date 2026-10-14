@@ -1,0 +1,4997 @@
+{
+  "components": {
+    "schemas": {
+      "AssignLogPayload": {
+        "properties": {
+          "track": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Track",
+            "type": "string"
+          }
+        },
+        "required": [
+          "track"
+        ],
+        "title": "AssignLogPayload",
+        "type": "object"
+      },
+      "AuthoredPayload": {
+        "description": "Hand-labelled corners/sections/sectors. Omitted lists are left untouched.",
+        "properties": {
+          "corners": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Corners"
+          },
+          "sections": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sections"
+          },
+          "sectors": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sectors"
+          }
+        },
+        "title": "AuthoredPayload",
+        "type": "object"
+      },
+      "BundlePatch": {
+        "description": "Re-label a bundle and/or confirm which official layout it is.",
+        "properties": {
+          "official": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Official"
+          },
+          "set_official": {
+            "default": false,
+            "title": "Set Official",
+            "type": "boolean"
+          },
+          "track": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Track"
+          }
+        },
+        "title": "BundlePatch",
+        "type": "object"
+      },
+      "ClearRejectionsPayload": {
+        "properties": {
+          "track": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Track",
+            "type": "string"
+          }
+        },
+        "required": [
+          "track"
+        ],
+        "title": "ClearRejectionsPayload",
+        "type": "object"
+      },
+      "ConfigPatch": {
+        "properties": {
+          "reset": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reset",
+            "type": "array"
+          },
+          "values": {
+            "additionalProperties": true,
+            "title": "Values",
+            "type": "object"
+          }
+        },
+        "title": "ConfigPatch",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "ImportPayload": {
+        "properties": {
+          "format": {
+            "title": "Format",
+            "type": "string"
+          },
+          "lap": {
+            "additionalProperties": true,
+            "title": "Lap",
+            "type": "object"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "format",
+          "version",
+          "lap"
+        ],
+        "title": "ImportPayload",
+        "type": "object"
+      },
+      "LapPatch": {
+        "additionalProperties": false,
+        "description": "The user's ruling on whether a lap counts toward bests (#74).\n\n`best_override` true or false outranks the span heuristic; an explicit\nnull hands the lap back to it. Absent means leave the ruling alone, which\nis how a patch carrying only `exclude_reason` re-words an exclusion.\nUnknown fields are rejected for the reason SessionPatch rejects them.",
+        "properties": {
+          "best_override": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Override"
+          },
+          "exclude_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "off-track",
+                  "contact",
+                  "restart",
+                  "dirty",
+                  "pit-out",
+                  "race-start"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exclude Reason"
+          }
+        },
+        "title": "LapPatch",
+        "type": "object"
+      },
+      "LayoutPatch": {
+        "properties": {
+          "config": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "overlay",
+                  "dash"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "title": "LayoutPatch",
+        "type": "object"
+      },
+      "LayoutPayload": {
+        "properties": {
+          "config": {
+            "additionalProperties": true,
+            "title": "Config",
+            "type": "object"
+          },
+          "kind": {
+            "default": "overlay",
+            "enum": [
+              "overlay",
+              "dash"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "config"
+        ],
+        "title": "LayoutPayload",
+        "type": "object"
+      },
+      "RecordingPayload": {
+        "properties": {
+          "recording": {
+            "title": "Recording",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "recording"
+        ],
+        "title": "RecordingPayload",
+        "type": "object"
+      },
+      "RejectSuggestionPayload": {
+        "properties": {
+          "official_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Official Id",
+            "type": "string"
+          },
+          "track": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Track",
+            "type": "string"
+          }
+        },
+        "required": [
+          "track",
+          "official_id"
+        ],
+        "title": "RejectSuggestionPayload",
+        "type": "object"
+      },
+      "SessionPatch": {
+        "additionalProperties": false,
+        "description": "Fields the user may edit on a session; absent fields stay untouched.\n\nUnknown fields are rejected rather than ignored: a script that typos\n`bests_exclude` must get a 422, not a 200 that quietly leaves the\nreplay's laps owning the personal-best board (#26).",
+        "properties": {
+          "bests_excluded": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bests Excluded"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags"
+          }
+        },
+        "title": "SessionPatch",
+        "type": "object"
+      },
+      "SettingsPayload": {
+        "properties": {
+          "log_level": {
+            "anyOf": [
+              {
+                "enum": [
+                  "DEBUG",
+                  "INFO",
+                  "WARNING",
+                  "ERROR"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Log Level"
+          },
+          "packet_format": {
+            "anyOf": [
+              {
+                "enum": [
+                  "A",
+                  "B",
+                  "~",
+                  "C"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Packet Format"
+          },
+          "ps_ip": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ps Ip"
+          },
+          "race_engineer": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Race Engineer"
+          },
+          "race_engineer_categories": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Race Engineer Categories"
+          },
+          "race_engineer_units": {
+            "anyOf": [
+              {
+                "enum": [
+                  "metric",
+                  "imperial"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Race Engineer Units"
+          },
+          "race_engineer_verbosity": {
+            "anyOf": [
+              {
+                "enum": [
+                  "minimal",
+                  "race",
+                  "coach"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Race Engineer Verbosity"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "udp",
+                  "sim"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "sync_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sync Enabled"
+          },
+          "sync_live": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sync Live"
+          },
+          "sync_sessions": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sync Sessions"
+          },
+          "sync_token": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sync Token"
+          },
+          "sync_tracks": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sync Tracks"
+          },
+          "sync_url": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sync Url"
+          },
+          "webhook_events": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "personal_best",
+                    "session_summary",
+                    "overtake",
+                    "position_lost",
+                    "off_road"
+                  ],
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Webhook Events"
+          },
+          "webhook_url": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Webhook Url"
+          }
+        },
+        "title": "SettingsPayload",
+        "type": "object"
+      },
+      "SurveyDiscardPayload": {
+        "properties": {
+          "scope": {
+            "enum": [
+              "lap",
+              "run"
+            ],
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope"
+        ],
+        "title": "SurveyDiscardPayload",
+        "type": "object"
+      },
+      "SurveyMarkPayload": {
+        "properties": {
+          "kind": {
+            "default": "edge",
+            "enum": [
+              "edge",
+              "runoff",
+              "wall"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "side": {
+            "anyOf": [
+              {
+                "enum": [
+                  "L",
+                  "R"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Side"
+          }
+        },
+        "title": "SurveyMarkPayload",
+        "type": "object"
+      },
+      "SurveyStartPayload": {
+        "properties": {
+          "track": {
+            "default": "",
+            "maxLength": 80,
+            "title": "Track",
+            "type": "string"
+          },
+          "track_width_m": {
+            "default": 1.6,
+            "exclusiveMaximum": 3.0,
+            "exclusiveMinimum": 0.5,
+            "title": "Track Width M",
+            "type": "number"
+          }
+        },
+        "title": "SurveyStartPayload",
+        "type": "object"
+      },
+      "SurveyTrackPayload": {
+        "properties": {
+          "track": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Track",
+            "type": "string"
+          }
+        },
+        "required": [
+          "track"
+        ],
+        "title": "SurveyTrackPayload",
+        "type": "object"
+      },
+      "TestCalloutPayload": {
+        "properties": {
+          "event_type": {
+            "default": "test",
+            "maxLength": 64,
+            "title": "Event Type",
+            "type": "string"
+          },
+          "text": {
+            "default": "Race engineer test callout.",
+            "maxLength": 300,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "title": "TestCalloutPayload",
+        "type": "object"
+      },
+      "TrackPayload": {
+        "properties": {
+          "lap_id": {
+            "title": "Lap Id",
+            "type": "integer"
+          },
+          "name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "lap_id"
+        ],
+        "title": "TrackPayload",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "GT7 Datalogger",
+    "version": "1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/admin/clear-data": {
+      "post": {
+        "operationId": "clear_data_api_admin_clear_data_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Clear Data Api Admin Clear Data Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Clear Data"
+      }
+    },
+    "/api/admin/config": {
+      "get": {
+        "operationId": "get_config_api_admin_config_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Config Api Admin Config Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Config"
+      },
+      "put": {
+        "operationId": "put_config_api_admin_config_put",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Put Config Api Admin Config Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Config"
+      }
+    },
+    "/api/admin/discover-console": {
+      "post": {
+        "description": "Find console: broadcast the heartbeat for a few seconds and report\nwhich address answers with GT7 telemetry, without saving it.",
+        "operationId": "discover_console_api_admin_discover_console_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Discover Console Api Admin Discover Console Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Discover Console"
+      }
+    },
+    "/api/admin/logs": {
+      "delete": {
+        "operationId": "clear_logs_api_admin_logs_delete",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Clear Logs Api Admin Logs Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Clear Logs"
+      },
+      "get": {
+        "operationId": "get_logs_api_admin_logs_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 300,
+              "maximum": 2000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "level",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Level"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "title": "Response Get Logs Api Admin Logs Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Logs"
+      }
+    },
+    "/api/admin/race-engineer": {
+      "get": {
+        "operationId": "race_engineer_api_admin_race_engineer_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Race Engineer Api Admin Race Engineer Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Race Engineer"
+      }
+    },
+    "/api/admin/race-engineer/test": {
+      "post": {
+        "description": "Inject a callout so voice output can be verified without driving.",
+        "operationId": "test_callout_api_admin_race_engineer_test_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestCalloutPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Test Callout Api Admin Race Engineer Test Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Test Callout"
+      }
+    },
+    "/api/admin/restart-source": {
+      "post": {
+        "operationId": "restart_source_api_admin_restart_source_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Restart Source Api Admin Restart Source Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Restart Source"
+      }
+    },
+    "/api/admin/settings": {
+      "get": {
+        "operationId": "get_settings_api_admin_settings_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Settings Api Admin Settings Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Settings"
+      },
+      "put": {
+        "operationId": "put_settings_api_admin_settings_put",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Put Settings Api Admin Settings Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Settings"
+      }
+    },
+    "/api/admin/stats": {
+      "get": {
+        "operationId": "stats_api_admin_stats_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Stats Api Admin Stats Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stats"
+      }
+    },
+    "/api/admin/sync": {
+      "get": {
+        "description": "Where sync stands: connection, what the server offers, each type.",
+        "operationId": "sync_status_api_admin_sync_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Sync Status Api Admin Sync Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sync Status"
+      }
+    },
+    "/api/admin/sync/push": {
+      "post": {
+        "description": "Send now what is waiting, rather than at the next autosave or after\nthe backoff: every eligible bundle, the queued laps, the live stream's\nnext connection attempt.\n\nNothing is re-sent that the server has already accepted unchanged; this\nis for \"I just enabled it, send what I have\" and for a retry that should\nnot wait out a backoff.",
+        "operationId": "sync_push_api_admin_sync_push_post",
+        "parameters": [
+          {
+            "description": "one data type; every active one when blank",
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "default": "",
+              "description": "one data type; every active one when blank",
+              "maxLength": 32,
+              "title": "Type",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Sync Push Api Admin Sync Push Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sync Push"
+      }
+    },
+    "/api/admin/sync/test": {
+      "post": {
+        "description": "Ask the server what it accepts, now \u2014 the Test connection button.\n\nThe answer is the status document, with the fresh capabilities in it;\na server that cannot be reached, or rejects the request, is a 502 whose\ndetail is the reason, and the status document keeps that reason too.",
+        "operationId": "sync_test_api_admin_sync_test_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Sync Test Api Admin Sync Test Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sync Test"
+      }
+    },
+    "/api/admin/test-webhook": {
+      "post": {
+        "operationId": "test_webhook_api_admin_test_webhook_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Test Webhook Api Admin Test Webhook Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Test Webhook"
+      }
+    },
+    "/api/admin/update-cars": {
+      "post": {
+        "description": "Refresh the car inventory from GT7's own car list, now.\n\nThe escape hatch for someone who does not want to wait for the staleness\ninterval \u2014 same code as the background refresh (#57), so there is one\ndefinition of what updating cars means.",
+        "operationId": "update_cars_api_admin_update_cars_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Update Cars Api Admin Update Cars Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Cars"
+      }
+    },
+    "/api/admin/vacuum": {
+      "post": {
+        "operationId": "vacuum_api_admin_vacuum_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Vacuum Api Admin Vacuum Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Vacuum"
+      }
+    },
+    "/api/analysis/coaching": {
+      "get": {
+        "description": "The race engineer's post-lap coaching notes for a stored session (#23).\n\nReplayed through the live CoachingDetector rather than recorded from it,\nso the notes exist for sessions driven with voice off \u2014 which is the\npoint: the findings were speech-only before this. See\napp.race_engineer.replay for what is (and isn't) faithful to live.",
+        "operationId": "coaching_api_analysis_coaching_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Coaching Api Analysis Coaching Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Coaching"
+      }
+    },
+    "/api/analysis/compare": {
+      "get": {
+        "description": "Distance-resampled series for each lap + time delta vs the reference.",
+        "operationId": "compare_api_analysis_compare_get",
+        "parameters": [
+          {
+            "description": "comma-separated lap ids",
+            "in": "query",
+            "name": "laps",
+            "required": true,
+            "schema": {
+              "description": "comma-separated lap ids",
+              "title": "Laps",
+              "type": "string"
+            }
+          },
+          {
+            "description": "reference lap id",
+            "in": "query",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "description": "reference lap id",
+              "title": "Ref",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "step",
+            "required": false,
+            "schema": {
+              "default": 5.0,
+              "exclusiveMinimum": 0.5,
+              "maximum": 50,
+              "title": "Step",
+              "type": "number"
+            }
+          },
+          {
+            "description": "comma-separated sample channels; defaults to the classic set. t/pos_x/pos_z are always included.",
+            "in": "query",
+            "name": "channels",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "comma-separated sample channels; defaults to the classic set. t/pos_x/pos_z are always included.",
+              "title": "Channels"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Compare Api Analysis Compare Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Compare"
+      }
+    },
+    "/api/analysis/deviation": {
+      "get": {
+        "description": "Speed deviation across the session's best `count` laps.\n\nBest COUNTING laps: a pit out-lap's short time would otherwise rank it\nfirst. All are lined up on the fastest one's path, like a comparison.",
+        "operationId": "deviation_api_analysis_deviation_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "count",
+            "required": false,
+            "schema": {
+              "default": 5,
+              "maximum": 20,
+              "minimum": 2,
+              "title": "Count",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Deviation Api Analysis Deviation Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Deviation"
+      }
+    },
+    "/api/analysis/fuel": {
+      "get": {
+        "description": "Relative fuel map based on a lap's consumption and time.",
+        "operationId": "fuel_api_analysis_fuel_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "lap_id",
+            "required": true,
+            "schema": {
+              "title": "Lap Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Fuel Api Analysis Fuel Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Fuel"
+      }
+    },
+    "/api/analysis/sectors": {
+      "get": {
+        "description": "Every lap of a session split at the circuit's sectors (#22).\n\nThe boundaries are the circuit's authored ones, or thirds of the\nsession's reference lap \u2014 its quickest lap that counts \u2014 resolved to\npositions so that every lap is split at the same two places on the\nroad. Each lap's splits are read off its own clock at those places and\nsum to its lap time. Laps are read one at a time, as the stint trend\nreads them: a session of any length costs the memory of one lap.",
+        "operationId": "sector_times_api_analysis_sectors_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Sector Times Api Analysis Sectors Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sector Times"
+      }
+    },
+    "/api/analysis/stint": {
+      "get": {
+        "description": "Lap time and tyre temperature lap over lap, split into stints (#111).\n\nWorked out from the stored laps each time it is asked for, so it covers\nevery session there is, whenever it was recorded. The laps are read one\nat a time and each is reduced to a handful of figures before the next is\ntouched: a session of any length costs the memory of one lap.",
+        "operationId": "stint_trend_api_analysis_stint_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Stint Trend Api Analysis Stint Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stint Trend"
+      }
+    },
+    "/api/control/log-lap-now": {
+      "post": {
+        "operationId": "log_lap_now_api_control_log_lap_now_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Log Lap Now Api Control Log Lap Now Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Log Lap Now"
+      }
+    },
+    "/api/control/recording": {
+      "post": {
+        "operationId": "set_recording_api_control_recording_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordingPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Set Recording Api Control Recording Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Recording"
+      }
+    },
+    "/api/export/laps-csv.zip": {
+      "get": {
+        "description": "Every lap's CSV in one ZIP, a folder per session. Streamed.",
+        "operationId": "export_all_laps_csv_api_export_laps_csv_zip_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Export All Laps Csv"
+      }
+    },
+    "/api/export/laps.zip": {
+      "get": {
+        "description": "Every lap's JSON export in one ZIP, a folder per session \u2014 the\nSettings \"Back up\" download. Streamed; see app.storage.archive.",
+        "operationId": "export_all_laps_api_export_laps_zip_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Export All Laps"
+      }
+    },
+    "/api/health": {
+      "get": {
+        "operationId": "health_api_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Health Api Health Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health"
+      }
+    },
+    "/api/laps": {
+      "get": {
+        "operationId": "laps_api_laps_get",
+        "parameters": [
+          {
+            "description": "session's circuit \u2014 all when blank",
+            "in": "query",
+            "name": "track",
+            "required": false,
+            "schema": {
+              "default": "",
+              "description": "session's circuit \u2014 all when blank",
+              "maxLength": 80,
+              "title": "Track",
+              "type": "string"
+            }
+          },
+          {
+            "description": "car category, e.g. Gr.3 \u2014 all when blank",
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "default": "",
+              "description": "car category, e.g. Gr.3 \u2014 all when blank",
+              "maxLength": 16,
+              "title": "Category",
+              "type": "string"
+            }
+          },
+          {
+            "description": "car manufacturer, e.g. Nissan \u2014 all when blank",
+            "in": "query",
+            "name": "manufacturer",
+            "required": false,
+            "schema": {
+              "default": "",
+              "description": "car manufacturer, e.g. Nissan \u2014 all when blank",
+              "maxLength": 64,
+              "title": "Manufacturer",
+              "type": "string"
+            }
+          },
+          {
+            "description": "FR, FF, MR, RR or 4WD \u2014 all when blank",
+            "in": "query",
+            "name": "drivetrain",
+            "required": false,
+            "schema": {
+              "default": "",
+              "description": "FR, FF, MR, RR or 4WD \u2014 all when blank",
+              "maxLength": 8,
+              "title": "Drivetrain",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "title": "Response Laps Api Laps Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Laps"
+      }
+    },
+    "/api/laps/best": {
+      "get": {
+        "description": "Fastest full lap at a circuit in one car category (#19).\n\nDeclared BEFORE /laps/{lap_id}: FastAPI matches in declaration order, and\n\"best\" would otherwise be handed to the lap-id route as a path parameter.",
+        "operationId": "best_lap_api_laps_best_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "track",
+            "required": true,
+            "schema": {
+              "maxLength": 80,
+              "minLength": 1,
+              "title": "Track",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "category",
+            "required": true,
+            "schema": {
+              "maxLength": 16,
+              "minLength": 1,
+              "title": "Category",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": true,
+                      "type": "object"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Best Lap Api Laps Best Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Best Lap"
+      }
+    },
+    "/api/laps/bests": {
+      "get": {
+        "description": "The personal-best board: fastest counting lap per circuit and car,\nacross every session ever recorded (#26).\n\nClass/category scoping stays a display concern \u2014 the board keys on the\nexact car, and the optional filter only narrows which rows are returned.\nSessions flagged bests_excluded (recorded replays, other drivers) never\nown a row. Declared BEFORE /laps/{lap_id} for the same reason /laps/best\nis: FastAPI matches in declaration order, and \"bests\" would otherwise be\nhanded to the lap-id route as a path parameter.",
+        "operationId": "personal_bests_api_laps_bests_get",
+        "parameters": [
+          {
+            "description": "car category, e.g. Gr.3 \u2014 all when blank",
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "default": "",
+              "description": "car category, e.g. Gr.3 \u2014 all when blank",
+              "maxLength": 16,
+              "title": "Category",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Personal Bests Api Laps Bests Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Personal Bests"
+      }
+    },
+    "/api/laps/import": {
+      "post": {
+        "operationId": "import_lap_api_laps_import_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Import Lap Api Laps Import Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Import Lap"
+      }
+    },
+    "/api/laps/{lap_id}": {
+      "delete": {
+        "operationId": "delete_lap_api_laps__lap_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lap_id",
+            "required": true,
+            "schema": {
+              "title": "Lap Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Delete Lap Api Laps  Lap Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Lap"
+      },
+      "get": {
+        "operationId": "lap_detail_api_laps__lap_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lap_id",
+            "required": true,
+            "schema": {
+              "title": "Lap Id",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "include the per-tick sample series",
+            "in": "query",
+            "name": "samples",
+            "required": false,
+            "schema": {
+              "default": true,
+              "description": "include the per-tick sample series",
+              "title": "Samples",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Lap Detail Api Laps  Lap Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Lap Detail"
+      },
+      "patch": {
+        "operationId": "update_lap_api_laps__lap_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lap_id",
+            "required": true,
+            "schema": {
+              "title": "Lap Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LapPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Update Lap Api Laps  Lap Id  Patch",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Lap"
+      }
+    },
+    "/api/laps/{lap_id}/export": {
+      "get": {
+        "operationId": "export_lap_api_laps__lap_id__export_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lap_id",
+            "required": true,
+            "schema": {
+              "title": "Lap Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Export Lap Api Laps  Lap Id  Export Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Lap"
+      }
+    },
+    "/api/laps/{lap_id}/export.csv": {
+      "get": {
+        "description": "MoTeC-style CSV export \u2014 see archive.lap_csv for the format.",
+        "operationId": "export_lap_csv_api_laps__lap_id__export_csv_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lap_id",
+            "required": true,
+            "schema": {
+              "title": "Lap Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Lap Csv"
+      }
+    },
+    "/api/layouts": {
+      "get": {
+        "operationId": "list_layouts_api_layouts_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "title": "Response List Layouts Api Layouts Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Layouts"
+      },
+      "post": {
+        "operationId": "create_layout_api_layouts_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LayoutPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Layout Api Layouts Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Layout"
+      }
+    },
+    "/api/layouts/{layout_id}": {
+      "delete": {
+        "operationId": "delete_layout_api_layouts__layout_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "layout_id",
+            "required": true,
+            "schema": {
+              "title": "Layout Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Delete Layout Api Layouts  Layout Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Layout"
+      },
+      "put": {
+        "operationId": "update_layout_api_layouts__layout_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "layout_id",
+            "required": true,
+            "schema": {
+              "title": "Layout Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LayoutPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Update Layout Api Layouts  Layout Id  Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Layout"
+      }
+    },
+    "/api/layouts/{ref}": {
+      "get": {
+        "operationId": "get_layout_api_layouts__ref__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Layout Api Layouts  Ref  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Layout"
+      }
+    },
+    "/api/sessions": {
+      "get": {
+        "operationId": "sessions_api_sessions_get",
+        "parameters": [
+          {
+            "description": "car category (packet C), e.g. Gr.3 \u2014 all when blank",
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "default": "",
+              "description": "car category (packet C), e.g. Gr.3 \u2014 all when blank",
+              "maxLength": 16,
+              "title": "Category",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "title": "Response Sessions Api Sessions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sessions"
+      }
+    },
+    "/api/sessions/{session_id}": {
+      "delete": {
+        "operationId": "delete_session_api_sessions__session_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Delete Session Api Sessions  Session Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Session"
+      },
+      "patch": {
+        "operationId": "update_session_api_sessions__session_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Update Session Api Sessions  Session Id  Patch",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Session"
+      }
+    },
+    "/api/sessions/{session_id}/analysis.json": {
+      "get": {
+        "description": "The session's lap analysis document (#115): each lap measured per\ncorner against the session's best \u2014 braking, minimum speed, throttle,\ntime lost, line \u2014 in a few hundred labelled numbers instead of the 60 Hz\nseries. See app.processing.lap_analysis for what is in it and why.\n\nCompiled on request: a few tenths of a second for a ten-lap session.",
+        "operationId": "session_analysis_api_sessions__session_id__analysis_json_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Session Analysis Api Sessions  Session Id  Analysis Json Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Session Analysis"
+      }
+    },
+    "/api/sessions/{session_id}/export.zip": {
+      "get": {
+        "description": "Every lap of a session in one ZIP, beside a session.json (#76).\n\nThe lap files are the per-lap export documents, unchanged \u2014 see\napp.storage.archive for the layout. Written whole before the response\nstarts, so a failure is an error status rather than a truncated file.",
+        "operationId": "export_session_api_sessions__session_id__export_zip_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Session"
+      }
+    },
+    "/api/sessions/{session_id}/laps": {
+      "get": {
+        "operationId": "session_laps_api_sessions__session_id__laps_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "title": "Response Session Laps Api Sessions  Session Id  Laps Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Session Laps"
+      }
+    },
+    "/api/status": {
+      "get": {
+        "operationId": "status_api_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Status Api Status Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Status"
+      }
+    },
+    "/api/survey/discard": {
+      "post": {
+        "description": "Throw away border evidence the running survey gathered (#98): the\ncurrent lap's so far, or the whole run's. The survey keeps running.\n\nOnly this run's votes go; other runs' evidence on the same metres stays.\nWhat an autosave already wrote is backed out of the bundle, the JSONL\nrecords the discard so a later replay of the log skips the same records,\nand the circuit's laps are re-judged as after any bundle write.",
+        "operationId": "survey_discard_api_survey_discard_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SurveyDiscardPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Survey Discard Api Survey Discard Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Survey Discard"
+      }
+    },
+    "/api/survey/edges": {
+      "get": {
+        "description": "Border-edge points of the whole run \u2014 the track taking shape.\n\nAppend-only within a run (the epoch bumps when a new run starts), so\nincremental fetches are just index slices.",
+        "operationId": "survey_edges_api_survey_edges_get",
+        "parameters": [
+          {
+            "description": "index of the first edge point to return",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "description": "index of the first edge point to return",
+              "minimum": 0,
+              "title": "Since",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "client's edges epoch; mismatch returns all",
+            "in": "query",
+            "name": "epoch",
+            "required": false,
+            "schema": {
+              "default": -1,
+              "description": "client's edges epoch; mismatch returns all",
+              "title": "Epoch",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Survey Edges Api Survey Edges Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Survey Edges"
+      }
+    },
+    "/api/survey/export.jsonl": {
+      "get": {
+        "description": "Full transition log of the current (or last) survey run.",
+        "operationId": "survey_export_api_survey_export_jsonl_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Survey Export"
+      }
+    },
+    "/api/survey/logs": {
+      "get": {
+        "description": "Every survey run's JSONL, and whether it ever reached a circuit.",
+        "operationId": "survey_logs_api_survey_logs_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "title": "Response Survey Logs Api Survey Logs Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Survey Logs"
+      }
+    },
+    "/api/survey/logs/upload": {
+      "post": {
+        "description": "Land a survey JSONL from elsewhere where the log listing reads.\n\nStreamed to disk in chunks with the same cap and for the same reason as\nthe bundle import: a chunked upload carries no Content-Length, and the\ncap must hold for it too. `?name=` carries the original filename.",
+        "operationId": "upload_log_api_survey_logs_upload_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Upload Log Api Survey Logs Upload Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upload Log"
+      }
+    },
+    "/api/survey/logs/{name}/assign": {
+      "post": {
+        "description": "Rebuild an orphaned run from its log and merge it into a circuit.",
+        "operationId": "assign_log_api_survey_logs__name__assign_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignLogPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Assign Log Api Survey Logs  Name  Assign Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Assign Log"
+      }
+    },
+    "/api/survey/logs/{name}/download": {
+      "get": {
+        "description": "One run's raw JSONL, verbatim \u2014 the transportable record (#40).\n\nA log is the complete evidence of a run, so moving the file moves the\nrun: downloaded here, uploaded (or assigned) on another installation.",
+        "operationId": "download_log_api_survey_logs__name__download_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download Log"
+      }
+    },
+    "/api/survey/mark": {
+      "post": {
+        "description": "Arm manual boundary marking: trace walls/run-off limits by driving them.",
+        "operationId": "survey_mark_api_survey_mark_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SurveyMarkPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Survey Mark Api Survey Mark Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Survey Mark"
+      }
+    },
+    "/api/survey/packet": {
+      "get": {
+        "description": "The latest raw telemetry packet, fully decoded \u2014 for eyeballing fields.",
+        "operationId": "survey_packet_api_survey_packet_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Survey Packet Api Survey Packet Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Survey Packet"
+      }
+    },
+    "/api/survey/start": {
+      "post": {
+        "operationId": "survey_start_api_survey_start_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SurveyStartPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Survey Start Api Survey Start Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Survey Start"
+      }
+    },
+    "/api/survey/status": {
+      "get": {
+        "operationId": "survey_status_api_survey_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Survey Status Api Survey Status Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Survey Status"
+      }
+    },
+    "/api/survey/stop": {
+      "post": {
+        "operationId": "survey_stop_api_survey_stop_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Survey Stop Api Survey Stop Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Survey Stop"
+      }
+    },
+    "/api/survey/track": {
+      "post": {
+        "description": "Name the circuit a running survey is describing.\n\nA run started before the track was known accumulates border evidence\nagainst no circuit at all, and a survey with no label saves no bundle \u2014\nso without this, an hour of driving can only be recovered from its JSONL.\nAssigning a label to an unlabeled run keeps everything it has gathered\nand merges it into that circuit's bundle.\n\nRe-assigning an ALREADY labeled run is a circuit change, not a\ncorrection: the accumulated evidence is flushed to the previous circuit\nfirst, so one track's driving can never land in another's bundle. To fix\na wrong label, rebuild from the JSONL instead\n(`scripts/jsonl_to_bundle.py`).",
+        "operationId": "survey_set_track_api_survey_track_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SurveyTrackPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Survey Set Track Api Survey Track Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Survey Set Track"
+      }
+    },
+    "/api/survey/trail": {
+      "get": {
+        "description": "Breadcrumb of the path driven, fetched incrementally.\n\nThe trail is decimated 2:1 when it grows past its cap, which invalidates\nclient point indices \u2014 the epoch bumps when that happens and the full\ntrail is returned again.",
+        "operationId": "survey_trail_api_survey_trail_get",
+        "parameters": [
+          {
+            "description": "index of the first point to return",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "description": "index of the first point to return",
+              "minimum": 0,
+              "title": "Since",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "client's trail epoch; mismatch returns all",
+            "in": "query",
+            "name": "epoch",
+            "required": false,
+            "schema": {
+              "default": -1,
+              "description": "client's trail epoch; mismatch returns all",
+              "title": "Epoch",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Survey Trail Api Survey Trail Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Survey Trail"
+      }
+    },
+    "/api/track-bundles": {
+      "get": {
+        "description": "Every circuit's accumulated survey bundle (perimeters, finish line).",
+        "operationId": "list_bundles_api_track_bundles_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "title": "Response List Bundles Api Track Bundles Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Bundles"
+      }
+    },
+    "/api/track-bundles/import": {
+      "post": {
+        "description": "Merge a bundle document from elsewhere into this installation's store.\n\nRead raw rather than through a pydantic body model: the document is\nalready validated field by field by `track_bundle.validate_document`, and\nletting pydantic build a second full copy of a multi-megabyte edge list\nfirst buys nothing.\n\n`?track=` overrides the document's own label, which is how a friend's\n\"Lago Maggiore - East End\" merges into your \"Lago Maggiore East\".",
+        "operationId": "import_bundle_api_track_bundles_import_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Import Bundle Api Track Bundles Import Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Import Bundle"
+      }
+    },
+    "/api/track-bundles/shared": {
+      "get": {
+        "description": "What the configured shared repo has on offer. `configured: false` when\nno repo is set \u2014 the UI hides the feature rather than showing an error.",
+        "operationId": "shared_bundles_api_track_bundles_shared_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Shared Bundles Api Track Bundles Shared Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Shared Bundles"
+      }
+    },
+    "/api/track-bundles/shared/pull-all": {
+      "post": {
+        "description": "Pull every bundle the shared repo offers, each exactly as a one-circuit\npull would. Only an unreadable index fails the request (502); a circuit\nthe repo serves broken is listed under `failed` and the rest still come.\nSafe to repeat: a re-pull counts nobody's runs twice.",
+        "operationId": "pull_all_shared_bundles_api_track_bundles_shared_pull_all_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Pull All Shared Bundles Api Track Bundles Shared Pull All Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Pull All Shared Bundles"
+      }
+    },
+    "/api/track-bundles/shared/{slug}/pull": {
+      "post": {
+        "description": "Pull one shared bundle and merge it, exactly as an imported file would be.\n\nThe index is re-fetched and the bundle looked up by slug rather than the\nclient posting a URL: an admin token should not be a proxy for \"make this\nserver GET anywhere I say\". `?track=` overrides the document's label, same\nas import.\n\nThe repo's **corrections** for the circuit come along when the index\nnames them: fetched from beside the bundle, validated, and kept as this\ninstallation's copy \u2014 replaced, not merged, because they are the repo's\ndecision about the evidence rather than evidence \u2014 so the road compiled\nhere is the road the repo's own map shows. A circuit the repo lists\nwithout corrections loses whatever copy was here.",
+        "operationId": "pull_shared_bundle_api_track_bundles_shared__slug__pull_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "track",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Track"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Pull Shared Bundle Api Track Bundles Shared  Slug  Pull Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Pull Shared Bundle"
+      }
+    },
+    "/api/track-bundles/{slug}": {
+      "delete": {
+        "operationId": "delete_bundle_api_track_bundles__slug__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Delete Bundle Api Track Bundles  Slug  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Bundle"
+      },
+      "get": {
+        "description": "One bundle document \u2014 the export unit, and what import consumes.",
+        "operationId": "download_api_track_bundles__slug__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Download Api Track Bundles  Slug  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download"
+      },
+      "patch": {
+        "operationId": "patch_bundle_api_track_bundles__slug__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BundlePatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Patch Bundle Api Track Bundles  Slug  Patch",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Patch Bundle"
+      }
+    },
+    "/api/track-bundles/{slug}/corners": {
+      "get": {
+        "operationId": "get_corners_api_track_bundles__slug__corners_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Corners Api Track Bundles  Slug  Corners Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Corners"
+      },
+      "put": {
+        "description": "Replace a circuit's authored corners \u2014 which then outrank detection.\n\nStored in the bundle rather than the DB: this is track knowledge, it\ntravels with export/import, and it is a large part of what makes a shared\nbundle worth pulling (#48).",
+        "operationId": "put_corners_api_track_bundles__slug__corners_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthoredPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Put Corners Api Track Bundles  Slug  Corners Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Corners"
+      }
+    },
+    "/api/track-bundles/{slug}/corrections": {
+      "delete": {
+        "description": "Back to the evidence alone: what an area kept out is drawn again.",
+        "operationId": "delete_corrections_api_track_bundles__slug__corrections_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Delete Corrections Api Track Bundles  Slug  Corrections Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Corrections"
+      },
+      "get": {
+        "description": "The circuit's corrections as kept here \u2014 the repo's document, verbatim.",
+        "operationId": "get_corrections_api_track_bundles__slug__corrections_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Corrections Api Track Bundles  Slug  Corrections Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Corrections"
+      },
+      "put": {
+        "description": "Keep a corrections document for a circuit, replacing any it has.\n\nWhat a pull does for a circuit the shared repo corrects, for a document\nthat arrived another way \u2014 the track-data pack's import script puts each\ncircuit's file through here after its bundle. Replaced whole, never\nmerged: the file is one decision about the evidence, not evidence. The\ncircuit's laps are re-judged and its map recompiled against the road as\ncorrected, as after any change to what the road is.",
+        "operationId": "put_corrections_api_track_bundles__slug__corrections_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Put Corrections Api Track Bundles  Slug  Corrections Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Corrections"
+      }
+    },
+    "/api/track-bundles/{slug}/rejudge": {
+      "post": {
+        "description": "Re-judge every lap driven on this circuit against its survey, now (#91).\n\nThe automatic pass after a bundle write does the same; this is for forcing\nit, and it waits for the pass so the answer can say how many verdicts\nchanged. Works with or without a bundle: with none, verdicts judged\nagainst a survey that no longer exists go back to unknown, so the\ncircuit is the slug rather than a bundle that must exist.",
+        "operationId": "rejudge_laps_api_track_bundles__slug__rejudge_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Rejudge Laps Api Track Bundles  Slug  Rejudge Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rejudge Laps"
+      }
+    },
+    "/api/track-catalog": {
+      "get": {
+        "description": "Official GT7 track/layout metadata (bundled app/data/tracks.json).",
+        "operationId": "catalog_api_track_catalog_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Catalog Api Track Catalog Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Catalog"
+      }
+    },
+    "/api/track-outline": {
+      "get": {
+        "description": "The road a lap was driven on, ready to draw under a race line.\n\nAnswers with an EMPTY outline rather than a 404 when the circuit has no\nbundle \u2014 \"this track has never been surveyed\" is the common case, not an\nerror, and the map simply falls back to drawing the lap on its own.\n\nCompiling parses the bundle (multiple megabytes) and orders thousands of\nborder cells, so it runs off the event loop; repeat calls hit the caches\nin `track_compile` / `track_outline` and cost nothing.",
+        "operationId": "outline_api_track_outline_get",
+        "parameters": [
+          {
+            "description": "resolve the circuit from this lap",
+            "in": "query",
+            "name": "lap_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "resolve the circuit from this lap",
+              "title": "Lap Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "track",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 80,
+              "title": "Track",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Outline Api Track Outline Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Outline"
+      }
+    },
+    "/api/track-overview": {
+      "get": {
+        "description": "Every track this installation knows anything about, merged by name.",
+        "operationId": "overview_api_track_overview_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Overview Api Track Overview Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Overview"
+      }
+    },
+    "/api/track-suggestions/clear": {
+      "post": {
+        "description": "Forget every \"not this\" on one track, so the best guess comes back.",
+        "operationId": "clear_rejections_api_track_suggestions_clear_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClearRejectionsPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Clear Rejections Api Track Suggestions Clear Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Clear Rejections"
+      }
+    },
+    "/api/track-suggestions/reject": {
+      "post": {
+        "description": "Record that a track is NOT the official layout it was suggested as.\n\nThe suggestion is recomputed on every overview, so dismissing it only in\nthe browser left it re-offered on every other device and after every\ncleared cache. Stored here, the next overview moves on to the runner-up\n\u2014 or to no suggestion at all \u2014 everywhere at once.\n\nStored per installation and never synced: it is one person's verdict on\na guess, not evidence about the circuit, and the sync service files\nbundles only by a CONFIRMED layout anyway.",
+        "operationId": "reject_suggestion_api_track_suggestions_reject_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectSuggestionPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Reject Suggestion Api Track Suggestions Reject Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reject Suggestion"
+      }
+    },
+    "/api/tracks": {
+      "get": {
+        "operationId": "tracks_api_tracks_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "title": "Response Tracks Api Tracks Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Tracks"
+      },
+      "post": {
+        "description": "Name the circuit a lap was driven on; future sessions auto-match it.",
+        "operationId": "create_track_api_tracks_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrackPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Track Api Tracks Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Track"
+      }
+    },
+    "/api/tracks/identify": {
+      "post": {
+        "description": "Name every unlabelled session this installation can now recognise.\n\nNew sessions identify themselves as they are recorded; this is for the\nhistory that was already on disk before the evidence existed \u2014 which, for\nanyone whose install predates the shipped signatures, is all of it.\n\nBoth fingerprints are tried, in the same order and by the same code the\nlive path uses, so a backfilled name and a live one mean the same thing.\nThat ordering was the bug this fixes: the backfill only ever consulted the\nsurvey bundles, which was right when a signature existed solely because\nsomebody had typed a name \u2014 there was nothing to backfill from. Shipping\n78 of them (#58) made it wrong, and silently: history sat unnamed at\ncircuits the app had recognised on sight all along.\n\nSessions with no confident match are left alone rather than given a\nbest guess: an unlabelled session is honest, a mislabelled one is not.",
+        "operationId": "identify_sessions_api_tracks_identify_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Identify Sessions Api Tracks Identify Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Identify Sessions"
+      }
+    },
+    "/api/tracks/{track_id}": {
+      "delete": {
+        "operationId": "delete_track_api_tracks__track_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "track_id",
+            "required": true,
+            "schema": {
+              "title": "Track Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Delete Track Api Tracks  Track Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Track"
+      }
+    }
+  }
+}

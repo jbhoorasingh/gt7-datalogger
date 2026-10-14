@@ -1263,6 +1263,11 @@ class Repository:
                 row.value = value
             await db.commit()
 
+    async def delete_setting(self, key: str) -> None:
+        async with self._sf() as db:
+            await db.execute(delete(SettingRow).where(SettingRow.key == key))
+            await db.commit()
+
     # --- admin --------------------------------------------------------------
 
     async def stats(self) -> dict[str, int]:

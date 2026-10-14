@@ -12,6 +12,7 @@ from typing import Any
 
 from fastapi import WebSocket
 
+from app import netinfo, protocol
 from app.config import Settings
 from app.models import TelemetryPacket
 from app.notify import Notifier
@@ -63,6 +64,13 @@ class _ClientStream:
     page: str = ""
     voice_supported: bool = False
     voice_enabled: bool = False
+    # Client protocol (app.protocol): set by `hello`/`subscribe`. A client
+    # that never says hello streams at GT7_WS_RATE, compact, every event.
+    telemetry_hz: float | None = None
+    frame_kind: str = "compact"
+    event_types: frozenset[str] | None = None
+    last_frame_at: float = 0.0
+    app: str = ""
 
 
 async def _close_ws(ws: WebSocket) -> None:
@@ -71,6 +79,11 @@ async def _close_ws(ws: WebSocket) -> None:
         await ws.close(code=1013)  # 1013 = try again later (server overloaded)
     except Exception:  # noqa: BLE001
         pass
+
+
+def _served_port(ws: WebSocket) -> int | None:
+    server = getattr(ws, "scope", {}).get("server")
+    return int(server[1]) if server and server[1] else None
 
 
 def _count_events(events: list[dict[str, Any]]) -> dict[str, int]:
@@ -172,8 +185,9 @@ class TelemetryService:
         self._tracked_furthest = 0.0
         self._tracked_lost = False
         self._clients: dict[WebSocket, _ClientStream] = {}
-        self._last_ws_send = 0.0
-        self._ws_interval = 1.0 / settings.ws_rate
+        # What the environment said, before saved settings were laid over it
+        # (main.lifespan replaces this copy): what a reset falls back to.
+        self.env_settings = settings.model_copy()
         # Authored corners per circuit slug, read out of the track bundle
         # (#48). Cached because the bundle is a multi-megabyte document and
         # the corners in it are a few hundred bytes — parsing the whole thing
@@ -434,10 +448,8 @@ class TelemetryService:
                 self._publish({"type": "survey", "data": record})
         if self.engineer_active:
             self._publish_callouts(self.engineer.on_packet(p))
-        now = time.monotonic()
-        if now - self._last_ws_send >= self._ws_interval:
-            self._last_ws_send = now
-            self._publish({"type": "telemetry", "data": self._live_frame(p)})
+        if self._clients:
+            self._publish_telemetry(p)
 
     def _notify_live_event(self, event: LiveEvent, p: TelemetryPacket) -> None:
         # Voice reuses the watcher's debounced events rather than running a
@@ -876,8 +888,43 @@ class TelemetryService:
             ),
         }
 
+    def _full_frame(self, compact: dict[str, Any], p: TelemetryPacket) -> dict[str, Any]:
+        """The compact frame plus every packet field, for clients that run
+        their own analysis (the phone's Race Engineer) on the stream."""
+        return {**compact, "packet": {f: getattr(p, f) for f in protocol.PACKET_FIELDS}}
+
+    # Half a packet of slack: frames are due on packet arrival, and a 30 Hz
+    # client whose interval lands a hair after the second 60 Hz packet would
+    # otherwise wait for the third and run at 20 Hz.
+    FRAME_SLACK_S = 0.004
+
+    def _publish_telemetry(self, p: TelemetryPacket) -> None:
+        """Hand each client the newest frame when its own rate says it's due.
+
+        Each frame kind is built at most once per packet, and only when some
+        client wants it now; the mailbox is latest-wins, so a slow reader just
+        skips frames.
+        """
+        now = time.monotonic()
+        texts: dict[str, str] = {}
+        compact: dict[str, Any] | None = None
+        for client in list(self._clients.values()):
+            hz = client.telemetry_hz or self.settings.ws_rate
+            if now - client.last_frame_at < 1.0 / hz - self.FRAME_SLACK_S:
+                continue
+            kind = client.frame_kind
+            if kind not in texts:
+                if compact is None:
+                    compact = self._live_frame(p)
+                data = self._full_frame(compact, p) if kind == "full" else compact
+                texts[kind] = json.dumps({"type": "telemetry", "data": data})
+            client.frame = texts[kind]
+            client.last_frame_at = now
+            client.wakeup.set()
+
     async def status(self) -> dict[str, Any]:
         return {
+            "protocol": protocol.PROTOCOL_VERSION,
             "source": self.settings.source,
             "recording": self.recording,
             "session_id": self.session_id,
@@ -923,6 +970,72 @@ class TelemetryService:
             self._active_voice_client = ""
             log.info("voice output released: client %s disconnected", client.client_id)
             self._publish_voice_status()
+
+    # --- client protocol (app.protocol) -------------------------------------
+
+    def _subscribe(self, client: _ClientStream, sub: protocol.Subscribe) -> protocol.Subscribe:
+        """Apply a subscription; returns it as it is in effect."""
+        client.telemetry_hz = sub.telemetry_hz
+        client.frame_kind = sub.frame
+        if sub.events is None:
+            client.event_types = None
+        else:
+            client.event_types = frozenset(e for e in sub.events if e in protocol.EVENT_TYPES)
+        return protocol.Subscribe(
+            telemetry_hz=sub.telemetry_hz,
+            frame=sub.frame,
+            events=sorted(client.event_types) if client.event_types is not None else None,
+        )
+
+    def client_hello(self, ws: WebSocket, hello: protocol.Hello) -> None:
+        client = self._clients.get(ws)
+        if client is None:
+            return
+        # Deliberately not client.client_id/page: those are the browser's
+        # voice identity, and a native app speaks for itself.
+        client.app = hello.app
+        effective = self._subscribe(client, hello.subscribe)
+        welcome = protocol.Welcome(
+            protocol=protocol.PROTOCOL_VERSION,
+            server_version=netinfo.server_version(),
+            lan_ip=netinfo.lan_ip(),
+            # The port this socket actually arrived on: uvicorn's --port
+            # outranks GT7_HTTP_PORT, which only `python -m app.main` reads.
+            http_port=_served_port(ws) or self.settings.http_port,
+            capabilities=protocol.Capabilities(
+                max_telemetry_hz=protocol.MAX_TELEMETRY_HZ,
+                default_telemetry_hz=self.settings.ws_rate,
+                frames=list(protocol.FRAME_KINDS),
+                events=list(protocol.EVENT_TYPES),
+            ),
+            subscribe=effective,
+        )
+        self._send_to(client, {"type": "welcome", "data": welcome.model_dump()})
+        log.info(
+            "client %s %s connected (protocol %d, %s Hz, %s frames)",
+            hello.app or "?", hello.app_version or "", hello.protocol,
+            f"{effective.telemetry_hz:g}" if effective.telemetry_hz else "default",
+            effective.frame,
+        )
+
+    def client_subscribe(self, ws: WebSocket, sub: protocol.Subscribe) -> None:
+        client = self._clients.get(ws)
+        if client is not None:
+            self._subscribe(client, sub)
+
+    def client_error(self, ws: WebSocket, request: str, message: str) -> None:
+        client = self._clients.get(ws)
+        if client is not None:
+            error = protocol.ProtocolError(message=message, request=request)
+            self._send_to(client, {"type": "error", "data": error.model_dump()})
+
+    def _send_to(self, client: _ClientStream, message: dict[str, Any]) -> None:
+        try:
+            client.events.put_nowait(json.dumps(message))
+        except asyncio.QueueFull:
+            self._drop_client(client)
+            return
+        client.wakeup.set()
 
     # --- race engineer voice protocol ---------------------------------------
 
@@ -1060,6 +1173,12 @@ class TelemetryService:
         text = json.dumps(message)
         kind = message["type"]
         for client in list(self._clients.values()):
+            if (
+                client.event_types is not None
+                and kind not in client.event_types
+                and kind not in protocol.ALWAYS_SENT
+            ):
+                continue
             if kind == "telemetry":
                 client.frame = text
             else:

@@ -1,0 +1,190 @@
+{
+  "$defs": {
+    "ClientCapabilitiesMessage": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": true,
+          "title": "Data",
+          "type": "object"
+        },
+        "type": {
+          "const": "client_capabilities",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ],
+      "title": "ClientCapabilitiesMessage",
+      "type": "object"
+    },
+    "Hello": {
+      "additionalProperties": true,
+      "properties": {
+        "app": {
+          "default": "",
+          "description": "e.g. \"gt7-phone\"",
+          "maxLength": 64,
+          "title": "App",
+          "type": "string"
+        },
+        "app_version": {
+          "default": "",
+          "maxLength": 32,
+          "title": "App Version",
+          "type": "string"
+        },
+        "client_id": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Client Id",
+          "type": "string"
+        },
+        "protocol": {
+          "description": "The protocol version the client speaks.",
+          "title": "Protocol",
+          "type": "integer"
+        },
+        "subscribe": {
+          "$ref": "#/$defs/Subscribe"
+        }
+      },
+      "required": [
+        "protocol"
+      ],
+      "title": "Hello",
+      "type": "object"
+    },
+    "HelloMessage": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/Hello"
+        },
+        "type": {
+          "const": "hello",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ],
+      "title": "HelloMessage",
+      "type": "object"
+    },
+    "Subscribe": {
+      "additionalProperties": true,
+      "properties": {
+        "events": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Event types to receive; omitted = all. `status` and `welcome` are always sent.",
+          "title": "Events"
+        },
+        "frame": {
+          "default": "compact",
+          "description": "`full` adds `packet`: every parsed field of the latest packet.",
+          "enum": [
+            "compact",
+            "full"
+          ],
+          "title": "Frame",
+          "type": "string"
+        },
+        "telemetry_hz": {
+          "anyOf": [
+            {
+              "maximum": 60,
+              "minimum": 1,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Telemetry frames per second; omitted = the server's GT7_WS_RATE.",
+          "title": "Telemetry Hz"
+        }
+      },
+      "title": "Subscribe",
+      "type": "object"
+    },
+    "SubscribeMessage": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/Subscribe"
+        },
+        "type": {
+          "const": "subscribe",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ],
+      "title": "SubscribeMessage",
+      "type": "object"
+    },
+    "VoiceClaimMessage": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": true,
+          "title": "Data",
+          "type": "object"
+        },
+        "type": {
+          "enum": [
+            "claim_voice_output",
+            "release_voice_output",
+            "voice_callout_ack"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ],
+      "title": "VoiceClaimMessage",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/HelloMessage"
+    },
+    {
+      "$ref": "#/$defs/SubscribeMessage"
+    },
+    {
+      "$ref": "#/$defs/ClientCapabilitiesMessage"
+    },
+    {
+      "$ref": "#/$defs/VoiceClaimMessage"
+    }
+  ],
+  "title": "GT7 Datalogger live client \u2192 server message",
+  "x-protocol-version": 1
+}

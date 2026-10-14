@@ -2,6 +2,8 @@ import type { LayoutConfig, LayoutSummary } from "./layout";
 import type {
   AdminSettings,
   AdminStats,
+  ConfigDoc,
+  ConfigValue,
   AuthoredCorner,
   AuthoredSection,
   AuthoredSector,
@@ -438,6 +440,11 @@ export const api = {
       get<LogRecord[]>(`/api/admin/logs?limit=${limit}${level ? `&level=${level}` : ""}`),
     clearLogs: () => send<{ status: string }>("/api/admin/logs", "DELETE"),
     stats: () => get<AdminStats>("/api/admin/stats"),
+    // Every setting (Settings › Advanced): change some, hand others back to
+    // the environment, in one validated write.
+    config: () => get<ConfigDoc>("/api/admin/config"),
+    updateConfig: (patch: { values?: Record<string, ConfigValue>; reset?: string[] }) =>
+      send<ConfigDoc>("/api/admin/config", "PUT", patch),
     restartSource: () => send<ConnectionStatus>("/api/admin/restart-source", "POST"),
     // Find console: broadcasts the heartbeat for up to ~3 s even when an IP
     // is set, and reports who answered without saving it.

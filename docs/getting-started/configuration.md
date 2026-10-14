@@ -1,51 +1,95 @@
 # Configuration
 
-Most day-to-day settings — the console IP, telemetry source, log level, webhook URL and
-sync connection — can be changed **at runtime from the [Settings](../guide/settings.md) view** with no restart.
-Edits there are applied together with **Apply changes**; those values persist in the
-database and override the environment on the next start.
+Every setting is an environment variable (or a line in a `.env` file in the working
+directory), and almost every one can also be changed **at runtime from
+[Settings › Advanced](../guide/settings.md#advanced)**, which lists them all with their
+default, where the current value comes from, and a reset button. The everyday ones
+also have their own controls in the other Settings sections.
 
-Everything else is configured with environment variables, or a `.env` file in the
-working directory.
+The **Applies** column says when a change takes effect:
+
+- **live**: the moment it is saved.
+- **next start**: saved now, used from the next restart. Settings marks it
+  *restart pending* until then.
+- **environment only**: read before the database opens, so only the environment can set it.
+
+!!! note "Precedence"
+    A value saved in Settings is stored in the database and **overrides the environment**
+    on every later start. **Reset to default** deletes the saved value, which hands the
+    setting back to the environment, or to the default below when the environment does
+    not set it either.
 
 ## Environment variables
 
-| Variable | Default | Description |
-| --- | --- | --- |
-| `GT7_SOURCE` | `udp` | `udp` (PlayStation) or `sim` (simulated laps) |
-| `GT7_PS_IP` | *(empty)* | Console IP; empty = broadcast auto-discovery |
-| `GT7_PACKET_FORMAT` | `C` | Telemetry format requested from the console: `A`, `B`, `~`, or `C` (richest, needs GT7 v1.68+; also settable in Settings › Connection) |
-| `GT7_DB_PATH` | `data/gt7.db` | SQLite database path — also accepts a full SQLAlchemy async URL (e.g. Postgres) |
-| `GT7_CARS_JSON` | *(bundled)* | Car inventory: id → name, manufacturer, year, category, drivetrain, aspiration and the published figures. Resolves from the package, so it works whatever directory you start from |
-| `GT7_CARS_CSV` | *(empty)* | Deprecated pre-0.6 `id,name` CSV. Set = read cars from here instead, names only. Kept for one release |
-| `GT7_TRACK_SIGNATURES_JSON` | *(bundled)* | Shipped track signatures, synced into the `tracks` table at startup so a fresh install [identifies circuits](../internals/track-identification.md#the-shipped-signatures) it has never seen driven. Defaults to the copy inside the package, so it resolves whatever directory the app was started from. Set it blank to turn seeding off and identify only what you have named and surveyed |
-| `GT7_WS_RATE` | `30` | Live stream rate to the browser (Hz); capture stays at ~60 Hz |
-| `GT7_WEBHOOK_URL` | *(empty)* | Webhook for race notifications (also settable in Settings › Notifications) |
-| `GT7_WEBHOOK_EVENTS` | *(all)* | Comma-separated events to send: `personal_best`, `session_summary`, `overtake`, `position_lost`, `off_road` (toggles in Settings › Notifications) |
-| `GT7_RACE_ENGINEER` | `true` | Generate voice callouts. Detection only runs while a browser has voice enabled, so leaving this on costs nothing (also settable in Settings › Race Engineer) |
-| `GT7_RACE_ENGINEER_VERBOSITY` | `coach` | The **most** any device may hear: `minimal`, `race` or `coach`. Each browser chooses its own verbosity under this ceiling, so the default produces everything and lets the device decide; lowering it puts those categories out of reach for every device |
-| `GT7_RACE_ENGINEER_CATEGORIES` | *(all)* | Comma-separated callout categories: `system`, `lap`, `pace`, `race`, `position`, `fuel`, `strategy`, `engine`, `tires`, `chassis`, `coaching` |
-| `GT7_RACE_ENGINEER_UNITS` | `metric` | Units spoken inside callouts (`metric` = meters and km/h, `imperial` = feet and mph) |
-| `GT7_SIM_SCENARIO` | `practice` | With `GT7_SOURCE=sim`: `practice`, `race`, `fuel_shortage`, `overheating`, `oil_pressure` — staged situations for testing callouts — and `leader_replay`: pre-roll, one flying lap streamed as lap 0 with a running packet-C lap clock, then `LOADING`, which exercises the [replay-salvage path](../internals/lap-detection.md#replay-salvage) without a console |
-| `GT7_SHARED_BUNDLES_URL` | *(the project's [track-data repo](https://jbhoorasingh.github.io/gt7-datalogger-track-data/))* | Shared repository of contributed track bundles: the URL of its `index.json`, or of the directory holding one. The Tracks view lists what it offers and can pull a bundle straight in (same validation and voting merge as a file import). A fresh installation (no bundles yet) pulls every circuit once on its first start; otherwise nothing is fetched until the Tracks view is opened. Empty turns pulling off, the first-start pull included |
-| `GT7_SYNC_URL` | `https://sync.gt7-datalogger.com` | The [sync service](../guide/settings.md#sync) this installation contributes to (also settable in Settings › Sync, under **Use your own server**, or by pasting a connection string) |
-| `GT7_SYNC_TOKEN` | *(empty)* | The account token for the sync service. A secret: masked in the UI, sent only as a `Bearer` header, never logged (also settable in Settings › Sync) |
-| `GT7_SYNC_ENABLED` | `false` | The master switch for sync. On its own it sends nothing — each data type has its own toggle below |
-| `GT7_SYNC_TRACKS` | `false` | Upload survey bundles of circuits with a confirmed official layout, once a changed bundle has been left alone for ten minutes. Flipped off automatically if the server stops accepting tracks |
-| `GT7_SYNC_SESSIONS` | `false` | Send your own laps as you drive — each lap as the export document, against a session the service opens with the first lap — and the totals when the drive ends. Laps queue in `data/sync-sessions.json` while the service is away. Private on the service by default. Flipped off automatically if the server stops accepting sessions |
-| `GT7_SYNC_LIVE` | `false` | Hold one WebSocket to the service while the car is on track and send where it is a few times a second (position, speed, gear, lap, lap time) for the service's spectate page. Opens on the first on-track packet, closes after five minutes without one. Flipped off automatically if the server stops accepting live |
-| `GT7_SYNC_LIVE_HZ` | `4` | Frames per second for the live stream. The server states its own ceiling when the stream connects and the lower of the two wins |
-| `GT7_LOG_LEVEL` | `INFO` | Root log level (also settable in Settings › Logs) |
-| `GT7_ADMIN_TOKEN` | *(empty)* | When set, the Settings pages and all destructive/mutating API calls require this token via the `X-API-Key` header; overlay/dash/read endpoints stay open. Empty = fully open (LAN-trusted) |
-| `GT7_CORS_ORIGINS` | *(empty)* | Comma-separated origins allowed for cross-origin API use. Empty (default) sends no CORS headers — the bundled UI is same-origin and needs none |
-| `GT7_HTTP_HOST` | `0.0.0.0` | HTTP bind host |
-| `GT7_HTTP_PORT` | `8000` | HTTP port |
-| `GT7_TELEMETRY_PORT` | `33740` | Inbound telemetry UDP port |
-| `GT7_HEARTBEAT_PORT` | `33739` | Outbound heartbeat UDP port |
+<!-- settings-table:start (generated by backend/scripts/gen_config_docs.py) -->
 
-!!! note "Precedence"
-    Settings changed in the **Settings** view are persisted to the database and take
-    precedence over environment variables on subsequent starts.
+### Connection
+
+| Variable | Default | Applies | Description |
+| --- | --- | --- | --- |
+| `GT7_SOURCE` | `udp` | live | `udp` (PlayStation) or `sim` (simulated laps) |
+| `GT7_PS_IP` | *(empty)* | live | Console IP; empty = broadcast auto-discovery |
+| `GT7_PACKET_FORMAT` | `C` | live | Telemetry format requested from the console: `A`, `B`, `~`, or `C` (richest, needs GT7 v1.68+) |
+| `GT7_TELEMETRY_PORT` | `33740` | live | Inbound telemetry UDP port. Changing it restarts the listener |
+| `GT7_HEARTBEAT_PORT` | `33739` | live | Outbound heartbeat UDP port (the console listens on it). Changing it restarts the listener |
+| `GT7_SIM_SCENARIO` | `practice` | live | With `GT7_SOURCE=sim`: `practice`, `race`, `fuel_shortage`, `overheating`, `oil_pressure` — staged situations for testing callouts — and `leader_replay`: pre-roll, one flying lap streamed as lap 0 with a running packet-C lap clock, then `LOADING`, which exercises the [replay-salvage path](../internals/lap-detection.md#replay-salvage) without a console. Changing it restarts the simulator |
+
+### Live stream
+
+| Variable | Default | Applies | Description |
+| --- | --- | --- | --- |
+| `GT7_WS_RATE` | `30` | live | Live stream rate (Hz) for clients that do not ask for their own — the browser UI. Capture stays at ~60 Hz; a client can request up to 60 Hz in its [hello](../reference/client-protocol.md) |
+| `GT7_CORS_ORIGINS` | *(empty)* | live | Comma-separated origins allowed for cross-origin API use. Empty sends no CORS headers — the bundled UI is same-origin and needs none, and so does a native app |
+
+### Race Engineer
+
+| Variable | Default | Applies | Description |
+| --- | --- | --- | --- |
+| `GT7_RACE_ENGINEER` | `true` | live | Generate voice callouts. Detection only runs while a browser has voice enabled, so leaving this on costs nothing |
+| `GT7_RACE_ENGINEER_VERBOSITY` | `coach` | live | The **most** any device may hear: `minimal`, `race` or `coach`. Each browser chooses its own verbosity under this ceiling, so the default produces everything and lets the device decide; lowering it puts those categories out of reach for every device |
+| `GT7_RACE_ENGINEER_CATEGORIES` | *(all)* | live | Comma-separated callout categories: `system`, `lap`, `pace`, `race`, `position`, `fuel`, `strategy`, `engine`, `tires`, `chassis`, `coaching` |
+| `GT7_RACE_ENGINEER_UNITS` | `metric` | live | Units spoken inside callouts (`metric` = meters and km/h, `imperial` = feet and mph) |
+
+### Notifications
+
+| Variable | Default | Applies | Description |
+| --- | --- | --- | --- |
+| `GT7_WEBHOOK_URL` | *(empty)* | live | Webhook for race notifications. Discord webhook URLs get a rich embed; any other URL gets plain JSON |
+| `GT7_WEBHOOK_EVENTS` | *(all)* | live | Comma-separated events to send: `personal_best`, `session_summary`, `overtake`, `position_lost`, `off_road` |
+
+### Sync
+
+| Variable | Default | Applies | Description |
+| --- | --- | --- | --- |
+| `GT7_SYNC_URL` | `https://sync.gt7-datalogger.com` | live | The [sync service](../guide/settings.md#sync) this installation contributes to. Settings › Sync also takes a whole connection string here |
+| `GT7_SYNC_TOKEN` | *(empty)* | live | The account token for the sync service. A secret: masked in the UI, sent only as a `Bearer` header, never logged |
+| `GT7_SYNC_ENABLED` | `false` | live | The master switch for sync. On its own it sends nothing — each data type has its own toggle below |
+| `GT7_SYNC_TRACKS` | `false` | live | Upload survey bundles of circuits with a confirmed official layout, once a changed bundle has been left alone for ten minutes. Flipped off automatically if the server stops accepting tracks |
+| `GT7_SYNC_SESSIONS` | `false` | live | Send your own laps as you drive — each lap as the export document, against a session the service opens with the first lap — and the totals when the drive ends. Laps queue in `data/sync-sessions.json` while the service is away. Private on the service by default. Flipped off automatically if the server stops accepting sessions |
+| `GT7_SYNC_LIVE` | `false` | live | Hold one WebSocket to the service while the car is on track and send where it is a few times a second (position, speed, gear, lap, lap time) for the service's spectate page. Opens on the first on-track packet, closes after five minutes without one. Flipped off automatically if the server stops accepting live |
+| `GT7_SYNC_LIVE_HZ` | `4.0` | live | Frames per second for the live stream. The server states its own ceiling when the stream connects and the lower of the two wins. Applies from the next connection |
+
+### Tracks & cars
+
+| Variable | Default | Applies | Description |
+| --- | --- | --- | --- |
+| `GT7_SHARED_BUNDLES_URL` | *(the project's [track-data repo](https://jbhoorasingh.github.io/gt7-datalogger-track-data/))* | live | Shared repository of contributed track bundles: the URL of its `index.json`, or of the directory holding one. The Tracks view lists what it offers and can pull a bundle straight in (same validation and voting merge as a file import). A fresh installation (no bundles yet) pulls every circuit once on its first start; otherwise nothing is fetched until the Tracks view is opened. Empty turns pulling off, the first-start pull included |
+| `GT7_TRACKS_JSON` | *(bundled)* | live | Official GT7 track and layout metadata |
+| `GT7_TRACK_SIGNATURES_JSON` | *(bundled)* | next start | Shipped track signatures, synced into the `tracks` table at startup so a fresh install [identifies circuits](../internals/track-identification.md#the-shipped-signatures) it has never seen driven. Defaults to the copy inside the package. Set it blank to turn seeding off and identify only what you have named and surveyed |
+| `GT7_CARS_JSON` | *(bundled)* | next start | Car inventory: id → name, manufacturer, year, category, drivetrain, aspiration and the published figures. Resolves from the package, so it works whatever directory you start from |
+| `GT7_CARS_CSV` | *(empty)* | next start | Deprecated pre-0.6 `id,name` CSV. Set = read cars from here instead, names only. Kept for one release |
+
+### Server
+
+| Variable | Default | Applies | Description |
+| --- | --- | --- | --- |
+| `GT7_LOG_LEVEL` | `INFO` | live | Root log level |
+| `GT7_ADMIN_TOKEN` | *(empty)* | live | When set, the Settings pages and all destructive/mutating API calls require this token via the `X-API-Key` header; overlay/dash/read endpoints and the live WebSocket stay open. Empty = fully open (LAN-trusted) |
+| `GT7_HTTP_HOST` | `0.0.0.0` | environment only | HTTP bind host. Read before the database opens, so environment only |
+| `GT7_HTTP_PORT` | `8000` | environment only | HTTP port. Read before the database opens — and a Docker install maps it from outside — so environment only |
+| `GT7_DB_PATH` | `data/gt7.db` | environment only | SQLite database path — also accepts a full SQLAlchemy async URL (e.g. Postgres). The database holds the other settings, so environment only |
+
+<!-- settings-table:end -->
 
 ## The car database
 

@@ -295,3 +295,25 @@ The section header shows how many sessions and laps are stored and the size on d
 - **Delete all recorded data** — removes **every session and lap**. Type `DELETE` to
   enable the button. Settings, tracks and layouts are kept; it cannot be undone, so
   back up first.
+
+## Advanced
+
+Every setting the server has, including the ones the other sections leave out
+(stream rate, CORS origins, ports, simulator scenario, car and track files, the admin
+token), grouped the same way as the
+[configuration reference](../getting-started/configuration.md). Each one shows:
+
+- its **environment variable**, and what it does
+- where the current value comes from: **set here** (saved in Settings), **from
+  environment**, or **default**, and the default itself
+- when a change applies: at once, at the **next start**, or **environment only** for
+  the few read before the database opens (bind host, port, database path)
+
+Changes here have their own **Apply** and **Discard** buttons; they are checked as a
+whole and nothing changes if any value is invalid. **Reset** forgets a value set here,
+handing the setting back to the environment, or to its default when the environment
+doesn't set it either. A changed *next start* setting is marked **restart pending**
+until the server restarts.
+
+Setting an **admin token** here protects the server from that moment: enter the same
+token under [Access](#access) to keep using Settings.

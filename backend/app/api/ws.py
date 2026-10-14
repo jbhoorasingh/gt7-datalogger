@@ -1,9 +1,11 @@
 """WebSocket endpoint streaming live telemetry, lap and session events.
 
-Traffic is overwhelmingly server-push. The client→server direction exists only
-for the Race Engineer voice protocol (which browser is allowed to speak, and
-what it did with a callout); anything else a client sends is ignored, so pages
-from older builds — which send pings or nothing at all — keep working.
+Traffic is overwhelmingly server-push. The client→server direction carries
+the client protocol's `hello` and `subscribe` (app.protocol: a native app's
+rate, frame and events) and the Race Engineer voice protocol (which browser is
+allowed to speak, and what it did with a callout); anything else a client
+sends is ignored, so pages from older builds — which send pings or nothing at
+all — keep working.
 
 Deliberately unauthenticated even when GT7_ADMIN_TOKEN is set: claiming voice
 output is a driver-device action on a read-only surface, not an admin one.
@@ -16,6 +18,9 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from pydantic import ValidationError
+
+from app import protocol
 
 if TYPE_CHECKING:
     from app.service import TelemetryService
@@ -33,6 +38,12 @@ def _text(data: dict[str, Any], key: str, limit: int = MAX_ID_LEN) -> str:
     return value[:limit] if isinstance(value, str) else ""
 
 
+def _first_error(exc: ValidationError) -> str:
+    err = exc.errors()[0]
+    where = ".".join(str(p) for p in err["loc"])
+    return f"{where}: {err['msg']}" if where else str(err["msg"])
+
+
 def _handle_client_message(service: TelemetryService, ws: WebSocket, raw: str) -> None:
     try:
         message = json.loads(raw)
@@ -45,7 +56,21 @@ def _handle_client_message(service: TelemetryService, ws: WebSocket, raw: str) -
     if not isinstance(data, dict):
         data = {}
 
-    if kind == "client_capabilities":
+    if kind == "hello":
+        try:
+            hello = protocol.Hello.model_validate(data)
+        except ValidationError as exc:
+            service.client_error(ws, "hello", _first_error(exc))
+            return
+        service.client_hello(ws, hello)
+    elif kind == "subscribe":
+        try:
+            sub = protocol.Subscribe.model_validate(data)
+        except ValidationError as exc:
+            service.client_error(ws, "subscribe", _first_error(exc))
+            return
+        service.client_subscribe(ws, sub)
+    elif kind == "client_capabilities":
         service.set_client_capabilities(
             ws,
             client_id=_text(data, "client_id"),

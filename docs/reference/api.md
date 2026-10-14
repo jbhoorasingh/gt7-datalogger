@@ -150,6 +150,8 @@ once, and gets the benefit of the doubt.
 | POST | `/api/admin/race-engineer/test` | `{text?, event_type?}` — inject a callout into every connected browser |
 | GET | `/api/admin/logs` | `limit` (≤2000), `level` — recent log records from the ring buffer |
 | DELETE | `/api/admin/logs` | clear the ring buffer |
+| GET | `/api/admin/config` | every setting: value, default, environment variable, where the value comes from (`saved`, `env`, `default`), when a change applies (`live`, `restart`, `env`), and whether a restart is pending. Secrets come back as `is_set` and a hint, never the value |
+| PUT | `/api/admin/config` | `{values: {key: value}, reset: [key]}` — change settings and hand others back to the environment, validated as a whole (400 and nothing changed if any value is bad) |
 | GET | `/api/admin/stats` | uptime, DB stats, source stats, client count, LAN IP |
 | POST | `/api/admin/restart-source` | stop/start the telemetry source |
 | POST | `/api/admin/clear-data` | delete **all** sessions and laps (settings/tracks kept) |
@@ -159,12 +161,15 @@ once, and gets the benefit of the doubt.
 ## WebSocket — `/ws/live`
 
 One endpoint. Traffic is overwhelmingly server-push; the only client → server
-messages are the Race Engineer voice protocol (below), and anything else a client
-sends is ignored. Every message is `{"type": ..., "data": ...}`.
+messages are the [live client protocol](client-protocol.md)'s `hello` and `subscribe`
+(a native app's own rate, frame and events) and the Race Engineer voice protocol
+(below). Anything else a client sends is ignored. Every message is
+`{"type": ..., "data": ...}`.
 
 Server → browser:
 
-- **`telemetry`** — the live frame, throttled to `GT7_WS_RATE` (default 30 Hz):
+- **`telemetry`** — the live frame, throttled to `GT7_WS_RATE` (default 30 Hz) unless the
+  client [asked for its own rate](client-protocol.md):
   speed, RPM + redline, gear + suggested gear, throttle/brake %, boost, fuel level and
   capacity, lap counters, best/last lap, session best and previous best, race position,
   tire temps (FL/FR/RL/RR), tire slip, water/oil temps, oil pressure, driver-aids
@@ -178,7 +183,8 @@ Server → browser:
   from/to chars, changed wheels, position, velocity, heading, raw rotation
   floats, and derived wheel-contact points (sent at full 60 Hz resolution —
   these are single-tick events the throttled telemetry frames would miss).
-- **`status`** — sent on connect and whenever the source or console IP changes.
+- **`status`** — sent on connect and whenever the source or console IP changes. Carries
+  `protocol`, the live client protocol version.
 - **`voice_callout`** — a Race Engineer callout: `id`, `event_type`, `text`,
   `category`, `priority` (0–100), `created_at_ms`, `expires_at_ms`, `ttl_ms`,
   `interrupt`, `dedupe_key`, `message_key`/`message_args` (localization) and
@@ -206,6 +212,7 @@ On connect the client immediately receives a `status` and a `race_engineer_statu
 message — never past callouts, which are live events. The frontend auto-reconnects
 every 2 s if the socket closes.
 
-!!! note "CORS"
-    CORS is wide open (`*`) — the API is designed for a trusted home network, not
-    public exposure. Don't port-forward it to the internet.
+!!! note "CORS and exposure"
+    No CORS headers are sent unless `GT7_CORS_ORIGINS` lists origins: the bundled UI is
+    same-origin and native apps need none. The API is designed for a trusted home
+    network, not public exposure. Don't port-forward it to the internet.

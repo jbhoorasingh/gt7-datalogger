@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AccessSection, probeProtection, TokenField, type Protection } from "@/components/settings/AccessSection";
+import { AdvancedSection } from "@/components/settings/AdvancedSection";
 import { ConnectionSection } from "@/components/settings/ConnectionSection";
 import { DataSection } from "@/components/settings/DataSection";
 import { EngineerSection } from "@/components/settings/EngineerSection";
@@ -61,7 +62,7 @@ export function SettingsView({ section: sectionParam }: { section?: string | nul
       ? settingsError.message
       : null;
 
-  useEffect(() => {
+  const reloadSettings = useCallback(() => {
     api.admin
       .settings()
       .then((s) => {
@@ -69,8 +70,12 @@ export function SettingsView({ section: sectionParam }: { section?: string | nul
         setSettingsError(null);
       })
       .catch((e) => setSettingsError(e instanceof Error ? e : new Error("Could not load settings")));
-    void probeProtection().then(setProtection);
   }, []);
+
+  useEffect(() => {
+    reloadSettings();
+    void probeProtection().then(setProtection);
+  }, [reloadSettings]);
 
   const refreshStats = useCallback(() => {
     api.admin
@@ -313,6 +318,23 @@ export function SettingsView({ section: sectionParam }: { section?: string | nul
         return <DataSection busy={busy} run={run} stats={stats} />;
       case "access":
         return <AccessSection protection={protection} locked={locked} />;
+      case "advanced":
+        // Its own buffer and Apply: a change here can be any setting, so the
+        // other sections' copy is reloaded afterwards rather than patched.
+        return locked ? (
+          <SettingsUnavailable error={settingsError} locked={locked} />
+        ) : (
+          <AdvancedSection
+            onApplied={() => {
+              writeEpoch.current++;
+              setEdits({});
+              reloadSettings();
+              refreshStats();
+              reloadSync();
+              void probeProtection().then(setProtection);
+            }}
+          />
+        );
     }
     // The rest edit settings, so they wait for the server's copy.
     if (!sectionProps) return <SettingsUnavailable error={settingsError} locked={locked} />;

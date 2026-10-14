@@ -1,0 +1,891 @@
+{
+  "$defs": {
+    "Capabilities": {
+      "additionalProperties": false,
+      "properties": {
+        "default_telemetry_hz": {
+          "title": "Default Telemetry Hz",
+          "type": "integer"
+        },
+        "events": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Events",
+          "type": "array"
+        },
+        "frames": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Frames",
+          "type": "array"
+        },
+        "max_telemetry_hz": {
+          "title": "Max Telemetry Hz",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "max_telemetry_hz",
+        "default_telemetry_hz",
+        "frames",
+        "events"
+      ],
+      "title": "Capabilities",
+      "type": "object"
+    },
+    "ErrorMessage": {
+      "additionalProperties": false,
+      "description": "A client message the server could not accept; nothing was changed.",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/ProtocolError"
+        },
+        "type": {
+          "const": "error",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ],
+      "title": "ErrorMessage",
+      "type": "object"
+    },
+    "FullTelemetryFrame": {
+      "additionalProperties": false,
+      "properties": {
+        "aids": {
+          "title": "Aids",
+          "type": "integer"
+        },
+        "best_lap_ms": {
+          "title": "Best Lap Ms",
+          "type": "integer"
+        },
+        "boost": {
+          "title": "Boost",
+          "type": "number"
+        },
+        "brake": {
+          "description": "0\u2013100 %",
+          "title": "Brake",
+          "type": "number"
+        },
+        "car_category": {
+          "title": "Car Category",
+          "type": "string"
+        },
+        "car_id": {
+          "title": "Car Id",
+          "type": "integer"
+        },
+        "car_name": {
+          "title": "Car Name",
+          "type": "string"
+        },
+        "current_lap": {
+          "title": "Current Lap",
+          "type": "integer"
+        },
+        "delta_ms": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Live delta to the session best, at the same place.",
+          "title": "Delta Ms"
+        },
+        "fuel_capacity": {
+          "title": "Fuel Capacity",
+          "type": "number"
+        },
+        "fuel_level": {
+          "title": "Fuel Level",
+          "type": "number"
+        },
+        "gear": {
+          "title": "Gear",
+          "type": "integer"
+        },
+        "lap_elapsed_ms": {
+          "title": "Lap Elapsed Ms",
+          "type": "integer"
+        },
+        "last_lap_ms": {
+          "title": "Last Lap Ms",
+          "type": "integer"
+        },
+        "oil_pressure": {
+          "title": "Oil Pressure",
+          "type": "number"
+        },
+        "oil_temp": {
+          "title": "Oil Temp",
+          "type": "number"
+        },
+        "on_track": {
+          "title": "On Track",
+          "type": "boolean"
+        },
+        "packet": {
+          "additionalProperties": true,
+          "description": "Every TelemetryPacket field, unrounded; extended-format fields are null below the packet format that carries them.",
+          "title": "Packet",
+          "type": "object"
+        },
+        "paused": {
+          "title": "Paused",
+          "type": "boolean"
+        },
+        "pos_x": {
+          "title": "Pos X",
+          "type": "number"
+        },
+        "pos_z": {
+          "title": "Pos Z",
+          "type": "number"
+        },
+        "position": {
+          "title": "Position",
+          "type": "integer"
+        },
+        "prev_best_ms": {
+          "title": "Prev Best Ms",
+          "type": "integer"
+        },
+        "rpm": {
+          "title": "Rpm",
+          "type": "integer"
+        },
+        "rpm_alert": {
+          "title": "Rpm Alert",
+          "type": "number"
+        },
+        "session_best_ms": {
+          "title": "Session Best Ms",
+          "type": "integer"
+        },
+        "speed_kmh": {
+          "title": "Speed Kmh",
+          "type": "number"
+        },
+        "steer_rad": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Steer Rad"
+        },
+        "suggested_gear": {
+          "title": "Suggested Gear",
+          "type": "integer"
+        },
+        "surface": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Four wheels' surface codes packed; null below packet C.",
+          "title": "Surface"
+        },
+        "throttle": {
+          "description": "0\u2013100 %",
+          "title": "Throttle",
+          "type": "number"
+        },
+        "tire_slip": {
+          "title": "Tire Slip",
+          "type": "number"
+        },
+        "tire_temps": {
+          "description": "FL, FR, RL, RR",
+          "items": {
+            "type": "number"
+          },
+          "title": "Tire Temps",
+          "type": "array"
+        },
+        "tod_ms": {
+          "title": "Tod Ms",
+          "type": "integer"
+        },
+        "total_laps": {
+          "title": "Total Laps",
+          "type": "integer"
+        },
+        "total_positions": {
+          "title": "Total Positions",
+          "type": "integer"
+        },
+        "track_name": {
+          "title": "Track Name",
+          "type": "string"
+        },
+        "water_temp": {
+          "title": "Water Temp",
+          "type": "number"
+        }
+      },
+      "required": [
+        "on_track",
+        "paused",
+        "speed_kmh",
+        "rpm",
+        "rpm_alert",
+        "gear",
+        "suggested_gear",
+        "throttle",
+        "brake",
+        "boost",
+        "fuel_level",
+        "fuel_capacity",
+        "current_lap",
+        "total_laps",
+        "best_lap_ms",
+        "last_lap_ms",
+        "position",
+        "total_positions",
+        "tire_temps",
+        "tire_slip",
+        "water_temp",
+        "oil_temp",
+        "oil_pressure",
+        "aids",
+        "surface",
+        "car_id",
+        "car_name",
+        "car_category",
+        "session_best_ms",
+        "prev_best_ms",
+        "delta_ms",
+        "lap_elapsed_ms",
+        "pos_x",
+        "pos_z",
+        "tod_ms",
+        "track_name",
+        "steer_rad",
+        "packet"
+      ],
+      "title": "FullTelemetryFrame",
+      "type": "object"
+    },
+    "LapEvent": {
+      "additionalProperties": true,
+      "description": "A lap was saved. The summary fields of GET /api/sessions/{id}/laps, plus\nthe metrics computed as it closed.",
+      "properties": {
+        "car_id": {
+          "title": "Car Id",
+          "type": "integer"
+        },
+        "counts_for_best": {
+          "title": "Counts For Best",
+          "type": "boolean"
+        },
+        "full_lap": {
+          "title": "Full Lap",
+          "type": "boolean"
+        },
+        "id": {
+          "title": "Id",
+          "type": "integer"
+        },
+        "number": {
+          "title": "Number",
+          "type": "integer"
+        },
+        "salvaged": {
+          "title": "Salvaged",
+          "type": "boolean"
+        },
+        "session_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Session Id"
+        },
+        "time_ms": {
+          "title": "Time Ms",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "session_id",
+        "number",
+        "time_ms",
+        "car_id",
+        "counts_for_best",
+        "full_lap",
+        "salvaged"
+      ],
+      "title": "LapEvent",
+      "type": "object"
+    },
+    "LapMessage": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/LapEvent"
+        },
+        "type": {
+          "const": "lap",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ],
+      "title": "LapMessage",
+      "type": "object"
+    },
+    "OtherMessage": {
+      "additionalProperties": false,
+      "description": "survey, voice_callout, voice_output_status, race_engineer_status: open\npayloads documented in docs/reference/api.md.",
+      "properties": {
+        "data": {
+          "additionalProperties": true,
+          "title": "Data",
+          "type": "object"
+        },
+        "type": {
+          "enum": [
+            "survey",
+            "voice_callout",
+            "voice_output_status",
+            "race_engineer_status"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ],
+      "title": "OtherMessage",
+      "type": "object"
+    },
+    "ProtocolError": {
+      "additionalProperties": false,
+      "properties": {
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "request": {
+          "description": "The client message type it answers.",
+          "title": "Request",
+          "type": "string"
+        }
+      },
+      "required": [
+        "message",
+        "request"
+      ],
+      "title": "ProtocolError",
+      "type": "object"
+    },
+    "Status": {
+      "additionalProperties": true,
+      "description": "Sent on connect, and as `session` when the session changes.",
+      "properties": {
+        "connected": {
+          "title": "Connected",
+          "type": "boolean"
+        },
+        "console_ip": {
+          "title": "Console Ip",
+          "type": "string"
+        },
+        "decode_errors": {
+          "title": "Decode Errors",
+          "type": "integer"
+        },
+        "frames_dropped": {
+          "title": "Frames Dropped",
+          "type": "integer"
+        },
+        "packet_format": {
+          "title": "Packet Format",
+          "type": "string"
+        },
+        "packets_received": {
+          "title": "Packets Received",
+          "type": "integer"
+        },
+        "protocol": {
+          "title": "Protocol",
+          "type": "integer"
+        },
+        "recording": {
+          "title": "Recording",
+          "type": "boolean"
+        },
+        "session_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Session Id"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "track_name": {
+          "title": "Track Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "protocol",
+        "source",
+        "recording",
+        "session_id",
+        "track_name",
+        "frames_dropped",
+        "connected",
+        "console_ip",
+        "packets_received",
+        "decode_errors",
+        "packet_format"
+      ],
+      "title": "Status",
+      "type": "object"
+    },
+    "StatusMessage": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/Status"
+        },
+        "type": {
+          "enum": [
+            "status",
+            "session"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ],
+      "title": "StatusMessage",
+      "type": "object"
+    },
+    "Subscribe": {
+      "additionalProperties": true,
+      "properties": {
+        "events": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Event types to receive; omitted = all. `status` and `welcome` are always sent.",
+          "title": "Events"
+        },
+        "frame": {
+          "default": "compact",
+          "description": "`full` adds `packet`: every parsed field of the latest packet.",
+          "enum": [
+            "compact",
+            "full"
+          ],
+          "title": "Frame",
+          "type": "string"
+        },
+        "telemetry_hz": {
+          "anyOf": [
+            {
+              "maximum": 60,
+              "minimum": 1,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Telemetry frames per second; omitted = the server's GT7_WS_RATE.",
+          "title": "Telemetry Hz"
+        }
+      },
+      "title": "Subscribe",
+      "type": "object"
+    },
+    "TelemetryFrame": {
+      "additionalProperties": false,
+      "description": "The compact frame: what the live view and dash draw from.",
+      "properties": {
+        "aids": {
+          "title": "Aids",
+          "type": "integer"
+        },
+        "best_lap_ms": {
+          "title": "Best Lap Ms",
+          "type": "integer"
+        },
+        "boost": {
+          "title": "Boost",
+          "type": "number"
+        },
+        "brake": {
+          "description": "0\u2013100 %",
+          "title": "Brake",
+          "type": "number"
+        },
+        "car_category": {
+          "title": "Car Category",
+          "type": "string"
+        },
+        "car_id": {
+          "title": "Car Id",
+          "type": "integer"
+        },
+        "car_name": {
+          "title": "Car Name",
+          "type": "string"
+        },
+        "current_lap": {
+          "title": "Current Lap",
+          "type": "integer"
+        },
+        "delta_ms": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Live delta to the session best, at the same place.",
+          "title": "Delta Ms"
+        },
+        "fuel_capacity": {
+          "title": "Fuel Capacity",
+          "type": "number"
+        },
+        "fuel_level": {
+          "title": "Fuel Level",
+          "type": "number"
+        },
+        "gear": {
+          "title": "Gear",
+          "type": "integer"
+        },
+        "lap_elapsed_ms": {
+          "title": "Lap Elapsed Ms",
+          "type": "integer"
+        },
+        "last_lap_ms": {
+          "title": "Last Lap Ms",
+          "type": "integer"
+        },
+        "oil_pressure": {
+          "title": "Oil Pressure",
+          "type": "number"
+        },
+        "oil_temp": {
+          "title": "Oil Temp",
+          "type": "number"
+        },
+        "on_track": {
+          "title": "On Track",
+          "type": "boolean"
+        },
+        "paused": {
+          "title": "Paused",
+          "type": "boolean"
+        },
+        "pos_x": {
+          "title": "Pos X",
+          "type": "number"
+        },
+        "pos_z": {
+          "title": "Pos Z",
+          "type": "number"
+        },
+        "position": {
+          "title": "Position",
+          "type": "integer"
+        },
+        "prev_best_ms": {
+          "title": "Prev Best Ms",
+          "type": "integer"
+        },
+        "rpm": {
+          "title": "Rpm",
+          "type": "integer"
+        },
+        "rpm_alert": {
+          "title": "Rpm Alert",
+          "type": "number"
+        },
+        "session_best_ms": {
+          "title": "Session Best Ms",
+          "type": "integer"
+        },
+        "speed_kmh": {
+          "title": "Speed Kmh",
+          "type": "number"
+        },
+        "steer_rad": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Steer Rad"
+        },
+        "suggested_gear": {
+          "title": "Suggested Gear",
+          "type": "integer"
+        },
+        "surface": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Four wheels' surface codes packed; null below packet C.",
+          "title": "Surface"
+        },
+        "throttle": {
+          "description": "0\u2013100 %",
+          "title": "Throttle",
+          "type": "number"
+        },
+        "tire_slip": {
+          "title": "Tire Slip",
+          "type": "number"
+        },
+        "tire_temps": {
+          "description": "FL, FR, RL, RR",
+          "items": {
+            "type": "number"
+          },
+          "title": "Tire Temps",
+          "type": "array"
+        },
+        "tod_ms": {
+          "title": "Tod Ms",
+          "type": "integer"
+        },
+        "total_laps": {
+          "title": "Total Laps",
+          "type": "integer"
+        },
+        "total_positions": {
+          "title": "Total Positions",
+          "type": "integer"
+        },
+        "track_name": {
+          "title": "Track Name",
+          "type": "string"
+        },
+        "water_temp": {
+          "title": "Water Temp",
+          "type": "number"
+        }
+      },
+      "required": [
+        "on_track",
+        "paused",
+        "speed_kmh",
+        "rpm",
+        "rpm_alert",
+        "gear",
+        "suggested_gear",
+        "throttle",
+        "brake",
+        "boost",
+        "fuel_level",
+        "fuel_capacity",
+        "current_lap",
+        "total_laps",
+        "best_lap_ms",
+        "last_lap_ms",
+        "position",
+        "total_positions",
+        "tire_temps",
+        "tire_slip",
+        "water_temp",
+        "oil_temp",
+        "oil_pressure",
+        "aids",
+        "surface",
+        "car_id",
+        "car_name",
+        "car_category",
+        "session_best_ms",
+        "prev_best_ms",
+        "delta_ms",
+        "lap_elapsed_ms",
+        "pos_x",
+        "pos_z",
+        "tod_ms",
+        "track_name",
+        "steer_rad"
+      ],
+      "title": "TelemetryFrame",
+      "type": "object"
+    },
+    "TelemetryMessage": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TelemetryFrame"
+            },
+            {
+              "$ref": "#/$defs/FullTelemetryFrame"
+            }
+          ],
+          "title": "Data"
+        },
+        "type": {
+          "const": "telemetry",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ],
+      "title": "TelemetryMessage",
+      "type": "object"
+    },
+    "Welcome": {
+      "additionalProperties": false,
+      "properties": {
+        "capabilities": {
+          "$ref": "#/$defs/Capabilities"
+        },
+        "http_port": {
+          "title": "Http Port",
+          "type": "integer"
+        },
+        "lan_ip": {
+          "title": "Lan Ip",
+          "type": "string"
+        },
+        "protocol": {
+          "title": "Protocol",
+          "type": "integer"
+        },
+        "server": {
+          "const": "gt7-datalogger",
+          "default": "gt7-datalogger",
+          "title": "Server",
+          "type": "string"
+        },
+        "server_version": {
+          "title": "Server Version",
+          "type": "string"
+        },
+        "subscribe": {
+          "$ref": "#/$defs/Subscribe",
+          "description": "The subscription in effect, after clamping."
+        }
+      },
+      "required": [
+        "protocol",
+        "server_version",
+        "lan_ip",
+        "http_port",
+        "capabilities",
+        "subscribe"
+      ],
+      "title": "Welcome",
+      "type": "object"
+    },
+    "WelcomeMessage": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/Welcome"
+        },
+        "type": {
+          "const": "welcome",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ],
+      "title": "WelcomeMessage",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/WelcomeMessage"
+    },
+    {
+      "$ref": "#/$defs/ErrorMessage"
+    },
+    {
+      "$ref": "#/$defs/TelemetryMessage"
+    },
+    {
+      "$ref": "#/$defs/StatusMessage"
+    },
+    {
+      "$ref": "#/$defs/LapMessage"
+    },
+    {
+      "$ref": "#/$defs/OtherMessage"
+    }
+  ],
+  "title": "GT7 Datalogger live server \u2192 client message",
+  "x-protocol-version": 1
+}
