@@ -89,8 +89,9 @@ per-feature guides, how every calculation works, and the API reference.
   with the other laps as faint dots.
 - **Race engineer post-lap notes** — the coaching findings as text, per lap, replayed
   from the stored session whether or not voice was ever on.
-- **Gearing panel** — per-lap gear ratios with estimated speed at redline, tune top speed,
-  and redline RPM.
+- **Gearing panel** — the focus lap's gear ratios with each gear's speed at the redline,
+  and a speed-against-rpm sawtooth: a line per gear fitted to the lap, its own samples
+  climbing each line to the shift, and the reference ghosted when its gearbox differs.
 - Speed-deviation consistency chart across your best laps, relative fuel-map strategy
   table, and a tuning panel with aid usage, engine health (max water/oil temp, min oil
   pressure), and event counts.

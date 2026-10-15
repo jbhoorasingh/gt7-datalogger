@@ -478,6 +478,49 @@ temps and dashed suspension levels — and a cell gets a red/blue ring when the 
 runs more than 3 °C hotter/cooler than the reference at that point. With 3+ compared
 laps, focus chips let you switch the focus lap.
 
+## Gearing
+
+One lap's gearbox, as a table and as the classic sawtooth chart under it.
+
+- **The table** gives each gear's ratio and the speed it reaches at the redline, then
+  the redline itself, and GT7's top speed for the setup on laps that store one.
+- **The lines**, one per gear, run from standstill to the redline (dashed), each
+  labelled with its gear where it meets it. That meeting point is the table's speed
+  at redline, so the table and the chart always agree.
+- **The dots** are the lap itself: speed across, rpm up, a dot every 5 m, coloured like
+  its gear's line. They climb a gear's line to where the driver shifted and drop to the
+  next. How close each tooth tops out to the redline is the shift point; how far the
+  rpm falls across a shift is the gap between those two ratios; and a top gear whose
+  line runs far beyond the last dots is a gearbox longer than the circuit needs.
+  Points caught mid-shift, in neutral or in reverse are left out; a long lap is thinned
+  to 1,500 dots, always keeping the two either side of every shift. The white dot is
+  the car at the cursor, ringed in the colour of the gear it was in, and follows hover
+  and [playback](#lap-playback) like every other panel.
+
+The lap is the [corner report card's](#corner-report-card) focus lap, the same one the
+Gain / loss lens compares, or the reference when no other lap is loaded; the panel's
+title names it. When the reference runs a different gearbox (a guest lap in another
+car, or the same car on another setup), its dots and lines are drawn behind in grey,
+the lines dashed. On the same gearbox they would only repeat the focus lap's lines, so
+they are left out.
+
+GT7 sends the ratios and the redline but never the final drive, and a lap keeps no
+tire size; those two decide how fast a gear goes at a given rpm. So the lines are
+**fitted to the lap**: the speed per rpm is read off the stretches where the driven wheels turned with
+the road, and checked to agree across the gears
+([the math](../internals/derived-channels.md#gearing-panel-math)). When the lap gives no
+consistent fit (too few steady samples, or one gear all the way round an oval), GT7's
+top speed for the setup stands in as top gear's speed at the redline. The line under
+the chart says which.
+
+!!! note "Laps recorded before 0.7.0"
+    These hold a ratio where GT7's top speed now goes, so the table leaves the top speed
+    out and there is nothing to fall back on: a lap the fit refuses shows its dots with
+    no lines, and "—" for every speed at redline. A lap that fits gets the full chart,
+    whenever it was recorded. The simulator's rpm does not follow its ratios, so a
+    simulated lap is never fitted; its lines come from the simulator's top speed, and
+    its dots do not sit on them.
+
 ## Side panels
 
 - **Race engineer — post-lap notes** — the [race engineer's](race-engineer.md)
@@ -491,8 +534,7 @@ laps, focus chips let you switch the focus lap.
   detector the voice engineer uses — same thresholds, same reference (the
   session best as it stood at the time), same repetition windows — so they
   exist for every recorded session, whether or not voice was ever enabled.
-- **Gearing (reference lap)** — per-gear ratios with estimated speed at redline, tune
-  top speed, and redline RPM.
+- **Gearing** — the focus lap's ratios and the sawtooth chart; see [Gearing](#gearing).
 - **Consistency — best 5 laps** — median speed plus a deviation band across the
   session's best laps; a wide band marks corners you drive differently every lap.
 - **Lap times — this session** — every lap as a point, lap number across and lap time

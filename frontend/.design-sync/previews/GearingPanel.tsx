@@ -1,6 +1,11 @@
-// Gearing for the reference lap: the ratio per gear with the speed each one
-// reaches at the rev limiter, which is how ratio gaps and a too-short top gear
-// are read at a glance.
+// Gearing for the panel's lap (the focus lap, or the reference): the ratio
+// per gear with the speed each one reaches at the rev limiter, which is how
+// ratio gaps and a too-short top gear are read at a glance.
+//
+// The sawtooth under the table plots the lap's compare series, and there is
+// none for GEARING's lap in the fixtures, so these cells show the table
+// alone, its speeds taken from the stored top speed as the panel does until
+// a series arrives.
 //
 // The panel fetches the lap itself (`/api/laps/<id>?samples=0`), so the cells
 // answer that one request from the committed fixture rather than a backend —
@@ -46,8 +51,13 @@ const IMPERIAL: Units = "imperial";
 function Card({ lapId, units }: { lapId: number; units: Units }) {
   return (
     <Surface width={330}>
-      <Panel title="Gearing — reference lap">
-        <GearingPanel lapId={lapId} units={units} />
+      <Panel title="Gearing — L2 · 1:02.345 (ref)">
+        <GearingPanel
+          lap={{ id: lapId, label: "L2 · 1:02.345 (ref)", series: null }}
+          reference={null}
+          units={units}
+          cursorDist={null}
+        />
       </Panel>
     </Surface>
   );

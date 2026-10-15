@@ -20,7 +20,7 @@ import {
 } from "@/components/analysis/CornerReport";
 import { DeviationChart } from "@/components/analysis/DeviationChart";
 import { FuelMapPanel } from "@/components/analysis/FuelMapPanel";
-import { GearingPanel } from "@/components/analysis/GearingPanel";
+import { GearingPanel, type GearingLap } from "@/components/analysis/GearingPanel";
 import { GGDiagram, ggLap, type GGLap } from "@/components/analysis/GGDiagram";
 import { LapStrip } from "@/components/analysis/LapStrip";
 import { LapTimeChart } from "@/components/analysis/LapTimeChart";
@@ -819,6 +819,24 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
     [lensData, refEntry],
   );
 
+  // The gearing panel follows the same focus lap, or the reference when no
+  // other lap is loaded, which until the comparison arrives is always: the
+  // ratio table needs only the lap's id, the sawtooth its series. Beside a
+  // focus lap the reference rides along, for the panel to draw behind it
+  // when its gearbox differs.
+  const gearingLap = useMemo<GearingLap | null>(() => {
+    if (refLap == null) return null;
+    const lap = focusLap ?? mapLaps.find((l) => l.isRef);
+    if (!lap) {
+      return { id: refLap, label: lapLabels[String(refLap)] ?? `Lap ${refLap}`, series: null };
+    }
+    return { id: Number(lap.id), label: lap.label, series: lap.entry.series };
+  }, [refLap, focusLap, mapLaps, lapLabels]);
+  const gearingRef = useMemo<GearingLap | null>(() => {
+    const ref = focusLap ? mapLaps.find((l) => l.isRef) : undefined;
+    return ref ? { id: Number(ref.id), label: ref.label, series: ref.entry.series } : null;
+  }, [focusLap, mapLaps]);
+
   // What the strips and the charts' header say the window is.
   const zoomLabel = currentCorner
     ? `T${currentCorner.n} · ${currentCorner.direction === "L" ? "left" : "right"} · ${Math.round(
@@ -1403,9 +1421,14 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
             />
           </Panel>
         )}
-        {refLap != null && (
-          <Panel title="Gearing — reference lap">
-            <GearingPanel lapId={refLap} units={units} />
+        {gearingLap && (
+          <Panel title={`Gearing — ${gearingLap.label}`}>
+            <GearingPanel
+              lap={gearingLap}
+              reference={gearingRef}
+              units={units}
+              cursorDist={cursorDist}
+            />
           </Panel>
         )}
         {deviation && deviation.dist.length > 0 && (

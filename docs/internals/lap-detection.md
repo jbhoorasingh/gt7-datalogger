@@ -140,7 +140,8 @@ path without a console.
 - Per-lap aggregates: fuel used, full-throttle / full-brake / coasting / tire-spin
   percentages, max speed, min body height, TCS/ASM usage, engine health, time of day.
 - [Detected chassis events](event-detection.md), computed once at save time.
-- Gearing metadata (ratios, tune top speed, redline) captured from the boundary packet.
+- Gearing metadata (ratios, GT7's calculated top speed, redline) captured from the
+  boundary packet.
 
 ## Session lifecycle
 

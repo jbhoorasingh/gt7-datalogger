@@ -56,6 +56,15 @@ Notable changes to GT7 Datalogger. The format follows
 - **Two receivers at once.** (#144) Documented: the console streams to
   every client sending heartbeats, so two dataloggers, or a datalogger and
   the phone, can capture the same drive.
+- **Gearing sawtooth.** (#107) Under the Analysis Gearing panel's ratio
+  table, a chart of speed against rpm: a line per gear from standstill to
+  the redline, and the lap's own samples over them coloured by gear, so
+  where each gear was shifted, how far the revs drop across each ratio gap
+  and whether top gear is ever reached all read off one chart. The panel
+  follows the corner report card's focus lap, and draws the reference
+  behind in grey when its gearbox differs. GT7 sends no final drive, so
+  the lines are fitted to the lap's own samples; GT7's top speed stands in
+  when a lap gives no consistent fit.
 
 ### Changed
 
@@ -89,6 +98,11 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Fixed
 
+- **Speed at redline on laps recorded before 0.7.0.** The Gearing panel
+  read under 6 km/h for them: it took the stored top speed as top gear's
+  speed at the redline, and those laps hold a ratio there (#128). The
+  speeds now come from the same fit as the chart (#107), and the top speed
+  is hidden where it is not one.
 - **Auto-discovery finds the console again on a new address.** With no console
   IP set, the heartbeat followed the first console that answered and kept going
   to that address for good, so a PlayStation that came back from rest mode, a

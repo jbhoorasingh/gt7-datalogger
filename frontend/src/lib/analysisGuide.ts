@@ -143,6 +143,12 @@ export const GUIDE_FEATURES: GuideFeature[] = [
     docs: `${VIEW}#corner-detail-widget`,
   },
   {
+    title: "Gearing",
+    body:
+      "The focus lap's ratios, and the sawtooth: speed against rpm, a line per gear up to the redline, and the lap's own samples climbing each line to its shift. The lines are fitted to the lap; the reference is drawn in grey when its gearbox differs.",
+    docs: `${VIEW}#gearing`,
+  },
+  {
     title: "Partial, excluded, salvaged",
     body:
       "Partial laps didn't time the whole circuit — a pit out-lap, or a race's lap 1 from the grid. Excluded laps were ruled out of bests by hand. Neither sets a best. Salvaged (⟲) laps were recovered from a stream that ended at the line, such as a replay.",
@@ -151,7 +157,7 @@ export const GUIDE_FEATURES: GuideFeature[] = [
   {
     title: "Side panels",
     body:
-      "Race engineer notes for the session, the reference lap's tuning figures and class benchmark, gearing, fuel strategy, consistency across the best laps, and every lap's time against the session's median and spread.",
+      "Race engineer notes for the session, the reference lap's tuning figures and class benchmark, fuel strategy, consistency across the best laps, and every lap's time against the session's median and spread.",
     docs: `${VIEW}#side-panels`,
   },
   {

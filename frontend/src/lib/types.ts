@@ -435,7 +435,9 @@ export interface LapEvent {
   severity: number;
 }
 
-// Static per-lap gearing metadata (present when the recording backend saw it)
+// Static per-lap gearing metadata (present when the recording backend saw it).
+// top_speed is GT7's calculated max speed in km/h; laps recorded before 0.7.0
+// hold transmission_top_speed there, a ratio (lib/gearing tells them apart).
 export interface LapGearing {
   ratios: number[];
   top_speed: number;

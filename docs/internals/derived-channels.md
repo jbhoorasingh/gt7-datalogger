@@ -155,7 +155,9 @@ Computed once when the lap is saved (`n` = number of samples):
   in the pits doesn't record a misleading low; `−1` means unknown
 
 **Gearing** is captured once per lap from the lap-boundary packet: the non-zero gear
-ratios, the tune's transmission top speed, and the redline (`rpm_alert_max`).
+ratios, GT7's calculated top speed for the car (`calculated_max_speed`, km/h), and the
+redline (`rpm_alert_max`). Laps recorded before 0.7.0 hold `transmission_top_speed` in
+`top_speed` instead, a ratio; see [Gearing panel math](#gearing-panel-math).
 
 ## Frontend-derived channels
 
@@ -179,12 +181,70 @@ when imperial units are selected). Everything else displays in its stored unit.
 
 ## Gearing panel math
 
-The estimated speed at redline for gear *i* assumes the tune's top speed is reached in
-top gear, then scales by ratio:
+Road speed in a gear is engine speed through that gear, the final drive and the tyre:
 
 ```
-speed_i = top_speed × (ratio_top ÷ ratio_i)
+speed_g(rpm) = K × rpm ÷ ratio_g          km/h
 ```
+
+`K` folds the final drive and the tyre's circumference into one figure per car and
+setup, the same for every gear, and it is the one thing the stored gearing lacks: GT7
+broadcasts the gearbox ratios and the redline, and the tire radius on every tick, but
+never the final drive, and a lap keeps no tire radius. The
+[Gearing](../guide/analysis-view.md#gearing) panel draws `speed_g` for each gear from
+0 rpm to the redline, and its speed at redline is where each line ends:
+
+```
+at_redline_g = K × rpm_alert ÷ ratio_g
+```
+
+**K is fitted from the lap.** Over the comparison's series (a sample every 5 m), a
+sample is clean when:
+
+- its gear is within 0.01 of a whole gear from 1 to the number of ratios. The series
+  interpolate gear like any other channel, so a point between two ticks either side of
+  a shift reads 2.4 and is dropped, never rounded into a gear; 0 (reverse) and 15
+  (neutral) are out of range;
+- rpm is at least 0.35 × `rpm_alert` and speed at least 30 km/h, which leaves out the
+  clutch and the idle at a crawl;
+- `tire_slip` is between 0.95 and 1.05, when the lap has the channel: the driven wheels
+  turning with the road. Wheelspin and lockups break the link between rpm and speed.
+
+`K` is the median of `speed × ratio_g ÷ rpm` over the clean samples. The fit is
+accepted only when:
+
+- there are at least 30 clean samples;
+- at least two gears have 10 or more each (one, on a car with a single gear), so there
+  is something to check the scale against. A lap driven all the way round in one gear
+  is not fitted;
+- those gears agree: the largest of their medians is at most 1.15 × the smallest. A
+  gear with fewer than 10 samples, a short burst of first out of a hairpin, still
+  counts towards the median but has no say in this check.
+
+On recorded laps the gears' medians agree to within 13 %. The simulator's rpm does not
+follow its ratios, and its gears come out about 1.5 to 1.95 times apart, which is what the
+check is for.
+
+**Fallback: GT7's top speed.** When the fit is refused, top gear is taken to reach the
+stored top speed at the redline, where `ratio_top` is the smallest ratio:
+
+```
+K = top_speed × ratio_top ÷ rpm_alert
+```
+
+This applies only when `top_speed` is a speed: 30 km/h or more. Laps recorded before
+0.7.0 (#128) store GT7's `transmission_top_speed` there, a unitless figure between
+about 2 and 6. It is not a speed, and it is not the final drive either: the same car on
+two setups stores two different values and fits the same `K`. On those laps a refused
+fit leaves no lines, the table shows "—", and the top speed is not shown.
+
+**The dots** are the same series' samples in whole gears, at most 1,500 a lap. Over
+that, the two samples either side of every gear change are always kept, so the
+sawtooth's tips and drops survive, and evenly spaced samples fill the rest.
+
+**Same gearbox.** The reference lap is drawn behind the focus lap only when their
+gearboxes differ: a different number of gears, any ratio more than 0.001 apart, or a
+different redline.
 
 ## A note on "tiers"
 

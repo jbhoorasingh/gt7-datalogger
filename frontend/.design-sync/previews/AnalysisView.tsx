@@ -64,8 +64,9 @@ const ANALYSIS_ROUTES: [RegExp, Handler][] = [
   // The class benchmark: nothing faster has been recorded at Tsukuba in this
   // class, which is what the endpoint answers with.
   [/\/api\/laps\/best/, () => null],
-  // The Gearing panel asks for the reference lap's own record; the ratios and
-  // redline are the AE86's, captured with the lap.
+  // The Gearing panel asks for its lap's own record — the report card's focus
+  // lap, and the reference beside it. Only GEARING's lap carries gearing in
+  // the fixtures, and it is not one of these, so the panel says it has none.
   [
     /\/api\/laps\/(\d+)/,
     (url) => {
