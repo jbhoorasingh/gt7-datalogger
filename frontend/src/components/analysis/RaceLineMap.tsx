@@ -1,7 +1,7 @@
 // Track map built from lap positions. The reference lap is a line coloured
-// along its length by one of three lenses (lib/mapLens): what the driver was
-// doing (throttle / brake / coast), speed, or where the compared lap gains or
-// loses time. Every other selected lap is overlaid as a thin line in its
+// along its length by a lens (lib/mapLens): what the driver was doing
+// (throttle / brake / coast), speed, where the compared lap gains or loses
+// time, the hottest tire, or which axle's tires run hotter. Every other selected lap is overlaid as a thin line in its
 // chart colour — like GT7's own Data Logger, but with a synced cursor dot per
 // lap showing the spatial gap at the hovered distance.
 //

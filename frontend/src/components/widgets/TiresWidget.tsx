@@ -1,3 +1,4 @@
+import { THRESHOLDS } from "@/lib/alerts";
 import type { WidgetRenderProps } from "@/lib/widgetMeta";
 import { Caption } from "./shared";
 
@@ -10,7 +11,11 @@ export function TiresWidget({ frame, variant }: WidgetRenderProps) {
           <div
             key={i}
             className={`h-4 w-8 rounded-sm text-center text-[9px] leading-4 ${
-              t < 55 ? "bg-coast/40" : t < 95 ? "bg-throttle/40" : "bg-brake/50"
+              t < THRESHOLDS.tireTempCold
+                ? "bg-coast/40"
+                : t < THRESHOLDS.tireTempHot
+                  ? "bg-throttle/40"
+                  : "bg-brake/50"
             }`}
           >
             {Math.round(t)}

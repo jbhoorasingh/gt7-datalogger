@@ -747,7 +747,11 @@ function TireTemp({ label, temp }: { label: string; temp: number }) {
   // wash behind the number rather than the number's own colour, so the
   // reading stays legible at every temperature.
   const color =
-    temp < 55 ? "bg-coast/20" : temp < 95 ? "bg-throttle/20" : "bg-brake/20";
+    temp < THRESHOLDS.tireTempCold
+      ? "bg-coast/20"
+      : temp < THRESHOLDS.tireTempHot
+        ? "bg-throttle/20"
+        : "bg-brake/20";
   return (
     <div className={`rounded-[5px] px-1 py-[7px] text-center font-tabular text-sm ${color}`}>
       <span className="mr-1 text-[8.5px] text-ink-faint">{label}</span>

@@ -61,7 +61,7 @@ export const GUIDE_FEATURES: GuideFeature[] = [
   {
     title: "Race line",
     body:
-      "The reference lap from above, coloured by the chosen lens: Inputs (green throttle, red brake, blue coasting), Speed, or Gain / loss — where the compared lap gains and loses time. Other laps are drawn thin in their chart colours, brighter when zoomed in.",
+      "The reference lap from above, coloured by the chosen lens: Inputs (green throttle, red brake, blue coasting), Speed, Gain / loss (where the compared lap gains and loses time), Tire temp (the hottest tire: cold, working, hot) or F−R temp (which axle's tires run hotter). The lens is remembered on this device and carried in the link. Other laps are drawn thin in their chart colours, brighter when zoomed in.",
     docs: `${VIEW}#race-line-map`,
   },
   {

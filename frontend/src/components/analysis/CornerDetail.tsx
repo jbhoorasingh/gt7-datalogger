@@ -5,6 +5,8 @@
 // numbers + hollow bars), so focus-vs-ref stays visible without switching.
 
 import { useMemo, useState } from "react";
+import { THRESHOLDS } from "@/lib/alerts";
+import { TIRE_BALANCE_EVEN_C } from "@/lib/mapLens";
 import { nearestIndex } from "@/lib/playback";
 import type { Corner as TrackCorner, Samples } from "@/lib/types";
 
@@ -22,8 +24,8 @@ type Corner = (typeof CORNERS)[number];
 const REQUIRED = ["tt_fl", "sus_fl", "slip_fl"];
 
 function tempColor(t: number): string {
-  if (t < 55) return "rgba(59, 130, 246, 0.35)"; // cold — coast blue
-  if (t < 95) return "rgba(34, 197, 94, 0.30)"; // optimal — throttle green
+  if (t < THRESHOLDS.tireTempCold) return "rgba(59, 130, 246, 0.35)"; // cold — coast blue
+  if (t < THRESHOLDS.tireTempHot) return "rgba(34, 197, 94, 0.30)"; // optimal — throttle green
   return "rgba(239, 68, 68, 0.40)"; // hot — brake red
 }
 
@@ -202,7 +204,15 @@ export function CornerDetail({
           </span>
         )}
         F/R balance{" "}
-        <span className={balance > 3 ? "text-brake" : balance < -3 ? "text-coast" : "text-ink"}>
+        <span
+          className={
+            balance > TIRE_BALANCE_EVEN_C
+              ? "text-brake"
+              : balance < -TIRE_BALANCE_EVEN_C
+                ? "text-coast"
+                : "text-ink"
+          }
+        >
           {balance >= 0 ? "F +" : "R +"}
           {Math.abs(balance).toFixed(1)} °C
         </span>

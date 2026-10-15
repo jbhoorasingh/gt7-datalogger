@@ -60,8 +60,10 @@ per-feature guides, how every calculation works, and the API reference.
   per lap in the Sessions table (`2L·1S·4B`), and summarized in the tuning panel. TCS/ASM
   activation shades the throttle/speed panels.
 - **Race line map with lenses** — the reference lap drawn as one line coloured by
-  **Inputs** (throttle / brake / coast), **Speed** bands, or **Gain / loss** against the
-  compared lap, over the surveyed road where the circuit has one. A **Layers** menu
+  **Inputs** (throttle / brake / coast), **Speed** bands, **Gain / loss** against the
+  compared lap, **Tire temp** (the hottest tire: cold / working / hot) or **F−R temp**
+  (which axle's tires run hotter), over the surveyed road where the circuit has one. The
+  lens is remembered on the device and travels in the link. A **Layers** menu
   switches everything else the map draws: corner numbers, the other laps with their apex
   speeds and brake points, and markers for speed peaks (▲) / valleys (▼), kerbs, chassis
   events, and TCS / ASM activity. **Zoom** to a corner by clicking its number (or `[` /
@@ -96,7 +98,7 @@ per-feature guides, how every calculation works, and the API reference.
   circuit into the comparison (listed fastest first, guest chips labelled `S12·L3`),
   and the class-best benchmark row has a one-click *compare*. Alignment is
   distance-from-start, so laps line up corner-for-corner across sessions.
-- **Deep links everywhere** — `#/analysis?session=…&laps=…&ref=…&ch=…` bookmarks an exact
+- **Deep links everywhere** — `#/analysis?session=…&laps=…&ref=…&ch=…&lens=…` bookmarks an exact
   comparison; Sessions and Live hand laps straight into Analysis. Lap ids are global,
   so a link can name laps from other sessions and they load as guests.
 

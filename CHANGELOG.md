@@ -63,8 +63,12 @@ Notable changes to GT7 Datalogger. The format follows
   changing it in Settings takes effect without a restart. The API reference
   no longer claims CORS is open to every origin; it never was by default.
 - **The Analysis race line map.** (#102) The reference line is coloured by
-  a lens — Inputs, Speed, or Gain / loss against the compared lap — and
-  drawn as one line rather than a trail of dots. The header's row of
+  a lens — Inputs, Speed, Gain / loss against the compared lap, Tire temp
+  (the hottest tire, on the Live tiles' 55 / 95 °C bands) or F−R temp
+  (front minus rear, even within ±3 °C, full colour from 8) — and drawn as
+  one line rather than a trail of dots. The lens is remembered on the
+  device and carried in the Analysis link as `lens=`; the tire lenses are
+  greyed out on laps recorded before per-corner channels. The header's row of
   toggles is a **Layers** menu with a switch for everything the map draws
   besides the line: the surveyed road, corner numbers, the other laps with
   their apex speeds and brake points, and the markers. Corner numbers are

@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { Units } from "@/lib/format";
 import { DEFAULT_MAP_LAYERS, type MapLayerKey, type MapLayers } from "@/lib/mapLayers";
+import { DEFAULT_LENS, isMapLens, type MapLens } from "@/lib/mapLens";
 
 /** How the Analysis race line places the other laps' cars (#75). */
 export type MapSync = "position" | "time";
@@ -35,6 +36,14 @@ interface SettingsState {
    */
   mapLayers: MapLayers;
   setMapLayer: (key: MapLayerKey, on: boolean) => void;
+  /**
+   * The lens the race line and the lap strip are coloured by (#102),
+   * remembered on this device like the Layers. A link that names a lens
+   * (lens=) replaces it, the way a link's ch= replaces the chart picker's
+   * channels.
+   */
+  mapLens: MapLens;
+  setMapLens: (v: MapLens) => void;
 }
 
 export const useSettings = create<SettingsState>()(
@@ -48,6 +57,8 @@ export const useSettings = create<SettingsState>()(
       setMapSync: (mapSync) => set({ mapSync }),
       mapLayers: DEFAULT_MAP_LAYERS,
       setMapLayer: (key, on) => set((s) => ({ mapLayers: { ...s.mapLayers, [key]: on } })),
+      mapLens: DEFAULT_LENS,
+      setMapLens: (mapLens) => set({ mapLens }),
     }),
     {
       name: "gt7-settings",
@@ -68,6 +79,10 @@ export const useSettings = create<SettingsState>()(
           ...current,
           ...stored,
           mapLayers: { ...DEFAULT_MAP_LAYERS, ...(stored.mapLayers ?? {}) },
+          // A stored lens this build does not know (hand-edited, or one
+          // since removed) would be drawn as Inputs but still written into
+          // every link as lens=…, so it falls back to Inputs here.
+          mapLens: isMapLens(stored.mapLens) ? stored.mapLens : DEFAULT_LENS,
         };
       },
     },

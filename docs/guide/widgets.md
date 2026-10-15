@@ -144,7 +144,7 @@ All alerts are suppressed while paused or off-track, so menus stay quiet.
 | Temps + slip | the grid plus the combined slip ratio, red when > ×1.10 (wheelspin/lockup) |
 
 Sizes 1×1 · 1×2 · 2×2 · 4×4. Color coding: **blue** < 55 °C (cold), **green**
-55–95 °C (working range), **red** > 95 °C (overheating).
+55–95 °C (working range), **red** ≥ 95 °C (overheating).
 
 ### Engine temps — `engine`
 

@@ -42,8 +42,11 @@ selected for the one you were looking at comes along.
 
 !!! tip "Deep links"
     The full selection is encoded in the URL —
-    `#/analysis?session=3&laps=12,15&ref=15&ch=speed,brake` — so a bookmark or shared
-    link reproduces the exact view. The Sessions and Live views use these links for
+    `#/analysis?session=3&laps=12,15&ref=15&ch=speed,brake&lens=tire_temp` — so a
+    bookmark or shared link reproduces the selection. `ch=` and `lens=` are there only
+    when the [channels](#channel-picker) or the map's [lens](#race-line-map) differ from
+    the defaults; a link without them leaves the viewer's own channels and lens as
+    they are. The Sessions and Live views use these links for
     their *compare* / *analyze* shortcuts. Lap ids are global, so a link may name
     laps from *other* sessions (`#/analysis?session=3&laps=12,208`) — they load as
     guest chips rather than being pruned.
@@ -257,9 +260,26 @@ the panel header:
 - **Gain / loss**: where the [report card's](#corner-report-card) lap is gaining time on
   the reference (green) and where it is losing it (red), read off the slope of the time
   diff over a 30 m window; grey where it is holding even. Needs a comparison lap.
+- **Tire temp**: the hottest of the four tires at each point, on the scale of the Live
+  view's tire tiles and [Corner Detail](#corner-detail-widget): blue below 55 °C
+  (cold), green 55–95 °C (working), red at 95 °C and above (hot).
+- **F−R temp**: the fronts' average tire temperature minus the rears', the
+  **tire temp F−R balance** channel drawn on the line. Red where the fronts run hotter,
+  blue where the rears do, grey where the two are within 3 °C of each other — exactly
+  3 °C included, as Corner Detail's balance readout counts it. The colour is full from
+  8 °C, the gap at which the [race engineer](race-engineer.md) calls out one axle
+  running hotter; the engineer measures that over a whole lap, the map shows where on
+  the lap it happens.
 
 A lens the comparison cannot draw — Speed on a recording without the channel, Gain /
-loss with only the reference selected — is greyed out in the control.
+loss with only the reference selected, the tire lenses on a lap recorded before
+per-corner channels existed — is greyed out in the control, with a tooltip saying why,
+and the line is coloured by Inputs instead.
+
+The lens is remembered on this device, and goes into the [link](#selecting-laps) when it
+is not Inputs. Opening a link that names a lens switches to it and remembers it, as a
+link's channels do. A lens the comparison cannot draw stays chosen — still in the URL,
+drawn as Inputs meanwhile — and takes over once the comparison can draw it.
 
 The [lap strip](#lap-strip) under the map is coloured the same way — the line unrolled.
 Other selected laps overlay as thin lines in their chart colours. The map follows the

@@ -5,6 +5,8 @@
 // A path that names no view parses to "notfound" (the 404 page) rather than
 // quietly landing on Live; "notfound" has no tab and is never navigated to.
 
+import { DEFAULT_LENS, isMapLens, type MapLens } from "@/lib/mapLens";
+
 export type View =
   | "notfound"
   | "live"
@@ -78,15 +80,23 @@ export interface AnalysisRequest {
   laps?: number[];
   ref?: number;
   channels?: string[]; // stacked-chart channel keys (ch=), non-default sets only
+  lens?: MapLens; // race line lens (lens=), written only when it is not Inputs
 }
 
-export function openInAnalysis(req: AnalysisRequest): void {
+// The query a selection is written as, by the links into Analysis and by
+// the view mirroring itself into the address bar alike.
+export function analysisParams(req: AnalysisRequest): Record<string, string> {
   const params: Record<string, string> = {};
   if (req.session != null) params.session = String(req.session);
   if (req.laps && req.laps.length > 0) params.laps = req.laps.join(",");
   if (req.ref != null) params.ref = String(req.ref);
   if (req.channels && req.channels.length > 0) params.ch = req.channels.join(",");
-  navigate("analysis", params);
+  if (req.lens != null && req.lens !== DEFAULT_LENS) params.lens = req.lens;
+  return params;
+}
+
+export function openInAnalysis(req: AnalysisRequest): void {
+  navigate("analysis", analysisParams(req));
 }
 
 export function parseAnalysisParams(params: URLSearchParams): AnalysisRequest {
@@ -97,11 +107,15 @@ export function parseAnalysisParams(params: URLSearchParams): AnalysisRequest {
     .map(Number)
     .filter((n) => Number.isFinite(n) && n > 0);
   const channels = (params.get("ch") ?? "").split(",").filter((c) => c.length > 0);
+  // A lens this build does not know is ignored, not shown as Inputs: the
+  // view keeps whichever lens it already had.
+  const lens = params.get("lens");
   return {
     session: Number.isFinite(session) && session > 0 ? session : undefined,
     laps: laps.length > 0 ? laps : undefined,
     ref: Number.isFinite(ref) && ref > 0 ? ref : undefined,
     channels: channels.length > 0 ? channels : undefined,
+    lens: isMapLens(lens) ? lens : undefined,
   };
 }
 
@@ -109,10 +123,5 @@ export function parseAnalysisParams(params: URLSearchParams): AnalysisRequest {
 // history entries (so back doesn't replay every lap toggle).
 export function reflectAnalysisSelection(req: AnalysisRequest): void {
   if (parseHash(window.location.hash).view !== "analysis") return;
-  const params: Record<string, string> = {};
-  if (req.session != null) params.session = String(req.session);
-  if (req.laps && req.laps.length > 0) params.laps = req.laps.join(",");
-  if (req.ref != null) params.ref = String(req.ref);
-  if (req.channels && req.channels.length > 0) params.ch = req.channels.join(",");
-  history.replaceState(null, "", routeHash("analysis", params));
+  history.replaceState(null, "", routeHash("analysis", analysisParams(req)));
 }

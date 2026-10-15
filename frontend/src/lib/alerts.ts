@@ -24,6 +24,11 @@ export const THRESHOLDS = {
   oilTempCritical: 140,
   oilPressureMin: 2.0, // bar, only meaningful with the engine turning
   tireTempWarn: 110,
+  // The tire tiles' working window, which no alert fires at: cold below
+  // tireTempCold, hot from tireTempHot up. The Live and dash tiles, Corner
+  // Detail and the race line's Tire temp lens all band by these two.
+  tireTempCold: 55,
+  tireTempHot: 95,
 } as const;
 
 const SEVERITY_ORDER: Record<AlertSeverity, number> = { critical: 0, warn: 1, info: 2 };

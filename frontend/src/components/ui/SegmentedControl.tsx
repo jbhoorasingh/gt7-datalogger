@@ -26,7 +26,12 @@ export function SegmentedControl<T extends string>({
       type="single"
       value={value}
       onValueChange={(v) => {
-        if (v) onValueChange(v as T); // ignore deselect — one option is always active
+        // Radix reports a click on the pressed option as a deselect. One
+        // option is always active, so it counts as choosing that option
+        // again: where the pressed option is only a fallback (the map's
+        // Inputs standing in for a lens it cannot draw), that click is how
+        // the fallback gets chosen for real.
+        onValueChange(v ? (v as T) : value);
       }}
       aria-label={ariaLabel}
       disabled={disabled}

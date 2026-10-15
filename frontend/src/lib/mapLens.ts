@@ -1,6 +1,7 @@
 // How the race line is coloured (#102): by what the driver was doing
-// (throttle / brake / coast — the classic view), by speed, or by where the
-// compared lap gains or loses time against the reference. One colouring at a
+// (throttle / brake / coast — the classic view), by speed, by where the
+// compared lap gains or loses time against the reference, by how hot the
+// hottest tire runs, or by which axle's tires run hotter. One colouring at a
 // time; the same classes colour the lap strip under the map, so the strip is
 // the line unrolled.
 //
@@ -8,16 +9,43 @@
 // they can be tested without a chart. Colours are literals because a canvas
 // cannot read CSS custom properties; they match the tokens in index.css.
 
+import { THRESHOLDS } from "@/lib/alerts";
 import { speedUnit, speedValue, type Units } from "@/lib/format";
 import type { Samples } from "@/lib/types";
 
-export type MapLens = "inputs" | "speed" | "gain";
+export type MapLens = "inputs" | "speed" | "gain" | "tire_temp" | "tire_balance";
 
-export const LENS_OPTIONS: { value: MapLens; label: string }[] = [
+export interface LensOption {
+  value: MapLens;
+  label: string;
+  /** Why the control greys the lens out when the comparison cannot draw it.
+   *  Inputs can always be drawn. */
+  needs?: string;
+}
+
+const TIRE_TEMPS_NEEDED =
+  "Needs tire temperatures — this lap was recorded before they were captured";
+
+export const LENS_OPTIONS: LensOption[] = [
   { value: "inputs", label: "Inputs" },
-  { value: "speed", label: "Speed" },
-  { value: "gain", label: "Gain / loss" },
+  { value: "speed", label: "Speed", needs: "This recording has no speed channel" },
+  {
+    value: "gain",
+    label: "Gain / loss",
+    needs: "Needs a second lap with a time delta against the reference",
+  },
+  { value: "tire_temp", label: "Tire temp", needs: TIRE_TEMPS_NEEDED },
+  { value: "tire_balance", label: "F−R temp", needs: TIRE_TEMPS_NEEDED },
 ];
+
+/** The lens the map starts on, and the one a link leaves unsaid. */
+export const DEFAULT_LENS: MapLens = "inputs";
+
+/** Whether a value from outside the code — a link's lens=, the device's
+ *  stored settings — names a lens this build can draw. */
+export function isMapLens(value: unknown): value is MapLens {
+  return LENS_OPTIONS.some((o) => o.value === value);
+}
 
 const THROTTLE = "#4ade80";
 const BRAKE = "#f47272";
@@ -32,6 +60,14 @@ export const INPUT_COLORS = [BRAKE, COAST, THROTTLE];
 export const SPEED_COLORS = [BRAKE, "#f49160", WARN, "#9fc767", THROTTLE];
 // Gain / loss, indexed as gainClass returns them: loses, even, gains.
 export const GAIN_COLORS = [BRAKE, EVEN, THROTTLE];
+// The hottest tire, indexed as tireTempBand returns them: cold, working,
+// hot, in the colours the Live tiles tint the same bands with.
+export const TIRE_TEMP_COLORS = [COAST, THROTTLE, BRAKE];
+// Front-minus-rear tire temperature, indexed as tireBalanceClass returns
+// them: blue where the rears run hotter and red where the fronts do, as
+// Corner Detail colours its F/R balance, grey between, and the two
+// in-between classes mixed half and half with the grey.
+export const TIRE_BALANCE_COLORS = [COAST, "#6383bb", EVEN, "#af737a", BRAKE];
 
 export const SPEED_BANDS = 5;
 
@@ -41,6 +77,19 @@ export const SPEED_BANDS = 5;
 export const GAIN_THRESHOLD_S_PER_M = 0.0003;
 // Half the window the slope is measured over, in metres.
 export const GAIN_HALF_WINDOW_M = 15;
+
+// Within this many °C either way the axles read even. The figure is Corner
+// Detail's, whose F/R balance readout (which reads this constant too) turns
+// red or blue only beyond it, so exactly 3 °C is still even.
+export const TIRE_BALANCE_EVEN_C = 3;
+// From this many °C either way the colour is full: the race engineer's
+// figure for calling out one axle running hotter (TIRE_IMBALANCE_C in
+// backend/app/race_engineer/thresholds.py, 8 °C and up). The engineer
+// measures it on lap averages; the lens applies it to every sample, so the
+// map shows where on the lap the imbalance builds.
+export const TIRE_BALANCE_STRONG_C = 8;
+
+const TIRE_COLUMNS = ["tt_fl", "tt_fr", "tt_rl", "tt_rr"];
 
 export function zoneOf(throttle: number, brake: number): number {
   if (brake >= 1) return 0;
@@ -115,17 +164,44 @@ export function speedBands(speed: number[] | undefined, units: Units): number[] 
   return edges;
 }
 
-function speedBand(shown: number, edges: number[]): number {
+// The band a value falls in: how many of the ascending edges it has
+// reached, so a value on an edge belongs to the band above it.
+function bandOf(value: number, edges: number[]): number {
   let band = 0;
-  while (band < edges.length && shown >= edges[band]) band++;
+  while (band < edges.length && value >= edges[band]) band++;
   return band;
+}
+
+/** Tire temperature band: 0 cold, 1 working, 2 hot. The tiles read
+ *  `t < 55` as cold and `t < 95` as working, so 55 °C is working and
+ *  95 °C is hot here too. */
+export function tireTempBand(celsius: number): number {
+  return bandOf(celsius, [THRESHOLDS.tireTempCold, THRESHOLDS.tireTempHot]);
+}
+
+/** Front-rear balance class, rears hotter first: 0 the rears hotter by
+ *  TIRE_BALANCE_STRONG_C or more, 1 by more than TIRE_BALANCE_EVEN_C, 2
+ *  even, 3 and 4 the same for the fronts. */
+export function tireBalanceClass(balance: number): number {
+  if (balance >= TIRE_BALANCE_STRONG_C) return 4;
+  if (balance > TIRE_BALANCE_EVEN_C) return 3;
+  if (balance <= -TIRE_BALANCE_STRONG_C) return 0;
+  if (balance < -TIRE_BALANCE_EVEN_C) return 1;
+  return 2;
+}
+
+// Laps recorded before the per-wheel channels carry no tire temperatures;
+// both tire lenses need all four.
+function hasTireTemps(series: Samples): boolean {
+  return TIRE_COLUMNS.every((c) => Array.isArray(series[c]) && series[c].length > 0);
 }
 
 /**
  * Whether a lens has anything to colour by: speed needs the channel, gain /
- * loss a comparison lap with a delta to read a slope from. The one answer
- * the control (which greys a lens out) and the renderer (which falls back
- * to inputs) both go by, so they can never disagree.
+ * loss a comparison lap with a delta to read a slope from, the tire lenses
+ * all four tire temperatures. The one answer the control (which greys a
+ * lens out) and the renderer (which falls back to inputs) both go by, so
+ * they can never disagree.
  */
 export function canDraw(
   lens: MapLens,
@@ -135,6 +211,7 @@ export function canDraw(
 ): boolean {
   if (lens === "speed") return speedBands(series.speed, units) != null;
   if (lens === "gain") return gain != null && gain.dist.length >= 2;
+  if (lens === "tire_temp" || lens === "tire_balance") return hasTireTemps(series);
   return true;
 }
 
@@ -155,7 +232,7 @@ export function lensSeries(
     const unit = speedUnit(units);
     const keys = new Array<number>(n);
     for (let i = 0; i < n; i++) {
-      keys[i] = speedBand(speedValue(series.speed[i], units), edges);
+      keys[i] = bandOf(speedValue(series.speed[i], units), edges);
     }
     return {
       keys,
@@ -178,6 +255,44 @@ export function lensSeries(
         { label: `${name} gains`, color: GAIN_COLORS[2] },
         { label: `${name} loses`, color: GAIN_COLORS[0] },
         { label: "even", color: GAIN_COLORS[1] },
+      ],
+    };
+  }
+  if (lens === "tire_temp") {
+    const { tt_fl, tt_fr, tt_rl, tt_rr } = series;
+    const keys = new Array<number>(n);
+    for (let i = 0; i < n; i++) {
+      keys[i] = tireTempBand(Math.max(tt_fl[i], tt_fr[i], tt_rl[i], tt_rr[i]));
+    }
+    const { tireTempCold: cold, tireTempHot: hot } = THRESHOLDS;
+    return {
+      keys,
+      palette: TIRE_TEMP_COLORS,
+      legend: [
+        { label: `< ${cold}`, color: TIRE_TEMP_COLORS[0] },
+        { label: `${cold}–${hot}`, color: TIRE_TEMP_COLORS[1] },
+        { label: `≥ ${hot} °C`, color: TIRE_TEMP_COLORS[2] },
+      ],
+    };
+  }
+  if (lens === "tire_balance") {
+    const { tt_fl, tt_fr, tt_rl, tt_rr } = series;
+    const keys = new Array<number>(n);
+    for (let i = 0; i < n; i++) {
+      // Front average minus rear average, as the charts' F−R balance channel.
+      keys[i] = tireBalanceClass((tt_fl[i] + tt_fr[i]) / 2 - (tt_rl[i] + tt_rr[i]) / 2);
+    }
+    const even = TIRE_BALANCE_EVEN_C;
+    const strong = TIRE_BALANCE_STRONG_C;
+    return {
+      keys,
+      palette: TIRE_BALANCE_COLORS,
+      legend: [
+        { label: `rears ≥ ${strong}`, color: TIRE_BALANCE_COLORS[0] },
+        { label: `rears ${even}–${strong}`, color: TIRE_BALANCE_COLORS[1] },
+        { label: "even", color: TIRE_BALANCE_COLORS[2] },
+        { label: `fronts ${even}–${strong}`, color: TIRE_BALANCE_COLORS[3] },
+        { label: `fronts ≥ ${strong} °C`, color: TIRE_BALANCE_COLORS[4] },
       ],
     };
   }

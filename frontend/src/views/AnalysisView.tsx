@@ -107,6 +107,13 @@ const PLAYBACK_COLUMNS = [
 /** The session's default reference: its quickest lap that counts. A pit
  *  out-lap's short "time", or a lap the driver excluded (#74), is no
  *  yardstick — unless nothing else is left. */
+// The link whose lens was last applied. App hands the view the request it
+// parsed from the last hash it navigated to, and the view rewrites the hash
+// in place as the lens changes, so a view mounted again on that request (as
+// after the server-unreachable page) would put the link's lens back over the
+// one picked since. A lens is applied once per link, across mounts.
+let lensAppliedFrom: AnalysisRequest | null = null;
+
 export function AnalysisView({ request }: { request: AnalysisRequest }) {
   const units = useSettings((s) => s.units);
   const mapFollow = useSettings((s) => s.mapFollow);
@@ -115,6 +122,10 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
   const setMapSync = useSettings((s) => s.setMapSync);
   const mapLayers = useSettings((s) => s.mapLayers);
   const setMapLayer = useSettings((s) => s.setMapLayer);
+  // How the race line and the lap strip are coloured: remembered on this
+  // device, and carried in the link so a shared one shows the same view.
+  const mapLens = useSettings((s) => s.mapLens);
+  const setMapLens = useSettings((s) => s.setMapLens);
   const lapEpoch = useTelemetry((s) => s.lapEpoch);
   const recordingSessionId = useTelemetry((s) => s.status?.session_id ?? null);
 
@@ -226,6 +237,18 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
     // Deliberately keyed on the serialized request only — re-running on every
     // object identity change would clobber in-view selection edits.
   }, [requestKey]);
+
+  // A link that names a lens applies it, at mount and when one is pasted,
+  // and the device remembers it as it does a link's channels. An effect of
+  // its own: the one above skips the mount, and ignores a link that names no
+  // session, lap or reference. Keyed on the request, which App rebuilds once
+  // per new link, not on the lens alone: a second link with the same lens as
+  // the first must still win over a lens picked in the view since.
+  useEffect(() => {
+    if (request === lensAppliedFrom) return;
+    lensAppliedFrom = request;
+    if (request.lens != null) setMapLens(request.lens);
+  }, [request, setMapLens]);
 
   // Load sessions (refreshed when a new lap arrives live)
   useEffect(() => {
@@ -345,12 +368,20 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
         lapsFor === sessionId && laps.length === 0 && selected.length === 0 && refLap == null;
       if (!settled) return;
       setSharedSelection({ sessionId, selectedLapIds: [], refLapId: null });
-      reflectAnalysisSelection({ session: sessionId, channels });
+      reflectAnalysisSelection({ session: sessionId, channels, lens: mapLens });
       return;
     }
     setSharedSelection({ sessionId, selectedLapIds: selected, refLapId: refLap });
-    reflectAnalysisSelection({ session: sessionId, laps: selected, ref: refLap, channels });
-  }, [sessionId, selected, refLap, laps, lapsFor, channelKeys, setSharedSelection]);
+    // The chosen lens, not the one drawn: a link to a lens this comparison
+    // cannot draw yet still names it.
+    reflectAnalysisSelection({
+      session: sessionId,
+      laps: selected,
+      ref: refLap,
+      channels,
+      lens: mapLens,
+    });
+  }, [sessionId, selected, refLap, laps, lapsFor, channelKeys, mapLens, setSharedSelection]);
 
   // Fetch comparison + deviation when the selection or channel set changes.
   // The request always carries the per-corner columns for the Corner Detail
@@ -490,10 +521,8 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
     setLiveZoom(null);
   }, [sessionId, selected, refLap]);
 
-  // How the race line and the lap strip are coloured, and the corner
-  // report's order. View state, not settings: a way of looking at this
-  // comparison rather than a preference.
-  const [mapLens, setMapLens] = useState<MapLens>("inputs");
+  // The corner report's order. View state, not settings: a way of looking
+  // at this comparison rather than a preference.
   const [reportSort, setReportSort] = useState<ReportSort>("track");
   const [mapMaximized, setMapMaximized] = useState(false);
 
@@ -761,16 +790,20 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
     [focusLap],
   );
   // Which lenses this comparison can draw: Speed needs the channel (a
-  // packet-A recording has none), Gain / loss a lap to compare. A lens the
-  // map cannot draw is disabled in the control, and a choice that stops
-  // being drawable — the comparison lap toggled off — shows as Inputs, so
-  // the control never names a lens the map is not drawing.
-  const lensAvailable = useMemo<Record<MapLens, boolean>>(
-    () => ({
-      inputs: true,
-      speed: refEntry != null && canDraw("speed", refEntry.series, units, gainSource),
-      gain: refEntry != null && canDraw("gain", refEntry.series, units, gainSource),
-    }),
+  // packet-A recording has none), Gain / loss a lap to compare, the tire
+  // lenses a reference recorded with tire temperatures. A lens the map
+  // cannot draw is disabled in the control, and a choice that is not
+  // drawable — the comparison lap toggled off, or a link's lens on an older
+  // lap — shows as Inputs, so the control never names a lens the map is not
+  // drawing. The choice itself is kept, and takes over once it can be drawn.
+  const lensAvailable = useMemo(
+    () =>
+      Object.fromEntries(
+        LENS_OPTIONS.map((o) => [
+          o.value,
+          refEntry != null && canDraw(o.value, refEntry.series, units, gainSource),
+        ]),
+      ) as Record<MapLens, boolean>,
     [refEntry, units, gainSource],
   );
   const lensShown: MapLens = lensAvailable[mapLens] ? mapLens : "inputs";
@@ -1078,21 +1111,20 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
             <span className="section-header">
               Race line{bestTrack ? ` — ${bestTrack}` : ""}
             </span>
-            <Tip content="How the reference line and the lap strip are coloured: by pedal (throttle, brake, coast), by speed, or by where the compared lap gains and loses time against the reference">
-              <span className="inline-flex">
+            <Tip content="How the reference line and the lap strip are coloured, remembered on this device and carried in the link: by pedal (throttle, brake, coast), by speed, by where the compared lap gains and loses time against the reference, by the hottest tire (cold, working, hot), or by which axle's tires run hotter">
+              {/* Five lenses are wider than a phone's map panel: there the
+                  control scrolls sideways rather than being cut off. */}
+              <span className="inline-flex max-w-full overflow-x-auto">
                 <SegmentedControl
                   ariaLabel="Map colouring"
                   size="sm"
                   value={lensShown}
                   onValueChange={setMapLens}
                   options={LENS_OPTIONS.map((o) => ({
-                    ...o,
+                    value: o.value,
+                    label: o.label,
                     disabled: !lensAvailable[o.value],
-                    title: lensAvailable[o.value]
-                      ? undefined
-                      : o.value === "speed"
-                        ? "This recording has no speed channel"
-                        : "Needs a second lap with a time delta against the reference",
+                    title: lensAvailable[o.value] ? undefined : o.needs,
                   }))}
                 />
               </span>
