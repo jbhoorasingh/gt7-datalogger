@@ -183,11 +183,19 @@ Computed once when the lap is saved (`n` = number of samples):
 | Clean lap | `off_track_count == 0`; `null` = unknown — distinct from `counts_for_best`, which flags partial pit out-laps |
 
 **Engine health** is tracked as running per-lap extremes rather than per-tick columns
-(these values drift over minutes, not corners):
+(an engine's temperatures move over minutes, not corners):
 
 - `max_water_temp`, `max_oil_temp` — running maxima (°C)
 - `min_oil_pressure` — running minimum (bar), **sampled only while RPM > 1200** so idling
   in the pits doesn't record a misleading low; `−1` means unknown
+
+GT7 appears to hold the two temperatures fixed. Every lap recorded from a console so far
+— 446 laps in 28 cars, July to September 2026 — reads a maximum water temperature of
+exactly 85 °C and oil of 110 °C; only the simulator varies them. So nothing charts them
+across a session (a lap-on-lap trend would be a flat line, #105), and the Tuning panel's
+figures and the alerts' limits matter only if a GT7 update makes them move. Oil pressure
+does vary on real laps, but with revs and incidents (a spin pulls it down) rather than
+with the engine's health.
 
 **Gearing** is captured once per lap from the lap-boundary packet: the non-zero gear
 ratios, GT7's calculated top speed for the car (`calculated_max_speed`, km/h), and the
