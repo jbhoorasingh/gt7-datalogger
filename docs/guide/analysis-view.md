@@ -72,6 +72,41 @@ line itself, not the last whole 5 m before it.
   the panel that explains them: lockups on Brake, wheelspin on Throttle,
   bottoming/kerbs on suspension panels; TCS activity shades Throttle, ASM shades Speed.
   Bands are tinted in the lap's color.
+- **Gear choice** — the Gear panel also draws the gear GT7 suggested, and shades the
+  corners taken a gear higher; see [below](#gear-choice).
+
+### Gear choice
+
+GT7 suggests a gear on its HUD (the *→ 3* beside the gear), and a lap now keeps the
+suggestion beside the gear it was in; laps recorded before that have none. On the
+**Gear** panel each lap that has suggestions gets a **dashed line** in its own colour:
+the gear GT7 suggested, broken wherever it suggested nothing. The tooltip lists it under
+the gear as **Suggested**.
+
+The panel is **shaded**, in the lap's colour, through each corner the lap took a gear
+high (below): inside the corner's window (the reference lap's corners, as everywhere
+else), wherever the lap was in a higher gear than GT7 suggested between the entry and
+its slowest point in the corner. A corner the lap got down in time for is not shaded,
+although every braking lap sits above the suggestion for a while as it comes down
+through the box. Past the slowest point the car is accelerating and the next gear up is
+no mistake, so nothing there is shaded either.
+
+The gear suggested for a corner is the **last suggestion** seen from the start of its
+approach — 250 m before its entry, never back past the previous corner's apex — to its
+slowest point. The last one rather than the one at the slowest point, because whether
+GT7 keeps the hint up until then or clears it once you are in the gear it asked for has
+not been checked against a console. A corner is **taken a gear high** when the gear at
+its slowest point is higher than that suggestion. A corner GT7 suggested nothing for,
+one across the start line, or a car in neutral or reverse at the slowest point is not
+judged at all. The [Tuning panel](#side-panels) counts the reference lap's corners
+taken a gear high, and the Sessions lap table every lap's
+([Gear high](sessions-view.md#lap-table)).
+
+!!! note
+    When GT7 fills the suggestion — on which cars and in which modes, whether it ever
+    suggests an upshift, whether a HUD setting turns it off — has not been checked
+    against a console recording yet. A lap on which GT7 suggested nothing has no
+    suggestion line and no shading, and is not judged.
 
 ## Lap playback
 
@@ -89,7 +124,8 @@ on track.
 
 Beside the transport, a strip of the live-dashboard widgets renders the reference lap at
 the playhead: the **steering wheel** turning (packet B+ recordings), the
-**throttle/brake bars**, current **gear** and **speed** — the driver's hands, replayed.
+**throttle/brake bars**, current **gear** (with GT7's suggested gear beside it, where
+the lap recorded one) and **speed** — the driver's hands, replayed.
 
 Details worth knowing:
 
@@ -553,7 +589,10 @@ the chart says which.
   time remaining, and lap-time cost.
 - **Tuning info (reference lap)** — max speed, min ride height, input percentages, tire
   spin, fuel used, car category, aid usage (TCS/ASM %), engine health (max water/oil
-  temp, min oil pressure), and the detected-event summary. When the circuit is named and
+  temp, min oil pressure), **Corners a gear high** — of the corners GT7 suggested a gear
+  for, how many the reference lap took in a higher one ("2 of 9"; see
+  [Gear choice](#gear-choice), and left out when GT7 suggested nothing) — and the
+  detected-event summary. When the circuit is named and
   the car's class is known, it also shows the **class benchmark** — the fastest full lap
   ever recorded at this circuit in the same category (laps excluded by hand never
   set it, and a reference lap that doesn't count is not measured against it), the gap

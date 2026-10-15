@@ -1203,6 +1203,24 @@ class Repository:
                 )
             ).scalar_one_or_none()
 
+    async def laps_with_sample_column(self, lap_ids: list[int], column: str) -> set[int]:
+        """Which of these laps' stored samples carry `column`.
+
+        A substring test on the blob, answered by the database: a caller that
+        wants only those laps never has the others' samples sent to it,
+        though the database still scans them.
+        """
+        if not lap_ids:
+            return set()
+        async with self._sf() as db:
+            rows = await db.execute(
+                select(LapRow.id).where(
+                    LapRow.id.in_(lap_ids),
+                    LapRow.samples_json.contains(f'"{column}"', autoescape=True),
+                )
+            )
+            return {int(r[0]) for r in rows}
+
     async def session_track_labels(self) -> list[str]:
         """Every distinct circuit label a session carries.
 

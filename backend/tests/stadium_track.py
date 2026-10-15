@@ -71,9 +71,14 @@ class Driver:
         slip_deg: float | None = 3.0,
         tyre_temp: float = 80.0,
         fuel: float = 50.0,
+        corner_gear: int | None = None,
+        suggest: int | None = None,
     ) -> Iterator[TelemetryPacket]:
         """One lap from the line. `slip_deg` is carried through both corners,
-        nose into them; None sends no orientation at all."""
+        nose into them; None sends no orientation at all. `corner_gear` is the
+        gear from each braking point to the corner's exit (fifth elsewhere),
+        and `suggest` the gear GT7 suggests while the car brakes; None sends
+        what a packet built without them carries."""
         ticks = 0
         while self._s < lap * LENGTH:
             s = self._s % LENGTH
@@ -90,6 +95,11 @@ class Driver:
                     speed = SLOW + (FAST - SLOW) * (s - exit_) / 100.0
             x, z, heading = place(s)
             slip = math.radians(slip_deg or 0.0) if cornering else 0.0
+            gears: dict[str, int] = {}
+            if corner_gear is not None:
+                gears["current_gear"] = corner_gear if braking or cornering else 5
+            if suggest is not None and braking:
+                gears["suggested_gear"] = suggest
             self.pid += 1
             yield parse_packet(
                 build_packet(
@@ -109,6 +119,7 @@ class Driver:
                     fuel_level=fuel - 2.0 * (s / LENGTH),
                     flags=ON_TRACK,
                     car_id=self.car_id,
+                    **gears,
                 )
             )
             self._s += speed * TICK

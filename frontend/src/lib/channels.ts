@@ -99,10 +99,13 @@ export const CHANNELS: ChannelDef[] = [
     key: "gear",
     title: "Gear",
     description:
-      "The gear engaged. Compare where each lap shifted, and which gear it carried through a corner.",
+      "The gear engaged — compare where each lap shifted. Dashed: the gear GT7 suggested, where it suggested one. Shaded: a corner taken a gear above it.",
     group: "Driving",
     height: 0.7,
     step: true,
+    // The suggestion rides along for the dashed line; the panel's own line
+    // is still `gear`.
+    columns: ["gear", "suggested_gear"],
   },
   {
     key: "rpm",

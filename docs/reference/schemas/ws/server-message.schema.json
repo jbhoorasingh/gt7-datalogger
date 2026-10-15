@@ -187,6 +187,7 @@
           "title": "Steer Rad"
         },
         "suggested_gear": {
+          "description": "15 = no suggestion",
           "title": "Suggested Gear",
           "type": "integer"
         },
@@ -1159,6 +1160,7 @@
           "title": "Steer Rad"
         },
         "suggested_gear": {
+          "description": "15 = no suggestion",
           "title": "Suggested Gear",
           "type": "integer"
         },

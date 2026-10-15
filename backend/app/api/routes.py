@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 import math
 import tempfile
@@ -833,6 +835,128 @@ async def sector_times(request: Request, session_id: int) -> dict[str, Any]:
         ] if points else [],
         "laps": laps,
     }
+
+
+@router.get("/analysis/gear-choice")
+async def gear_choice(request: Request, session_id: int) -> dict[str, Any]:
+    """How many corners each lap of a session took a gear higher than GT7
+    suggested (#108).
+
+    Measured as a comparison measures it: every lap lined up with the
+    session's reference — its quickest lap that counts, the yardstick of the
+    sector times and the lap analysis document — and taken through the
+    reference's corners, so a lap's figures here are what its corner report
+    says against that reference. `judged` counts the corners with a
+    suggestion and a forward gear at the slowest point, `gear_high` those
+    taken in a higher gear than suggested. Worked out on request, one lap at
+    a time as the stint trend is, and remembered per lap: asked again after
+    a new lap, only that lap is looked at. A lap stored without suggestions
+    is never decoded; the database finds which have them.
+    """
+    service = svc(request)
+    repo = service.repo
+    session = await repo.get_session(session_id)
+    if session is None:
+        raise HTTPException(404, "session not found")
+    rows = [r for r in await repo.list_laps(session_id) if (r["total_ticks"] or 0) > 0]
+    rows.sort(key=lambda r: (r["number"], r["id"]))
+    track = str(session.get("track_name") or "")
+    counting = [r for r in rows if r["counts_for_best"] and r["time_ms"] > 0]
+    reference = min(counting, key=lambda r: (r["time_ms"], r["id"]), default=None)
+    ref_id: int | None = reference["id"] if reference is not None else None
+
+    verdicts_of: dict[int, list[bool | None]] = {}
+    gone: set[int] = set()
+    if reference is not None and rows:
+        authored = await asyncio.to_thread(service.authored_corners, track)
+        # What a verdict depends on: the lap's samples, the reference's and
+        # the circuit's authored corners. Lap ids are reused after a delete,
+        # so a lap is named by its time and length beside its id.
+        against = (
+            _lap_identity(reference),
+            hashlib.sha1(json.dumps(authored, sort_keys=True, default=str).encode()).hexdigest(),
+        )
+        cache = service.gear_verdicts
+        # A lap stored without suggestions has no verdicts, remembered as
+        # none, so the database is asked only about laps not seen before.
+        unseen = [r for r in rows if (_lap_identity(r), against) not in cache]
+        with_column = await repo.laps_with_sample_column(
+            [r["id"] for r in unseen], "suggested_gear"
+        )
+        for row in unseen:
+            if row["id"] not in with_column:
+                cache[(_lap_identity(row), against)] = []
+        # The reference is read once, and only when some lap is not in the
+        # cache: asked again after a new lap, only that lap and it are read.
+        ref_raw: str | None = None
+        yardstick: tuple[alignment.ReferencePath, list[dict[str, Any]]] | None = None
+        for row in rows:
+            key = (_lap_identity(row), against)
+            verdicts = cache.get(key)
+            if verdicts is not None:
+                cache.move_to_end(key)
+                verdicts_of[row["id"]] = verdicts
+                continue
+            is_ref = row["id"] == ref_id
+            raw = ref_raw if is_ref else None
+            if raw is None:
+                raw = await repo.lap_samples_json(row["id"])
+            if raw is None:
+                gone.add(row["id"])  # deleted since the list was read
+                continue
+            if yardstick is None:
+                ref_raw = raw if is_ref else await repo.lap_samples_json(reference["id"])
+                if ref_raw is None:
+                    break  # the reference itself was deleted: nothing to judge against
+                yardstick = await asyncio.to_thread(_yardstick, ref_raw, authored)
+            verdicts = await asyncio.to_thread(_gear_verdicts, raw, is_ref, *yardstick)
+            cache[key] = verdicts
+            verdicts_of[row["id"]] = verdicts
+        while len(cache) > _GEAR_VERDICTS_KEPT:
+            cache.popitem(last=False)
+
+    laps: list[dict[str, Any]] = []
+    for row in rows:
+        if row["id"] in gone:
+            continue
+        verdicts = verdicts_of.get(row["id"], [])
+        laps.append({
+            "lap_id": row["id"],
+            "judged": sum(v is not None for v in verdicts),
+            "gear_high": sum(v is True for v in verdicts),
+        })
+    return {"session_id": session_id, "reference": ref_id, "laps": laps}
+
+
+# Laps' gear-choice verdicts the service keeps: a few long sessions' worth.
+_GEAR_VERDICTS_KEPT = 4096
+
+
+def _lap_identity(row: dict[str, Any]) -> tuple[int, int, int]:
+    return (int(row["id"]), int(row["time_ms"] or 0), int(row["total_ticks"] or 0))
+
+
+def _yardstick(
+    raw: str, authored: list[dict[str, Any]]
+) -> tuple[alignment.ReferencePath, list[dict[str, Any]]]:
+    """The reference lap as gear-choice judges against it: its path, for the
+    other laps to be lined up with, and its corners."""
+    samples = decode_samples(raw)
+    return alignment.ReferencePath(samples), analysis.corners_for_lap(samples, authored)
+
+
+def _gear_verdicts(
+    raw: str,
+    is_reference: bool,
+    path: alignment.ReferencePath,
+    corners: list[dict[str, Any]],
+) -> list[bool | None]:
+    """One stored lap's gear_high for each corner its report has, lined up
+    with the reference as _compare_laps lines it up."""
+    samples = decode_samples(raw)
+    if not is_reference:
+        samples = alignment.align_to_reference(samples, path) or samples
+    return [row["gear_high"] for row in analysis.corner_report(corners, samples)]
 
 
 @router.get("/analysis/fuel")

@@ -1930,6 +1930,48 @@
         "summary": "Fuel"
       }
     },
+    "/api/analysis/gear-choice": {
+      "get": {
+        "description": "How many corners each lap of a session took a gear higher than GT7\nsuggested (#108).\n\nMeasured as a comparison measures it: every lap lined up with the\nsession's reference \u2014 its quickest lap that counts, the yardstick of the\nsector times and the lap analysis document \u2014 and taken through the\nreference's corners, so a lap's figures here are what its corner report\nsays against that reference. `judged` counts the corners with a\nsuggestion and a forward gear at the slowest point, `gear_high` those\ntaken in a higher gear than suggested. Worked out on request, one lap at\na time as the stint trend is, and remembered per lap: asked again after\na new lap, only that lap is looked at. A lap stored without suggestions\nis never decoded; the database finds which have them.",
+        "operationId": "gear_choice_api_analysis_gear_choice_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Gear Choice Api Analysis Gear Choice Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Gear Choice"
+      }
+    },
     "/api/analysis/sectors": {
       "get": {
         "description": "Every lap of a session split at the circuit's sectors (#22).\n\nThe boundaries are the circuit's authored ones, or thirds of the\nsession's reference lap \u2014 its quickest lap that counts \u2014 resolved to\npositions so that every lap is split at the same two places on the\nroad. Each lap's splits are read off its own clock at those places and\nsum to its lap time. Laps are read one at a time, as the stint trend\nreads them: a session of any length costs the memory of one lap.",

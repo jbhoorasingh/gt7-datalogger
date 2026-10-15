@@ -83,7 +83,7 @@ Every packet decodes to a typed structure with ~50 fields. The important ones:
 | 0x84 | race position / total | |
 | 0x88 | RPM alert min/max | shift-light thresholds |
 | 0x8E | flags | bitmask, see below |
-| 0x90 | current gear (low nibble) / suggested gear (high nibble) | 15 = neutral |
+| 0x90 | current gear (low nibble) / suggested gear (high nibble) | current: 0 = reverse, 15 = neutral; suggested: 15 = no suggestion, recorded as [`suggested_gear`](derived-channels.md#suggested-gear) |
 | 0x91 | throttle / brake | 0–255 → % via ÷2.55 |
 | 0xA4 | wheel angular speed FL/FR/RL/RR | rad/s, signed |
 | 0xB4 | tire radius FL/FR/RL/RR | m |
@@ -142,4 +142,9 @@ never lags behind reality. Received/dropped/decode-error counters are visible in
 packet stream at exactly 60 Hz: a 3,200 m circuit, ~223 km/h baseline with two braking
 zones, deliberate front lockups, rear wheelspin on slow launches, a kerb strike at ~21 %
 of the lap, and TCS/ASM/rev-limiter activity. It uses a fixed random seed, so demo data
-is reproducible.
+is reproducible. It also suggests gears, as a stand-in for GT7's own hint, which has not
+been checked against a console: the gear the next corner calls for, shown from up to
+150 m before it while the car is in a higher one. On about
+half its laps the driver holds fourth through the tight right-hander at ~1,600 m where
+third is suggested, so the [gear choice](derived-channels.md#suggested-gear) figures
+differ from lap to lap.

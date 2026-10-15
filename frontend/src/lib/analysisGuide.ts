@@ -125,6 +125,12 @@ export const GUIDE_FEATURES: GuideFeature[] = [
     docs: `${VIEW}#balance`,
   },
   {
+    title: "Gear choice",
+    body:
+      "Dashed on the Gear panel: the gear GT7 suggested, where it suggested one. Shading marks the corners taken a gear higher — still above it at the slowest point — and the Tuning panel counts the reference lap's.",
+    docs: `${VIEW}#gear-choice`,
+  },
+  {
     title: "Stint trend",
     body:
       "Lap time and tyre temperature for every lap of the session, split into stints at pit stops, with each stint's drift as a figure such as +0.18 s/lap. GT7 sends no tyre wear: temperature and pace drift are the only proxies.",

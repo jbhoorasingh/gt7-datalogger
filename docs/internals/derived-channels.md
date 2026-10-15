@@ -17,6 +17,7 @@ One value per column per tick (~60/s):
 | `brake` | `raw_byte ÷ 2.55` | % |
 | `coast` | `1` if throttle < 1 % **and** brake < 1 % | flag |
 | `gear` | low nibble of the gear byte (15 = neutral) | — |
+| `suggested_gear` | high nibble of the gear byte, as broadcast: the gear GT7 suggests, **15 = no suggestion**. A lap on which GT7 suggested nothing has no such column, and nor do laps recorded before it was kept ([below](#suggested-gear)) | — |
 | `rpm` | raw | rpm |
 | `boost` | `raw − 1.0` (packet stores bar + 1) | bar |
 | `tire_slip` | mean of the four wheel slips | ratio |
@@ -129,6 +130,40 @@ angle cannot be worked out for them after the fact.
 **Wheel slip** is a slip-ratio proxy: wheel surface speed divided by car speed. `< 1`
 under braking means the wheel is locking; `> 1` under power means it's spinning. Below
 1 m/s car speed the ratio is meaningless, so all four are pinned to `1.0`.
+
+### Suggested gear
+
+The gear byte at 0x90 carries two nibbles: the gear the car is in, and the gear GT7
+suggests on its HUD. Every packet format has both, so `suggested_gear` is recorded on
+every tick like `gear`, and is not an [optional column](#optional-columns). It is kept as
+broadcast, **15 where GT7 suggests nothing**: a sample column holds numbers, and neither
+a lap file nor the importer has a way to say "no value" for one tick. Both nibbles
+count gears from 1; anything that compares them takes a value outside **1–14** as no
+gear (0 is reverse, 15 neutral or no suggestion).
+
+A lap on which no tick holds a suggestion would carry a column of 15s, about 36 KB of
+a two-minute lap that says nothing, so the column is dropped when the lap completes
+(`prune_unsuggested` in `app/processing/laps.py`, which runs on import too). Absent
+therefore means "GT7 suggested nothing on this lap", or a lap recorded before the
+column was kept.
+
+Resampled onto the comparison grid it takes the **nearest** sample's value, like the
+`aids` and `surface` bitmasks: interpolated, halfway between a suggested third and no
+suggestion would be a suggested ninth. `gear` itself is still interpolated, so the
+frontend rounds it wherever it compares the two.
+
+Per corner (`app/processing/corner_metrics.py`, on the reference lap's corners and
+axis):
+
+| Figure | Is |
+| --- | --- |
+| suggested gear | the **last** suggestion in 1–14 from the start of the corner's approach — 250 m before its entry, never back past the previous corner's apex — up to and including its slowest point. Held rather than read at the slowest point, because when GT7 clears the hint has not been checked against a console |
+| gear high | the gear at the slowest point (the sample that gives the minimum speed) is higher than that suggestion. Unknown unless both are known and the gear is in 1–14, so a car in neutral or reverse there is not judged |
+
+Neither is worked out for a corner across the start line. GT7's real behaviour — when
+it fills the nibble, on which cars and modes, whether it ever suggests an upshift and
+whether a HUD setting turns it off — has **not** been checked against a console
+recording; the simulator's suggestion is a stand-in.
 
 ## Per-lap aggregates
 

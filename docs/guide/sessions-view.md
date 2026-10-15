@@ -160,13 +160,26 @@ is admin-gated when `GT7_ADMIN_TOKEN` is set.
 
 Per lap: its colour (the same colour it gets in Analysis charts and maps; the fastest
 lap is purple), number, time, **Δ best** (to the session best), position (races
-only), fuel used, full-throttle %, full-brake %, coasting %, tire-spin %, events, and
-max speed. **Newest first** / **Fastest first** sorts it.
+only), fuel used, full-throttle %, full-brake %, coasting %, tire-spin %, events,
+**gear high**, and max speed. **Newest first** / **Fastest first** sorts it.
+
+**Gear high** is how many corners the lap took in a higher gear than GT7 suggested, of
+the corners GT7 suggested a gear for: `2/9` is two of nine. A corner is judged at its
+slowest point, against the last gear GT7 suggested on the way in, and every lap is
+measured through the corners of the session's quickest lap that counts, lined up with
+it as [Analysis](analysis-view.md#gear-choice) lines laps up — so with that lap as the
+reference, a row reads what Analysis's Tuning panel and gear shading say about the same
+lap. A dash is a lap GT7 suggested nothing on, or one recorded before suggestions were
+kept. The figures are worked out when the table is shown, so ruling a lap in or out of
+the bests, which can change the session's quickest lap, re-measures them all. When
+GT7 fills the suggestion has not been checked against a console yet.
 
 **Columns that never change are hidden.** A column that reads the same on every
 counting lap — the same fuel use on a fixed-fuel run, 0 % spin — is dropped, and a
 line above the table lists what was hidden and its value (*Same on every lap, hidden:
-fuel 1.80 L · spin 0%*). **Columns…** shows or hides any column by hand;
+fuel 1.80 L · spin 0%*). A column no lap has anything for — position outside a race,
+gear high where GT7 suggested nothing — is dropped without being listed, and left off
+the **Columns…** menu. **Columns…** shows or hides any other column by hand;
 **Automatic — hide what never changes** goes back to the default.
 
 A lap that does not count toward bests is dimmed and labelled: *partial*, *kept*, or

@@ -7,7 +7,7 @@ export interface LiveFrame {
   rpm: number;
   rpm_alert: number;
   gear: number;
-  suggested_gear: number;
+  suggested_gear: number; // 15 = no suggestion
   throttle: number;
   brake: number;
   boost: number;
@@ -104,6 +104,11 @@ export interface LapSummary {
   // Race position when the lap completed (#60); -1 = no position reporting.
   race_position?: number;
   event_counts?: Record<string, number>;
+  // Corners GT7 suggested a gear for, and how many of them the lap took a
+  // gear higher (#108). Not part of the summary: filled in by the Sessions
+  // view from api.gearChoice.
+  gear_judged?: number;
+  gear_high?: number;
 }
 
 // Why a lap was excluded from bests (#74). Mirrors backend
@@ -661,6 +666,12 @@ export interface CornerReportRow {
   // recording without the body_slip channel.
   slip_peak?: number | null;
   slip_mean?: number | null;
+  // Gear choice (#108): the gear GT7 last suggested on the way into the
+  // corner, and whether the lap was in a higher one at its slowest point.
+  // Null where GT7 suggested nothing for the corner (and gear_high where the
+  // car was in no forward gear there); absent from an older server.
+  suggested_gear?: number | null;
+  gear_high?: boolean | null;
 }
 
 export interface CompareLapEntry {
@@ -740,6 +751,17 @@ export interface StintTrend {
   session_id: number;
   laps: StintLap[];
   stints: Stint[];
+}
+
+// Every lap of a session against GT7's suggested gear (#108), measured
+// through the corners of the session's reference — its quickest lap that
+// counts — as a comparison against that lap measures it. `judged` is the
+// corners GT7 suggested a gear for (0 on a lap without suggestions),
+// `gear_high` how many of them the lap took in a higher gear.
+export interface GearChoice {
+  session_id: number;
+  reference: number | null;
+  laps: { lap_id: number; judged: number; gear_high: number }[];
 }
 
 // One border's coverage, measured against the compiled boundary itself (#38):

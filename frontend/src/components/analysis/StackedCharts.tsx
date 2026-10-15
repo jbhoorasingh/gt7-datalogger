@@ -9,6 +9,7 @@ import { CHART_COLORS, EChart } from "@/components/EChart";
 import { channelValues, type ChannelDef } from "@/lib/channels";
 import { lapColor } from "@/lib/colors";
 import { speedUnit, type Units } from "@/lib/format";
+import { gearHighBands, suggestionValues } from "@/lib/gearChoice";
 import { AIDS_ASM, AIDS_TCS, type CompareResult, type LapEvent } from "@/lib/types";
 
 interface PanelDef {
@@ -43,6 +44,7 @@ function formatValueFor(units: Units) {
         case "coast":
           return v >= 0.5 ? "coasting" : "—";
         case "gear":
+        case "suggested_gear":
           return `${Math.round(v)}`;
         case "rpm":
           return `${Math.round(v).toLocaleString()} rpm`;
@@ -57,6 +59,11 @@ function formatValueFor(units: Units) {
 }
 
 const DELTA_PANEL: PanelDef = { key: "delta", title: "Time diff (s)", height: 1.2 };
+
+// The tooltip is HTML, and lap labels are text.
+function escapeHtml(text: string): string {
+  return text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+}
 
 type MarkAreaBand = [{ xAxis: number }, { xAxis: number }];
 type MarkAreaData = MarkAreaBand[];
@@ -230,6 +237,8 @@ export function StackedCharts({
     const seriesMeta = new Map<string, { panelKey: string; panelTitle: string; lapId: string }>();
 
     const formatValue = formatValueFor(units);
+    // Every lap is judged through the reference's corner windows.
+    const refCorners = data.laps[String(data.ref)]?.corners;
 
     let cursor = 2;
     panels.forEach((panel, gi) => {
@@ -323,12 +332,20 @@ export function StackedCharts({
         seriesMeta.set(seriesId, { panelKey: panel.key, panelTitle: panel.title, lapId });
 
         // Shaded context bands: detected events on the causing panel, plus
-        // TCS activation on throttle and ASM on speed (aids bitmask runs).
+        // TCS activation on throttle and ASM on speed (aids bitmask runs),
+        // and on gear through the corners taken a gear higher than GT7
+        // suggested (#108).
         let bands: MarkAreaData = eventBandsFor(panel.key, entry.events ?? []);
         if (panel.key === "throttle") {
           bands = bands.concat(aidBands(entry.series.dist, entry.series.aids, AIDS_TCS));
         } else if (panel.key === "speed") {
           bands = bands.concat(aidBands(entry.series.dist, entry.series.aids, AIDS_ASM));
+        } else if (panel.key === "gear") {
+          bands = bands.concat(
+            gearHighBands(entry.series, refCorners, entry.corner_report).map(
+              ([from, to]): MarkAreaBand => [{ xAxis: from }, { xAxis: to }],
+            ),
+          );
         }
 
         series.push({
@@ -371,6 +388,32 @@ export function StackedCharts({
               }
             : {}),
         });
+
+        // The gear GT7 suggested, as a dashed ghost of the lap's own line,
+        // broken wherever it suggested nothing. Not downsampled: lttb picks
+        // points across the gaps, which would bridge them.
+        const suggested = panel.key === "gear" ? suggestionValues(entry.series) : null;
+        if (suggested) {
+          const ghostId = `suggested_gear|${lapId}`;
+          seriesMeta.set(ghostId, {
+            panelKey: "suggested_gear",
+            panelTitle: "Suggested gear",
+            lapId,
+          });
+          series.push({
+            type: "line",
+            id: ghostId,
+            name: `${lapLabels[lapId] ?? `Lap ${lapId}`} — suggested`,
+            xAxisIndex: gi,
+            yAxisIndex: gi,
+            data: dist.map((d, i) => [d, suggested[i] ?? null]),
+            showSymbol: false,
+            connectNulls: false,
+            step: "end",
+            lineStyle: { width: 1.2, type: "dashed", opacity: 0.6 },
+            color: lapColors?.[lapId] ?? lapColor(Number(lapId)),
+          });
+        }
       });
     });
 
@@ -485,14 +528,19 @@ export function StackedCharts({
             ? `<tr><td></td>${cols
                 .map(
                   (id) =>
-                    `<td style="text-align:right;padding:0 0 3px 14px;color:#8b93a1">${lapMarker.get(id)}${(lapLabels[id] ?? `Lap ${id}`).split(" ")[0]}</td>`,
+                    `<td style="text-align:right;padding:0 0 3px 14px;color:#8b93a1">${lapMarker.get(id)}${escapeHtml((lapLabels[id] ?? `Lap ${id}`).split(" ")[0])}</td>`,
                 )
                 .join("")}</tr>`
             : "";
-          const rows = panels.map((panel) => {
-            const cells = cols.map((id) => cellValue.get(`${panel.key}|${id}`));
+          // One row per panel, and under Gear the gear GT7 suggested, where
+          // it suggested one.
+          const lines = panels.flatMap((panel) => {
+            const line = { key: panel.key, label: panel.title.replace(/ \(.*\)| %/, "") };
+            return panel.key === "gear" ? [line, { key: "suggested_gear", label: "Suggested" }] : [line];
+          });
+          const rows = lines.map(({ key, label }) => {
+            const cells = cols.map((id) => cellValue.get(`${key}|${id}`));
             if (cells.every((c) => c == null)) return "";
-            const label = panel.title.replace(/ \(.*\)| %/, "");
             return `<tr>
               <td style="color:#8b93a1;padding:1px 0;line-height:1.6">${label}</td>
               ${cells

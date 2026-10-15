@@ -220,5 +220,13 @@ describe("frameAtTime", () => {
     const f = frameAtTime(s, 1);
     expect(f.steer_rad).toBeNull();
     expect(f.position).toBe(-1); // no race_pos channel -> no position
+    expect(f.suggested_gear).toBe(15); // no suggestions recorded -> none
+  });
+
+  it("steps GT7's suggested gear, never blending it with 'none'", () => {
+    const s = series();
+    s.suggested_gear = s.dist.map((d) => (d >= 40 && d < 60 ? 3 : 15));
+    expect(frameAtTime(s, 2.1).suggested_gear).toBe(3); // 42 m in
+    expect(frameAtTime(s, 0.5).suggested_gear).toBe(15); // 10 m in
   });
 });

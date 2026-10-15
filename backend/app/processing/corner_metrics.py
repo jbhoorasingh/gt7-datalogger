@@ -1,5 +1,6 @@
 """What a lap did at each corner: braking, turn-in, minimum speed, throttle,
-and how far the car was rotated against its own direction of travel.
+how far the car was rotated against its own direction of travel, and the
+gear it was in against the one GT7 suggested.
 
 One definition of each, shared by everything that talks about a corner — the
 race engineer's spoken coaching (#110), the lap analysis document (#115) and
@@ -35,6 +36,8 @@ from __future__ import annotations
 from bisect import bisect_left, bisect_right
 from dataclasses import dataclass
 from typing import Any
+
+from app.models import is_forward_gear
 
 Samples = dict[str, list[float]]
 
@@ -129,6 +132,11 @@ class CornerMeasure:
     min_speed: float | None = None
     min_speed_dist: float | None = None
     min_speed_gear: int | None = None
+    # --- gear choice (#108)
+    # The gear GT7 last suggested between the start of the corner's approach
+    # and its slowest point. None on a lap without suggestions, and where GT7
+    # suggested nothing in that stretch.
+    suggested_gear: int | None = None
     # --- throttle
     # True when the throttle never came under THROTTLE_ON_PCT: the corner
     # was taken flat and there is no pick-up point to report.
@@ -334,6 +342,28 @@ def _balance(trace: LapTrace, window: Window, out: CornerMeasure) -> None:
     out.slip_mean = sum(values) / len(values)
 
 
+def _held_suggestion(trace: LapTrace, window: Window, slowest: int) -> int | None:
+    """The gear GT7 last suggested on the way into this corner.
+
+    Looked for over the stretch the corner's braking zone may lie in — from
+    BRAKE_SEARCH_M before its entry, never back past the previous apex — up
+    to and including the slowest point. The last suggestion rather than the
+    one at the slowest point, because whether GT7 keeps the hint up until
+    then or clears it once the driver is in the gear it asked for has not
+    been checked against a console; either way it is the gear it asked for.
+    """
+    suggested = trace.column("suggested_gear")
+    if suggested is None:
+        return None
+    first = bisect_left(trace.dist, window.entry - BRAKE_SEARCH_M)
+    if window.prev_apex is not None:
+        first = max(first, bisect_right(trace.dist, window.prev_apex))
+    for i in range(slowest, first - 1, -1):
+        if is_forward_gear(suggested[i]):
+            return int(suggested[i])
+    return None
+
+
 def measure_corner(trace: LapTrace, window: Window) -> CornerMeasure:
     out = CornerMeasure(n=window.n)
     if len(trace) < 2 or window.wraps:
@@ -372,6 +402,7 @@ def measure_corner(trace: LapTrace, window: Window) -> CornerMeasure:
     out.min_speed_dist = d[slowest]
     if gear is not None:
         out.min_speed_gear = int(gear[slowest])
+    out.suggested_gear = _held_suggestion(trace, window, slowest)
 
     if throttle is not None:
         # From where the braking began (or the corner did) to the slowest
@@ -422,6 +453,18 @@ def brake_length(m: CornerMeasure | None) -> float | None:
     if m is None or m.brake_on is None or m.brake_off is None:
         return None
     return m.brake_off - m.brake_on
+
+
+def gear_high(m: CornerMeasure | None) -> bool | None:
+    """Whether the corner was taken in a higher gear than GT7 suggested for
+    it: the gear at the slowest point against the held suggestion. None
+    unless both are known, and for a car in neutral or reverse there (a
+    spin, a stop), which is in no gear to judge."""
+    if m is None or m.suggested_gear is None or m.min_speed_gear is None:
+        return None
+    if not is_forward_gear(m.min_speed_gear):
+        return None
+    return m.min_speed_gear > m.suggested_gear
 
 
 def min_speed_delta(mine: CornerMeasure | None, theirs: CornerMeasure | None) -> float | None:

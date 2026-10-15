@@ -15,6 +15,7 @@ import type {
   DeviationResult,
   ExcludeReason,
   FuelMapResult,
+  GearChoice,
   LapSummary,
   LogRecord,
   OfficialMatch,
@@ -253,6 +254,9 @@ export const api = {
   // Every lap of the session split at the circuit's sectors (#22).
   sectorTimes: (sessionId: number) =>
     get<SectorTimes>(`/api/analysis/sectors?session_id=${sessionId}`),
+  // Corners each lap took a gear higher than GT7 suggested (#108).
+  gearChoice: (sessionId: number) =>
+    get<GearChoice>(`/api/analysis/gear-choice?session_id=${sessionId}`),
   fuelMap: (lapId: number) => get<FuelMapResult>(`/api/analysis/fuel?lap_id=${lapId}`),
   setRecording: (recording: boolean) =>
     send<ConnectionStatus>("/api/control/recording", "POST", { recording }),

@@ -16,6 +16,16 @@ BODY_SLIP_MIN_SPEED = 8.0
 # A real packet's is 1 to five places; a source that sends no orientation
 # sends zeros.
 ORIENTATION_TOLERANCE = 0.05
+# The gear byte's suggested-gear nibble when GT7 suggests nothing (#108).
+NO_SUGGESTED_GEAR = 15
+
+
+def is_forward_gear(value: float) -> bool:
+    """Whether a nibble of the gear byte names a forward gear. Both count
+    gears from 1; 0 is reverse, and 15 is neutral in the current gear's and
+    "no suggestion" in the suggested gear's. Anything that compares gears
+    treats every other value as no gear at all."""
+    return 1 <= value <= 14
 
 
 class SimulatorFlags(IntFlag):

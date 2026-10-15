@@ -145,6 +145,11 @@ export function PlaybackBar({
   // SteeringWidget). Null on packet A, where it sits at centre.
   const steerDeg = frame.steer_rad != null ? (frame.steer_rad * 180) / Math.PI : 0;
   const gearText = frame.gear === 0 ? "R" : frame.gear === 15 ? "N" : String(frame.gear);
+  // GT7's suggested gear at the playhead, as the live gear widget shows it
+  // ("gear → 3"); 15 means none, and a lap recorded before it was kept has
+  // none anywhere.
+  const suggested =
+    frame.suggested_gear >= 1 && frame.suggested_gear <= 14 ? frame.suggested_gear : null;
 
   return (
     <div className="panel mb-3 flex flex-wrap items-center gap-3.5 px-3.5 py-2">
@@ -210,11 +215,13 @@ export function PlaybackBar({
           <rect x="16" y="2" width="8" height="36" rx="2" fill="var(--color-panel-2)" />
           <rect x="16" y={38 - brkH} width="8" height={brkH} rx="2" fill="var(--color-brake)" />
         </svg>
-        <div className="w-[30px] text-center">
+        <div className="w-[44px] text-center">
           <div className="font-tabular text-[26px] font-semibold leading-none text-accent">
             {gearText}
           </div>
-          <div className="text-[8px] uppercase tracking-[0.14em] text-ink-faint">gear</div>
+          <div className="whitespace-nowrap text-[8px] uppercase tracking-[0.14em] text-ink-faint">
+            gear{suggested != null ? ` → ${suggested}` : ""}
+          </div>
         </div>
         <div className="w-[60px] text-center">
           <div className="font-tabular text-[26px] font-semibold leading-none">

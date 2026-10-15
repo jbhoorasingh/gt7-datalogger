@@ -169,7 +169,8 @@ the app.
 {
   "n": 2, "time_ms": 5354.7, "time_vs_ref": 769.1,
   "speed": { "entry": 124.4, "min": 91.2, "exit": 112.9, "min_vs_ref": -1.3,
-             "exit_vs_ref": -24.2, "min_from_apex_m": -44.4, "min_gear": 1 },
+             "exit_vs_ref": -24.2, "min_from_apex_m": -44.4, "min_gear": 1,
+             "suggested_gear": 2, "gear_high": false },
   "braking": { "on_from_apex_m": -127.5, "on_vs_ref": 37.5, "length_m": 73.7,
                "off_from_apex_m": -53.8, "peak_pct": 100.0, "speed_on": 200.6,
                "speed_off": 95.2, "lockups": 1 },
@@ -195,7 +196,7 @@ A corner the lap did not drive the whole of (a partial lap) is left out of its l
 | Block | |
 | --- | --- |
 | `time_ms` | time through the corner's window, entry to exit |
-| `speed` | at the entry, at the slowest point and at the exit; where the slowest point was, and the gear there |
+| `speed` | at the entry, at the slowest point and at the exit; where the slowest point was, and the gear there. `suggested_gear` is the last gear GT7 suggested on the way into the corner and `gear_high` whether the gear at the slowest point was higher; both are **absent** where GT7 suggested nothing for the corner, and `gear_high` where the car was in neutral or reverse at the slowest point |
 | `braking` | the braking zone: where it began and ended, how long and how hard, the speed at each end, and lockups in it. **Absent** when neither this lap nor the reference braked for the corner; `{"none": true}` when the reference did and this lap did not. `on_from_apex_m`, `on_vs_ref` and `length_m` are absent when the brake was already on at the lap's first sample |
 | `turn_in` | where the car began to turn, the brake pedal at that moment, and `trail_m` — how far the brake was carried past it (0 when it was released first). Absent when the corner runs on from the one before |
 | `throttle` | `flat: true` when the throttle never came off (no pick-up points then); otherwise where it came back and where it reached full, wheelspin on the way out, and `tcs_pct` — the share of the apex-to-exit stretch with traction control acting |
@@ -258,6 +259,8 @@ These are `app/processing/corner_metrics.py`'s definitions, shared with the
 | Minimum speed | the lowest speed between the corner's entry and exit |
 | Throttle pick-up, full throttle | after the slowest point, the first sample at or above **20 %** and at or above **98 %**, looked for up to **100 m** past the exit and never past the next apex |
 | Flat | the throttle never came under 20 % between the braking zone's start (or the entry) and the slowest point |
+| Suggested gear | the last gear in 1–14 GT7 suggested from **250 m** before the corner's entry (never back past the previous apex) up to and including the slowest point. The last one, because when GT7 clears its hint has not been checked against a console |
+| Gear high | the gear at the slowest point, in 1–14, is higher than the suggested gear |
 
 ## Versioning
 

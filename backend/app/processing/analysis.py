@@ -17,6 +17,7 @@ from app.processing.corner_metrics import (
     LapTrace,
     brake_length,
     brake_point_delta,
+    gear_high,
     measure,
     windows,
 )
@@ -25,12 +26,14 @@ Samples = dict[str, list[float]]
 
 DEFAULT_STEP_M = 5.0
 
-# Discrete per-tick columns (packed bitfields) where linear interpolation
-# would fabricate values that decode to nonsense — resampled with
-# nearest-neighbor instead. For `aids` the nonsense is quiet: ASM coming on
-# (0 → 2) interpolates through 1, which is the TCS bit, so every ASM onset
-# read as a moment of traction control.
-NEAREST_COLUMNS = frozenset({"surface", "aids"})
+# Discrete per-tick columns (packed bitfields, and a gear with a sentinel)
+# where linear interpolation would fabricate values that decode to nonsense —
+# resampled with nearest-neighbor instead. For `aids` the nonsense is quiet:
+# ASM coming on (0 → 2) interpolates through 1, which is the TCS bit, so every
+# ASM onset read as a moment of traction control. For `suggested_gear` it is
+# loud: halfway between a suggested third and no suggestion (15) is a
+# suggested ninth (#108).
+NEAREST_COLUMNS = frozenset({"surface", "aids", "suggested_gear"})
 
 
 def _interp(xs: list[float], ys: list[float], x: float) -> float:
@@ -603,6 +606,12 @@ class CornerRow(TypedDict):
     # the nose pointing into it.
     slip_peak: float | None
     slip_mean: float | None
+    # Gear choice (#108): the gear GT7 last suggested on the way into the
+    # corner, and whether the lap was in a higher one at its slowest point.
+    # None on a recording without suggestions, where GT7 suggested nothing
+    # for this corner, and (gear_high) where the car was in no forward gear.
+    suggested_gear: int | None
+    gear_high: bool | None
 
 
 def _rounded(value: float | None, digits: int = 1) -> float | None:
@@ -616,7 +625,8 @@ def corner_report(
     measures: Mapping[int, CornerMeasure] | None = None,
     reference: Mapping[int, CornerMeasure] | None = None,
 ) -> list[CornerRow]:
-    """One lap's speeds, time-through, braking and balance for each corner.
+    """One lap's speeds, time-through, braking, balance and gear choice for
+    each corner.
 
     `corners` is the REFERENCE lap's set (authored or detected), so every lap
     in a comparison is measured through the same entry/exit windows — the same
@@ -689,6 +699,8 @@ def corner_report(
             "brake_delta_m": _rounded(brake_point_delta(mine, theirs)),
             "slip_peak": _rounded(mine.slip_peak if mine else None, 2),
             "slip_mean": _rounded(mine.slip_mean if mine else None, 2),
+            "suggested_gear": mine.suggested_gear if mine else None,
+            "gear_high": gear_high(mine),
         })
     return out
 

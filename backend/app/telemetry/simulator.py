@@ -22,7 +22,7 @@ import random
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
-from app.models import SimulatorFlags, TelemetryPacket
+from app.models import NO_SUGGESTED_GEAR, SimulatorFlags, TelemetryPacket
 from app.telemetry.packet import build_packet, parse_packet
 
 log = logging.getLogger(__name__)
@@ -221,6 +221,62 @@ def _speed_profile(s: float, jitter: float) -> float:
     return max(14.0, base + jitter)
 
 
+def _gear_for(speed: float) -> int:
+    """The gear the simulated car is in at this speed (m/s)."""
+    return min(6, max(1, int(speed / 11) + 1))
+
+
+# GT7's suggested gear (#108), as the simulator plays it: the gear the next
+# corner calls for, shown while the car is in a higher one, and nothing
+# otherwise. What a console really does with the hint — when it shows it,
+# whether it ever suggests an upshift — has not been checked against a
+# recording, so this is a plausible stand-in rather than a model of GT7.
+SUGGEST_AHEAD_M = 150.0  # how far ahead a corner is seen coming
+
+# On about half the laps (those whose jitter came out positive) the driver is
+# lazy through the tight right-hander at about 1600 m (R 47 m): from its
+# braking zone to its exit it will not shift below fourth, one gear above the
+# third its speed calls for. So the corners-a-gear-high count differs from
+# lap to lap, as a driver's does.
+LAZY_CORNER_M = (1450.0, 1650.0)
+LAZY_GEAR = 4
+
+
+def _corner_speed_ahead(distance: float, jitter: float) -> float:
+    """The slowest the car is to go over the next SUGGEST_AHEAD_M (m/s): the
+    driver model's own target, looked for further ahead."""
+    return min(
+        min(
+            _speed_profile(((distance + ahead) % TRACK_LENGTH) / TRACK_LENGTH, jitter),
+            _grip_limit(distance + ahead),
+        )
+        for ahead in range(0, int(SUGGEST_AHEAD_M) + 1, 10)
+    )
+
+
+def _driven_gear(distance: float, speed: float, lazy: bool) -> int:
+    """The gear the driver is in here: the one the speed calls for, but on a
+    lazy lap never below LAZY_GEAR through LAZY_CORNER_M."""
+    gear = _gear_for(speed)
+    lo, hi = LAZY_CORNER_M
+    if lazy and lo <= distance % TRACK_LENGTH < hi:
+        return max(gear, LAZY_GEAR)
+    return gear
+
+
+def _suggested_gear(distance: float, gear: int, jitter: float) -> int:
+    """What GT7 would suggest here, to a car in `gear`.
+
+    The suggestion goes once the car is in the gear it asks for, which on
+    this circuit is before the slowest point of the corners the car slows
+    for — the case the corner report's held suggestion is there for. On a
+    lazy lap the car never gets there, and the hint stays up until the
+    corner is behind it.
+    """
+    wanted = _gear_for(_corner_speed_ahead(distance, jitter))
+    return wanted if wanted < gear else NO_SUGGESTED_GEAR
+
+
 class SimTelemetrySource:
     def __init__(
         self,
@@ -350,7 +406,7 @@ class SimTelemetrySource:
             # line says it does.
             yaw_rate = speed * _curvature_at(distance)
 
-            gear = min(6, max(1, int(speed / 11) + 1))
+            gear = _driven_gear(distance, speed, lazy=lap_jitter > 0)
             rpm = 2000 + (speed * 3.6 % 60) / 60 * 5500 + gear * 100
 
             # Per-wheel slip: hard braking locks the fronts, hard launches spin
@@ -415,7 +471,7 @@ class SimTelemetrySource:
                 total_positions=sim.race_positions,
                 flags=int(flags),
                 current_gear=gear,
-                suggested_gear=15,
+                suggested_gear=_suggested_gear(distance, gear, lap_jitter),
                 throttle=throttle,
                 brake=brake,
                 wheel_rps=rps,
@@ -550,7 +606,7 @@ class SimTelemetrySource:
             px, pz = _position_at(distance)
             velocity, orientation = _motion(distance, speed)
             yaw_rate = speed * _curvature_at(distance)
-            gear = min(6, max(1, int(speed / 11) + 1))
+            gear = _driven_gear(distance, speed, lazy=lap_jitter > 0)
             rpm = 2000 + (speed * 3.6 % 60) / 60 * 5500 + gear * 100
 
             locking = brake > 200
@@ -608,7 +664,7 @@ class SimTelemetrySource:
                 total_positions=0,
                 flags=int(flags),
                 current_gear=gear,
-                suggested_gear=15,
+                suggested_gear=_suggested_gear(distance, gear, lap_jitter),
                 throttle=throttle,
                 brake=brake,
                 wheel_rps=(

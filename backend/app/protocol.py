@@ -153,7 +153,7 @@ class TelemetryFrame(_Strict):
     rpm: int
     rpm_alert: float
     gear: int
-    suggested_gear: int
+    suggested_gear: int = Field(description="15 = no suggestion")
     throttle: float = Field(description="0–100 %")
     brake: float = Field(description="0–100 %")
     boost: float

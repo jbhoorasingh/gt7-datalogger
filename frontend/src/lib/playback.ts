@@ -18,6 +18,7 @@
 // loop. NOT to be confused with race_engineer/replay.py, which recomputes
 // coaching notes from stored laps.
 
+import { NO_SUGGESTION } from "./gearChoice";
 import type { CompareLapEntry, LapSummary, LiveFrame } from "./types";
 
 export const PLAYBACK_SPEEDS = [0.25, 0.5, 1, 2, 4] as const;
@@ -213,7 +214,8 @@ export function frameAtTime(
     // Not in the samples; a plausible redline keeps the RPM bar proportioned.
     rpm_alert: 8000,
     gear: step(series.gear) ?? 0,
-    suggested_gear: 15,
+    // A lap recorded without suggestions shows none, as the live frame does.
+    suggested_gear: step(series.suggested_gear) ?? NO_SUGGESTION,
     throttle: lerp(series.throttle) ?? 0,
     brake: lerp(series.brake) ?? 0,
     boost: lerp(series.boost) ?? 0,

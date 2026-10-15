@@ -37,15 +37,18 @@ shared or backed up, and export as CSV for MoTeC i2 or Excel.
 `contact`, `restart`, `dirty`, `pit-out`. `salvaged` marks a lap recovered from a
 [replay ending](../internals/lap-detection.md#replay-salvage). All five are additive;
 the format version is unchanged. So is a sample column added since, such as
-`body_slip`: a file without it imports as a lap without the channel, and an older
-version importing a file with it drops the column it does not know.
+`body_slip` or `suggested_gear`: a file without it imports as a lap without the
+channel, and an older version importing a file with it drops the column it does not
+know.
 
 The `samples` object holds the **full 60 Hz series** as parallel arrays, one per
 channel — see [Derived channels & metrics](../internals/derived-channels.md) for the
-complete column list with formulas and units (38 columns: time, distance, speed,
-inputs, gear, RPM, boost, per-wheel slip, per-corner tire temps and suspension travel,
-world position and elevation, fuel, driver-aids bitmask, surface, and the optional
-steering, g-force, filtered-input, race-position and body-slip columns). `t` and `dist` both start half a frame
+complete column list with formulas and units (39 columns: time, distance, speed,
+inputs, gear and the gear GT7 suggested, RPM, boost, per-wheel slip, per-corner tire
+temps and suspension travel, world position and elevation, fuel, driver-aids bitmask,
+surface, and the optional steering, g-force, filtered-input, race-position and
+body-slip columns). `suggested_gear` holds 15 where GT7 suggested nothing, and is left
+out of a lap on which it suggested nothing at all. `t` and `dist` both start half a frame
 gap past the line ([why](../internals/lap-detection.md#where-a-lap-begins)); files
 written by earlier versions start `t` at exactly 0 and are converted when imported (and
 when exported again).
@@ -122,7 +125,8 @@ understands:
 - Then a channel-name row and a unit row, followed by one row per tick
 
 Every column the lap has, with explicit units: Time (s), Distance (m), Ground Speed
-(km/h), Throttle Pos (%), Brake Pos (%), Gear, Engine RPM (rpm), Boost Pressure (bar),
+(km/h), Throttle Pos (%), Brake Pos (%), Gear, Suggested Gear (15 = none; only on a lap
+where GT7 suggested one), Engine RPM (rpm), Boost Pressure (bar),
 Tyre Slip Ratio, Yaw Rate (rad/s), Pos X/Y/Z (m), Ride Height (mm), Fuel Level (L), Tyre
 Slip FL/FR/RL/RR, Tyre Temp FL/FR/RL/RR (C), Susp Travel FL/FR/RL/RR (mm), Driver Aids
 and Surface Mask (bitmasks) — and, where the recording carries them, the

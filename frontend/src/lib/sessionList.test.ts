@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   constantColumns,
   dateGroupLabel,
+  emptyColumns,
   formatEventCounts,
   groupByDate,
+  LAP_COLUMNS,
   matchesSessionFilter,
+  withGearChoice,
+  withoutGearChoice,
 } from "./sessionList";
 import type { LapSummary, SessionSummary } from "./types";
 
@@ -94,9 +98,63 @@ describe("constantColumns", () => {
     expect(hidden.get("pos")).toBe("–");
   });
 
-  it("hides nothing but an empty position column below two counting laps", () => {
-    const hidden = constantColumns([lap({})]);
-    expect([...hidden.keys()]).toEqual(["pos"]);
+  it("hides nothing below two counting laps", () => {
+    expect(constantColumns([lap({})]).size).toBe(0);
+  });
+});
+
+describe("emptyColumns", () => {
+  it("finds the columns no lap has anything for, however few laps", () => {
+    expect([...emptyColumns([lap({})])]).toEqual(["pos", "gear"]);
+    expect(emptyColumns([lap({}), lap({ race_position: 3, gear_judged: 2 })]).size).toBe(0);
+  });
+
+  it("counts a lap judged against no suggestion as nothing", () => {
+    // The endpoint lists every lap; one GT7 suggested nothing on is judged 0.
+    expect(emptyColumns([lap({ gear_judged: 0, gear_high: 0 })]).has("gear")).toBe(true);
+  });
+});
+
+describe("the gear-high column", () => {
+  const gear = LAP_COLUMNS.find((c) => c.id === "gear")!;
+
+  it("prints corners a gear high over corners judged, and a dash for none", () => {
+    expect(gear.text(lap({ gear_judged: 9, gear_high: 2 }))).toBe("2/9");
+    expect(gear.text(lap({ gear_judged: 9, gear_high: 0 }))).toBe("0/9");
+    expect(gear.text(lap({}))).toBe("–");
+  });
+
+  it("hides as the same on every lap only when every lap was judged alike", () => {
+    const alike = [lap({ gear_judged: 2, gear_high: 0 }), lap({ gear_judged: 2, gear_high: 0 })];
+    expect(constantColumns(alike).get("gear")).toBe("0/2");
+    const apart = [alike[0], lap({ gear_judged: 2, gear_high: 1 })];
+    expect(constantColumns(apart).has("gear")).toBe(false);
+  });
+
+  it("takes each lap's figures from the gear-choice answer, by lap id", () => {
+    const laps = [lap({ id: 1 }), lap({ id: 2 })];
+    const merged = withGearChoice(laps, {
+      session_id: 1,
+      reference: 1,
+      laps: [{ lap_id: 2, judged: 3, gear_high: 1 }],
+    });
+    expect(merged[0]).toBe(laps[0]);
+    expect(merged[1]).toMatchObject({ id: 2, gear_judged: 3, gear_high: 1 });
+    expect(withGearChoice(laps, null)).toBe(laps);
+  });
+
+  it("is taken off again before a lap is stored back", () => {
+    const [merged] = withGearChoice([lap({ id: 2 })], {
+      session_id: 1,
+      reference: 1,
+      laps: [{ lap_id: 2, judged: 3, gear_high: 1 }],
+    });
+    const plain = withoutGearChoice(merged);
+    expect(plain).not.toHaveProperty("gear_judged");
+    expect(plain).not.toHaveProperty("gear_high");
+    expect(plain.id).toBe(2);
+    const untouched = lap({ id: 3 });
+    expect(withoutGearChoice(untouched)).toBe(untouched);
   });
 });
 

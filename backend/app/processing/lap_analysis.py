@@ -54,6 +54,7 @@ from app.processing.corner_metrics import (
     CornerMeasure,
     LapTrace,
     Window,
+    gear_high,
     measure,
     windows,
 )
@@ -407,6 +408,8 @@ class SessionAnalysis:
             if m.min_speed_dist is not None:
                 speed["min_from_apex_m"] = _r(m.min_speed_dist - window.apex)
             _put(speed, "min_gear", m.min_speed_gear)
+            _put(speed, "suggested_gear", m.suggested_gear)
+            _put(speed, "gear_high", gear_high(m))
             corner["speed"] = speed
 
             _put(corner, "braking", self._braking(m, ref_m, window, events, compare))

@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from statistics import median
 
-from app.models import TelemetryPacket
+from app.models import TelemetryPacket, is_forward_gear
 from app.processing.surface import encode_surface, off_track_excursions
 
 log = logging.getLogger(__name__)
@@ -148,12 +148,33 @@ SAMPLE_COLUMNS = (
     # plan position alone, which where the road crosses over itself means
     # against both levels at once.
     "pos_y",
+    # GT7's suggested gear (#108), the high nibble of the gear byte as it was
+    # broadcast, 15 where GT7 suggested nothing: a sample column is floats,
+    # and neither a lap file nor the importer has a way to say "no value" for
+    # one tick. Every packet format carries it, so like pos_y it is not
+    # optional; a lap on which GT7 suggested nothing at all has it dropped at
+    # completion (prune_unsuggested), and laps stored before it have none.
+    "suggested_gear",
     *OPTIONAL_COLUMNS,
 )
 
 
 def new_sample_store() -> dict[str, list[float]]:
     return {c: [] for c in SAMPLE_COLUMNS}
+
+
+def prune_unsuggested(samples: dict[str, list[float]]) -> None:
+    """Drop the suggested gear from a lap on which GT7 suggested none.
+
+    Every tick records the nibble, so such a lap holds a column of 15s:
+    about 36 KB of a two-minute lap that draws nothing and judges nothing.
+    Without it the lap reads as what it is, a lap with no suggestions.
+    Runs on import too, so a file from another logger is held to the same
+    rule. Mutates `samples`.
+    """
+    suggested = samples.get("suggested_gear")
+    if suggested is not None and not any(is_forward_gear(v) for v in suggested):
+        del samples["suggested_gear"]
 
 
 def prune_optional(samples: dict[str, list[float]]) -> list[str]:
@@ -454,6 +475,7 @@ class CompletedLap:
         dropped = prune_optional(s)
         if dropped:
             log.debug("lap %d: dropped incomplete channels %s", self.number, dropped)
+        prune_unsuggested(s)
         if n == 0:
             return
         # Percentages are time-weighted: after a dropped-frame gap a sample
@@ -1229,6 +1251,7 @@ class LapProcessor:
         s["brake"].append(brake)
         s["coast"].append(1.0 if throttle < 1 and brake < 1 else 0.0)
         s["gear"].append(float(p.current_gear))
+        s["suggested_gear"].append(float(p.suggested_gear))
         s["rpm"].append(round(p.engine_rpm, 1))
         s["boost"].append(round(p.boost, 3))
         s["tire_slip"].append(round(p.tire_slip_ratio, 4))

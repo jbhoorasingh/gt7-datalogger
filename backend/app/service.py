@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import time
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -200,6 +201,12 @@ class TelemetryService:
         # The circuit's authored sections, beside them and for the same
         # reason (#115): named stretches the lap analysis times.
         self._authored_sections: dict[str, list[dict[str, Any]]] = {}
+        # Each lap's gear-choice verdicts (#108), per corner, against one
+        # reference and one set of corners: kept between requests because
+        # the Sessions view asks for them again after every lap and every
+        # ruling, and judging a long session afresh each time is seconds of
+        # decoding and alignment beside the 60 Hz pipeline. Oldest out first.
+        self.gear_verdicts: OrderedDict[tuple[Any, ...], list[bool | None]] = OrderedDict()
         # And its sector boundaries (#22), read out of the same document.
         self._authored_sectors: dict[str, list[dict[str, Any]]] = {}
 

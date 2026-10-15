@@ -50,9 +50,10 @@ Every lap's (aligned) sample series is then resampled onto a distance grid:
   the last point every series stopped up to a step short of the line;
 - each channel is **linearly interpolated** onto the grid, with edge clamping (values
   before the first / after the last sample take the boundary value);
-- except the two packed bitfields, `surface` and `aids`, which take the **nearest**
-  sample's value instead. Interpolating a bitmask invents values: ASM coming on is
-  `0 → 2`, and the midpoint `1` is the TCS bit.
+- except the two packed bitfields, `surface` and `aids`, and the suggested gear, which
+  take the **nearest** sample's value instead. Interpolating a bitmask invents values:
+  ASM coming on is `0 → 2`, and the midpoint `1` is the TCS bit. The suggested gear's
+  "none" is 15, and halfway from a suggested third to none is a suggested ninth.
 
 Two laps resampled this way have directly comparable values at every grid distance:
 "what was each lap doing 850 m into the lap?" This is also a read-time downsample — a
@@ -237,6 +238,14 @@ right-hander and −1 in a left-hander, which makes positive *the nose pointing 
 corner*. `slip_peak` is the largest of those values and `slip_mean` their average over
 the samples, which at 60 Hz is an average over time. A corner crossed in fewer than five
 samples has neither, and nor does a corner that wraps the start line.
+
+**Gear choice** is two more figures on each row: `suggested_gear`, the last gear GT7
+suggested from the start of the corner's approach (the same 250 m before its entry,
+never back past the previous apex) to its slowest point, and `gear_high`, whether the
+gear at that slowest point was higher. Both are `null` on a lap without suggestions and
+where GT7 suggested nothing for the corner; `gear_high` is also `null` for a car in
+neutral or reverse there. The [column and the rule](derived-channels.md#suggested-gear)
+say why the suggestion is held.
 
 ## Stint trend
 

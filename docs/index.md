@@ -12,7 +12,7 @@ GT7 streams encrypted telemetry over UDP at 60 Hz while you drive. GT7 Datalogge
 
 1. **Captures** that stream — Salsa20 decryption, heartbeat keep-alive, auto-discovery,
    automatic reconnect.
-2. **Records** every lap — 38 columns at 60 Hz including per-wheel slip, per-corner
+2. **Records** every lap — 39 columns at 60 Hz including per-wheel slip, per-corner
    tire temps, suspension travel, g-forces and body slip, plus per-lap aggregates and
    detected chassis events (lockups, wheelspin, bottoming, kerb strikes).
 3. **Serves** a web dashboard — live race readouts, multi-lap analysis with synced

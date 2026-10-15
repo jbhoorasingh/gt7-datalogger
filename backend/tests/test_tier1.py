@@ -115,6 +115,14 @@ def test_aid_metrics() -> None:
     assert lap.asm_active_pct == pytest.approx(25.0)
 
 
+def test_suggested_gear_resamples_nearest_not_interpolated() -> None:
+    # 15 is "no suggestion": interpolated, halfway to a suggested third it
+    # would be a suggested ninth (#108).
+    samples = {"dist": [0.0, 10.0, 20.0, 30.0], "suggested_gear": [15.0, 15.0, 3.0, 3.0]}
+    out = resample_by_distance(samples, step=2.5, columns=("suggested_gear",))
+    assert set(out["suggested_gear"]) == {15.0, 3.0}
+
+
 def test_aids_resample_nearest_not_interpolated() -> None:
     # ASM coming on is 0 -> 2. Interpolated onto the grid that passes through
     # 1, the TCS bit, and the comparison view drew traction control where
@@ -162,6 +170,9 @@ async def drive_laps(service: TelemetryService, laps: int = 2) -> None:
                         speed_mps=40.0,
                         throttle=0 if braking else 255,
                         brake=255 if braking else 0,
+                        # GT7 suggests a gear while the car brakes; a lap
+                        # it suggested nothing on keeps no such column.
+                        suggested_gear=2 if braking else 15,
                         fuel_level=100.0 - lap,
                         flags=ON_TRACK | int(SimulatorFlags.TCS_ACTIVE),
                         # FL locks while braking
@@ -239,6 +250,14 @@ async def test_compare_channels_param(client) -> None:
     for col in ("t", "pos_x", "pos_z", "speed", "slip_fl", "tt_fl", "sus_fl", "aids"):
         assert col in series, col
     assert "rpm" not in series
+
+    # The suggested gear is requestable, and off by default (#108)
+    r = (await c.get(f"/api/analysis/compare?laps={ids[0]}&ref={ids[1]}")).json()
+    assert "suggested_gear" not in r["laps"][str(ids[0])]["series"]
+    r = (
+        await c.get(f"/api/analysis/compare?laps={ids[0]}&ref={ids[1]}&channels=suggested_gear")
+    ).json()
+    assert set(r["laps"][str(ids[0])]["series"]["suggested_gear"]) <= {2.0, 15.0}
 
     # Unknown channel -> 400
     resp = await c.get(f"/api/analysis/compare?laps={ids[0]}&ref={ids[1]}&channels=bogus")

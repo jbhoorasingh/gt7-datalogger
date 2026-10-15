@@ -65,6 +65,23 @@ Notable changes to GT7 Datalogger. The format follows
   behind in grey when its gearbox differs. GT7 sends no final drive, so
   the lines are fitted to the lap's own samples; GT7's top speed stands in
   when a lap gives no consistent fit.
+- **Suggested gear, recorded and judged.** (#108) The gear GT7 suggests on
+  its HUD, the *→ 3* the Live view's gear widget already showed, is now
+  kept on every lap as the `suggested_gear` sample column. It holds 15
+  where GT7 suggested nothing, and a lap on which it suggested nothing at
+  all keeps no column. The Analysis **Gear** panel draws it dashed beside
+  each lap's gear and shades the corners taken a gear higher, and the
+  playback strip shows it beside the gear. A corner is judged at its
+  slowest point against the last gear GT7 suggested on the way in. The
+  **Tuning** panel counts the reference lap's **corners a gear high**, and
+  the Sessions lap table gains a **Gear high** column for every lap,
+  measured against the session's quickest counting lap.
+  `corner_report` rows and the lap analysis document's `speed` block carry
+  `suggested_gear` and `gear_high`, `GET /api/analysis/gear-choice` serves
+  the per-lap counts, and the CSV export has a Suggested Gear channel. The
+  lap file's version is unchanged. The simulator now suggests gears, and on
+  about half its laps holds a gear too many through one corner. When GT7
+  fills the suggestion has not been checked against a console yet.
 
 ### Changed
 

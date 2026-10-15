@@ -274,6 +274,9 @@ CSV_CHANNELS = (
     ("throttle", "Throttle Pos", "%"),
     ("brake", "Brake Pos", "%"),
     ("gear", "Gear", ""),
+    # As broadcast, 15 where GT7 suggested nothing (#108); present only on a
+    # lap where it suggested something.
+    ("suggested_gear", "Suggested Gear", ""),
     ("rpm", "Engine RPM", "rpm"),
     ("boost", "Boost Pressure", "bar"),
     ("tire_slip", "Tyre Slip Ratio", ""),

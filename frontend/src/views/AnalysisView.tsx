@@ -45,6 +45,7 @@ import {
 } from "@/lib/channels";
 import { lapColor, lapColorMap } from "@/lib/colors";
 import { cornerRange, selectedCorner, stepCorner } from "@/lib/cornerZoom";
+import { gearHighCount } from "@/lib/gearChoice";
 import { brakeMarkers, hasAid, type MapLayerKey } from "@/lib/mapLayers";
 import { canDraw, LENS_OPTIONS, lensRuns, lensSeries, type MapLens } from "@/lib/mapLens";
 import { hasTrend } from "@/lib/stint";
@@ -98,9 +99,10 @@ const GG_COLUMNS = ["acc_lat", "acc_long"];
 // Playback (#59) synthesizes a LiveFrame at the playhead for the transport's
 // widget strip, so its channels ride along whatever the chart picker says.
 // Optional columns (steer, race_pos) simply come back absent on recordings
-// without them.
+// without them, and so does the suggested gear on a lap GT7 suggested nothing
+// on.
 const PLAYBACK_COLUMNS = [
-  "speed", "throttle", "brake", "gear", "rpm", "boost", "tire_slip",
+  "speed", "throttle", "brake", "gear", "suggested_gear", "rpm", "boost", "tire_slip",
   "steer", "race_pos",
 ];
 
@@ -578,6 +580,9 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
   // row must keep working when a lap from another session is the yardstick.
   const refSummary =
     laps.find((l) => l.id === refLap) ?? guests.find((l) => l.id === refLap);
+  // Corners the reference took a gear higher than GT7 suggested (#108), from
+  // the corner report the gear panel's shading reads too.
+  const gearChoice = gearHighCount(refEntry?.corner_report);
   const session = sessions?.find((s) => s.id === sessionId) ?? null;
   // The open session's laps have loaded and there are none, and nothing from
   // another session was asked for either.
@@ -1362,6 +1367,9 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
               )}
               {(refSummary.min_oil_pressure ?? -1) >= 0 && (
                 <Info k="Min oil press." v={`${refSummary.min_oil_pressure!.toFixed(1)} bar`} />
+              )}
+              {gearChoice.judged > 0 && (
+                <Info k="Corners a gear high" v={`${gearChoice.high} of ${gearChoice.judged}`} />
               )}
               {refSummary.event_counts && Object.keys(refSummary.event_counts).length > 0 && (
                 <Info

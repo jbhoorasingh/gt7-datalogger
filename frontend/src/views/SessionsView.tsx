@@ -28,19 +28,24 @@ import { formatDelta, formatLapTime, formatSpeed, formatTime } from "@/lib/forma
 import { openInAnalysis } from "@/lib/router";
 import {
   constantColumns,
+  emptyColumns,
   eventParts,
   formatEventCounts,
   groupByDate,
   LAP_COLUMNS,
   type LapColumn,
+  type LapColumnDef,
   matchesSessionFilter,
   sessionStarted,
   sessionWhen,
+  withGearChoice,
+  withoutGearChoice,
 } from "@/lib/sessionList";
 import {
   EXCLUDE_REASONS,
   excludeReasonLabel,
   type ExcludeReason,
+  type GearChoice,
   type LapSummary,
   notCountingLabel,
   type PersonalBest,
@@ -102,6 +107,9 @@ export function SessionsView({ subTab = "sessions" }: { subTab?: SubTab }) {
   // Laps of the session on show, tagged with whose they are so a slow answer
   // for the previous session is never shown under the new one.
   const [lapsOf, setLapsOf] = useState<{ sessionId: number; laps: LapSummary[] } | null>(null);
+  // The lap table's gear-high figures (#108), tagged by the session they
+  // answer for like the laps.
+  const [gearOf, setGearOf] = useState<GearChoice | null>(null);
   // Ticked laps, likewise tagged: switching session drops the selection.
   const [ticked, setTicked] = useState<{ sessionId: number; ids: Set<number> } | null>(null);
   const [sort, setSort] = useState<LapSort>("newest");
@@ -170,6 +178,28 @@ export function SessionsView({ subTab = "sessions" }: { subTab?: SubTab }) {
   useEffect(() => {
     if (currentId != null) reloadLaps(currentId);
   }, [currentId, lapEpoch, reloadLaps]);
+
+  // Fetched again when the laps it depends on change: a new lap is one more
+  // to judge, and ruling a lap in or out can move the reference every lap is
+  // judged against. Keyed on just those, not on every refresh of the list
+  // (each live lap, a rename, both halves of a ruling): the server judges a
+  // lap it has not seen before, and asking costs it a read per new lap. A
+  // failure only leaves the column out.
+  const gearSession = lapsOf?.sessionId ?? null;
+  const gearKey = lapsOf
+    ? lapsOf.laps.map((l) => `${l.id}${l.counts_for_best ? "+" : "-"}`).join(",")
+    : "";
+  useEffect(() => {
+    if (gearSession == null) return;
+    let live = true;
+    api.gearChoice(gearSession)
+      .then((g) => live && setGearOf(g))
+      .catch(() => live && setGearOf(null));
+    return () => {
+      live = false;
+    };
+  }, [gearSession, gearKey]);
+  const gear = gearOf && gearOf.session_id === currentId ? gearOf : null;
 
   function toggleLap(id: number) {
     if (currentId == null) return;
@@ -252,9 +282,12 @@ export function SessionsView({ subTab = "sessions" }: { subTab?: SubTab }) {
   }
 
   function putLap(sessionId: number, next: LapSummary) {
+    // The table hands back laps with the gear-choice figures merged in;
+    // those belong to gearOf, and kept here they would outlive a refetch.
+    const lap = withoutGearChoice(next);
     setLapsOf((cur) =>
       cur && cur.sessionId === sessionId
-        ? { sessionId, laps: cur.laps.map((l) => (l.id === next.id ? next : l)) }
+        ? { sessionId, laps: cur.laps.map((l) => (l.id === lap.id ? lap : l)) }
         : cur,
     );
   }
@@ -474,7 +507,7 @@ export function SessionsView({ subTab = "sessions" }: { subTab?: SubTab }) {
 
                   <LapTable
                     session={current}
-                    laps={laps}
+                    laps={withGearChoice(laps, gear)}
                     units={units}
                     sort={sort}
                     onSort={setSort}
@@ -1149,12 +1182,16 @@ function LapTable({
     bestId,
   );
   const constant = constantColumns(laps);
-  const shown = (col: LapColumn) => columnPrefs[col] ?? !constant.has(col);
+  // Columns no lap has anything for (no race positions, no suggested gears)
+  // are hidden without a word and left off the Columns… menu: there is
+  // nothing they could show. So is a quiet column that never changes.
+  const empty = emptyColumns(laps);
+  const silent = (c: LapColumnDef) => empty.has(c.id) || (!!c.quietWhenSame && constant.has(c.id));
+  const shown = (col: LapColumn) => columnPrefs[col] ?? !(empty.has(col) || constant.has(col));
   const columns = LAP_COLUMNS.filter((c) => shown(c.id));
-  // Listed only when hidden automatically, and never position: an all-dash
-  // position column just means it was not a race.
+  // Listed only when hidden automatically for reading the same on every lap.
   const autoHidden = LAP_COLUMNS.filter(
-    (c) => c.id !== "pos" && columnPrefs[c.id] === undefined && constant.has(c.id),
+    (c) => !silent(c) && columnPrefs[c.id] === undefined && constant.has(c.id),
   );
   const rows = [...laps].sort((a, b) =>
     sort === "fastest"
@@ -1187,12 +1224,12 @@ function LapTable({
           ariaLabel="Choose lap table columns"
           className="ml-auto text-[11px] text-accent hover:text-accent-300"
           items={[
-            ...LAP_COLUMNS.filter((c) => c.id !== "pos" || !constant.has("pos") || columnPrefs.pos)
+            ...LAP_COLUMNS.filter((c) => !silent(c) || columnPrefs[c.id])
               .map((c) => ({
                 label: (
                   <span className="flex flex-1 items-center gap-3">
                     <span className="flex-1">{c.label}</span>
-                    {columnPrefs[c.id] === undefined && constant.has(c.id) && (
+                    {columnPrefs[c.id] === undefined && !empty.has(c.id) && constant.has(c.id) && (
                       <span className="text-[10px] text-ink-ghost">same on every lap</span>
                     )}
                   </span>
@@ -1244,6 +1281,7 @@ function LapTable({
               {columns.map((c) => (
                 <th
                   key={c.id}
+                  title={c.title}
                   className={`whitespace-nowrap p-2 font-normal ${c.id === "speed" ? "text-right" : ""}`}
                 >
                   {c.label}
