@@ -5,6 +5,7 @@
 
 import { useEffect, useState } from "react";
 import { CalloutPill } from "@/components/CalloutPill";
+import { ChaseReferenceSelector } from "@/components/ChaseReferenceSelector";
 import { Toggle } from "@/components/ui/Toggle";
 import { CALLOUT_CATALOG } from "@/lib/calloutCatalog";
 import { formatAge, voiceState, type VoiceState } from "@/lib/engineerState";
@@ -83,6 +84,7 @@ export function EngineerView() {
         </div>
 
         <Hero />
+        <ChaseReferenceSelector />
 
         <div className="grid items-start gap-3 [grid-template-columns:repeat(auto-fit,minmax(320px,1fr))]">
           <div className="flex min-w-0 flex-col gap-3">

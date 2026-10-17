@@ -13,6 +13,9 @@ output is a driver-device action on a read-only surface, not an admin one.
 
 from __future__ import annotations
 
+
+
+import asyncio
 import json
 import logging
 from typing import TYPE_CHECKING, Any
@@ -91,6 +94,29 @@ def _handle_client_message(service: TelemetryService, ws: WebSocket, raw: str) -
             # The difference between "the browser said no" and "no idea".
             _text(data, "reason", limit=120),
         )
+
+    elif kind == "set_engineer_reference":
+        lap_id = data.get("lap_id")
+
+        async def apply_reference() -> None:
+            if lap_id is not None and (
+                type(lap_id) is not int or lap_id <= 0
+            ):
+                await ws.send_json({
+                    "type": "engineer_reference_error",
+                    "data": {"message": "Invalid lap ID"},
+                })
+                return
+
+            try:
+                await service.select_engineer_reference(lap_id)
+            except ValueError as exc:
+                await ws.send_json({
+                    "type": "engineer_reference_error",
+                    "data": {"message": str(exc)},
+                })
+
+        asyncio.create_task(apply_reference())
 
 
 @router.websocket("/ws/live")

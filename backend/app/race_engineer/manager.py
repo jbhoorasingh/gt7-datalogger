@@ -89,6 +89,15 @@ class RaceEngineerManager:
         self._seq = 0
         self._pending_reference: dict[str, list[float]] | None = None
         self._reference_lap: int | None = None
+        # Historical reference selection (runtime only).
+        # Session Best remains the default.
+        self.reference_mode = "session_best"
+        self.reference_lap_id: int | None = None
+        self.reference_time_ms: int | None = None
+        # Preserve the original historical lap if a faster lap is invalidated.
+        self._chase_original_lap_id: int | None = None
+        self._chase_original_time_ms: int | None = None
+        self._chase_original_samples: dict[str, list[float]] | None = None
         # The lap about to be reported, already placed on the reference's
         # axis by prepare_lap: (its samples, where they were placed).
         self._prepared: tuple[dict[str, list[float]], LapOnAxis] | None = None
@@ -219,9 +228,22 @@ class RaceEngineerManager:
         candidates = [t for t in (before, record.time_ms if record.counts_for_best else None)
                       if t is not None]
         self.ctx.best_lap_ms = min(candidates) if candidates else None
-        if record.counts_for_best and self.ctx.best_lap_ms == record.time_ms:
-            self._pending_reference = record.samples
-            self._reference_lap = record.number
+        if record.counts_for_best:
+            if self.reference_mode == "chase":
+                # Only a faster valid lap can replace the active benchmark.
+                if (
+                    self.reference_time_ms is not None
+                    and record.time_ms < self.reference_time_ms
+                ):
+                    self._pending_reference = record.samples
+                    self._reference_lap = record.number
+                    self.reference_lap_id = None
+                    self.reference_time_ms = record.time_ms
+
+            elif self.ctx.best_lap_ms == record.time_ms:
+                # Original Session Best behaviour.
+                self._pending_reference = record.samples
+                self._reference_lap = record.number
         return out
 
     def apply_best_override(self, excluded: set[int], best_ms: int | None) -> None:
@@ -236,6 +258,37 @@ class RaceEngineerManager:
         """
         self._reflag(excluded)
         self.ctx.best_lap_ms = best_ms
+
+        # Recalculate the active benchmark after a manual lap override.
+        if self.reference_mode == "chase":
+            # Start with the originally selected historical benchmark.
+            reference_time = self._chase_original_time_ms
+            reference_samples = self._chase_original_samples
+            reference_lap = None
+            reference_id = self._chase_original_lap_id
+
+            # Find the fastest valid live lap that beats it.
+            for rec in self.ctx.laps:
+                if (
+                    rec.session_seq == self.ctx.session_seq
+                    and rec.counts_for_best
+                    and rec.samples.get("dist")
+                    and reference_time is not None
+                    and rec.time_ms < reference_time
+                ):
+                    reference_time = rec.time_ms
+                    reference_samples = rec.samples
+                    reference_lap = rec.number
+                    reference_id = None
+
+            if reference_samples is not None:
+                self._pending_reference = reference_samples
+                self._reference_lap = reference_lap
+                self.reference_lap_id = reference_id
+                self.reference_time_ms = reference_time
+
+            return
+
         best = min(
             (
                 rec
@@ -256,7 +309,7 @@ class RaceEngineerManager:
         for rec in self.ctx.laps:
             if rec.session_seq == self.ctx.session_seq:
                 rec.counts_for_best = rec.number not in excluded
-        if self._reference_lap in excluded:
+        if self.reference_mode != "chase" and self._reference_lap in excluded:
             self.ctx.reference = None
             self.ctx.corners = []
             self._reference_lap = None
@@ -294,12 +347,94 @@ class RaceEngineerManager:
         self.ctx.span_confirmed = False
         self._pending_reference = None
         self._reference_lap = None
+
+        # A new GT7 session always starts in Session Best mode.
+        self.reference_mode = "session_best"
+        self.reference_lap_id = None
+        self.reference_time_ms = None
+        self._chase_original_lap_id = None
+        self._chase_original_time_ms = None
+        self._chase_original_samples = None
+
         self._prepared = None
         self._emitted.clear()
         self._severity.clear()
         self.clock.reset()
         for detector in self._detectors:
             detector.reset(self.ctx)
+    def select_chase_reference(
+        self,
+        lap_id: int,
+        time_ms: int,
+        samples: dict[str, list[float]],
+    ) -> None:
+        """Select a stored lap as the historical coaching benchmark."""
+        if time_ms <= 0 or not samples.get("dist"):
+            raise ValueError("Historical lap has no usable telemetry")
+
+        self.reference_mode = "chase"
+        self.reference_lap_id = lap_id
+        self.reference_time_ms = time_ms
+
+        # Keep the original benchmark for manual invalidation fallback.
+        self._chase_original_lap_id = lap_id
+        self._chase_original_time_ms = time_ms
+        self._chase_original_samples = samples
+
+        # Use the existing reference-refresh pipeline.
+        self._pending_reference = samples
+        self._reference_lap = None
+
+        # A valid live lap may already be faster than the selected history.
+        best_live = min(
+            (
+                rec for rec in self.ctx.laps
+                if rec.session_seq == self.ctx.session_seq
+                and rec.counts_for_best
+                and rec.samples.get("dist")
+                and rec.time_ms < time_ms
+            ),
+            key=lambda rec: rec.time_ms,
+            default=None,
+        )
+
+        if best_live is not None:
+            self._pending_reference = best_live.samples
+            self._reference_lap = best_live.number
+            self.reference_lap_id = None
+            self.reference_time_ms = best_live.time_ms
+
+    def select_session_best_reference(self) -> None:
+        """Return to automatic session-best reference selection."""
+        self.reference_mode = "session_best"
+        self.reference_lap_id = None
+        self.reference_time_ms = None
+
+        self._chase_original_lap_id = None
+        self._chase_original_time_ms = None
+        self._chase_original_samples = None
+
+        best = min(
+            (
+                rec
+                for rec in self.ctx.laps
+                if rec.session_seq == self.ctx.session_seq
+                and rec.counts_for_best
+                and rec.samples.get("dist")
+            ),
+            key=lambda rec: rec.time_ms,
+            default=None,
+        )
+
+        if best is not None:
+            self._pending_reference = best.samples
+            self._reference_lap = best.number
+        else:
+            self._pending_reference = None
+            self._reference_lap = None
+            self.ctx.reference = None
+            self.ctx.corners = []
+
 
     async def refresh_reference(self) -> None:
         """Adopt the new session-best lap as the coaching reference.

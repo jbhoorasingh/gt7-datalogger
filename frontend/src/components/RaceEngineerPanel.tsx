@@ -3,6 +3,7 @@
 // dashboard's settings drawer, so it has to work in a narrow column.
 
 import { useEffect, useState } from "react";
+import { ChaseReferenceSelector } from "./ChaseReferenceSelector";
 import { CALLOUT_CATALOG } from "@/lib/calloutCatalog";
 import { onVoicesChanged } from "@/lib/speech";
 import {
@@ -307,6 +308,8 @@ export function RaceEngineerPanel({
           <div className="text-xs">{s.lastSpoken.text}</div>
         </div>
       )}
+
+      <ChaseReferenceSelector />
     </div>
   );
 }

@@ -608,6 +608,7 @@ class TelemetryService:
             # Corner detection for coaching runs off the event loop; a lap
             # boundary is the only place it can afford to happen.
             await self.engineer.refresh_reference()
+            self.publish_engineer_status()
 
         summary = {
             "id": lap_id,
@@ -665,6 +666,7 @@ class TelemetryService:
             )
             if self.engineer_active:
                 await self.engineer.refresh_reference()
+                self.publish_engineer_status()
 
     async def _reload_best_ref(self) -> None:
         """Point the live delta at the session's fastest counting lap.
@@ -1129,11 +1131,47 @@ class TelemetryService:
             if c.client_id
         ]
 
+    async def select_engineer_reference(self, lap_id: int | None) -> None:
+        """Select a historical coaching reference, or return to Session Best."""
+        if lap_id is None:
+            self.engineer.select_session_best_reference()
+            await self.engineer.refresh_reference()
+            self.publish_engineer_status()
+            return
+
+        if not self.track_name:
+            raise ValueError("Current circuit has not been identified yet")
+
+        lap = await self.repo.get_lap(lap_id, with_samples=True)
+        if lap is None:
+            raise ValueError("Historical lap not found")
+
+        session = await self.repo.get_session(lap["session_id"])
+        if session is None or session["track_name"] != self.track_name:
+            raise ValueError("Historical lap belongs to a different circuit")
+
+        if not lap["counts_for_best"]:
+            raise ValueError("Historical lap is not a valid full lap")
+
+        self.engineer.ctx.track_name = self.track_name
+        self.engineer.select_chase_reference(
+            lap_id=lap_id,
+            time_ms=lap["time_ms"],
+            samples=lap["samples"],
+        )
+        await self.engineer.refresh_reference()
+        self.publish_engineer_status()
+
+
     def engineer_status(self) -> dict[str, Any]:
         return {
             "enabled": self.engineer.enabled,
             "active": self.engineer_active,
             "verbosity": self.engineer.verbosity,
+            # Active coaching benchmark.
+            "reference_mode": self.engineer.reference_mode,
+            "reference_lap_id": self.engineer.reference_lap_id,
+            "reference_time_ms": self.engineer.reference_time_ms,
             # What the server will actually send. Clients use this to grey out
             # categories they could never receive.
             "categories": [

@@ -1057,6 +1057,9 @@ export interface RaceEngineerStatus {
   coaching_ready: boolean;
   active_client_id: string;
   clients: VoiceClientInfo[];
+  reference_mode: "session_best" | "chase";
+  reference_lap_id: number | null;
+  reference_time_ms: number | null;
 }
 
 export interface RaceEngineerDiagnostics extends RaceEngineerStatus {
@@ -1110,6 +1113,12 @@ export type ClientMessage =
          *  silent setup leaves on the server. */
         reason?: string;
       };
+    }
+  | {
+      type: "set_engineer_reference";
+      data: {
+        lap_id: number | null;
+      };
     };
 
 export type WebhookEvent =
@@ -1157,7 +1166,8 @@ export type WsMessage =
   | { type: "survey"; data: SurveyTransition }
   | { type: "voice_callout"; data: VoiceCallout }
   | { type: "voice_output_status"; data: { active_client_id: string } }
-  | { type: "race_engineer_status"; data: RaceEngineerStatus };
+  | { type: "race_engineer_status"; data: RaceEngineerStatus }
+  | { type: "engineer_reference_error"; data: { message: string } };
 
 // Find console (POST /api/admin/discover-console): which address answered a
 // broadcast heartbeat with GT7 telemetry. Reported only — nothing is saved.
