@@ -310,6 +310,9 @@ CSV_CHANNELS = (
     ("brake_f", "Brake Applied", "%"),
     ("race_pos", "Race Position", ""),
     ("body_slip", "Body Slip Angle", "deg"),
+    # Packet C's front road-wheel angle (mean of left and right), beside the
+    # steering-wheel input above.
+    ("wheel_angle", "Front Wheel Angle", "rad"),
 )
 
 

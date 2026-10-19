@@ -244,6 +244,8 @@ class LapRow(Base):
     race_position: Mapped[int] = mapped_column(default=-1)
     events_json: Mapped[str] = mapped_column(Text, default="[]")
     gearing_json: Mapped[str] = mapped_column(Text, default="")
+    # Packet C's wheelbase, metres. NULL = recorded without packet C.
+    wheelbase_m: Mapped[float | None] = mapped_column(default=None)
     samples_json: Mapped[str] = mapped_column(Text)
 
     session: Mapped[SessionRow] = relationship(back_populates="laps")

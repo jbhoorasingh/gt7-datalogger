@@ -122,12 +122,17 @@ START_HEADING_M = 10.0
 #                                         degrees between nose and travel,
 #                                         positive with the nose to the right
 #                                         (TelemetryPacket.body_slip_deg)
+#   wheel_angle                 packet C  mean of the two front road-wheel
+#                                         angles, radians as broadcast — what
+#                                         the tyres actually did, where steer
+#                                         is what the driver's hands did
 OPTIONAL_COLUMNS = (
     "steer",
     "acc_lat", "acc_long", "acc_vert",
     "throttle_f", "brake_f",
     "race_pos",
     "body_slip",
+    "wheel_angle",
 )
 
 # Columnar per-tick series kept for each lap. Column order matters for the
@@ -423,6 +428,10 @@ class CompletedLap:
     clean_lap: bool | None = None
     # Static per lap: {"ratios": [...], "top_speed": float, "rpm_alert": float}
     gearing: dict[str, object] | None = None
+    # Packet C: the car's wheelbase in metres, constant per car. With
+    # wheel_angle it gives the kinematic yaw rate (speed * angle / wheelbase).
+    # None = recorded without packet C.
+    wheelbase_m: float | None = None
     events: list[dict[str, object]] = field(default_factory=list)
     # Geometry and eligibility are separate: a complete race opening lap
     # keeps its full-lap verdict while excluded from pace comparisons.
@@ -611,6 +620,8 @@ class LapProcessor:
     # final result if the flag packet itself reads -1.
     _lap_position: int = -1
     _lap_is_race: bool = False
+    # Last wheelbase packet C reported during the lap buffer (None below C).
+    _wheelbase: float | None = None
     _session_position: int = -1
     _session_total_positions: int = -1
     # The checkered-flag edge fires once per session, however long the
@@ -838,6 +849,7 @@ class LapProcessor:
         fuel_start = self._fuel_start
         engine = (self._max_water, self._max_oil, self._min_oil_pressure)
         lap_position = self._lap_position
+        wheelbase = self._wheelbase
         race_start = prev == 1 and self._lap_is_race
 
         # A transition that abandons the buffer instead of completing it — a
@@ -893,6 +905,7 @@ class LapProcessor:
                 "top_speed": float(p.calculated_max_speed),
                 "rpm_alert": p.rpm_alert_max,
             }
+            lap.wheelbase_m = wheelbase
             lap.compute_metrics()
             assert self._session is not None
             self._session.lap_count += 1
@@ -928,6 +941,7 @@ class LapProcessor:
         self._min_oil_pressure = -1.0
         self._lap_position = -1
         self._lap_is_race = False
+        self._wheelbase = None
 
     def _salvage_candidates(self, p: TelemetryPacket) -> list[int]:
         """Lap times GT7 itself has vouched for, deduped (#26).
@@ -1022,6 +1036,7 @@ class LapProcessor:
             "top_speed": float(src.calculated_max_speed),
             "rpm_alert": src.rpm_alert_max,
         }
+        lap.wheelbase_m = self._wheelbase
         lap.compute_metrics()
         return lap
 
@@ -1300,6 +1315,11 @@ class LapProcessor:
         slip = p.body_slip_deg
         if slip is not None:
             s["body_slip"].append(round(slip, 2))
+        if p.wheel_steering_rad is not None:
+            left, right = p.wheel_steering_rad
+            s["wheel_angle"].append(round((left + right) / 2, 4))
+        if p.wheelbase_m:
+            self._wheelbase = round(p.wheelbase_m, 3)
         # GT7's own lap clock beside the samples (packet C only): the salvage
         # trimmer needs to know where inside this buffer the lap began (#26).
         if p.lap_time_ms is not None:

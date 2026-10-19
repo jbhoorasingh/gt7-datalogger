@@ -480,6 +480,7 @@ class LapImportModel(BaseModel):
     max_oil_temp: float = 0.0
     min_oil_pressure: float = -1.0
     gearing: dict[str, Any] | None = None
+    wheelbase_m: float | None = Field(default=None, gt=0, allow_inf_nan=False)
     # Provenance and verdicts: what the recording machine (or its user)
     # decided about the lap, carried rather than re-derived (#26, #74).
     # Files that predate a field simply keep its default.

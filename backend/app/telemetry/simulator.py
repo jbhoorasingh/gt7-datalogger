@@ -34,6 +34,11 @@ FUEL_PER_LAP = 1.8
 # How long a simulated race streams its cool-down (past-finish packets)
 # before restarting — long enough for the finish edge (#60) to be seen.
 COOLDOWN_TICKS = 180  # ~3 s
+# Packet C's front road-wheel angle is the steering-wheel input through the
+# rack: a fixed road-car-like ratio here, so sim laps carry a wheel_angle
+# column that tracks steer. The wheelbase is a typical sports car's.
+STEERING_RATIO = 12.0
+WHEELBASE_M = 2.6
 
 
 @dataclass(slots=True, frozen=True)
@@ -504,8 +509,8 @@ class SimTelemetrySource:
                 brake_filtered=int(brake * 0.7) if locking else brake,
                 surface_types="CTTT" if kerb else "TTTT",
                 lap_time_ms=int((tick - lap_start_tick) * TICK * 1000),
-                wheel_steering_rad=(lat * 0.3, lat * 0.3),
-                wheelbase_m=2.7,
+                wheel_steering_rad=(lat * 1.2 / STEERING_RATIO,) * 2,
+                wheelbase_m=WHEELBASE_M,
                 car_category="GRX",
             )
             self._packet_count += 1
@@ -696,8 +701,8 @@ class SimTelemetrySource:
                 lap_time_ms=(
                     0 if lap_start_tick < 0 else int((tick - lap_start_tick) * TICK * 1000)
                 ),
-                wheel_steering_rad=(lat * 0.3, lat * 0.3),
-                wheelbase_m=2.7,
+                wheel_steering_rad=(lat * 1.2 / STEERING_RATIO,) * 2,
+                wheelbase_m=WHEELBASE_M,
                 car_category="GRX",
             )
             self._packet_count += 1

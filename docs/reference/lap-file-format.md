@@ -25,6 +25,7 @@ shared or backed up, and export as CSV for MoTeC i2 or Excel.
                   "wheels": ["fl"], "severity": 0.71 } ],
     "gearing": { "ratios": [3.21, 2.44, 1.88, 1.51, 1.24, 1.03],
                  "top_speed": 289.0, "rpm_alert": 7500 },
+    "wheelbase_m": 2.6,
     "samples": { "t": [...], "dist": [...], "speed": [...], "...": "..." }
   }
 }
@@ -41,13 +42,21 @@ the format version is unchanged. So is a sample column added since, such as
 channel, and an older version importing a file with it drops the column it does not
 know.
 
+`wheelbase_m` is the car's wheelbase in metres as packet C broadcasts it (constant
+per car), rounded to a millimetre, and `null` for a lap recorded without packet C.
+With the `wheel_angle` sample column (the front road wheels' mean steering angle,
+packet C only) it gives the yaw rate the car would have with no slip,
+`speed × wheel_angle ÷ wheelbase_m`. Both are additive like the fields above: the
+version stays 2, a file without them imports as a lap without them, and an older
+version drops them.
+
 The `samples` object holds the **full 60 Hz series** as parallel arrays, one per
 channel — see [Derived channels & metrics](../internals/derived-channels.md) for the
-complete column list with formulas and units (39 columns: time, distance, speed,
+complete column list with formulas and units (40 columns: time, distance, speed,
 inputs, gear and the gear GT7 suggested, RPM, boost, per-wheel slip, per-corner tire
 temps and suspension travel, world position and elevation, fuel, driver-aids bitmask,
-surface, and the optional steering, g-force, filtered-input, race-position and
-body-slip columns). `suggested_gear` holds 15 where GT7 suggested nothing, and is left
+surface, and the optional steering, g-force, filtered-input, race-position,
+body-slip and front-wheel-angle columns). `suggested_gear` holds 15 where GT7 suggested nothing, and is left
 out of a lap on which it suggested nothing at all. `t` and `dist` both start half a frame
 gap past the line ([why](../internals/lap-detection.md#where-a-lap-begins)); files
 written by earlier versions start `t` at exactly 0 and are converted when imported (and
@@ -60,7 +69,7 @@ when exported again).
 - If no session is active, an `imported` session is created to hold the lap.
 - **Events and aid-usage metrics are recomputed** from the samples on import (so
   imports benefit from detector improvements), while engine-health aggregates and
-  gearing are carried over verbatim.
+  gearing and `wheelbase_m` are carried over verbatim.
 - **The clock anchor is brought up to date**: a file from before the half-gap anchor
   (`t` from exactly 0) is converted on import, like a stored lap is on read.
 - **Verdicts are carried, not re-derived**: `salvaged`, `full_lap` and any

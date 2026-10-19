@@ -9,8 +9,9 @@ single recorded lap.
 import sqlite3
 
 import pytest
+from alembic import command
 from alembic.script import ScriptDirectory
-from sqlalchemy import inspect
+from sqlalchemy import create_engine, inspect
 
 from app.storage.db import (
     Base,
@@ -193,3 +194,36 @@ async def test_baseline_matches_the_orm_models(tmp_path, table) -> None:
     assert {c["name"] for c in columns} == {
         c.name for c in Base.metadata.tables[table].columns
     }
+
+
+async def test_lap_wheelbase_migration_applies_to_stored_laps(tmp_path) -> None:
+    """0013 adds `laps.wheelbase_m`: laps stored before it read as null (no
+    packet C known), and it downgrades cleanly."""
+    path = tmp_path / "wheelbase.db"
+    con = sqlite3.connect(path)
+    con.executescript(V1_SCHEMA)
+    con.commit()
+    con.close()
+
+    # Bring the legacy file to head, back to the revision before, then across.
+    engine = make_engine(path)
+    await init_db(engine)
+    await engine.dispose()
+    sync = create_engine(f"sqlite:///{path}")
+    cfg = alembic_config()
+    with sync.begin() as conn:
+        cfg.attributes["connection"] = conn
+        command.downgrade(cfg, "0012_session_revision")
+    assert "wheelbase_m" not in _columns(path, "laps")
+    with sync.begin() as conn:
+        cfg.attributes["connection"] = conn
+        command.upgrade(cfg, "head")
+    sync.dispose()
+    assert "wheelbase_m" in _columns(path, "laps")
+    assert _revision(path) == _head() == "0013_lap_wheelbase"
+
+    engine = make_engine(path)
+    repo = Repository(make_session_factory(engine))
+    lap = await repo.get_lap(1, with_samples=False)
+    await engine.dispose()
+    assert lap is not None and lap["wheelbase_m"] is None

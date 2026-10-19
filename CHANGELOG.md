@@ -5,6 +5,20 @@ Notable changes to GT7 Datalogger. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Front wheel angle and wheelbase on every lap.** Laps recorded on packet C
+  carry a new optional sample column, `wheel_angle`: the mean of the two front
+  road wheels' steering angles in radians, as GT7 broadcasts them — what the
+  tyres did, beside `steer`, what the steering wheel did. Each lap also stores
+  the car's `wheelbase_m`. Together they give the yaw rate the car would have
+  with no slip (`speed × wheel_angle ÷ wheelbase`), the reference for measuring
+  understeer and oversteer, and show where the front wheels stop turning while
+  the steering input keeps rising. Both travel in lap export and import, the
+  session archive and (`wheel_angle`, as "Front Wheel Angle") the CSV export;
+  the lap file stays at version 2. Laps recorded without packet C, and every
+  lap stored before, have neither. The simulator sends both.
+
 ## [0.8.0] - 2026-10-15
 
 ### Added

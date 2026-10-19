@@ -88,6 +88,8 @@ def _resolve_direction(
 
 
 # v2 (Tier 1): per-corner sample columns, events, aid/engine metrics, gearing.
+# Later additions (optional sample columns, wheelbase_m) stay v2: they are
+# additive, and an older reader drops what it does not know.
 # v1 files import fine — missing columns stay absent and charts skip them.
 EXPORT_VERSION = 2
 
@@ -349,6 +351,7 @@ class Repository:
                 min_oil_pressure=lap.min_oil_pressure,
                 events_json=json.dumps(lap.events, separators=(",", ":")),
                 gearing_json=json.dumps(lap.gearing, separators=(",", ":")) if lap.gearing else "",
+                wheelbase_m=lap.wheelbase_m,
                 samples_json=json.dumps(lap.samples, separators=(",", ":")),
             )
             db.add(row)
@@ -989,6 +992,7 @@ class Repository:
             data.update(lap_car_fields(result))
             data["events"] = json.loads(row.events_json or "[]")
             data["gearing"] = json.loads(row.gearing_json) if row.gearing_json else None
+            data["wheelbase_m"] = row.wheelbase_m
             if with_samples:
                 data["samples"] = decode_samples(row.samples_json)
             return data
@@ -1400,6 +1404,11 @@ class Repository:
         completed.min_oil_pressure = float(lap.get("min_oil_pressure", -1.0))
         gearing = lap.get("gearing")
         completed.gearing = gearing if isinstance(gearing, dict) else None
+        wheelbase = lap.get("wheelbase_m")
+        completed.wheelbase_m = (
+            round(float(wheelbase), 3) if isinstance(wheelbase, (int, float)) and wheelbase > 0
+            else None
+        )
         # Provenance survives the round-trip: a salvaged lap exported and
         # imported elsewhere is still a salvaged lap (#26).
         completed.salvaged = bool(lap.get("salvaged", False))

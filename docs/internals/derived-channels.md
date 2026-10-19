@@ -51,6 +51,15 @@ mid-lap.
 | `brake_f` | packet ~ | `brake_filtered ÷ 2.55` | % |
 | `race_pos` | a race (any format) | `race_position`, only while GT7 reports one — it sends −1 outside races | position |
 | `body_slip` | a source that sends the car's orientation (any format) | angle between the car's nose and its velocity, [below](#body-slip-angle) | ° |
+| `wheel_angle` | packet C | `(wheel_steering[0] + wheel_steering[1]) ÷ 2`, the front road wheels' mean angle, sign as broadcast | rad |
+
+**Front wheel angle** is what the tyres actually did, where `steer` (packet B) is what
+the driver's hands did on the steering wheel. The two differ by the steering ratio, and
+they part company where the rack runs out of travel: past full lock `steer` keeps rising
+while `wheel_angle` stops. Paired with the lap's `wheelbase_m` (also packet C), it gives
+the kinematic yaw rate — `speed × wheel_angle ÷ wheelbase_m`, the yaw the car would
+have with no tyre slip — against which the measured `yaw_rate` reads as understeer
+(less) or oversteer (more) without a learned baseline.
 
 **Filtered pedals** are the pedal position *after* the aids acted on it. The gap to the
 raw `throttle` / `brake` column is the intervention itself — TCS trimming throttle, ABS
