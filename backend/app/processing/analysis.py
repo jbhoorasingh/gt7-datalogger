@@ -606,6 +606,11 @@ class CornerRow(TypedDict):
     # the nose pointing into it.
     slip_peak: float | None
     slip_mean: float | None
+    # Kinematic balance (#155): the yaw rate the car had over the one its
+    # front wheels asked for (under 1 understeer, over 1 oversteer), and the
+    # metres it spent at the steering lock. None without packet C.
+    yaw_ratio: float | None
+    lock_m: float | None
     # Gear choice (#108): the gear GT7 last suggested on the way into the
     # corner, and whether the lap was in a higher one at its slowest point.
     # None on a recording without suggestions, where GT7 suggested nothing
@@ -699,6 +704,8 @@ def corner_report(
             "brake_delta_m": _rounded(brake_point_delta(mine, theirs)),
             "slip_peak": _rounded(mine.slip_peak if mine else None, 2),
             "slip_mean": _rounded(mine.slip_mean if mine else None, 2),
+            "yaw_ratio": _rounded(mine.yaw_ratio if mine else None, 2),
+            "lock_m": _rounded(mine.lock_m if mine else None),
             "suggested_gear": mine.suggested_gear if mine else None,
             "gear_high": gear_high(mine),
         })

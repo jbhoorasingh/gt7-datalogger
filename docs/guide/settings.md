@@ -248,6 +248,10 @@ How the phone app finds this server.
 - **Connect by code**: the server's address on your network as a QR code, for when
   announcing doesn't reach the phone. Scan it from the app's Connect screen.
 
+A server that listens on `127.0.0.1` only — uvicorn started by hand without
+`--host` — cannot be reached from a phone at all. The page says so instead of
+showing a code, and the server does not announce itself.
+
 ## Health
 
 Live stats, refreshed every 5 s, in three groups:

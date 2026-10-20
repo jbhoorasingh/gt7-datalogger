@@ -122,6 +122,11 @@ async def drive(service: TelemetryService, fmt: str, laps: int = 2) -> None:
                         heave=0.3,
                         throttle_filtered=0 if braking else 140,
                         brake_filtered=180 if braking else 0,
+                        # Negative on the overrun (#150); a replay-sized
+                        # wisp of noise at the very start.
+                        engine_torque_norm=(
+                            3e-6 if tick < 10 else -0.21 if braking else 0.85
+                        ),
                     )
                 )
             )
@@ -169,6 +174,10 @@ async def test_packet_c_records_every_optional_column(client) -> None:
     # Filtered pedals arrive as percentages, like their raw counterparts.
     assert max(samples["throttle_f"]) == pytest.approx(140 / 2.55, abs=0.1)
     assert max(samples["brake_f"]) == pytest.approx(180 / 2.55, abs=0.1)
+    # Delivered engine torque, as broadcast; noise under 1e-5 reads as none.
+    assert samples["engine_torque"][0] == 0.0
+    assert max(samples["engine_torque"]) == pytest.approx(0.85)
+    assert min(samples["engine_torque"]) == pytest.approx(-0.21)
 
 
 async def test_packet_b_stops_at_the_accelerometer(client) -> None:
@@ -180,6 +189,7 @@ async def test_packet_b_stops_at_the_accelerometer(client) -> None:
     samples = (await c.get(f"/api/laps/{lap['id']}")).json()["samples"]
     assert {"steer", "acc_lat", "acc_long", "acc_vert"} <= samples.keys()
     assert "throttle_f" not in samples and "brake_f" not in samples
+    assert "engine_torque" not in samples
 
 
 async def test_csv_export_carries_the_new_channels(client) -> None:
@@ -188,7 +198,9 @@ async def test_csv_export_carries_the_new_channels(client) -> None:
     lap = (await c.get("/api/laps")).json()[0]
     body = (await c.get(f"/api/laps/{lap['id']}/export.csv")).text
     header = body.splitlines()[7]
-    for name in ("Steering Angle", "Accel Lateral", "Throttle Applied", "Brake Applied"):
+    for name in (
+        "Steering Angle", "Accel Lateral", "Throttle Applied", "Brake Applied", "Engine Torque",
+    ):
         assert name in header
 
 

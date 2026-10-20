@@ -1,6 +1,7 @@
 """What a lap did at each corner: braking, turn-in, minimum speed, throttle,
-how far the car was rotated against its own direction of travel, and the
-gear it was in against the one GT7 suggested.
+how far the car was rotated against its own direction of travel, how much
+it rotated against what its front wheels asked for, whether the steering ran
+out of lock, and the gear it was in against the one GT7 suggested.
 
 One definition of each, shared by everything that talks about a corner — the
 race engineer's spoken coaching (#110), the lap analysis document (#115) and
@@ -37,7 +38,8 @@ from bisect import bisect_left, bisect_right
 from dataclasses import dataclass
 from typing import Any
 
-from app.models import is_forward_gear
+from app.models import BODY_SLIP_MIN_SPEED, is_forward_gear
+from app.processing.balance import KIN_YAW, STEER_LOCK
 
 Samples = dict[str, list[float]]
 
@@ -74,6 +76,12 @@ TURN_IN_SEARCH_M = 200.0
 # The fewest samples a corner's body slip is summed up from. A corner the lap
 # crossed in a handful of ticks has a reading, not a balance.
 SLIP_MIN_SAMPLES = 5
+# The kinematic balance (#155) is taken over the corner's ticks where the
+# front wheels asked for at least this much rotation (rad/s, the turn-in
+# floor) at a speed above BODY_SLIP_MIN_SPEED (km/h here): a straight bit of
+# a long window, or a crawl, asks for nothing to measure against.
+BALANCE_MIN_KIN_YAW = TURN_IN_YAW_FLOOR
+BALANCE_MIN_SPEED_KMH = BODY_SLIP_MIN_SPEED * 3.6
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,6 +158,16 @@ class CornerMeasure:
     # the corner's average. Negative is the nose pointing out of the corner.
     slip_peak: float | None = None
     slip_mean: float | None = None
+    # --- kinematic balance (#155)
+    # The yaw rate the car had over the yaw rate its front wheels asked for
+    # (speed x wheel angle / wheelbase), summed over the corner: under 1 is
+    # understeer, over 1 oversteer. None without packet C's wheel angle and
+    # wheelbase, and where the corner asked for too little rotation.
+    yaw_ratio: float | None = None
+    # Metres of the corner the steering spent past full lock: input the
+    # wheels could not follow. 0 when it never got there; None without both
+    # steering channels.
+    lock_m: float | None = None
 
 
 def windows(corners: list[dict[str, Any]]) -> list[Window]:
@@ -342,6 +360,28 @@ def _balance(trace: LapTrace, window: Window, out: CornerMeasure) -> None:
     out.slip_mean = sum(values) / len(values)
 
 
+def _kinematic_balance(trace: LapTrace, window: Window, out: CornerMeasure) -> None:
+    """The corner's yaw against the front wheels' kinematic yaw (#155), and
+    the metres it spent at the steering lock."""
+    inside = trace.span(window.entry, window.exit)
+    kin = trace.column(KIN_YAW)
+    yaw = trace.column("yaw_rate")
+    speed = trace.column("speed")
+    if kin is not None and yaw is not None and speed is not None:
+        asked = [
+            i for i in inside
+            if kin[i] >= BALANCE_MIN_KIN_YAW and speed[i] >= BALANCE_MIN_SPEED_KMH
+        ]
+        if len(asked) >= SLIP_MIN_SAMPLES:
+            # A ratio of sums, not a mean of ratios: one tick asking for next
+            # to nothing would otherwise swing the corner.
+            out.yaw_ratio = sum(yaw[i] for i in asked) / sum(kin[i] for i in asked)
+    lock = trace.column(STEER_LOCK)
+    if lock is not None and len(inside) > 0:
+        d = trace.dist
+        out.lock_m = sum(d[i] - d[i - 1] for i in inside if i > 0 and lock[i] > 0)
+
+
 def _held_suggestion(trace: LapTrace, window: Window, slowest: int) -> int | None:
     """The gear GT7 last suggested on the way into this corner.
 
@@ -369,6 +409,7 @@ def measure_corner(trace: LapTrace, window: Window) -> CornerMeasure:
     if len(trace) < 2 or window.wraps:
         return out
     _balance(trace, window, out)
+    _kinematic_balance(trace, window, out)
     d = trace.dist
     speed = trace.column("speed")
     brake = trace.column("brake")

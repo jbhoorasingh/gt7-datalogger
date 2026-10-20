@@ -39,6 +39,26 @@ COOLDOWN_TICKS = 180  # ~3 s
 # column that tracks steer. The wheelbase is a typical sports car's.
 STEERING_RATIO = 12.0
 WHEELBASE_M = 2.6
+# The front wheels are turned to what the corner needs with no slip at all
+# (wheelbase x curvature) plus this much per m/s² of cornering: a mildly
+# understeering car, so the balance channels (#155) read below neutral, and
+# more so the faster the corner.
+UNDERSTEER_RAD_PER_MS2 = 0.0004
+
+
+def _front_wheel_angle(distance: float, speed: float) -> float:
+    """Radians the front wheels are turned here, signed like the curvature."""
+    k = _curvature_at(distance)
+    return WHEELBASE_M * k + UNDERSTEER_RAD_PER_MS2 * speed * speed * k
+
+
+def _engine_torque(throttle: int, spinning: bool) -> float:
+    """The "~" packet's delivered engine torque (#150): it follows the
+    throttle, TCS trims it with the throttle while the rears spin, and the
+    overrun drags it negative."""
+    if throttle <= 3:
+        return -0.12
+    return throttle / 255 * (0.55 if spinning else 0.9)
 
 
 @dataclass(slots=True, frozen=True)
@@ -410,6 +430,7 @@ class SimTelemetrySource:
             # one number, so the simulated car turns exactly as fast as its own
             # line says it does.
             yaw_rate = speed * _curvature_at(distance)
+            wheels = _front_wheel_angle(distance, speed)
 
             gear = _driven_gear(distance, speed, lazy=lap_jitter > 0)
             rpm = 2000 + (speed * 3.6 % 60) / 60 * 5500 + gear * 100
@@ -492,7 +513,7 @@ class SimTelemetrySource:
                 car_id=CAR_ID,
                 # Packet C extension: exercises the full parse path in dev.
                 fmt="C",
-                wheel_rotation=lat * 1.2,
+                wheel_rotation=wheels * STEERING_RATIO,
                 # Accelerations consistent with the motion actually simulated
                 # (m/s^2): lateral is v*omega with omega the yaw rate sent
                 # above, longitudinal is the real speed delta. They used to be
@@ -507,9 +528,10 @@ class SimTelemetrySource:
                 # the raw ones and the intervention traces (#18) drew nothing.
                 throttle_filtered=int(throttle * 0.55) if spinning else throttle,
                 brake_filtered=int(brake * 0.7) if locking else brake,
+                engine_torque_norm=_engine_torque(throttle, spinning),
                 surface_types="CTTT" if kerb else "TTTT",
                 lap_time_ms=int((tick - lap_start_tick) * TICK * 1000),
-                wheel_steering_rad=(lat * 1.2 / STEERING_RATIO,) * 2,
+                wheel_steering_rad=(wheels, wheels),
                 wheelbase_m=WHEELBASE_M,
                 car_category="GRX",
             )
@@ -611,6 +633,7 @@ class SimTelemetrySource:
             px, pz = _position_at(distance)
             velocity, orientation = _motion(distance, speed)
             yaw_rate = speed * _curvature_at(distance)
+            wheels = _front_wheel_angle(distance, speed)
             gear = _driven_gear(distance, speed, lazy=lap_jitter > 0)
             rpm = 2000 + (speed * 3.6 % 60) / 60 * 5500 + gear * 100
 
@@ -689,11 +712,12 @@ class SimTelemetrySource:
                 calculated_max_speed=290,
                 car_id=CAR_ID,
                 fmt="C",
-                wheel_rotation=lat * 1.2,
+                wheel_rotation=wheels * STEERING_RATIO,
                 sway=speed * lat,
                 surge=(speed - previous_speed) / TICK,
                 throttle_filtered=int(throttle * 0.55) if spinning else throttle,
                 brake_filtered=int(brake * 0.7) if locking else brake,
+                engine_torque_norm=_engine_torque(throttle, spinning),
                 surface_types="CTTT" if kerb else "TTTT",
                 # Frozen at 0 through the pre-roll, then ms since the start
                 # line — the backward-jump/frozen-run shape the trimmer keys
@@ -701,7 +725,7 @@ class SimTelemetrySource:
                 lap_time_ms=(
                     0 if lap_start_tick < 0 else int((tick - lap_start_tick) * TICK * 1000)
                 ),
-                wheel_steering_rad=(lat * 1.2 / STEERING_RATIO,) * 2,
+                wheel_steering_rad=(wheels, wheels),
                 wheelbase_m=WHEELBASE_M,
                 car_category="GRX",
             )

@@ -18,6 +18,9 @@ BODY_SLIP_MIN_SPEED = 8.0
 ORIENTATION_TOLERANCE = 0.05
 # The gear byte's suggested-gear nibble when GT7 suggests nothing (#108).
 NO_SUGGESTED_GEAR = 15
+# Below this the "~" packet's delivered engine torque is noise, not torque:
+# replays carry values under it where the car is making none (#150).
+ENGINE_TORQUE_NOISE = 1e-5
 
 
 def is_forward_gear(value: float) -> bool:
@@ -148,9 +151,27 @@ class TelemetryPacket:
     surge: float | None = None  # longitudinal acceleration
     # Packet "~" and up:
     throttle_filtered: int | None = None  # 0..255, after assists
-    brake_filtered: int | None = None  # 0..255, after assists
+    # 0..255: the brake actually applied, after ABS. Only live driving fills
+    # it in; a replay does not (community findings, #150).
+    brake_filtered: int | None = None
     torque_vectors: tuple[float, ...] | None = None  # per wheel; + drive, - brake/regen
     energy_recovery: float | None = None
+    # The three below were unnamed in the community layout until late 2026,
+    # and what they mean comes from community reverse-engineering (GTPlanet's
+    # telemetry thread, Nenkai/PDTools#14), not from Polyphony (#150).
+    # 0x13E, the powertrain / motor-layout byte: 0 on every combustion car
+    # checked; 4 on electric cars, 9 on four-motor cars with active torque
+    # vectoring, 2 also seen. Possibly a bitmask; unconfirmed.
+    powertrain_flags: int | None = None
+    # 0x13F: whether energy_recovery carries anything for this car. Set on
+    # most hybrids and EVs, where energy_recovery is live; on the rest it
+    # stays 0. PDTools calls it NoGasConsumption.
+    energy_recovery_available: bool | None = None
+    # 0x154: the engine torque being delivered, normalized. Tracks boost and
+    # throttle closely, is negative on the overrun and exactly 0 with the
+    # clutch in or in neutral. Not bounded to +-1 (a Taycan runs about -2.7
+    # to +9.9). Replays carry noise below ENGINE_TORQUE_NOISE in it.
+    engine_torque_norm: float | None = None
     # Packet C only:
     surface_types: str | None = None  # per wheel FL FR RL RR: T/C/D/G/S/s
     lap_time_ms: int | None = None  # live current-lap timer

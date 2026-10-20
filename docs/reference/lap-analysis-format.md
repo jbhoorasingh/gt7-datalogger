@@ -52,6 +52,7 @@ this page.
 | `line` | metres off the reference lap's line at the same place; **positive is tighter** (towards the inside of the corner) |
 | `edges` | metres from the car's centre to the surveyed road edge |
 | `car.stock` | the car **as it leaves the showroom**; a tuned or balanced car differs, and its own figures are not recorded |
+| `yaw_ratio` | the yaw rate the car had over the yaw rate its front wheels asked for (`speed × wheel angle ÷ wheelbase`): **under 1 is understeer, over 1 oversteer** |
 | speeds, times, pedals, temperatures | km/h, ms, percent of travel, °C |
 | an absent key | the lap did not do the thing, or the recording cannot say — **never zero** |
 
@@ -79,7 +80,8 @@ no corner names where nobody has named the corners.
                       "torque_kgfm": 51.0, "weight_kg": 1250,
                       "performance_points": 731.91 },
            "gearing": { "ratios": [3.046, 2.198, 1.715, 1.403, 1.203, 1.082],
-                        "rpm_alert": 10000.0 } },
+                        "rpm_alert": 10000.0 },
+           "wheelbase_m": 2.459 },
   "circuit": { "name": "Mount Panorama Motor Racing Circuit", "official_id": "ec1eb6",
                "lap_length_m": 6168.1, "corners": "authored", "sections": "none",
                "surveyed": true },
@@ -115,6 +117,7 @@ another:
 | `manufacturer`, `year`, `drivetrain` | the **car inventory**: Polyphony's own published car list, shipped with the app and refreshed from gran-turismo.com | facts about the car that no tuning changes |
 | `stock`: `aspiration`, `displacement_cc`, `power_bhp`, `torque_kgfm`, `weight_kg`, `performance_points` | the car inventory | the car **as it leaves the showroom** |
 | `gearing` | GT7's telemetry, from the session's first lap that carried it | the gearbox **as it was set up** for the session |
+| `wheelbase_m` | GT7's telemetry (packet C), from the reference lap or the session's first lap that carried it | the car's wheelbase, which the corners' `balance` is worked out with |
 
 GT7 does not broadcast a car's power, weight or Performance Points, so the app never
 knows them for the car as it was driven. Everything under `stock` is the showroom
@@ -127,7 +130,8 @@ upshifts in each lap's `shifts` are to be read against.
 
 A key is absent where its source has no answer: a car that is not in the inventory
 has an `id`, a `name` and a `category` only, an electric car has no
-`displacement_cc`, and a lap recorded before gearing was captured has no `gearing`.
+`displacement_cc`, a lap recorded before gearing was captured has no `gearing`, and a
+session recorded without packet C has no `wheelbase_m`.
 
 The inventory's answers are written onto a session as it opens, and filled in on
 stored sessions whenever a newer inventory is loaded. An install that still pins the
@@ -177,6 +181,7 @@ the app.
   "turn_in": { "from_apex_m": -61.8, "brake_pct": 55.7, "trail_m": 8.0 },
   "throttle": { "flat": false, "on_from_apex_m": -44.4, "full_from_apex_m": 80.4,
                 "wheelspin": 1, "tcs_pct": 87.6 },
+  "balance": { "yaw_ratio": 0.86, "yaw_ratio_vs_ref": -0.04, "lock_m": 0.0 },
   "line": { "entry_m": 0.9, "apex_m": 1.82, "exit_m": 1.33 },
   "edges": { "entry": { "inside_m": 2.78, "outside_m": 3.7 },
              "apex": { "inside_m": 0.26, "outside_m": 8.87 },
@@ -200,6 +205,7 @@ A corner the lap did not drive the whole of (a partial lap) is left out of its l
 | `braking` | the braking zone: where it began and ended, how long and how hard, the speed at each end, and lockups in it. **Absent** when neither this lap nor the reference braked for the corner; `{"none": true}` when the reference did and this lap did not. `on_from_apex_m`, `on_vs_ref` and `length_m` are absent when the brake was already on at the lap's first sample |
 | `turn_in` | where the car began to turn, the brake pedal at that moment, and `trail_m` — how far the brake was carried past it (0 when it was released first). Absent when the corner runs on from the one before |
 | `throttle` | `flat: true` when the throttle never came off (no pick-up points then); otherwise where it came back and where it reached full, wheelspin on the way out, and `tcs_pct` — the share of the apex-to-exit stretch with traction control acting |
+| `balance` | how the car turned against what its front wheels asked for, on a recording made on packet C: `yaw_ratio` (under 1 understeer, over 1 oversteer) and `lock_m`, the metres spent at the steering lock (0 when it never got there). **Absent** without packet C's wheel angle and wheelbase; `lock_m` also without the steering input |
 | `line` | lateral offset from the reference lap's line at the corner's three marks |
 | `edges` | road left on each side at the three marks, on surveyed circuits. A mark is absent where the survey has a gap |
 | `approach` | the road between the corner before and this one. What a poor exit costs is lost here, not in either corner's window |
@@ -261,6 +267,8 @@ These are `app/processing/corner_metrics.py`'s definitions, shared with the
 | Flat | the throttle never came under 20 % between the braking zone's start (or the entry) and the slowest point |
 | Suggested gear | the last gear in 1–14 GT7 suggested from **250 m** before the corner's entry (never back past the previous apex) up to and including the slowest point. The last one, because when GT7 clears its hint has not been checked against a console |
 | Gear high | the gear at the slowest point, in 1–14, is higher than the suggested gear |
+| Yaw ratio | the measured yaw rate summed over the corner's ticks that asked for at least **0.03 rad/s** above **29 km/h**, over the [kinematic yaw](../internals/derived-channels.md#kinematic-yaw-and-balance) summed over the same ticks; at least five of them |
+| Lock | ticks with the front wheels within **3 %** of the lap's largest angle while the steering input runs at least **10 %** (and **0.1 rad**) ahead of the lap's steering ratio; `lock_m` is the metres of the corner's window they cover. See [the steering lock](../internals/derived-channels.md#the-steering-lock) |
 
 ## Versioning
 

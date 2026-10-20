@@ -74,8 +74,10 @@ assert _HEAD.size == PACKET_SIZE_A
 
 # Packet "B" extension at 0x128: wheel rotation, filler, sway, heave, surge.
 _EXT_B = struct.Struct("<5f")
-# Packet "~" extension at 0x13C: filtered throttle/brake, 2 unknown bytes,
-# 4 torque-vector floats, energy recovery, 1 unknown float.
+# Packet "~" extension at 0x13C: filtered throttle/brake, powertrain byte,
+# energy-recovery flag, 4 torque-vector floats, energy recovery, delivered
+# engine torque. The meaning of the last three is the community's (#150), not
+# Polyphony's: see the TelemetryPacket fields.
 _EXT_TILDE = struct.Struct("<4B4f2f")
 # Packet "C" extension at 0x158: per-wheel surface chars, live lap time,
 # front wheel steering angles, wheelbase, car category string.
@@ -134,6 +136,9 @@ def parse_packet(plain: bytes) -> TelemetryPacket:
     brake_f: int | None = None
     torque_vectors: tuple[float, ...] | None = None
     energy_recovery: float | None = None
+    powertrain: int | None = None
+    recovery_flag: int | None = None
+    engine_torque: float | None = None
     surface_types: str | None = None
     lap_time_ms: int | None = None
     wheel_steering: tuple[float, float] | None = None
@@ -145,9 +150,9 @@ def parse_packet(plain: bytes) -> TelemetryPacket:
         )
     if len(plain) >= PACKET_SIZE_TILDE:
         (
-            throttle_f, brake_f, _u1, _u2,
+            throttle_f, brake_f, powertrain, recovery_flag,
             tv0, tv1, tv2, tv3,
-            energy_recovery, _u3,
+            energy_recovery, engine_torque,
         ) = _EXT_TILDE.unpack_from(plain, PACKET_SIZE_B)
         torque_vectors = (tv0, tv1, tv2, tv3)
     if len(plain) >= PACKET_SIZE_C:
@@ -192,6 +197,9 @@ def parse_packet(plain: bytes) -> TelemetryPacket:
         wheel_rotation=wheel_rotation, sway=sway, heave=heave, surge=surge,
         throttle_filtered=throttle_f, brake_filtered=brake_f,
         torque_vectors=torque_vectors, energy_recovery=energy_recovery,
+        powertrain_flags=powertrain,
+        energy_recovery_available=None if recovery_flag is None else recovery_flag != 0,
+        engine_torque_norm=engine_torque,
         surface_types=surface_types, lap_time_ms=lap_time_ms,
         wheel_steering_rad=wheel_steering, wheelbase_m=wheelbase,
         car_category=car_category,
@@ -247,6 +255,9 @@ def build_packet(
     brake_filtered: int = 0,
     torque_vectors: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0),
     energy_recovery: float = 0.0,
+    powertrain_flags: int = 0,
+    energy_recovery_available: bool = False,
+    engine_torque_norm: float = 0.0,
     surface_types: str = "TTTT",
     lap_time_ms: int = 0,
     wheel_steering_rad: tuple[float, float] = (0.0, 0.0),
@@ -296,7 +307,9 @@ def build_packet(
     if fmt == "B":
         return out
     out += _EXT_TILDE.pack(
-        throttle_filtered, brake_filtered, 0, 0, *torque_vectors, energy_recovery, 0.0
+        throttle_filtered, brake_filtered,
+        powertrain_flags, int(energy_recovery_available),
+        *torque_vectors, energy_recovery, engine_torque_norm,
     )
     if fmt == "~":
         return out

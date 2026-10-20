@@ -59,6 +59,7 @@ const CORNER_NAME = {
 // OPTIONAL_COLUMNS in backend/app/processing/laps.py).
 const PACKET_B = "Packet B or wider";
 const PACKET_TILDE = "Packet ~ or wider";
+const PACKET_C = "Packet C (game v1.68 or later)";
 
 export const CHANNELS: ChannelDef[] = [
   // --- Driving (the classic set) ---
@@ -122,6 +123,17 @@ export const CHANNELS: ChannelDef[] = [
     group: "Engine",
     height: 0.7,
   },
+  // Delivered engine torque (#150), normalized as GT7 broadcasts it, so a
+  // torque trace sits under the throttle trace without any car data.
+  {
+    key: "engine_torque",
+    title: "Engine torque",
+    description:
+      "The torque the engine was delivering, in GT7's normalized units (as decoded by the community): it follows the throttle and boost, dips below zero on the overrun and is 0 with the clutch in.",
+    needs: PACKET_TILDE,
+    group: "Engine",
+    height: 0.8,
+  },
   {
     key: "yaw_rate",
     title: "Yaw rate (rad/s)",
@@ -138,6 +150,17 @@ export const CHANNELS: ChannelDef[] = [
     description:
       "Steering wheel angle as GT7 broadcasts it, in radians; left and right have opposite signs.",
     needs: PACKET_B,
+    group: "Driving",
+    height: 0.8,
+  },
+  // What the road wheels did with that input (#155). Beside Steering, the
+  // point where the input keeps rising and this stops is the steering lock.
+  {
+    key: "wheel_angle",
+    title: "Front wheel angle (rad)",
+    description:
+      "How far the front road wheels turned, in radians — what the tyres did with the Steering input. Where Steering keeps rising and this goes flat, the steering has run out of lock.",
+    needs: PACKET_C,
     group: "Driving",
     height: 0.8,
   },
@@ -173,7 +196,7 @@ export const CHANNELS: ChannelDef[] = [
     key: "brake_f",
     title: "Brake applied %",
     description:
-      "The brake after ABS acted on it. Where it sits below Brake %, ABS was releasing pressure.",
+      "The brake actually applied, after ABS acted on it. Where it sits below Brake %, ABS was releasing pressure. Live driving only: a replay doesn't carry it.",
     needs: PACKET_TILDE,
     group: "Driving",
     height: 0.8,
@@ -192,7 +215,8 @@ export const CHANNELS: ChannelDef[] = [
   {
     key: "abs_release",
     title: "ABS release (% brake)",
-    description: "How much brake pressure ABS gave back: Brake % minus Brake applied %.",
+    description:
+      "How much brake pressure ABS gave back: Brake % minus Brake applied %. Live driving only, like Brake applied.",
     needs: PACKET_TILDE,
     group: "Driving",
     height: 0.7,
@@ -246,6 +270,26 @@ export const CHANNELS: ChannelDef[] = [
     description:
       "The angle between where the car points and where it is going. Positive is the nose to the right of travel: into a right-hander, out of a left-hander. Zero below 29 km/h.",
     needs: "A recording made with 0.7.0 or later",
+    group: "Chassis",
+    height: 0.9,
+  },
+  // Kinematic balance (#155), derived server-side from the full-rate ticks:
+  // speed × front wheel angle ÷ wheelbase is the yaw the wheels asked for.
+  {
+    key: "kin_yaw",
+    title: "Kinematic yaw (rad/s)",
+    description:
+      "The rotation the front wheels asked for: speed × wheel angle ÷ wheelbase, the yaw rate with no tyre slip at all. Unsigned like Yaw rate, so the two lie side by side.",
+    needs: PACKET_C,
+    group: "Chassis",
+    height: 0.8,
+  },
+  {
+    key: "yaw_balance",
+    title: "Yaw balance (rad/s)",
+    description:
+      "Yaw rate minus Kinematic yaw. Below zero the car rotated less than its front wheels asked (understeer), above zero more (oversteer). Opposite lock reads nearer zero; Body slip shows it.",
+    needs: PACKET_C,
     group: "Chassis",
     height: 0.9,
   },

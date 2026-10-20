@@ -35,7 +35,9 @@ Browse for it from a shell with `dns-sd -B _gt7dl._tcp` (macOS) or
 
 Multicast does not leave a Docker bridge network, and some routers drop it between
 Wi-Fi and wired. **Settings › Phone app** shows the server's address as a QR code for
-those cases.
+those cases. A server listening on `127.0.0.1` only (uvicorn's command line without
+`--host`) does not announce itself, and the QR card says why: the LAN address would
+not answer on that port.
 
 ## Connecting
 

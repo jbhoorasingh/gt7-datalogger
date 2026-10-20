@@ -239,6 +239,15 @@ corner*. `slip_peak` is the largest of those values and `slip_mean` their averag
 the samples, which at 60 Hz is an average over time. A corner crossed in fewer than five
 samples has neither, and nor does a corner that wraps the start line.
 
+**Kinematic balance** is two more, on a recording made on packet C:
+`yaw_ratio`, the measured yaw rate over the
+[kinematic yaw](derived-channels.md#kinematic-yaw-and-balance) the front wheels asked
+for, summed over the window's ticks that asked for at least 0.03 rad/s above 29 km/h
+(under 1 understeer, over 1 oversteer), and `lock_m`, the metres of the window spent
+[at the steering lock](derived-channels.md#the-steering-lock). `yaw_ratio` is `null`
+without the wheel angle and wheelbase or with fewer than five such ticks; `lock_m` is
+`null` without both steering channels, and 0 for a corner that never reached the lock.
+
 **Gear choice** is two more figures on each row: `suggested_gear`, the last gear GT7
 suggested from the start of the corner's approach (the same 250 m before its entry,
 never back past the previous apex) to its slowest point, and `gear_high`, whether the

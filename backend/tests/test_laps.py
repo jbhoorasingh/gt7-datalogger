@@ -483,16 +483,19 @@ async def test_salvage_requires_time_match(setup) -> None:
 
 async def test_salvage_on_loading(setup) -> None:
     """A replay's ending streams LOADING while the menu builds; the finished
-    lap is salvaged from the buffer once, not once per LOADING packet."""
+    lap is salvaged from the buffer once, not once per LOADING packet. It is
+    held while the stop lasts (#153) and emitted when the stream ends."""
     proc, c = setup
     await feed_lap(proc, 1, 300, speed_mps=50.0)
     gt = round(proc.live_lap_samples["t"][-1] * 1000)
-    await proc.feed(make_packet(current_lap=0, flags=LOADING, last_lap_time_ms=gt))
+    for _ in range(6):
+        await proc.feed(make_packet(current_lap=0, flags=LOADING, last_lap_time_ms=gt))
+    assert c.laps == []
+    await proc.flush()
     assert len(c.laps) == 1
     assert c.laps[0].number == 1
     assert c.laps[0].salvaged is True
-    for _ in range(5):
-        await proc.feed(make_packet(current_lap=0, flags=LOADING, last_lap_time_ms=gt))
+    await proc.flush()
     assert len(c.laps) == 1
 
 
@@ -509,6 +512,7 @@ async def test_salvage_trims_preroll_with_lap_clock(setup) -> None:
         )
     gt = round(399 / 60 * 1000)  # duration of the flying lap alone
     await proc.feed(make_packet(flags=LOADING, last_lap_time_ms=gt, fmt="C"))
+    await proc.flush()
     assert len(c.laps) == 1
     lap = c.laps[0]
     assert lap.number == 0  # a later real lap 1 in this session must not collide
@@ -562,11 +566,12 @@ async def test_salvage_splits_session_before_own_driving(setup) -> None:
         )
     gt = round(proc.live_lap_samples["t"][-1] * 1000)
     await proc.feed(make_packet(flags=LOADING, last_lap_time_ms=gt, fmt="C"))
-    assert len(c.laps) == 1 and c.laps[0].salvaged is True
     salvaged_sessions = len(c.sessions)
     # Same car drives: out-lap 0, then a real lap 1 completed at the 1 -> 2
-    # boundary. It must open its own session.
+    # boundary. It must open its own session. Driving resuming is what
+    # emits the held salvage (#153).
     await feed_lap(proc, 0, 10, speed_mps=50.0)
+    assert len(c.laps) == 1 and c.laps[0].salvaged is True
     await feed_lap(proc, 1, 300, speed_mps=50.0)
     await proc.feed(make_packet(current_lap=2, last_lap_time_ms=6_000, speed_mps=50.0))
     assert len(c.sessions) == salvaged_sessions + 1
@@ -590,6 +595,9 @@ async def test_back_to_back_replay_salvages_get_own_sessions(setup) -> None:
             )
         gt = round((cycle_ticks - 1) * 1000 / 60)
         await proc.feed(make_packet(flags=LOADING, last_lap_time_ms=gt, fmt="C"))
+    # The second replay's first packet resolves the first one's held salvage
+    # (lap 0 is never a stop mid-lap, #153); the stream ending, the second's.
+    await proc.flush()
     assert len(c.laps) == 2
     assert all(lap.salvaged for lap in c.laps)
     assert len(c.sessions) == 2
@@ -614,6 +622,7 @@ async def test_salvage_survives_post_line_stub(setup) -> None:
         )
     gt = round(399 / 60 * 1000)  # the flying lap's duration alone
     await proc.feed(make_packet(flags=LOADING, last_lap_time_ms=gt, fmt="C"))
+    await proc.flush()
     assert len(c.laps) == 1
     lap = c.laps[0]
     assert lap.salvaged is True
@@ -637,6 +646,7 @@ async def test_salvage_trims_frozen_final_frame_hold(setup) -> None:
         await proc.feed(make_packet(current_lap=0, speed_mps=50.0, fmt="C", lap_time_ms=frozen))
     gt = round(399 / 60 * 1000)
     await proc.feed(make_packet(flags=LOADING, last_lap_time_ms=gt, fmt="C"))
+    await proc.flush()
     assert len(c.laps) == 1
     lap = c.laps[0]
     assert lap.salvaged is True

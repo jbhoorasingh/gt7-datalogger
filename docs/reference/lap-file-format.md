@@ -52,11 +52,11 @@ version drops them.
 
 The `samples` object holds the **full 60 Hz series** as parallel arrays, one per
 channel — see [Derived channels & metrics](../internals/derived-channels.md) for the
-complete column list with formulas and units (40 columns: time, distance, speed,
+complete column list with formulas and units (41 columns: time, distance, speed,
 inputs, gear and the gear GT7 suggested, RPM, boost, per-wheel slip, per-corner tire
 temps and suspension travel, world position and elevation, fuel, driver-aids bitmask,
 surface, and the optional steering, g-force, filtered-input, race-position,
-body-slip and front-wheel-angle columns). `suggested_gear` holds 15 where GT7 suggested nothing, and is left
+body-slip, front-wheel-angle and engine-torque columns). `suggested_gear` holds 15 where GT7 suggested nothing, and is left
 out of a lap on which it suggested nothing at all. `t` and `dist` both start half a frame
 gap past the line ([why](../internals/lap-detection.md#where-a-lap-begins)); files
 written by earlier versions start `t` at exactly 0 and are converted when imported (and

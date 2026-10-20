@@ -83,10 +83,11 @@ async def _first_lap(c: AsyncClient) -> dict:
     return (await c.get(f"/api/laps/{laps[0]['id']}")).json()
 
 
-def test_the_column_is_optional_and_last() -> None:
+def test_the_column_is_optional_and_after_body_slip() -> None:
     assert "wheel_angle" in OPTIONAL_COLUMNS
-    assert SAMPLE_COLUMNS[-1] == "wheel_angle"
+    # Appended after body_slip; only later additions (engine_torque) follow.
     assert SAMPLE_COLUMNS.index("wheel_angle") == SAMPLE_COLUMNS.index("body_slip") + 1
+    assert SAMPLE_COLUMNS[SAMPLE_COLUMNS.index("wheel_angle") + 1:] == ("engine_torque",)
 
 
 async def test_packet_c_records_the_mean_front_wheel_angle(client) -> None:

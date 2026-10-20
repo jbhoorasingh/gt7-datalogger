@@ -666,6 +666,12 @@ export interface CornerReportRow {
   // recording without the body_slip channel.
   slip_peak?: number | null;
   slip_mean?: number | null;
+  // Kinematic balance (#155): the yaw rate the car had over the one its
+  // front wheels asked for, through the corner (under 1 understeer, over 1
+  // oversteer), and the metres spent past the steering lock (0 = never).
+  // Null on a recording without packet C's wheel angle and wheelbase.
+  yaw_ratio?: number | null;
+  lock_m?: number | null;
   // Gear choice (#108): the gear GT7 last suggested on the way into the
   // corner, and whether the lap was in a higher one at its slowest point.
   // Null where GT7 suggested nothing for the corner (and gear_high where the
@@ -1150,7 +1156,12 @@ export interface AdminStats {
   cars_loaded: number;
   source: ConnectionStatus;
   clients: number;
+  /** Where another device on the LAN reaches this server; empty when there is
+   * no LAN address or the server listens on loopback only. */
   lan_ip: string;
+  /** The server is bound to 127.0.0.1 (uvicorn's CLI without --host, #151):
+   * nothing on the LAN can reach it, whatever its address. */
+  loopback_only: boolean;
   /** The port the server actually listens on (uvicorn --port wins over GT7_HTTP_PORT). */
   http_port: number;
   /** While announced over mDNS (#142): the service name and where it points. */

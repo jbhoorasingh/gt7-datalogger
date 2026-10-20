@@ -132,6 +132,38 @@ def test_parse_packet_tilde_extension() -> None:
     assert p.lap_time_ms is None  # C fields absent in ~
 
 
+@pytest.mark.parametrize("fmt", ["~", "C"])
+def test_tilde_round_trips_the_community_decoded_fields(fmt) -> None:
+    """#150: the bytes at 0x13E/0x13F and the float at 0x154, unnamed until
+    the community worked them out, come through parse_packet."""
+    p = parse_packet(
+        make_plain(
+            fmt=fmt,
+            powertrain_flags=9,
+            energy_recovery_available=True,
+            engine_torque_norm=-0.42,
+            energy_recovery=1.25,
+        )
+    )
+    assert p.powertrain_flags == 9
+    assert p.energy_recovery_available is True
+    assert p.engine_torque_norm is not None and abs(p.engine_torque_norm - -0.42) < 1e-6
+    # Neighbours stay where they were.
+    assert p.energy_recovery is not None and abs(p.energy_recovery - 1.25) < 1e-6
+    off = parse_packet(make_plain(fmt=fmt))
+    assert (off.powertrain_flags, off.energy_recovery_available, off.engine_torque_norm) == (
+        0, False, 0.0,
+    )
+
+
+@pytest.mark.parametrize("fmt", ["A", "B"])
+def test_narrower_formats_have_no_community_decoded_fields(fmt) -> None:
+    p = parse_packet(make_plain(fmt=fmt))
+    assert p.powertrain_flags is None
+    assert p.energy_recovery_available is None
+    assert p.engine_torque_norm is None
+
+
 def test_parse_packet_c_extension() -> None:
     p = parse_packet(
         make_plain(

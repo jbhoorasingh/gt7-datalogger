@@ -136,6 +136,35 @@ def test_served_port(argv, port) -> None:
     assert discovery.served_port(Settings(http_port=8123), argv) == port
 
 
+@pytest.mark.parametrize(("argv", "host"), [
+    (["uvicorn", "app.main:app", "--host", "0.0.0.0"], "0.0.0.0"),
+    (["uvicorn", "app.main:app", "--host=10.0.0.5", "--port", "8000"], "10.0.0.5"),
+    # uvicorn's CLI binds loopback unless told otherwise: the dev script (#151).
+    (["/repo/backend/.venv/bin/uvicorn", "app.main:app", "--port", "8000"], "127.0.0.1"),
+    (["/usr/lib/python3/site-packages/uvicorn/__main__.py", "app.main:app"], "127.0.0.1"),
+    # python -m app.main binds GT7_HTTP_HOST.
+    (["/repo/backend/app/main.py"], "192.168.1.9"),
+])
+def test_served_host(argv, host) -> None:
+    assert discovery.served_host(Settings(http_host="192.168.1.9"), argv) == host
+
+
+@pytest.mark.parametrize(("host", "loopback"), [
+    ("127.0.0.1", True), ("localhost", True), ("::1", True),
+    ("0.0.0.0", False), ("::", False), ("10.0.0.5", False), ("gt7.local", False),
+])
+def test_is_loopback(host, loopback) -> None:
+    assert discovery.is_loopback(host) is loopback
+
+
+def test_lan_address_follows_the_bind_host(monkeypatch) -> None:
+    monkeypatch.setattr(discovery.netinfo, "lan_ip", lambda: "192.168.1.20")
+    settings = Settings()
+    assert discovery.lan_address(settings, ["uvicorn", "--host", "0.0.0.0"]) == "192.168.1.20"
+    assert discovery.lan_address(settings, ["uvicorn", "--host", "10.0.0.5"]) == "10.0.0.5"
+    assert discovery.lan_address(settings, ["uvicorn", "--port", "8000"]) is None
+
+
 def test_txt_record_carries_the_protocol() -> None:
     props = discovery.service_properties()
     assert props["protocol"] == "1"
@@ -198,6 +227,27 @@ async def test_advertiser_follows_the_setting(fake_zc) -> None:
     assert len(fake_zc.registered) == 1
     await adv.stop()
     assert fake_zc.registered == []
+
+
+async def test_loopback_only_server_is_not_advertised(fake_zc, monkeypatch) -> None:
+    """#151: under the dev script uvicorn bound 127.0.0.1, and the phone was
+    sent to the LAN address on a port that refused it."""
+    monkeypatch.setattr(discovery.sys, "argv", ["uvicorn", "app.main:app", "--port", "8000"])
+    adv = discovery.Advertiser(Settings())
+    await adv.start()
+    assert fake_zc.registered == [] and adv.advertised is None
+    await adv.stop()
+
+
+async def test_stats_say_when_the_lan_cannot_reach_the_server(client, monkeypatch) -> None:
+    c, _ = client
+    monkeypatch.setattr(discovery.netinfo, "lan_ip", lambda: "192.168.1.20")
+    monkeypatch.setattr(discovery.sys, "argv", ["uvicorn", "app.main:app", "--port", "8000"])
+    stats = (await c.get("/api/admin/stats")).json()
+    assert stats["loopback_only"] is True and stats["lan_ip"] == ""
+    monkeypatch.setattr(discovery.sys, "argv", ["uvicorn", "app.main:app", "--host", "0.0.0.0"])
+    stats = (await c.get("/api/admin/stats")).json()
+    assert stats["loopback_only"] is False and stats["lan_ip"] == "192.168.1.20"
 
 
 async def test_mdns_toggle_in_admin_applies_live(client, fake_zc) -> None:

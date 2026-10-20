@@ -245,7 +245,13 @@ export function SettingsView({ section: sectionParam }: { section?: string | nul
       ? [`${draft.webhook_events.length} event${draft.webhook_events.length === 1 ? "" : "s"}`, "good"]
       : ["off", "faint"];
   }
-  if (stats) meta.phone = stats.mdns ? ["announced", "good"] : ["by code", "faint"];
+  // A server on loopback only (#151) is reachable neither way.
+  if (stats)
+    meta.phone = stats.mdns
+      ? ["announced", "good"]
+      : stats.loopback_only
+        ? ["unreachable", "warn"]
+        : ["by code", "faint"];
   if (layouts) meta.overlays = [`${layouts.length} saved`, "faint"];
   if (logErrors > 0) meta.logs = [`${logErrors} error${logErrors === 1 ? "" : "s"}`, "bad"];
   if (protection) meta.access = protection === "open" ? ["open", "warn"] : ["protected", "good"];

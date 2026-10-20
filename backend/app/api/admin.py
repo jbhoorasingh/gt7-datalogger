@@ -11,7 +11,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
-from app import discovery, logbuffer, netinfo, settings_registry
+from app import discovery, logbuffer, settings_registry
 from app.api.auth import require_admin
 from app.notify import ALL_EVENTS
 from app.processing import car_refresh
@@ -513,13 +513,10 @@ async def clear_logs() -> dict[str, str]:
 # --- diagnostics ------------------------------------------------------------
 
 
-def _lan_ip() -> str:
-    return netinfo.lan_ip()
-
-
 @router.get("/stats")
 async def stats(request: Request) -> dict[str, Any]:
     service = svc(request)
+    loopback_only = discovery.is_loopback(discovery.served_host(service.settings))
     db_stats = await service.repo.stats()
     db_path = service.settings.db_path
     db_size = db_path.stat().st_size if db_path.exists() else 0
@@ -533,7 +530,11 @@ async def stats(request: Request) -> dict[str, Any]:
         "cars_generated": service.cars.generated,
         "source": await service.status(),
         "clients": service.client_count,
-        "lan_ip": _lan_ip(),
+        # Where another device on the LAN reaches this server; empty when
+        # there is no LAN, or when the server listens on loopback only (#151:
+        # uvicorn's CLI without --host), where a LAN address would not answer.
+        "lan_ip": discovery.lan_address(service.settings) or "",
+        "loopback_only": loopback_only,
         # The port uvicorn listens on, which --port can make differ from
         # GT7_HTTP_PORT; what the phone's QR card must point at.
         "http_port": discovery.served_port(service.settings),

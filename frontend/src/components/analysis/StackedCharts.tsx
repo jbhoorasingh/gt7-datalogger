@@ -51,7 +51,12 @@ function formatValueFor(units: Units) {
         case "boost":
           return `${v.toFixed(2)} bar`;
         case "yaw_rate":
+        case "kin_yaw":
+        case "yaw_balance":
           return `${v.toFixed(2)} rad/s`;
+        case "wheel_angle":
+          // A road wheel turns a few hundredths of a radian.
+          return `${v.toFixed(3)} rad`;
         default:
           return v.toFixed(2);
       }

@@ -9,6 +9,11 @@ import type { AdminStats } from "@/lib/types";
 import { Dot, SectionPanel, SettingRow } from "./parts";
 import { phoneUrl, qrPath } from "./qr";
 
+// uvicorn's own command line binds 127.0.0.1 unless told otherwise (#151).
+const LOOPBACK_NOTE = "not announced — the server listens on 127.0.0.1 only";
+const LOOPBACK_HELP =
+  "A phone can't reach this server: it listens on 127.0.0.1 only. Start uvicorn with --host 0.0.0.0.";
+
 export function PhoneSection({
   stats,
   busy,
@@ -22,6 +27,7 @@ export function PhoneSection({
   const qr = useMemo(() => (url ? qrPath(url) : null), [url]);
   const mdns = stats?.mdns ?? null;
   const enabled = stats?.mdns_enabled ?? false;
+  const loopback = stats?.loopback_only ?? false;
 
   return (
     <SectionPanel
@@ -51,7 +57,9 @@ export function PhoneSection({
               {mdns
                 ? `${mdns.name.replace(/\._gt7dl\._tcp\.local\.$/, "")} · ${mdns.ip}:${mdns.port}`
                 : enabled
-                  ? "not announced — no LAN address, or multicast refused (see Logs)"
+                  ? loopback
+                    ? LOOPBACK_NOTE
+                    : "not announced — no LAN address, or multicast refused (see Logs)"
                   : "off"}
             </span>
           )}
@@ -80,7 +88,7 @@ export function PhoneSection({
           </div>
         ) : (
           <span className="text-[12px] text-ink-faint">
-            {stats ? "This machine has no LAN address." : "Loading…"}
+            {!stats ? "Loading…" : loopback ? LOOPBACK_HELP : "This machine has no LAN address."}
           </span>
         )}
       </SettingRow>

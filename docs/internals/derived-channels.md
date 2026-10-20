@@ -48,10 +48,11 @@ mid-lap.
 | `acc_long` | packet B | `surge`, raw | see below |
 | `acc_vert` | packet B | `heave`, raw | see below |
 | `throttle_f` | packet ~ | `throttle_filtered ÷ 2.55` | % |
-| `brake_f` | packet ~ | `brake_filtered ÷ 2.55` | % |
+| `brake_f` | packet ~ | `brake_filtered ÷ 2.55` — the brake actually applied, after ABS; live driving only, a replay does not carry it | % |
 | `race_pos` | a race (any format) | `race_position`, only while GT7 reports one — it sends −1 outside races | position |
 | `body_slip` | a source that sends the car's orientation (any format) | angle between the car's nose and its velocity, [below](#body-slip-angle) | ° |
 | `wheel_angle` | packet C | `(wheel_steering[0] + wheel_steering[1]) ÷ 2`, the front road wheels' mean angle, sign as broadcast | rad |
+| `engine_torque` | packet ~ | `engine_torque_norm` as broadcast, 0 where its magnitude is under `1e-5` (replays carry noise below that) | normalized |
 
 **Front wheel angle** is what the tyres actually did, where `steer` (packet B) is what
 the driver's hands did on the steering wheel. The two differ by the steering ratio, and
@@ -59,7 +60,20 @@ they part company where the rack runs out of travel: past full lock `steer` keep
 while `wheel_angle` stops. Paired with the lap's `wheelbase_m` (also packet C), it gives
 the kinematic yaw rate — `speed × wheel_angle ÷ wheelbase_m`, the yaw the car would
 have with no tyre slip — against which the measured `yaw_rate` reads as understeer
-(less) or oversteer (more) without a learned baseline.
+(less) or oversteer (more) without a learned baseline — see
+[Kinematic yaw and balance](#kinematic-yaw-and-balance).
+
+**Engine torque** is the `~` packet's float at `0x154`, unnamed in the community
+layout until late 2026 (#150). What it is comes from community reverse-engineering
+(GTPlanet's telemetry thread, Nenkai/PDTools#14), not from Polyphony: the engine
+torque being delivered, normalized. Over real recordings it correlates with boost
+(+0.92) and throttle (+0.87–0.90), is negative on the overrun and exactly 0 with the
+clutch in or in neutral. It is not bounded to ±1 — a Taycan runs about −2.7 to +9.9 —
+so the column is stored as broadcast and charted on its own axis. The two bytes
+before the torque vectors are decoded on the live packet too, but not recorded per
+tick: `powertrain_flags` (`0x13E`, 0 on combustion cars, 4 electric, 9 four-motor
+torque vectoring) and `energy_recovery_available` (`0x13F`, whether
+`energy_recovery` carries anything for the car). Both are constant for a car.
 
 **Filtered pedals** are the pedal position *after* the aids acted on it. The gap to the
 raw `throttle` / `brake` column is the intervention itself — TCS trimming throttle, ABS
@@ -227,6 +241,58 @@ These are computed in the browser from the stored columns, never persisted:
 
 Laps recorded before per-corner channels existed simply skip these lines rather than
 erroring.
+
+## Kinematic yaw and balance
+
+Packet C's front wheel angle and wheelbase give the yaw rate the car would have if its
+tyres went exactly where the front wheels point — the bicycle model with no slip at
+all (#155). Against it, the measured yaw rate reads directly as balance. These are
+derived **on read, server-side**, from the full 60 Hz ticks (`app/processing/balance.py`):
+nothing extra is stored, the chart channels are resampled only for drawing, and the
+corner figures are taken from the ticks themselves. A lap without both a full
+`wheel_angle` column and a `wheelbase_m` has none of them — absent, never zero.
+
+| Channel | Formula | Unit |
+| --- | --- | --- |
+| `kin_yaw` | `abs(speed_mps × wheel_angle ÷ wheelbase_m)` | rad/s |
+| `yaw_balance` | `yaw_rate − kin_yaw`: below 0 the car rotated less than its wheels asked (understeer), above 0 more (oversteer) | rad/s |
+
+Both are compared as **magnitudes**. The stored `yaw_rate` is absolute, and how GT7
+signs the wheel angle against the car's rotation has not been checked against a
+console, so `kin_yaw` is made absolute too. The cost is opposite lock: a slide caught
+with the wheels pointing out of the corner can ask for as much rotation as the car
+has, and reads nearer neutral than it was. [Body slip](#body-slip-angle) sees that.
+
+Per corner, from the corner window's ticks where the wheels asked for at least
+0.03 rad/s (the turn-in floor) above 29 km/h, and at least five of them:
+
+```
+yaw_ratio = Σ yaw_rate ÷ Σ kin_yaw
+```
+
+A ratio of sums rather than a mean of ratios, so a tick asking for next to nothing
+cannot swing the corner. Under 1 is understeer, over 1 oversteer; the Corner report's
+**Yaw ÷ wheels** column and the lap analysis document's `balance.yaw_ratio`.
+
+### The steering lock
+
+`steer` is the input at the steering wheel and `wheel_angle` what the road wheels did;
+between them is the steering ratio, constant while the rack has travel. Past full lock
+the input keeps rising and the wheels stop. Per lap:
+
+1. **Steering ratio** = the median of `abs(steer) ÷ abs(wheel_angle)` over ticks with the
+   wheels turned at least 0.02 rad and at most 70 % of the lap's largest angle (inside
+   the rack's travel, clear of any lock), from at least 60 ticks. No ratio, no lock
+   verdict: a lap steered in steps has nothing to take it from.
+2. A tick is **at the lock** when the wheels sit within 3 % of the lap's largest angle
+   while the input runs ahead of `ratio × abs(wheel_angle)` by at least 10 % and at least
+   0.1 rad (about 6° of steering wheel).
+
+A corner's `lock_m` is the metres of its window spent at the lock: 0 when it never got
+there, absent without both channels. It is the figure a ride-height or steering-angle
+change moves, lap against lap. Neither threshold has been calibrated against a real
+console yet: a car with a speed-sensitive or variable steering ratio could read as
+locked where it is not.
 
 **Units**: speed is the only channel with a display transform (km/h → mph × 0.621371
 when imperial units are selected). Everything else displays in its stored unit.

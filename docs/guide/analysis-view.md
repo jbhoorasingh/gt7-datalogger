@@ -191,6 +191,16 @@ the reference's small figure is more rotation — towards oversteer — and less
 negative figure, is the nose pushing wide. Recordings made before 0.7.0 have no such
 channel, and the columns are left out.
 
+On a recording made on packet C, which carries the front wheels' angle and the car's
+wheelbase, two more say how the car turned against what its front wheels asked for:
+
+| Column | What it is |
+| --- | --- |
+| **Yaw ÷ wheels** | How much the car rotated through the corner over how much the front wheels asked for (`speed × wheel angle ÷ wheelbase`, the [kinematic yaw](../internals/derived-channels.md#kinematic-yaw-and-balance)). Under 1 is understeer, over 1 oversteer. Compare it lap against lap: after a setup change, the corner that moved is the one the change reached |
+| **Lock m** | Metres of the corner the steering spent past full lock — the input kept rising and the front wheels could not turn further. Shown only once some corner of either lap ran out of lock |
+
+These need no learned baseline for the car, so they are there from the first lap.
+
 ## Stint trend
 
 ![Stint trend — lap time and tyre temperature lap over lap, with the stint's drift](../screenshots/analysis-stint.png)
@@ -238,16 +248,16 @@ entry links to its section of this documentation. It never opens by itself.
 
 ## Channel picker
 
-The **Channels (n)** button opens a grouped picker with 31 channels. Hovering one shows
+The **Channels (n)** button opens a grouped picker with 35 channels. Hovering one shows
 what it is, and **What are these?** opens the guide's channel list:
 
 | Group | Channels |
 | --- | --- |
-| Driving | Speed, Throttle, Brake, Coasting, Gear, Yaw rate, **Steering**, **Throttle/Brake applied**, **TCS cut**, **ABS release** |
+| Driving | Speed, Throttle, Brake, Coasting, Gear, Yaw rate, **Steering**, **Front wheel angle**, **Throttle/Brake applied**, **TCS cut**, **ABS release** |
 | Race | **Race position** — recorded only while GT7 reports positions, so the panel is simply empty on time trials |
-| Engine | RPM, Boost |
+| Engine | RPM, Boost, **Engine torque** |
 | Tires & wheels | Tire spd/car spd, slip front/rear avg, slip per wheel, tire temp front/rear avg, **tire temp F−R balance** |
-| Chassis | Ride height, susp travel front/rear avg, **lateral / longitudinal / vertical g**, **body slip** |
+| Chassis | Ride height, susp travel front/rear avg, **lateral / longitudinal / vertical g**, **body slip**, **kinematic yaw**, **yaw balance** |
 
 Your selection persists in the browser and is added to the URL when it differs from the
 default nine-panel stack. Laps recorded before a channel existed simply skip that line.
@@ -259,12 +269,28 @@ default nine-panel stack. Laps recorded before a channel existed simply skip tha
     [corner report card](#balance) turns the sign per corner, so that rotation reads
     the same way in both directions.
 
+    **Kinematic yaw** is the rotation the front wheels asked for — `speed × front
+    wheel angle ÷ wheelbase`, the yaw rate with no tyre slip at all — and **Yaw
+    balance** is the measured yaw rate minus it: below zero the car turned less than
+    its wheels asked (understeer), above zero more (oversteer). Both need packet C
+    and are worked out from the full 60 Hz recording, not the chart's resampling.
+    Laid beside **Steering**, **Front wheel angle** shows the steering lock: where
+    the input keeps rising and the wheels go flat.
+
 !!! note "Aid intervention, measured rather than inferred"
     **Throttle applied** / **Brake applied** are the pedal *after* the aids acted on it.
     Plotted against the raw pedal the two lines separate exactly where TCS or ABS
     intervened; **TCS cut** and **ABS release** are that separation on its own. These
     need the `~` packet format or wider — see
-    [Configuration](../getting-started/configuration.md).
+    [Configuration](../getting-started/configuration.md). Brake applied is filled in
+    live driving only: a replay does not carry it.
+
+!!! note "Engine torque"
+    The torque the engine was delivering, in GT7's own normalized units, from a field
+    of the `~` packet the community decoded in 2026 (it is not documented by
+    Polyphony). It tracks the throttle and boost, goes negative on the overrun and is
+    exactly 0 with the clutch in or in neutral. It is not bounded to ±1: an electric
+    car's runs well past it.
 
 ## Sector times
 

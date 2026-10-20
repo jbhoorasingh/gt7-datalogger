@@ -17,7 +17,7 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from app.api.auth import require_admin
-from app.processing import alignment, analysis, corner_metrics, sectors, stint
+from app.processing import alignment, analysis, balance, corner_metrics, sectors, stint
 from app.processing.laps import SAMPLE_COLUMNS, decode_samples
 from app.processing.tracks import signature_from_samples
 from app.race_engineer import replay
@@ -553,9 +553,12 @@ COMPARE_COLUMNS = (
 # racing speed, and a jump (GT7 resetting the car) blurs for 1/20 s at most.
 TRACK_STEP_S = 0.05
 
-# Columns the channels= param may request beyond the defaults.
-EXTRA_COMPARE_COLUMNS = tuple(
-    c for c in SAMPLE_COLUMNS if c not in COMPARE_COLUMNS and c != "dist"
+# Columns the channels= param may request beyond the defaults: every stored
+# column, and the balance channels derived from them at full rate on read
+# (#155) — absent, like any optional column, on a lap that cannot carry them.
+EXTRA_COMPARE_COLUMNS = (
+    *(c for c in SAMPLE_COLUMNS if c not in COMPARE_COLUMNS and c != "dist"),
+    *balance.CHART_COLUMNS,
 )
 
 
@@ -595,6 +598,7 @@ async def compare(
     if ref not in samples_by_id:
         raise HTTPException(404, f"reference lap {ref} not found")
     events_by_id = await svc(request).repo.get_laps_events(lap_ids)
+    wheelbase_by_id = await svc(request).repo.get_laps_wheelbase(lap_ids)
 
     # The circuit's authored corners, if it has been labelled (#48). Reading
     # them parses the track bundle the first time, which is a multi-megabyte
@@ -606,7 +610,7 @@ async def compare(
     # for a handful of laps — off the event loop too.
     return await asyncio.to_thread(
         _compare_laps, samples_by_id, events_by_id, ref, columns, step, authored,
-        authored_sectors,
+        authored_sectors, wheelbase_by_id,
     )
 
 
@@ -618,7 +622,15 @@ def _compare_laps(
     step: float,
     authored: list[dict[str, Any]],
     authored_sectors: list[dict[str, Any]] | None = None,
+    wheelbase_by_id: dict[int, float | None] | None = None,
 ) -> dict[str, Any]:
+    # The balance channels (#155), from each lap's own full-rate ticks before
+    # anything is resampled — and so on the samples the corner report reads.
+    wheelbases = wheelbase_by_id or {}
+    samples_by_id = {
+        lap_id: balance.with_balance(raw, wheelbases.get(lap_id))
+        for lap_id, raw in samples_by_id.items()
+    }
     ref_samples = samples_by_id[ref]
     # Corner numbering comes from the reference lap only, so every overlaid
     # lap shares one consistent set of map markers — and from the circuit's

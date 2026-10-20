@@ -18,6 +18,24 @@ Notable changes to GT7 Datalogger. The format follows
   session archive and (`wheel_angle`, as "Front Wheel Angle") the CSV export;
   the lap file stays at version 2. Laps recorded without packet C, and every
   lap stored before, have neither. The simulator sends both.
+- **Understeer and oversteer against the front wheels.** Analysis has three new
+  channels for packet-C recordings: **Front wheel angle**, beside Steering, where the
+  input rising while the wheels go flat is the steering lock; **Kinematic yaw**, the
+  rotation the front wheels asked for (`speed × wheel angle ÷ wheelbase`); and **Yaw
+  balance**, the measured yaw rate minus it — below zero understeer, above zero
+  oversteer. The two are worked out on the server from the full 60 Hz ticks, not the
+  charts' resampling, and are absent from laps without packet C. The corner report
+  card gains **Yaw ÷ wheels** (under 1 understeer, over 1 oversteer) and, where a
+  corner ran out of lock, **Lock m**; the lap analysis document carries both under
+  each corner's `balance` and the car's `wheelbase_m`. No learned baseline is needed,
+  so they are there from the first lap (#155).
+- **Engine torque.** Laps recorded on the `~` packet or wider carry a new optional
+  column, `engine_torque`: the engine torque being delivered, normalized, as GT7
+  broadcasts it — negative on the overrun, 0 with the clutch in. It is in the
+  Analysis channel picker (Engine) and the CSV export. The live packet also decodes
+  the powertrain byte (`powertrain_flags`) and the energy-recovery flag
+  (`energy_recovery_available`). All three meanings come from the community's
+  decoding of the packet, not from Polyphony (#150).
 - **Chase a lap.** Race Engineer coaching can compare against a stored lap of
   the circuit you are driving instead of your session best: **Coaching
   reference** on `/engineer`, then **Chase a lap**. A quicker lap of your own
@@ -33,6 +51,24 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Fixed
 
+- **A pit stop before the timing line split a race into several sessions.** Where
+  the pit box comes before the line (Montreal), the car rejoins on the lap it stopped
+  on. The stop was salvaged as a finished lap whenever the in-lap's length matched a
+  time GT7 still reported, which left a phantom lap carrying an earlier lap's time,
+  and the session then ended because the lap counter had not moved on: one 12-lap
+  race with two stops became three sessions. A lap salvaged during a stop is now held
+  until driving resumes. The same car on the same lap was a stop mid-lap, and the lap
+  goes on to complete with GT7's own time; the next lap continues the session as
+  before; anything else, or a stop longer than 90 s, emits the salvage as it used
+  to be at once. A held salvage is saved when the server shuts down (#153).
+- **mDNS pointed phones at a port they could not reach under `./dev.sh`.** The dev
+  script ran uvicorn without `--host`, so the API listened on 127.0.0.1 while the
+  advertisement and the Phone app QR code gave the LAN address. The dev script now
+  binds every interface, as Docker and `python -m app.main` already did; a server
+  bound to loopback only is not advertised, and Settings › Phone app says why
+  instead of showing a code that would not connect (#151).
+- **Brake applied** is labelled as what it is: the brake actually applied after ABS,
+  which GT7 sends in live driving only (#150).
 - **Follow zoomed the race line in on a hover.** The Follow camera tracked any
   cursor, so with Follow on, moving the mouse across a chart dropped the map
   into a close-up — constantly in split view, where the charts sit beside it.

@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from statistics import median
 
-from app.models import TelemetryPacket, is_forward_gear
+from app.models import ENGINE_TORQUE_NOISE, TelemetryPacket, is_forward_gear
 from app.processing.surface import encode_surface, off_track_excursions
 
 log = logging.getLogger(__name__)
@@ -48,6 +48,13 @@ SALVAGE_TOLERANCE_RATIO = 0.005
 # tick-to-tick jitter of a counting clock and far below any real lap time,
 # so a jump this size can only be a re-anchor.
 SALVAGE_CLOCK_JUMP_MS = 250
+# A lap salvaged while driving stopped is held until driving resumes says what
+# the stop was (#153): a pit box before the timing line (Montreal) rejoins on
+# the SAME lap, where emitting at once ended the session and left a phantom
+# lap carrying an earlier lap's time. 90 s of console frames is longer than
+# any pit stop and short enough that a replay's lap appears soon after the
+# replay ends.
+SALVAGE_WAIT_FRAMES = 90 * 60
 # Lap 0 is buffered too (a replay may stream its flying lap with the counter
 # parked at 0), but menus can stream stale "on track, lap 0" packets
 # indefinitely and no boundary ever empties that buffer. Cap it at 15
@@ -126,6 +133,11 @@ START_HEADING_M = 10.0
 #                                         angles, radians as broadcast — what
 #                                         the tyres actually did, where steer
 #                                         is what the driver's hands did
+#   engine_torque               packet ~  the engine torque being delivered,
+#                                         normalized as broadcast (#150): a
+#                                         torque trace under the throttle
+#                                         with no car data needed. Negative
+#                                         on the overrun, 0 with the clutch in
 OPTIONAL_COLUMNS = (
     "steer",
     "acc_lat", "acc_long", "acc_vert",
@@ -133,6 +145,7 @@ OPTIONAL_COLUMNS = (
     "race_pos",
     "body_slip",
     "wheel_angle",
+    "engine_torque",
 )
 
 # Columnar per-tick series kept for each lap. Column order matters for the
@@ -166,6 +179,11 @@ SAMPLE_COLUMNS = (
 
 def new_sample_store() -> dict[str, list[float]]:
     return {c: [] for c in SAMPLE_COLUMNS}
+
+
+def copy_samples(samples: dict[str, list[float]]) -> dict[str, list[float]]:
+    """A copy whose columns can be trimmed without touching the original."""
+    return {k: list(v) for k, v in samples.items()}
 
 
 def prune_unsuggested(samples: dict[str, list[float]]) -> None:
@@ -543,6 +561,16 @@ class RaceResult:
     race_laps: int
 
 
+@dataclass(slots=True)
+class _HeldSalvage:
+    """A lap salvaged while driving stopped, waiting for driving to resume
+    (#153). The buffer it was built from stays in place meanwhile."""
+
+    lap: CompletedLap
+    buffered_ticks: int
+    since_pid: int
+
+
 LapCallback = Callable[[CompletedLap], Awaitable[None]]
 SessionCallback = Callable[[SessionInfo], Awaitable[None]]
 RaceResultCallback = Callable[[RaceResult], Awaitable[None]]
@@ -554,7 +582,9 @@ class LapProcessor:
 
     A new session starts when the car changes, when the lap counter resets
     (race restart / return to track), or after a salvaged lap unless driving
-    resumes in the same car on the next lap (a pit-lane crossing).
+    resumes in the same car on the next lap (a pit-lane crossing). A lap
+    salvaged while driving stopped waits for driving to resume (#153): the
+    same car on the same lap was a stop mid-lap, and the lap goes on.
     A lap normally commits when the counter steps to prev+1 — but a stream
     can end AT the finish line (watching the time-trial leader's replay does
     exactly that), so a buffered lap the counter abandoned is salvaged
@@ -568,9 +598,13 @@ class LapProcessor:
     on_session: SessionCallback
     on_race_result: RaceResultCallback | None = None
     min_lap_ticks: int = MIN_LAP_TICKS
+    # How many console frames a salvage held through a stop waits for driving
+    # to resume before it is emitted anyway; 0 emits at once.
+    salvage_wait_frames: int = SALVAGE_WAIT_FRAMES
 
     _session: SessionInfo | None = None
     _awaiting_salvage_continuation: bool = False
+    _held: _HeldSalvage | None = None
     _current_lap: int = -1
     _samples: dict[str, list[float]] = field(default_factory=new_sample_store)
     # GT7's per-tick lap clock (packet C), kept parallel to _samples: the
@@ -671,16 +705,12 @@ class LapProcessor:
             self._clock_offset_ms = None
             # A replay that just ended streams LOADING while the menu builds,
             # and the finished flying lap is still in the buffer — the counter
-            # step that would commit it never arrives (#26). Same discipline
-            # as the boundary handler: reset the buffer BEFORE the await. A
-            # failed attempt leaves the buffer alone, because a loading blip
+            # step that would commit it never arrives (#26). The lap is held
+            # until driving resumes says what the stop was (#153); a failed
+            # attempt leaves the buffer alone, because a loading blip
             # mid-driving must not destroy the lap in progress.
-            if self._session is not None and len(self._samples["t"]) >= self.min_lap_ticks:
-                finished = self._samples
-                lap = self._build_salvaged_lap(self._current_lap, finished, self._gt_clock, p)
-                if lap is not None:
-                    self._reset_lap_buffer(p)
-                    await self._emit_salvaged(lap, len(finished["t"]), check_continuation=True)
+            self._hold_salvage(p)
+            await self._emit_held_if_stale(p)
             return
 
         finish_boundary = (
@@ -697,21 +727,15 @@ class LapProcessor:
                 interrupted = (
                     p.car_id != self._session.car_id or p.current_lap != self._current_lap
                 )
-                if interrupted and len(self._samples["t"]) >= self.min_lap_ticks:
-                    finished = self._samples
-                    lap = self._build_salvaged_lap(
-                        self._current_lap, finished, self._gt_clock, p
-                    )
-                    if lap is not None:
-                        self._reset_lap_buffer(p)
-                        await self._emit_salvaged(
-                            lap, len(finished["t"]), check_continuation=True
-                        )
-                elif not interrupted:
+                if interrupted:
+                    self._hold_salvage(p)
+                else:
                     self._last_packet = p
+            await self._emit_held_if_stale(p)
             self._clock_offset_ms = None
             return
 
+        await self._resolve_held(p)
         if self._awaiting_salvage_continuation:
             self._awaiting_salvage_continuation = False
             continues = (
@@ -1040,6 +1064,83 @@ class LapProcessor:
         lap.compute_metrics()
         return lap
 
+    def _hold_salvage(self, p: TelemetryPacket) -> None:
+        """Salvage the buffered lap as driving stops, and hold it (#153).
+
+        Built from a COPY of the buffer: building trims columns in place
+        (compute_metrics, prune_optional), and the buffer may yet go on — a
+        stop mid-lap. One salvage is held at a time; the stop's later
+        packets leave it be.
+        """
+        if self._session is None or self._held is not None:
+            return
+        if len(self._samples["t"]) < self.min_lap_ticks:
+            return
+        lap = self._build_salvaged_lap(
+            self._current_lap, copy_samples(self._samples), list(self._gt_clock), p
+        )
+        if lap is not None:
+            self._held = _HeldSalvage(lap, len(self._samples["t"]), p.packet_id)
+
+    async def _resolve_held(self, p: TelemetryPacket) -> None:
+        """Driving resumed: decide what the stop was (#153).
+
+        The same car on the same lap was a stop mid-lap — a pit box before
+        the timing line, as at Montreal, where the car rejoins on the lap it
+        stopped on. Emitting the salvage there ended the session (the
+        counter had not moved on) and left a phantom lap: the in-lap stood in
+        for a GT7 time it happened to match, an earlier lap's. So the salvage
+        is dropped and the lap goes on in its buffer, to complete with GT7's
+        own time. Lap 0 is left out: a time-trial replay looping on lap 0
+        would otherwise run two passes into one buffer. Anything else emits
+        the salvage now and lets the continuation rule (#136) decide the
+        session: the next lap in the same car continues it.
+        """
+        held = self._held
+        if held is None:
+            return
+        self._held = None
+        session = self._session
+        if session is None:
+            return
+        if (
+            p.car_id == session.car_id
+            and self._current_lap > 0
+            and p.current_lap == self._current_lap
+        ):
+            log.info(
+                "stop mid-lap %d (pit box before the line?): the lap goes on (packet=%d)",
+                self._current_lap, p.packet_id,
+            )
+            return
+        self._reset_lap_buffer(p)
+        await self._emit_salvaged(held.lap, held.buffered_ticks, check_continuation=True)
+
+    async def _emit_held_if_stale(self, p: TelemetryPacket) -> None:
+        """A held salvage whose stop outlasted salvage_wait_frames is no pit
+        stop — a replay ended, the player went to the menus — and is emitted,
+        as it used to be at once. So is one across a packet-counter reset:
+        the console restarted its stream."""
+        held = self._held
+        if held is None or self._session is None:
+            return
+        frames = p.packet_id - held.since_pid
+        if 0 <= frames < self.salvage_wait_frames:
+            return
+        self._held = None
+        self._reset_lap_buffer(p)
+        await self._emit_salvaged(held.lap, held.buffered_ticks, check_continuation=True)
+
+    async def flush(self) -> None:
+        """Emit a held salvage now: the stream is ending (#153)."""
+        held = self._held
+        if held is None or self._session is None:
+            return
+        self._held = None
+        if self._last_packet is not None:
+            self._reset_lap_buffer(self._last_packet)
+        await self._emit_salvaged(held.lap, held.buffered_ticks, check_continuation=True)
+
     async def _emit_salvaged(
         self, lap: CompletedLap, buffered_ticks: int, check_continuation: bool = False
     ) -> None:
@@ -1318,6 +1419,12 @@ class LapProcessor:
         if p.wheel_steering_rad is not None:
             left, right = p.wheel_steering_rad
             s["wheel_angle"].append(round((left + right) / 2, 4))
+        if p.engine_torque_norm is not None:
+            torque = p.engine_torque_norm
+            # A replay's "no torque" is noise of a few millionths, not zero.
+            s["engine_torque"].append(
+                0.0 if abs(torque) < ENGINE_TORQUE_NOISE else round(torque, 4)
+            )
         if p.wheelbase_m:
             self._wheelbase = round(p.wheelbase_m, 3)
         # GT7's own lap clock beside the samples (packet C only): the salvage

@@ -2,7 +2,7 @@
   "name": "gt7-datalogger-dev",
   "private": true,
   "scripts": {
-    "dev": "concurrently -k -n api,web -c blue,green \"backend/.venv/bin/python -m uvicorn app.main:app --app-dir backend --reload --port 8000\" \"npm --prefix frontend run dev\""
+    "dev": "concurrently -k -n api,web -c blue,green \"backend/.venv/bin/python -m uvicorn app.main:app --app-dir backend --reload --host 0.0.0.0 --port 8000\" \"npm --prefix frontend run dev\""
   },
   "devDependencies": {
     "concurrently": "^9.0.0"

@@ -287,6 +287,11 @@ class TelemetryService:
         reference_json = (
             await self.repo.lap_samples_json(reference["id"]) if reference is not None else None
         )
+        reference_wheelbase = (
+            (await self.repo.get_laps_wheelbase([reference["id"]])).get(reference["id"])
+            if reference is not None
+            else None
+        )
         official_id = await self.official_id_for(track)
         data_dir = self.settings.db_path.parent
 
@@ -303,6 +308,7 @@ class TelemetryService:
                 authored_sections=self.authored_sections(track),
                 borders=track_limits.border_index_for_track(data_dir, track),
                 app_version=track_compile.app_version(),
+                reference_wheelbase_m=reference_wheelbase,
             )
 
         compiler = await asyncio.to_thread(_open)
@@ -315,7 +321,9 @@ class TelemetryService:
             def _add(
                 row: dict[str, Any] = row, lap: dict[str, Any] = lap, raw: str = raw
             ) -> None:
-                compiler.add(row, decode_samples(raw), lap["events"], lap["gearing"])
+                compiler.add(
+                    row, decode_samples(raw), lap["events"], lap["gearing"], lap["wheelbase_m"]
+                )
 
             await asyncio.to_thread(_add)
         return await asyncio.to_thread(compiler.document)
@@ -378,6 +386,11 @@ class TelemetryService:
 
     async def stop(self) -> None:
         await self.source.stop()
+        # A lap salvaged during a stop waits for driving to resume (#153);
+        # driving will not resume now.
+        async with self.session_lock:
+            if self.recording:
+                await self.processor.flush()
         self.survey.stop()
         # The drive is over as far as the service is concerned: its totals
         # are queued now and go with the next start's flush.

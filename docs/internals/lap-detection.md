@@ -110,14 +110,47 @@ flows through the same [span guard](#best-lap-tracking) and save path as any oth
 and carries a **`salvaged` flag** on the completed-lap event, the stored row, and
 every lap summary, so a time on the [Bests board](../guide/bests-view.md) can always
 be traced to its provenance. Salvage runs *before* the zero-lap session deletion,
-so the replay's session persists — and a salvaged lap **ends its session**: the
-stream it came from broke off, so whatever streams next (another replay, your own
-driving in the same car) opens a fresh session. Without that split, a lap-0 replay
-would share a session with the driving after it — the counter never comes down from
-above zero, so no lap-counter reset would ever separate them — and excluding the
-replay from bests would take your own laps with it. A buffer that looked like a lap
-but failed the time check logs its tick count and the candidate times, so a
-near-miss can be diagnosed from the log instead of vanishing silently.
+so the replay's session persists — and a salvaged lap **ends its session** unless
+driving resumes in the same car on the next lap, which is a pit lane taking the car
+over the line (#136). Otherwise the stream it came from broke off, so whatever
+streams next (another replay, your own driving in the same car) opens a fresh
+session. Without that split, a lap-0 replay would share a session with the driving
+after it — the counter never comes down from above zero, so no lap-counter reset
+would ever separate them — and excluding the replay from bests would take your own
+laps with it. A buffer that looked like a lap but failed the time check logs its
+tick count and the candidate times, so a near-miss can be diagnosed from the log
+instead of vanishing silently.
+
+### A stop is held until driving resumes
+
+A lap salvaged when driving *stops* — a `LOADING` gap, or inactive packets that move
+the lap counter or the car id — is not emitted there and then. It is held, built
+from a copy of the buffer, and the buffer stays as it was until driving resumes and
+says what the stop was (#153):
+
+| Driving resumes… | It was | What happens |
+| --- | --- | --- |
+| in the same car on the **same lap** (lap 1 or later) | a stop mid-lap: a pit box *before* the timing line, as at Montreal | the salvage is dropped and the lap goes on in its buffer, to complete with GT7's own time and every sample from before the stop |
+| in the same car on the **next lap** | the pit lane crossed the line | the salvage is emitted and the session continues (#136) |
+| anything else | a replay ended, a menu, another car | the salvage is emitted into the old session, which ends |
+
+Before this, the stop itself was the lap. In the pit box the counter goes inactive,
+the in-lap (line to box) is lap-sized, and its integrated duration can land within
+the salvage window of a time GT7 still reports — the previous lap's or the session
+best. At Montreal that made one 12-lap race with two stops into **three sessions**,
+each split leaving a phantom lap carrying an earlier lap's time: the car rejoined on
+the lap it stopped on, and the continuation rule only continues on the next.
+
+A salvage held through **90 s of console frames** (`SALVAGE_WAIT_FRAMES`, counted
+by packet id) is emitted anyway: no pit stop is that long, and a replay's lap should
+not wait on the menus for ever. So is one across a packet-counter reset (the console
+restarted its stream), and the service flushes a held salvage when it shuts down.
+Lap 0 is never a stop mid-lap: a time-trial replay looping on lap 0 would otherwise
+run two passes into one buffer. A lap that goes on after a stop keeps its samples
+from before it, but the integrated clock does not count the stop (the sampler is off
+while the car is not on track), so the lap's GT7 time exceeds its sample clock by
+the stop's length — which is what the [stint trend](../guide/analysis-view.md#stint-trend) reads
+a pit stop from.
 
 One residual accepted risk: aborting a lap when its elapsed time sits *within
 half a second* of a time GT7 last reported — the previous lap **or** the session
@@ -151,7 +184,10 @@ A **session** groups consecutive laps that belong together. A new session starts
 - the **lap counter resets** — `current_lap` drops below where it was (race restart,
   return to menu and back out), or
 - a lap was **[salvaged](#replay-salvage)** — the stream it came from broke off, so
-  whatever streams next is a new stint.
+  whatever streams next is a new stint — unless driving resumes in the same car on
+  the next lap (a pit lane over the line) or, for a salvage held through a stop, on
+  the same lap (a pit box before the line, see
+  [above](#a-stop-is-held-until-driving-resumes)).
 
 Car changes and counter resets are confirmed by **on-track, unpaused packets with
 a nonnegative lap number**. Inactive packets retain the last driving lap and its

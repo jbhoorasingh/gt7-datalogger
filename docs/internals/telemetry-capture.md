@@ -36,11 +36,19 @@ the datagram length, so whatever the console answers is decoded correctly:
 | --- | --- | --- |
 | `A` | 296 B | base telemetry (everything in the table below) |
 | `B` | 316 B | steering wheel rotation, sway / heave / surge accelerations |
-| `~` | 344 B | filtered throttle & brake, per-wheel torque vectors, energy recovery |
+| `~` | 344 B | filtered throttle & brake (the brake applied after ABS, live driving only), per-wheel torque vectors, energy recovery, and three fields the community decoded in 2026: a powertrain byte, an energy-recovery flag and the delivered engine torque (#150) |
 | `C` | 368 B | per-wheel surface type, live lap timer, front-wheel steering angles, wheelbase, car category (needs GT7 **v1.68+**) |
 
 The extended fields are parsed into the typed packet model (as `None` when the
-console sends a smaller format). Older game versions only answer the `A` heartbeat —
+console sends a smaller format). Three of the `~` fields were unnamed in the community
+layout until late 2026; what they mean comes from community reverse-engineering
+(GTPlanet's telemetry thread, Nenkai/PDTools#14), not from Polyphony:
+
+| Offset | Field | Meaning |
+| --- | --- | --- |
+| `0x13E` | `powertrain_flags` (u8) | powertrain / motor layout: 0 on every combustion car checked, 4 electric, 9 four-motor cars with active torque vectoring, 2 also seen. Possibly a bitmask |
+| `0x13F` | `energy_recovery_available` (u8 → bool) | whether `energy_recovery` carries anything for this car: set on most hybrids and EVs. PDTools calls it `NoGasConsumption` |
+| `0x154` | `engine_torque_norm` (f32) | the engine torque being delivered, normalized: tracks boost and throttle, negative on the overrun, exactly 0 with the clutch in or in neutral, not bounded to ±1. Recorded per tick as the [`engine_torque`](derived-channels.md#optional-columns) column | Older game versions only answer the `A` heartbeat —
 set **Packet format** to `A` in Settings › Connection if no data arrives.
 
 ## Decryption

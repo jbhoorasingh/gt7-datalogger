@@ -1002,6 +1002,17 @@ class Repository:
             rows = (await db.execute(select(LapRow).where(LapRow.id.in_(lap_ids)))).scalars()
             return {r.id: decode_samples(r.samples_json) for r in rows}
 
+    async def get_laps_wheelbase(self, lap_ids: list[int]) -> dict[int, float | None]:
+        """Packet C's wheelbase per lap (None below C), which the balance
+        channels are derived with (#155)."""
+        async with self._sf() as db:
+            rows = (
+                await db.execute(
+                    select(LapRow.id, LapRow.wheelbase_m).where(LapRow.id.in_(lap_ids))
+                )
+            ).all()
+            return {lap_id: wheelbase for lap_id, wheelbase in rows}
+
     async def get_laps_events(self, lap_ids: list[int]) -> dict[int, list[dict[str, Any]]]:
         async with self._sf() as db:
             rows = (

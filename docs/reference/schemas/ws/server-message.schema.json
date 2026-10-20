@@ -483,9 +483,33 @@
           "default": null,
           "title": "Energy Recovery"
         },
+        "energy_recovery_available": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Energy Recovery Available"
+        },
         "engine_rpm": {
           "title": "Engine Rpm",
           "type": "number"
+        },
+        "engine_torque_norm": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Engine Torque Norm"
         },
         "flags": {
           "title": "Flags",
@@ -557,6 +581,18 @@
         "position_z": {
           "title": "Position Z",
           "type": "number"
+        },
+        "powertrain_flags": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Powertrain Flags"
         },
         "race_position": {
           "title": "Race Position",

@@ -125,6 +125,12 @@ export const GUIDE_FEATURES: GuideFeature[] = [
     docs: `${VIEW}#balance`,
   },
   {
+    title: "Balance: yaw against the front wheels",
+    body:
+      "Yaw ÷ wheels in the report card is how much the car rotated through the corner over how much its front wheels asked for: under 1 is understeer, over 1 oversteer. Lock m is the metres spent past full steering lock. Needs packet C.",
+    docs: `${VIEW}#balance`,
+  },
+  {
     title: "Gear choice",
     body:
       "Dashed on the Gear panel: the gear GT7 suggested, where it suggested one. Shading marks the corners taken a gear higher — still above it at the slowest point — and the Tuning panel counts the reference lap's.",

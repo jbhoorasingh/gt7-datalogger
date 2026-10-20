@@ -24,6 +24,9 @@ LENGTH = 2 * STRAIGHT + 2 * ARC
 # Where each corner begins and ends, metres from the line.
 CORNERS = ((STRAIGHT / 2, STRAIGHT / 2 + ARC), (1.5 * STRAIGHT + ARC, 1.5 * STRAIGHT + 2 * ARC))
 FAST, SLOW = 40.0, 22.0  # m/s
+# Packet C's car geometry, for laps driven with a front wheel angle.
+WHEELBASE_M = 2.6
+STEERING_RATIO = 12.0
 
 
 def place(s: float) -> tuple[float, float, float]:
@@ -73,12 +76,15 @@ class Driver:
         fuel: float = 50.0,
         corner_gear: int | None = None,
         suggest: int | None = None,
+        wheels: float | None = None,
     ) -> Iterator[TelemetryPacket]:
         """One lap from the line. `slip_deg` is carried through both corners,
         nose into them; None sends no orientation at all. `corner_gear` is the
         gear from each braking point to the corner's exit (fifth elsewhere),
         and `suggest` the gear GT7 suggests while the car brakes; None sends
-        what a packet built without them carries."""
+        what a packet built without them carries. `wheels` sends packet C,
+        the front wheels turned through the corners to that multiple of what
+        the arc needs with no slip (over 1 is understeer)."""
         ticks = 0
         while self._s < lap * LENGTH:
             s = self._s % LENGTH
@@ -100,6 +106,15 @@ class Driver:
                 gears["current_gear"] = corner_gear if braking or cornering else 5
             if suggest is not None and braking:
                 gears["suggested_gear"] = suggest
+            geometry: dict[str, object] = {}
+            if wheels is not None:
+                angle = wheels * WHEELBASE_M / RADIUS if cornering else 0.0
+                geometry = {
+                    "fmt": "C",
+                    "wheel_rotation": angle * STEERING_RATIO,
+                    "wheel_steering_rad": (angle, angle),
+                    "wheelbase_m": WHEELBASE_M,
+                }
             self.pid += 1
             yield parse_packet(
                 build_packet(
@@ -120,6 +135,7 @@ class Driver:
                     flags=ON_TRACK,
                     car_id=self.car_id,
                     **gears,
+                    **geometry,  # type: ignore[arg-type]
                 )
             )
             self._s += speed * TICK

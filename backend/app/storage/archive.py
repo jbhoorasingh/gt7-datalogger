@@ -313,6 +313,8 @@ CSV_CHANNELS = (
     # Packet C's front road-wheel angle (mean of left and right), beside the
     # steering-wheel input above.
     ("wheel_angle", "Front Wheel Angle", "rad"),
+    # Packet ~'s delivered engine torque, normalized as broadcast (#150).
+    ("engine_torque", "Engine Torque", ""),
 )
 
 

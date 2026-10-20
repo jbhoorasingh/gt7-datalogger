@@ -47,7 +47,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from app.models import AidsBits
-from app.processing import alignment, analysis
+from app.processing import alignment, analysis, balance
 from app.processing.corner_metrics import (
     BRAKE_SEARCH_M,
     THROTTLE_SEARCH_M,
@@ -118,6 +118,11 @@ CONVENTIONS: dict[str, str] = {
         "tighter (towards the inside of the corner), negative is wider"
     ),
     "edges": "metres from the car's centre to the surveyed road edge",
+    "yaw_ratio": (
+        "the yaw rate the car had over the yaw rate its front wheels asked for "
+        "(speed x wheel angle / wheelbase), through the corner: under 1 is "
+        "understeer, over 1 oversteer"
+    ),
     "car.stock": (
         "the car as it leaves the showroom, from the published car list; a "
         "tuned or balanced car differs, and its own figures are not recorded"
@@ -226,6 +231,7 @@ class SessionAnalysis:
         authored_sections: list[dict[str, Any]] | None = None,
         borders: BorderIndex | None = None,
         app_version: str = "",
+        reference_wheelbase_m: float | None = None,
     ) -> None:
         self.session = session
         self.circuit = dict(circuit)
@@ -237,6 +243,8 @@ class SessionAnalysis:
         # number -> (brake-on distance, minimum speed, time through).
         self._spread: dict[int, dict[int, tuple[float | None, float | None, float | None]]] = {}
         self._gearing: dict[str, Any] | None = None
+        # Packet C's wheelbase (#155): the car's, so the first lap that has it.
+        self._wheelbase: float | None = reference_wheelbase_m
 
         self.ref_samples: Samples | None = None
         self.path: alignment.ReferencePath | None = None
@@ -251,6 +259,7 @@ class SessionAnalysis:
         if reference is None or not reference_samples or not reference_samples.get("dist"):
             self.reference = None
             return
+        reference_samples = balance.with_balance(reference_samples, reference_wheelbase_m)
         self.ref_samples = reference_samples
         self.length = float(reference_samples["dist"][-1])
         if reference_samples.get("pos_x") and reference_samples.get("pos_z"):
@@ -281,12 +290,16 @@ class SessionAnalysis:
         samples: Samples,
         events: list[dict[str, Any]] | None = None,
         gearing: dict[str, Any] | None = None,
+        wheelbase_m: float | None = None,
     ) -> None:
         """Take one lap in. `row` is the lap's summary (repository.lap_summary),
         `samples` its stored series."""
         events = events or []
         if gearing and self._gearing is None:
             self._gearing = gearing
+        if wheelbase_m and self._wheelbase is None:
+            self._wheelbase = wheelbase_m
+        samples = balance.with_balance(samples, wheelbase_m)
         is_reference = self.reference is not None and row["id"] == self.reference["id"]
         lap: dict[str, Any] = {
             "id": row["id"],
@@ -415,6 +428,7 @@ class SessionAnalysis:
             _put(corner, "braking", self._braking(m, ref_m, window, events, compare))
             _put(corner, "turn_in", _turn_in(m, window))
             _put(corner, "throttle", _throttle(m, window, events, trace, aids))
+            _put(corner, "balance", _balance(m, ref_m if compare else None))
             if not window.wraps:
                 direction = str(by_n[window.n]["direction"])
                 if compare and aligned:
@@ -668,6 +682,7 @@ class SessionAnalysis:
             _put(gearing, "ratios", self._gearing.get("ratios"))
             _put(gearing, "rpm_alert", self._gearing.get("rpm_alert") or None)
             _put(car, "gearing", gearing)
+        _put(car, "wheelbase_m", _r(self._wheelbase, 3))
 
         circuit = dict(self.circuit)
         if self.length:
@@ -774,6 +789,17 @@ def _count(events: list[dict[str, Any]], kind: str, lo: float, hi: float) -> int
         for event in events
         if event.get("type") == kind and lo <= float(event.get("start_dist", -1.0)) <= hi
     )
+
+
+def _balance(m: CornerMeasure, ref_m: CornerMeasure | None) -> dict[str, Any]:
+    """Rotation against what the front wheels asked for, and the metres at
+    the steering lock (#155). Empty without packet C."""
+    out: dict[str, Any] = {}
+    _put(out, "yaw_ratio", _r(m.yaw_ratio, 2))
+    if m.yaw_ratio is not None and ref_m is not None and ref_m.yaw_ratio is not None:
+        out["yaw_ratio_vs_ref"] = _r(m.yaw_ratio - ref_m.yaw_ratio, 2)
+    _put(out, "lock_m", _r(m.lock_m))
+    return out
 
 
 def _turn_in(m: CornerMeasure, window: Window) -> dict[str, Any]:

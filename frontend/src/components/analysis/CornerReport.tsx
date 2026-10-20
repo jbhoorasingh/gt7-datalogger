@@ -130,6 +130,10 @@ export function CornerReport({
   // before the channel.
   const hasBraking = rows.some((r) => r.row.brake_off != null || r.refRow?.brake_off != null);
   const hasSlip = rows.some((r) => r.row.slip_peak != null);
+  // Kinematic balance (#155) needs packet C; the lock column only once some
+  // corner of either lap actually ran out of lock.
+  const hasYaw = rows.some((r) => r.row.yaw_ratio != null);
+  const hasLock = rows.some((r) => (r.row.lock_m ?? 0) > 0 || (r.refRow?.lock_m ?? 0) > 0);
 
   const small = (text: string) => <span className="ml-1 text-[10px] text-ink-dim">{text}</span>;
 
@@ -185,7 +189,12 @@ export function CornerReport({
   };
 
   const columnCount =
-    5 + (hasBraking ? (comparing ? 3 : 2) : 0) + (hasSlip ? 2 : 0) + (hasDelta ? 1 : 0);
+    5 +
+    (hasBraking ? (comparing ? 3 : 2) : 0) +
+    (hasSlip ? 2 : 0) +
+    (hasYaw ? 1 : 0) +
+    (hasLock ? 1 : 0) +
+    (hasDelta ? 1 : 0);
 
   return (
     <div className="p-1">
@@ -253,6 +262,20 @@ export function CornerReport({
                   </th>
                 </>
               )}
+              {hasYaw && (
+                <th className="px-2 py-1 text-right font-normal">
+                  <Tip content="How much the car rotated through the corner against how much its front wheels asked for (speed × wheel angle ÷ wheelbase). Under 1 is understeer, over 1 oversteer; compare it lap against lap after a setup change.">
+                    <span>Yaw ÷ wheels</span>
+                  </Tip>
+                </th>
+              )}
+              {hasLock && (
+                <th className="px-2 py-1 text-right font-normal">
+                  <Tip content="Metres of the corner the steering spent past full lock: the input kept rising and the front wheels could not turn further.">
+                    <span>Lock m</span>
+                  </Tip>
+                </th>
+              )}
               <th className="px-2 py-1 text-right font-normal">Time</th>
               {hasDelta && (
                 <th className="px-2 py-1 text-right font-normal">
@@ -299,6 +322,8 @@ export function CornerReport({
                     {figureCell(row.slip_mean, refRow?.slip_mean, 1)}
                   </>
                 )}
+                {hasYaw && figureCell(row.yaw_ratio, refRow?.yaw_ratio, 2)}
+                {hasLock && figureCell(row.lock_m, refRow?.lock_m, 0)}
                 <td className="px-2 py-1 text-right">{(row.time_ms / 1000).toFixed(2)}</td>
                 {hasDelta && (
                   <td

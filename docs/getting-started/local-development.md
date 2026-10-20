@@ -5,7 +5,9 @@
 From the repo root, one command starts everything — backend with auto-reload on `:8000`,
 frontend with hot reload on `:5173` — and bootstraps the virtualenv and `node_modules`
 on first run. It also rebuilds `frontend/dist` on every start, so `:8000` always serves
-the current UI (not a stale build). ++ctrl+c++ stops both:
+the current UI (not a stale build). The backend listens on every interface, as a Docker
+or Pi install does, so the [phone app](../guide/settings.md#phone-app) can reach it on
+the LAN. ++ctrl+c++ stops both:
 
 ```bash
 ./dev.sh
@@ -29,6 +31,10 @@ python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 GT7_SOURCE=sim python -m uvicorn app.main:app --reload
 ```
+
+uvicorn's own command line listens on `127.0.0.1` unless given `--host 0.0.0.0`; on
+loopback the server does not announce itself over mDNS, since a phone could not reach
+the port it would announce. `python -m app.main` binds `GT7_HTTP_HOST` instead.
 
 **Frontend** (Node 22+):
 
