@@ -556,9 +556,22 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
   const onPlayingChange = useCallback((playing: boolean) => {
     playbackActive.current = playing;
   }, []);
+  // Which moved the cursor last. The follow camera tracks the playhead only:
+  // a hover is a look at one point, and zooming the map in on it dropped the
+  // circuit from view whenever the mouse crossed a chart — in split view, the
+  // charts right beside the map.
+  const [playheadCursor, setPlayheadCursor] = useState(false);
+  const onPlayheadCursorDist = useCallback(
+    (d: number | null) => {
+      setPlayheadCursor(true);
+      onCursorDist(d);
+    },
+    [onCursorDist],
+  );
   const onHoverCursorDist = useCallback(
     (d: number | null) => {
       if (playbackActive.current) return;
+      setPlayheadCursor(false);
       onCursorDist(d);
     },
     [onCursorDist],
@@ -1130,7 +1143,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
         </div>
       )}
 
-      {/* 3 — race line map hero, and in split view three charts beside it */}
+      {/* 3 — race line map hero, and in split view four charts beside it */}
       <div className={split ? "grid items-start gap-3 lg:grid-cols-2" : ""}>
         {refEntry && (
           <div
@@ -1205,7 +1218,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
                   </Tip>
                 )}
                 <LayersMenu layers={mapLayers} available={availableLayers} onToggle={setMapLayer} />
-                <Tip content="Three charts of your choosing beside the map instead of below it, on a screen wide enough for both. The full chart stack stays below">
+                <Tip content="Four charts of your choosing beside the map instead of below it, on a screen wide enough for both. The full chart stack stays below">
                   <button
                     onClick={() => setSplitView(!splitView)}
                     aria-pressed={splitView}
@@ -1244,7 +1257,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
             </div>
             <RaceLineMap
               hero
-              follow={mapFollow}
+              follow={mapFollow && playheadCursor}
               sync={mapSync}
               layers={mapLayers}
               brakeMarks={brakeMarks}
@@ -1328,7 +1341,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
               key={refLap}
               series={refEntry.series}
               lap={refSummary}
-              onCursorDist={onCursorDist}
+              onCursorDist={onPlayheadCursorDist}
               onPlayingChange={onPlayingChange}
             />
           )}

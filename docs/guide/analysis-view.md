@@ -360,7 +360,8 @@ grid rather than the line; it doesn't count as a lap time (see
 that started at the line.
 
 Dots and the Follow camera are placed at the exact cursor position, between the
-recorded 5 m steps, so the camera pans smoothly during playback.
+recorded 5 m steps, so the camera pans smoothly during playback. **Follow** tracks the
+playhead only: hovering a chart moves the dots but leaves the map framed as it was.
 
 ### Zooming the map
 
@@ -480,13 +481,13 @@ invented road — the map's own *go touch this* prompt: drive that stretch on a
 
 ### Split view
 
-**Split** (top right of the map, on a screen wide enough for two columns) puts three
-charts beside the map instead of below it, so the line and the inputs that drew it are
-in view together. Each of the three is picked in the panel's own header, from every
-channel, and they share the cursor and the zoom with the map and the full chart stack,
-which stays below unchanged. Speed, throttle and brake to begin with; the choice and
-the switch are remembered on this device, like **Follow**. On a narrower screen the
-map keeps the full width.
+**Split** (top right of the map, on a screen wide enough for two columns) puts four
+charts beside the map instead of below it — as many as stand as tall as the map — so
+the line and the inputs that drew it are in view together. Each of the four is picked
+in the panel's own header, from every channel, and they share the cursor and the zoom
+with the map and the full chart stack, which stays below unchanged. Speed, throttle,
+brake and gear to begin with; the choice and the switch are remembered on this device,
+like **Follow**. On a narrower screen the map keeps the full width.
 
 ## Traction circle (g-g)
 

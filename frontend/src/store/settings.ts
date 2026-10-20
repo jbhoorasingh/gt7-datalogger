@@ -46,10 +46,10 @@ interface SettingsState {
   mapLens: MapLens;
   setMapLens: (v: MapLens) => void;
   /**
-   * Analysis split view (#156): on a wide screen, three charts beside the
-   * race line instead of below it, which channels they are picked in their
-   * own header. The full chart stack stays below either way. Remembered on
-   * this device like mapFollow.
+   * Analysis split view (#156): on a wide screen, four charts beside the
+   * race line instead of below it — as many as stand as tall as the map —
+   * their channels picked in their own header. The full chart stack stays
+   * below either way. Remembered on this device like mapFollow.
    */
   splitView: boolean;
   setSplitView: (v: boolean) => void;
@@ -57,15 +57,21 @@ interface SettingsState {
   setSplitChannel: (index: number, key: string) => void;
 }
 
-export const DEFAULT_SPLIT_CHANNELS = ["speed", "throttle", "brake"];
+export const DEFAULT_SPLIT_CHANNELS = ["speed", "throttle", "brake", "gear"];
 
-/** Three different channels this build knows, or the defaults. */
+/**
+ * As many different channels this build knows as the split view shows: the
+ * stored ones that still exist, topped up from the defaults — a choice saved
+ * when it showed three keeps them and gains a fourth.
+ */
 function validSplitChannels(keys: unknown): string[] {
-  if (!Array.isArray(keys) || keys.length !== DEFAULT_SPLIT_CHANNELS.length) {
-    return DEFAULT_SPLIT_CHANNELS;
+  const out: string[] = [];
+  const stored = Array.isArray(keys) ? keys : [];
+  for (const k of [...stored, ...DEFAULT_SPLIT_CHANNELS]) {
+    if (out.length === DEFAULT_SPLIT_CHANNELS.length) break;
+    if (typeof k === "string" && k in CHANNEL_BY_KEY && !out.includes(k)) out.push(k);
   }
-  const known = keys.filter((k): k is string => typeof k === "string" && k in CHANNEL_BY_KEY);
-  return new Set(known).size === keys.length ? known : DEFAULT_SPLIT_CHANNELS;
+  return out;
 }
 
 export const useSettings = create<SettingsState>()(

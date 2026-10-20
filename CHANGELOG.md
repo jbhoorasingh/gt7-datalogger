@@ -27,9 +27,16 @@ Notable changes to GT7 Datalogger. The format follows
   `reference_mode`, `reference_lap_id` and `reference_time_ms`. Contributed by
   @Marstiphal (#152).
 - **Split view in Analysis.** **Split**, beside **Follow** on the race line map,
-  puts three charts of your choosing next to the map on a wide screen, sharing
+  puts four charts of your choosing next to the map on a wide screen, sharing
   its cursor and zoom; the full chart stack stays below. Remembered on this
   device. Contributed by @Marstiphal (#156).
+
+### Fixed
+
+- **Follow zoomed the race line in on a hover.** The Follow camera tracked any
+  cursor, so with Follow on, moving the mouse across a chart dropped the map
+  into a close-up — constantly in split view, where the charts sit beside it.
+  It now tracks the playhead only, as its tooltip always said.
 
 ## [0.8.0] - 2026-10-15
 
