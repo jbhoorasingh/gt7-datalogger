@@ -5,6 +5,8 @@ Notable changes to GT7 Datalogger. The format follows
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-10-21
+
 ### Added
 
 - **Front wheel angle and wheelbase on every lap.** Laps recorded on packet C
@@ -17,7 +19,9 @@ Notable changes to GT7 Datalogger. The format follows
   the steering input keeps rising. Both travel in lap export and import, the
   session archive and (`wheel_angle`, as "Front Wheel Angle") the CSV export;
   the lap file stays at version 2. Laps recorded without packet C, and every
-  lap stored before, have neither. The simulator sends both.
+  lap stored before, have neither. The simulator sends both. Adding them
+  migrates the database (0013), so an older version cannot open it afterwards
+  (#154).
 - **Understeer and oversteer against the front wheels.** Analysis has three new
   channels for packet-C recordings: **Front wheel angle**, beside Steering, where the
   input rising while the wheels go flat is the steering lock; **Kinematic yaw**, the
@@ -78,7 +82,7 @@ Notable changes to GT7 Datalogger. The format follows
 - **Follow zoomed the race line in on a hover.** The Follow camera tracked any
   cursor, so with Follow on, moving the mouse across a chart dropped the map
   into a close-up — constantly in split view, where the charts sit beside it.
-  It now tracks the playhead only, as its tooltip always said.
+  It now tracks the playhead only, as its tooltip always said (#157).
 
 ### Security
 
@@ -90,7 +94,7 @@ Notable changes to GT7 Datalogger. The format follows
   database file, including the bytes a plain delete would have left behind. Nothing
   changes for sync or notifications, and `GT7_SYNC_TOKEN` and `GT7_WEBHOOK_URL` in the
   environment work as before. Settings › Data links to a new
-  [Sharing your data](docs/guide/settings.md#sharing-your-data) section on what to
+  [Sharing your data](https://jbhoorasingh.github.io/gt7-datalogger/guide/settings/#sharing-your-data) section on what to
   send instead of the database (#94).
 
 ## [0.8.0] - 2026-10-15
