@@ -68,6 +68,30 @@
         "title": "AuthoredPayload",
         "type": "object"
       },
+      "BackupRequest": {
+        "properties": {
+          "parts": {
+            "items": {
+              "enum": [
+                "data",
+                "surveys",
+                "config",
+                "layouts",
+                "tokens"
+              ],
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Parts",
+            "type": "array"
+          }
+        },
+        "required": [
+          "parts"
+        ],
+        "title": "BackupRequest",
+        "type": "object"
+      },
       "BundlePatch": {
         "description": "Re-label a bundle and/or confirm which official layout it is.",
         "properties": {
@@ -761,6 +785,111 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/admin/backup": {
+      "get": {
+        "description": "What each part would hold if a backup were made now, and the space\nfree beside the database.",
+        "operationId": "backup_inventory_api_admin_backup_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Backup Inventory Api Admin Backup Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Backup Inventory"
+      },
+      "post": {
+        "operationId": "make_backup_api_admin_backup_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BackupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Make Backup Api Admin Backup Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Make Backup"
+      }
+    },
     "/api/admin/clear-data": {
       "post": {
         "operationId": "clear_data_api_admin_clear_data_post",
@@ -2054,6 +2183,52 @@
           }
         },
         "summary": "Stint Trend"
+      }
+    },
+    "/api/backup/{backup_id}/{name}": {
+      "get": {
+        "operationId": "download_backup_api_backup__backup_id___name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "backup_id",
+            "required": true,
+            "schema": {
+              "title": "Backup Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download Backup"
       }
     },
     "/api/control/log-lap-now": {

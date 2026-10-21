@@ -2,6 +2,8 @@ import type { LayoutConfig, LayoutSummary } from "./layout";
 import type {
   AdminSettings,
   AdminStats,
+  BackupInventory,
+  BackupPart,
   ConfigDoc,
   ConfigValue,
   AuthoredCorner,
@@ -20,6 +22,7 @@ import type {
   LogRecord,
   OfficialMatch,
   PersonalBest,
+  PreparedBackup,
   RaceEngineerDiagnostics,
   RejudgeResult,
   SessionSummary,
@@ -455,6 +458,11 @@ export const api = {
     discoverConsole: () => send<ConsoleDiscovery>("/api/admin/discover-console", "POST"),
     clearData: () => send<{ status: string }>("/api/admin/clear-data", "POST"),
     vacuum: () => send<{ status: string }>("/api/admin/vacuum", "POST"),
+    // Backup (#161): what each part would hold, and make one — the answer
+    // carries the link that downloads it.
+    backupInventory: () => get<BackupInventory>("/api/admin/backup"),
+    makeBackup: (parts: BackupPart[]) =>
+      send<PreparedBackup>("/api/admin/backup", "POST", { parts }),
     updateCars: () =>
       send<{ cars: number; generated: string; sessions_updated: number }>(
         "/api/admin/update-cars",

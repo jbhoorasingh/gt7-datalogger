@@ -1,8 +1,23 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { Toggle } from "@/components/ui/Toggle";
 import { docsUrl } from "@/lib/analysisGuide";
 import { api } from "@/lib/api";
-import type { AdminStats } from "@/lib/types";
+import type { AdminStats, BackupInventory, BackupPart, PreparedBackup } from "@/lib/types";
+import { BACKUP_PARTS, chosenParts, DEFAULT_PARTS, partDetail, tokensWarning } from "./backup";
 import { INPUT_BASE, mb, SectionPanel, SettingRow, type SectionProps } from "./parts";
+
+const BACKUP = "Back up";
+
+// The backup is made by a gated POST and fetched by the link it answers
+// with: a plain link, so the browser's own download UI shows its progress.
+function download(made: PreparedBackup): void {
+  const a = document.createElement("a");
+  a.href = made.url;
+  a.download = made.name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
 
 export function DataSection({
   busy,
@@ -10,8 +25,33 @@ export function DataSection({
   stats,
 }: Pick<SectionProps, "busy" | "run"> & { stats: AdminStats | null }) {
   const [confirm, setConfirm] = useState("");
+  const [inventory, setInventory] = useState<BackupInventory | null>(null);
+  const [selected, setSelected] = useState<ReadonlySet<BackupPart>>(() => new Set(DEFAULT_PARTS));
   const laps = stats?.db.laps;
+  const sessions = stats?.db.sessions;
   const reclaimable = stats?.db.reclaimable_bytes ?? 0;
+  const parts = chosenParts(selected, inventory);
+
+  // Again whenever the recordings change, not on every stats poll.
+  useEffect(() => {
+    let live = true;
+    api.admin
+      .backupInventory()
+      .then((inv) => live && setInventory(inv))
+      .catch(() => live && setInventory(null));
+    return () => {
+      live = false;
+    };
+  }, [laps, sessions]);
+
+  function toggle(id: BackupPart, on: boolean) {
+    setSelected((cur) => {
+      const next = new Set(cur);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
 
   return (
     <SectionPanel
@@ -22,13 +62,73 @@ export function DataSection({
           : "Recorded sessions and laps."
       }
     >
+      <SettingRow
+        label={BACKUP}
+        help={
+          <>
+            Everything this install holds, as one file: to move it to another machine, or to keep.{" "}
+            <a
+              className="text-accent hover:underline"
+              href={docsUrl("guide/settings/#back-up-and-move")}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Putting it back
+            </a>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-2.5">
+          {BACKUP_PARTS.map((p) => {
+            const available = inventory ? inventory[p.id].available : true;
+            const on = available && selected.has(p.id);
+            return (
+              <div key={p.id} className="flex items-start gap-2.5">
+                <span className="mt-0.5">
+                  <Toggle
+                    checked={on}
+                    disabled={!available || busy !== null}
+                    onCheckedChange={(v) => toggle(p.id, v)}
+                    ariaLabel={`Include ${p.label}`}
+                  />
+                </span>
+                <div className="min-w-0">
+                  <div className={`text-[12.5px] ${available ? "" : "text-ink-faint"}`}>{p.label}</div>
+                  <div className="font-tabular text-[11px] text-ink-faint">{partDetail(p.id, inventory)}</div>
+                  {p.id === "tokens" && on && <div className="mt-0.5 text-[11px] text-warn">{tokensWarning(inventory)}</div>}
+                </div>
+              </div>
+            );
+          })}
+          <div className="mt-1">
+            <button
+              className="btn"
+              disabled={busy !== null || parts.length === 0}
+              onClick={() =>
+                void run(
+                  BACKUP,
+                  async () => {
+                    const made = await api.admin.makeBackup(parts);
+                    download(made);
+                    return made;
+                  },
+                  (made) => `Backup ready — downloading ${(made as PreparedBackup).name}`,
+                )
+              }
+            >
+              {busy === BACKUP ? "Making backup…" : "Download backup"}
+            </button>
+          </div>
+        </div>
+      </SettingRow>
+
       {/* Plain links: the server streams each ZIP as it is written, so the
           browser's own download UI shows progress on a large database. */}
       <SettingRow
-        label="Back up"
+        label="Export laps"
         help={
           <>
-            Every session and lap as one file. Asked for your data?{" "}
+            Every lap&apos;s export, in a folder per session. Asked for your data?{" "}
             <a
               className="text-accent hover:underline"
               href={docsUrl("guide/settings/#sharing-your-data")}

@@ -181,7 +181,7 @@ def bulk_archive_name(kind: Literal["json", "csv"], today: date | None = None) -
     return f"gt7-laps-{day}.zip" if kind == "json" else f"gt7-laps-csv-{day}.zip"
 
 
-class _ChunkSink:
+class ChunkSink:
     """A write-only file for the ZIP writer that the response drains.
 
     It has no tell() or seek(), which is what tells zipfile to write each
@@ -219,7 +219,7 @@ async def stream_all_laps(repo: Repository, root: str) -> AsyncIterator[bytes]:
     Each lap file is the one GET /api/laps/{id}/export serves, and so what
     POST /api/laps/import accepts. A session with no laps is left out.
     """
-    sink = _ChunkSink()
+    sink = ChunkSink()
     with zipfile.ZipFile(sink, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for session in await _sessions(repo):
             folder = f"{root}/{archive_name(session['id']).removesuffix('.zip')}"
@@ -238,7 +238,7 @@ async def stream_all_laps_csv(
     """Every lap as the CSV GET /api/laps/{id}/export.csv serves, one folder
     per session under `root`. `car_name` resolves a car id the way that
     endpoint does, from the loaded car inventory."""
-    sink = _ChunkSink()
+    sink = ChunkSink()
     with zipfile.ZipFile(sink, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for session in await _sessions(repo):
             folder = f"{root}/{archive_name(session['id']).removesuffix('.zip')}"

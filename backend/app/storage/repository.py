@@ -1409,6 +1409,12 @@ class Repository:
             page: int = (await db.execute(text("PRAGMA page_size"))).scalar_one()
             return {"sessions": sessions, "laps": laps, "reclaimable_bytes": free * page}
 
+    async def schema_revision(self) -> str | None:
+        """The Alembic revision the database is at; what a backup records."""
+        async with self._sf() as db:
+            row = (await db.execute(text("SELECT version_num FROM alembic_version"))).first()
+            return str(row[0]) if row else None
+
     async def clear_all(self) -> None:
         """Delete all recorded sessions and laps (settings are kept)."""
         async with self._sf() as db:

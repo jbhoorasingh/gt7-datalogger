@@ -1170,6 +1170,40 @@ export interface AdminStats {
   mdns_enabled: boolean;
 }
 
+// Backup (#161): the parts one file can hold, what each would hold now
+// (GET /api/admin/backup), and a backup made and waiting for its download.
+export type BackupPart = "data" | "surveys" | "config" | "layouts" | "tokens";
+
+export interface BackupInventory {
+  data: { available: boolean; bytes: number; sessions: number; laps: number };
+  surveys: {
+    available: boolean;
+    bytes: number;
+    bundles: number;
+    corrections: number;
+    logs: number;
+    car_widths: boolean;
+    source_id: boolean;
+  };
+  config: { available: boolean; settings: number };
+  layouts: { available: boolean; layouts: number };
+  /** Which credentials are saved; never their values. */
+  tokens: { available: boolean; keys: string[] };
+  free_bytes: number;
+}
+
+export interface PreparedBackup {
+  id: string;
+  name: string;
+  /** The download link: open, because a browser download cannot send the
+   * admin token; the id in it is the credential. */
+  url: string;
+  parts: BackupPart[];
+  created_at: string;
+  expires_in_s: number;
+  database_bytes: number;
+}
+
 export type WsMessage =
   | { type: "telemetry"; data: LiveFrame }
   | { type: "lap"; data: LapSummary }

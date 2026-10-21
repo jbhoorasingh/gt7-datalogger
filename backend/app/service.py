@@ -36,6 +36,7 @@ from app.processing.tracks import signature_from_samples
 from app.race_engineer import CATEGORIES, VoiceCallout
 from app.race_engineer.manager import RaceEngineerManager
 from app.rejudge import SurveyRejudge
+from app.storage.backup import Backups
 from app.storage.repository import Repository, lap_summary  # noqa: F401  (re-export)
 from app.storage.secret_store import SecretStore
 from app.sync import SyncClient
@@ -126,6 +127,8 @@ class TelemetryService:
         # Where Admin saves the webhook URL and sync token: beside the
         # database, never in it (#94).
         self.secrets = SecretStore(settings.db_path.parent)
+        # The backup made in Settings › Data and waiting for its download (#161).
+        self.backups = Backups(settings.db_path.parent)
         self.notifier = Notifier()
         self.notifier.url = settings.webhook_url
         self.notifier.enabled = settings.enabled_webhook_events()
@@ -402,6 +405,7 @@ class TelemetryService:
             self.sync.sessions.session_ended(self.session_id)
         await self.sync.stop()
         await self.rejudge.stop()
+        self.backups.discard_all()
         tasks = [c.task for c in self._clients.values() if c.task]
         if self._reference_task is not None:
             tasks.append(self._reference_task)

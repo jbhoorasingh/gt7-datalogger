@@ -53,7 +53,7 @@ export const SECTION_GROUPS: { group: string; items: SectionDef[] }[] = [
       { id: "health", label: "Health", keywords: "diagnostics packets uptime errors restart car database dropped" },
       { id: "logs", label: "Logs", keywords: "log level debug warning error" },
       { id: "access", label: "Access", keywords: "admin token password api key" },
-      { id: "data", label: "Data", keywords: "delete compact vacuum export backup clear" },
+      { id: "data", label: "Data", keywords: "delete compact vacuum export backup clear move restore surveys layouts" },
       {
         id: "advanced",
         label: "Advanced",

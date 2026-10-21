@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app import logbuffer, protocol, settings_registry
-from app.api import admin, layouts, routes, tracks, ws
+from app.api import admin, backup, layouts, routes, tracks, ws
 from app.config import Settings, get_settings
 from app.processing import car_refresh, shared_pull, shared_repo, track_seed
 from app.processing.cars import CarDatabase
@@ -358,6 +358,7 @@ def create_app() -> FastAPI:
     app.add_middleware(LiveCORSMiddleware)
     app.include_router(routes.router)
     app.include_router(admin.router)
+    app.include_router(backup.router)
     app.include_router(layouts.router)
     app.include_router(tracks.router)
     app.include_router(ws.router)

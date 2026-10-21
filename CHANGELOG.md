@@ -5,6 +5,21 @@ Notable changes to GT7 Datalogger. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Backup: one file for a whole install.** Settings › Data › **Back up** makes
+  `gt7-backup-<date>.zip` from the parts you pick: **Data** (every session and lap, as
+  a copy of the database), **Surveys** (track bundles, corrections, survey logs, car
+  widths and the install's source id), **Config** (saved settings, without
+  credentials), **Dash/OBS** (overlay and dash layouts) and **Tokens** (the webhook URL
+  and sync token, off by default). A `manifest.json` records the app version, the
+  database's schema revision and what each part holds. The database is copied a few
+  megabytes at a time, so the recorder keeps saving laps while a backup is made, and
+  compacted, so deleted laps do not travel with it. The archive is laid out like the
+  data folder; Settings cannot restore one yet, and the guide says how to put it back
+  by hand. The lap exports that used to sit under Back up are now **Export laps**
+  (#161).
+
 ## [0.8.1] - 2026-10-21
 
 ### Added

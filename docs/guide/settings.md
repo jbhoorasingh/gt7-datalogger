@@ -304,14 +304,83 @@ every setting, it applies with **Apply changes**.
 
 The section header shows how many sessions and laps are stored and the size on disk.
 
-- **Back up** — **Export all laps (JSON)** downloads a ZIP with each lap's JSON export
-  in a folder per session (each importable again, one lap at a time); **CSV (all
-  laps)** is the same with each lap's CSV export.
+- **Back up** — everything this install holds, as one file to move it to another
+  machine or keep: pick the parts, then **Download backup**. See
+  [Back up and move](#back-up-and-move).
+- **Export laps** — **Export all laps (JSON)** downloads a ZIP with each lap's JSON
+  export in a folder per session (each importable again, one lap at a time); **CSV
+  (all laps)** is the same with each lap's CSV export. These are for reading laps
+  somewhere else, not for moving an install: nothing reads them back in bulk.
 - **Compact database** — SQLite `VACUUM` to reclaim space after deleting laps. The
   space it would reclaim is shown next to **Compact** once it passes a megabyte.
 - **Delete all recorded data** — removes **every session and lap**. Type `DELETE` to
   enable the button. Settings, tracks and layouts are kept; it cannot be undone, so
   back up first.
+
+### Back up and move
+
+A backup is one file, `gt7-backup-<date>.zip`, for moving an install to new hardware
+(a Pi whose SD card died, a Docker volume moved to another host) or keeping a copy.
+Each part is a switch, and each line under it says what it holds right now:
+
+| Part | What it holds |
+| --- | --- |
+| **Data** | every session and lap, as a copy of the database |
+| **Surveys** | the track bundles, their corrections, the survey run logs, the measured car widths, and this install's `source-id.json` |
+| **Config** | the settings saved in Settings, without the credentials |
+| **Dash/OBS** | the overlay and dash layouts |
+| **Tokens** | the webhook URL and the sync token. **Off by default**: with it on, the file carries both, and anyone holding it can post to your webhook and sign in to your sync account |
+
+The database copy is taken while the recorder keeps running: it is copied a few
+megabytes at a time, so a lap finishing meanwhile still saves, then compacted, so
+deleted laps do not travel in its free space. Saved settings and layouts are taken out
+of it, since they are parts of their own. Making it needs about twice the database's
+size free on the same disk; on a Pi with a nearly full card, Settings says how much is
+missing instead. The copy waits 15 minutes for its download and is deleted as soon as
+the download finishes. The admin token is never in a backup.
+
+Not in it: `cars.json` (the car refresh rebuilds it), the sync client's
+`sync-state.json` and `sync-sessions.json` (sync works out again what it has sent), and
+`track-bundles/compiled/` (rebuilt from the bundles).
+
+#### Putting it back
+
+Settings cannot restore a backup yet. The ZIP is laid out like the data folder, so
+it goes back by hand:
+
+1. Install the **same version or a newer one** on the new machine and start it once,
+   so its data folder exists (`data/` beside the app, or the Docker volume). A
+   database from a newer version will not open on an older one. `manifest.json` in the
+   ZIP says which version made it and which parts it holds.
+
+2. Stop the datalogger. If the data folder already holds recordings you want, copy
+   its `gt7.db` somewhere safe first.
+
+3. Unzip the backup into the data folder, leaving out the three files that are not
+   data-folder files:
+
+    ```bash
+    unzip -o gt7-backup-2026-10-21.zip -d data -x manifest.json config.json layouts.json
+    ```
+
+    Add `-x source-id.json` when the machine is a second install that keeps its own
+    recordings rather than a replacement: that file identifies an install's votes in
+    survey bundles, and two installs sharing one count as one source.
+
+4. Start the datalogger. An older database is upgraded at startup.
+
+5. The restored `gt7.db` holds no saved settings or layouts, so put those back over
+   the API. Edit `config.json` first to remove the console IP, ports or telemetry
+   source if the new machine is on another network, and add
+   `-H 'X-API-Key: <token>'` to each command if the server has an admin token:
+
+    ```bash
+    curl -X PUT -H 'Content-Type: application/json' --data @config.json http://<host>:8000/api/admin/config
+    ```
+
+    ```bash
+    jq -c '.layouts[]' layouts.json | while read -r layout; do curl -X POST -H 'Content-Type: application/json' --data "$layout" http://<host>:8000/api/layouts; done
+    ```
 
 ### Sharing your data
 
@@ -322,10 +391,12 @@ collection), send the export that matches the request, not the data folder:
 | --- | --- |
 | One session | **Export ▾ → Session ZIP** in [Sessions](sessions-view.md#exports) |
 | One lap | the lap's **⋯ → Export JSON** (or **Export CSV**) in [Sessions](sessions-view.md) |
-| Every lap | **Back up** above |
+| Every lap | **Export laps** above |
 | A track you surveyed | **Export bundle** in [Tracks](tracks-view.md) |
 
-None of these carry your settings. The **webhook URL** and the **sync token** are
+None of these carry your settings. A [backup](#back-up-and-move) is for moving your
+own install, not for sending: it holds your settings, and the credentials too when
+**Tokens** was on. The **webhook URL** and the **sync token** are
 credentials: anyone holding the webhook URL can post to its channel, and the token
 signs in to your sync account. They are kept out of the database, in `secrets.json`
 beside it, readable only by the account the datalogger runs as. Never send
