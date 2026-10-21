@@ -37,6 +37,7 @@ from app.race_engineer import CATEGORIES, VoiceCallout
 from app.race_engineer.manager import RaceEngineerManager
 from app.rejudge import SurveyRejudge
 from app.storage.repository import Repository, lap_summary  # noqa: F401  (re-export)
+from app.storage.secret_store import SecretStore
 from app.sync import SyncClient
 from app.telemetry.listener import UdpTelemetrySource
 from app.telemetry.simulator import SimTelemetrySource, scenario_for
@@ -122,6 +123,9 @@ class TelemetryService:
         self.session_lock = asyncio.Lock()
         self.track_name: str = ""
         self.latest_packet: TelemetryPacket | None = None
+        # Where Admin saves the webhook URL and sync token: beside the
+        # database, never in it (#94).
+        self.secrets = SecretStore(settings.db_path.parent)
         self.notifier = Notifier()
         self.notifier.url = settings.webhook_url
         self.notifier.enabled = settings.enabled_webhook_events()

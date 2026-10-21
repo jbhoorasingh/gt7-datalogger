@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { docsUrl } from "@/lib/analysisGuide";
 import { api } from "@/lib/api";
 import type { AdminStats } from "@/lib/types";
 import { INPUT_BASE, mb, SectionPanel, SettingRow, type SectionProps } from "./parts";
@@ -23,7 +24,22 @@ export function DataSection({
     >
       {/* Plain links: the server streams each ZIP as it is written, so the
           browser's own download UI shows progress on a large database. */}
-      <SettingRow label="Back up" help="Every session and lap as one file.">
+      <SettingRow
+        label="Back up"
+        help={
+          <>
+            Every session and lap as one file. Asked for your data?{" "}
+            <a
+              className="text-accent hover:underline"
+              href={docsUrl("guide/settings/#sharing-your-data")}
+              target="_blank"
+              rel="noreferrer"
+            >
+              What to send
+            </a>
+          </>
+        }
+      >
         <div className="flex flex-wrap gap-2">
           <a
             className="btn no-underline"

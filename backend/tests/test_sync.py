@@ -629,7 +629,9 @@ async def test_settings_roundtrip_hides_the_token(client, fake) -> None:
     assert service.settings.sync_token == TOKEN
     stored = await service.repo.get_settings()
     assert stored["sync_url"] == SERVER
-    assert stored["sync_token"] == TOKEN
+    # The token is saved beside the database, never in it (#94).
+    assert "sync_token" not in stored
+    assert service.secrets.read()["sync_token"] == TOKEN
 
     # Toggles, persisted as the other booleans are.
     resp = await c.put("/api/admin/settings", json={"sync_enabled": True, "sync_tracks": True})
@@ -644,7 +646,7 @@ async def test_settings_roundtrip_hides_the_token(client, fake) -> None:
     resp = await c.put("/api/admin/settings", json={"sync_url": "", "sync_token": ""})
     assert resp.json()["sync_token_set"] is False
     assert resp.json()["sync_url"] == "https://sync.gt7-datalogger.com"
-    assert (await service.repo.get_settings())["sync_token"] == ""
+    assert service.secrets.read()["sync_token"] == ""
     assert not service.sync.configured
 
 
@@ -664,7 +666,7 @@ async def test_server_and_token_can_be_set_separately(client, fake) -> None:
     assert service.settings.sync_token == TOKEN
     assert service.sync.configured
     stored = await service.repo.get_settings()
-    assert (stored["sync_url"], stored["sync_token"]) == (SERVER, TOKEN)
+    assert (stored["sync_url"], service.secrets.read()["sync_token"]) == (SERVER, TOKEN)
 
     # Capabilities learned for one server are forgotten when it changes.
     await c.post("/api/admin/sync/test")

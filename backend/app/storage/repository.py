@@ -16,6 +16,7 @@ from sqlalchemy import (
     case,
     delete,
     func,
+    insert,
     or_,
     select,
     text,
@@ -34,6 +35,7 @@ from app.processing.laps import (
 )
 from app.processing.track_seed import SeedRow
 from app.processing.tracks import IDENTIFY_MIN_TICKS, TrackSignature, matches
+from app.storage import secret_store
 from app.storage.db import LapRow, LayoutRow, SessionRow, SettingRow, TrackRow
 
 # A result row of any shape. Since SQLAlchemy 2.1 `Row` is variadic over its
@@ -1353,6 +1355,9 @@ class Repository:
             return {r.key: r.value for r in rows}
 
     async def set_setting(self, key: str, value: str) -> None:
+        if key in secret_store.KEYS:
+            # A credential in this file is what #94 took out of it.
+            raise ValueError(f"{key} is kept in {secret_store.FILENAME}, not the database")
         async with self._sf() as db:
             row = await db.get(SettingRow, key)
             if row is None:
@@ -1365,6 +1370,30 @@ class Repository:
         async with self._sf() as db:
             await db.execute(delete(SettingRow).where(SettingRow.key == key))
             await db.commit()
+
+    async def purge_settings(self, keys: Sequence[str]) -> None:
+        """Delete settings rows, and every trace of their values in the file.
+
+        A DELETE leaves a row's bytes in its page's free space, and so does
+        an update that moved a value, so a credential deleted that way still
+        travels with a copy of the database. With secure_delete on, emptying
+        the table zeroes what it held; the rows that stay are written back.
+        """
+        async with self._sf() as db:
+            keep = [
+                {"key": k, "value": v}
+                for k, v in (await db.execute(select(SettingRow.key, SettingRow.value)))
+                if k not in keys
+            ]
+            await db.execute(text("PRAGMA secure_delete = ON"))
+            try:
+                await db.execute(delete(SettingRow))
+                if keep:
+                    await db.execute(insert(SettingRow), keep)
+                await db.commit()
+            finally:
+                # Per connection, and the connection goes back to the pool.
+                await db.execute(text("PRAGMA secure_delete = OFF"))
 
     # --- admin --------------------------------------------------------------
 

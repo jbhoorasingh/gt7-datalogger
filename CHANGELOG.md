@@ -74,6 +74,19 @@ Notable changes to GT7 Datalogger. The format follows
   into a close-up — constantly in split view, where the charts sit beside it.
   It now tracks the playhead only, as its tooltip always said.
 
+### Security
+
+- **The webhook URL and sync token are no longer stored in the database.** Both are
+  credentials, and the database is the file people copy when asked for their data.
+  Settings now saves them in `secrets.json` beside the database, created readable by
+  its owner only; every other setting stays in the database. On the first start of
+  this version, values an older version saved are moved there and wiped from the
+  database file, including the bytes a plain delete would have left behind. Nothing
+  changes for sync or notifications, and `GT7_SYNC_TOKEN` and `GT7_WEBHOOK_URL` in the
+  environment work as before. Settings › Data links to a new
+  [Sharing your data](docs/guide/settings.md#sharing-your-data) section on what to
+  send instead of the database (#94).
+
 ## [0.8.0] - 2026-10-15
 
 ### Added

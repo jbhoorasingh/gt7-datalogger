@@ -15,7 +15,9 @@ The **Applies** column says when a change takes effect:
 
 !!! note "Precedence"
     A value saved in Settings is stored in the database and **overrides the environment**
-    on every later start. **Reset to default** deletes the saved value, which hands the
+    on every later start. The two credentials, `GT7_WEBHOOK_URL` and `GT7_SYNC_TOKEN`,
+    are saved in `secrets.json` beside the database instead, readable only by the
+    account the datalogger runs as. **Reset to default** deletes the saved value, which hands the
     setting back to the environment, or to the default below when the environment does
     not set it either.
 

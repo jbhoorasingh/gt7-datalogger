@@ -24,6 +24,7 @@ from app.processing.cars import CarDatabase
 from app.service import TelemetryService
 from app.storage.db import init_db, make_engine, make_session_factory
 from app.storage.repository import Repository
+from app.storage.secret_store import SecretStore, move_out_of_database
 
 FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
 
@@ -260,7 +261,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # taken first is what the environment said: what "reset to default"
     # falls back to, and how Settings › Advanced tells the two apart.
     baseline = settings.model_copy()
-    stored = await repo.get_settings()
+    # The webhook URL and sync token are saved beside the database, not in
+    # it (#94); an older version's rows are moved out before anything reads.
+    secrets = SecretStore(settings.db_path.parent)
+    await move_out_of_database(repo, secrets)
+    stored = {**await repo.get_settings(), **secrets.read()}
     settings_registry.apply_stored(settings, stored)
 
     await sync_track_seed(settings, repo, stored, log)

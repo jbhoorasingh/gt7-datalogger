@@ -48,5 +48,6 @@ backend/tests
 **/*.db
 **/*.db-journal
 **/*.sqlite*
+**/secrets.json
 .env
 **/.env

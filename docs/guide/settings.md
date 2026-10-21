@@ -19,8 +19,10 @@ The page has three parts:
 **Edits are buffered.** Changing a setting does not send it: a bar appears at the
 bottom listing what differs from the server (*2 changes · Packet format · Webhook
 URL*), with **Discard** and **Apply changes**. Apply sends every change in one
-request; they take effect **immediately, no restart**, persist in the database, and
-override environment variables on the next start. Actions — Find console, Send test,
+request; they take effect **immediately, no restart**, persist on the server, and
+override environment variables on the next start. The webhook URL and sync token are
+saved in `secrets.json` beside the database, every other setting in the database (see
+[Sharing your data](#sharing-your-data)). Actions — Find console, Send test,
 Restart, Compact, the sync Connect and Disconnect buttons — still act at once.
 
 The status bar's telemetry pill (*Receiving* / *No telemetry* / *Offline*) is a link
@@ -310,6 +312,30 @@ The section header shows how many sessions and laps are stored and the size on d
 - **Delete all recorded data** — removes **every session and lap**. Type `DELETE` to
   enable the button. Settings, tracks and layouts are kept; it cannot be undone, so
   back up first.
+
+### Sharing your data
+
+When someone asks for your data (for a bug report, a lap comparison, or a survey
+collection), send the export that matches the request, not the data folder:
+
+| They need | Send |
+| --- | --- |
+| One session | **Export ▾ → Session ZIP** in [Sessions](sessions-view.md#exports) |
+| One lap | the lap's **⋯ → Export JSON** (or **Export CSV**) in [Sessions](sessions-view.md) |
+| Every lap | **Back up** above |
+| A track you surveyed | **Export bundle** in [Tracks](tracks-view.md) |
+
+None of these carry your settings. The **webhook URL** and the **sync token** are
+credentials: anyone holding the webhook URL can post to its channel, and the token
+signs in to your sync account. They are kept out of the database, in `secrets.json`
+beside it, readable only by the account the datalogger runs as. Never send
+`secrets.json`, or the `.env` file or `docker-compose.yml` if you set either one in the
+environment.
+
+The database file `gt7.db` itself holds no credentials. An older version kept both in
+it; the first start of this version moves them to `secrets.json` and wipes them from
+the file. A copy of the database taken *before* that upgrade still contains them.
+**Compact** before sending a database file, so deleted laps don't travel with it.
 
 ## Advanced
 

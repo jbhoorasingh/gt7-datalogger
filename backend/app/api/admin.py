@@ -16,6 +16,7 @@ from app.api.auth import require_admin
 from app.notify import ALL_EVENTS
 from app.processing import car_refresh
 from app.race_engineer import CATEGORIES
+from app.storage import secret_store
 from app.sync import (
     BadConnectionString,
     SyncError,
@@ -145,7 +146,7 @@ async def apply_settings_payload(service: TelemetryService, payload: SettingsPay
             raise HTTPException(400, "webhook URL must start with http:// or https://")
         service.settings.webhook_url = url
         service.notifier.url = url
-        await service.repo.set_setting("webhook_url", url)
+        service.secrets.set("webhook_url", url)
         log.info("webhook %s", "configured" if url else "disabled")
     if payload.webhook_events is not None:
         spec = ",".join(dict.fromkeys(payload.webhook_events))  # dedupe, keep order
@@ -167,7 +168,7 @@ async def apply_settings_payload(service: TelemetryService, payload: SettingsPay
 
 
 async def _config(service: TelemetryService) -> dict[str, Any]:
-    stored = await service.repo.get_settings()
+    stored = {**await service.repo.get_settings(), **service.secrets.read()}
     return {
         "groups": list(settings_registry.GROUPS),
         "settings": [
@@ -296,7 +297,10 @@ async def put_config(request: Request, patch: ConfigPatch) -> dict[str, Any]:
     # Resets drop the saved row last: the hand-built handlers above save as
     # they apply, and the row must not outlive the reset.
     for key in patch.reset:
-        await service.repo.delete_setting(key)
+        if key in secret_store.KEYS:
+            service.secrets.delete(key)
+        else:
+            await service.repo.delete_setting(key)
         log.info("setting %s reset to %s", key, "environment" if key in
                  service.env_settings.model_fields_set else "default")
     return await _config(service)
@@ -328,7 +332,7 @@ async def _apply_sync(service: TelemetryService, payload: SettingsPayload) -> No
         service.settings.sync_url = url
         service.settings.sync_token = token
         await service.repo.set_setting("sync_url", url)
-        await service.repo.set_setting("sync_token", token)
+        service.secrets.set("sync_token", token)
         # A new server or token: what the old one accepted no longer counts,
         # and its capabilities say nothing about this one.
         service.sync.reset_connection()
