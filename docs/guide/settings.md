@@ -363,24 +363,38 @@ it goes back by hand:
     unzip -o gt7-backup-2026-10-21.zip -d data -x manifest.json config.json layouts.json
     ```
 
-    Add `-x source-id.json` when the machine is a second install that keeps its own
-    recordings rather than a replacement: that file identifies an install's votes in
-    survey bundles, and two installs sharing one count as one source.
+    Add `source-id.json` to the `-x` list when the machine is a second install that
+    keeps its own recordings rather than a replacement: that file identifies an
+    install's votes in survey bundles, and two installs sharing one count as one
+    source.
 
 4. Start the datalogger. An older database is upgraded at startup.
 
-5. The restored `gt7.db` holds no saved settings or layouts, so put those back over
-   the API. Edit `config.json` first to remove the console IP, ports or telemetry
-   source if the new machine is on another network, and add
-   `-H 'X-API-Key: <token>'` to each command if the server has an admin token:
+5. The restored `gt7.db` holds no saved settings or layouts; they are in
+   `config.json` and `layouts.json`, which go back over the API. Unzip the two into
+   a folder of their own (a backup made without Config or Dash/OBS lacks the
+   matching file, and `unzip` says so):
 
     ```bash
-    curl -X PUT -H 'Content-Type: application/json' --data @config.json http://<host>:8000/api/admin/config
+    unzip -o gt7-backup-2026-10-21.zip config.json layouts.json -d restore
     ```
 
+    With Config in the backup, edit `restore/config.json` to take out the console IP,
+    ports or telemetry source if the new machine is on another network, then send it:
+
     ```bash
-    jq -c '.layouts[]' layouts.json | while read -r layout; do curl -X POST -H 'Content-Type: application/json' --data "$layout" http://<host>:8000/api/layouts; done
+    curl -X PUT -H 'Content-Type: application/json' --data @restore/config.json http://<host>:8000/api/admin/config
     ```
+
+    With Dash/OBS in the backup, create each layout (this needs `jq`). A layout whose
+    name the install already has is refused and left as it is:
+
+    ```bash
+    jq -c '.layouts[]' restore/layouts.json | while read -r layout; do curl -X POST -H 'Content-Type: application/json' --data "$layout" http://<host>:8000/api/layouts; done
+    ```
+
+    If the server has an admin token, add `-H 'X-API-Key: <token>'` to both `curl`
+    commands.
 
 ### Sharing your data
 

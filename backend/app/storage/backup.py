@@ -44,6 +44,7 @@ import logging
 import secrets
 import shutil
 import sqlite3
+import time
 import zipfile
 from collections.abc import AsyncIterator, Callable, Collection
 from contextlib import closing
@@ -89,6 +90,10 @@ STEP_PAGES = 1024
 # lap, so a restart or two is normal; a database that keeps changing faster
 # than it can be copied is refused rather than copied forever.
 MAX_RESTARTS = 10
+# And however it goes, the copy gives up after this long. An 886 MB
+# database copies in about a minute on a Pi; this is for a source that stays
+# locked, which no restart count sees.
+COPY_DEADLINE_S = 10 * 60
 # Read and compressed this much at a time: what a streamed backup holds.
 CHUNK = 1 << 20
 # Deflate's fastest level: a quarter of the size of a real database (lap
@@ -169,12 +174,17 @@ def snapshot_database(
 def _copy_online(src: Path, dest: Path, on_step: Callable[[], None] | None) -> None:
     restarts = 0
     last: int | None = None
+    deadline = time.monotonic() + COPY_DEADLINE_S
 
-    def progress(_status: int, remaining: int, _total: int) -> None:
+    def progress(status: int, remaining: int, _total: int) -> None:
         nonlocal restarts, last
-        # Remaining pages only go up when SQLite has started over, which it
-        # does when another connection wrote to the source between steps.
-        if last is not None and remaining > last:
+        # A step that copied pages leaves fewer to go. A successful step that
+        # did not was a restart (another connection wrote between steps): it
+        # starts over at the count the first step leaves, which is no change
+        # at all when the writes come early, so the test is "not down", not
+        # "up". A busy step (a writer committing) copies nothing and is
+        # waited out; the deadline bounds those.
+        if status == sqlite3.SQLITE_OK and last is not None and remaining >= last:
             restarts += 1
             if restarts > MAX_RESTARTS:
                 raise BackupError(
@@ -182,6 +192,11 @@ def _copy_online(src: Path, dest: Path, on_step: Callable[[], None] | None) -> N
                     "try again between sessions"
                 )
         last = remaining
+        if time.monotonic() > deadline:
+            raise BackupError(
+                f"copying the database took more than {COPY_DEADLINE_S // 60} minutes; "
+                "try again between sessions"
+            )
         if on_step is not None:
             on_step()
 
@@ -367,6 +382,9 @@ class Backups:
         self.data_dir = data_dir
         self._current: Prepared | None = None
         self._lock = asyncio.Lock()
+        # The snapshot of a backup whose request was cancelled. Its thread
+        # cannot be stopped, so it is waited for, and what it wrote removed.
+        self._orphan: asyncio.Future[dict[str, Any]] | None = None
         # Whatever a crash or a stop mid-backup left behind.
         for leftover in data_dir.glob(".backup-*"):
             leftover.unlink(missing_ok=True)
@@ -376,6 +394,9 @@ class Backups:
     ) -> Prepared:
         ordered = tuple(p for p in PARTS if p in parts)
         async with self._lock:
+            # One copy of the database at a time, a cancelled one included.
+            if self._orphan is not None:
+                await asyncio.wait([self._orphan])
             # A new backup replaces the one before: its link stops working.
             if self._current is not None:
                 self.discard(self._current)
@@ -392,17 +413,35 @@ class Backups:
                 self.data_dir.mkdir(parents=True, exist_ok=True)
                 check_space(self.data_dir, db_path)
                 snapshot = self.data_dir / f".backup-{prepared.id}.db"
-                info = await asyncio.to_thread(
-                    snapshot_database, db_path, snapshot, snapshot_settings_dropped()
-                )
+                prepared.data = await self._snapshot(db_path, snapshot)
                 prepared.snapshot = snapshot
-                prepared.data = info
             prepared.expiry = asyncio.get_running_loop().call_later(
                 TTL_S, self.discard, prepared
             )
             self._current = prepared
             log.info("backup made: %s", ", ".join(ordered))
             return prepared
+
+    async def _snapshot(self, db_path: Path, snapshot: Path) -> dict[str, Any]:
+        work = asyncio.ensure_future(
+            asyncio.to_thread(snapshot_database, db_path, snapshot, snapshot_settings_dropped())
+        )
+        try:
+            return await asyncio.shield(work)
+        except asyncio.CancelledError:
+            # The request is gone but the copy goes on in its thread, with
+            # nothing to own the file it writes. Removing it now would race
+            # the thread recreating it, so it goes once the thread is done.
+            self._orphan = work
+            work.add_done_callback(lambda done: self._drop_orphan(done, snapshot))
+            raise
+
+    def _drop_orphan(self, work: asyncio.Future[dict[str, Any]], snapshot: Path) -> None:
+        if not work.cancelled() and work.exception() is not None:
+            log.info("a cancelled backup's snapshot failed: %s", work.exception())
+        snapshot.unlink(missing_ok=True)
+        if self._orphan is work:
+            self._orphan = None
 
     def get(self, backup_id: str) -> Prepared | None:
         current = self._current
@@ -461,7 +500,7 @@ async def write_archive(
         sink, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=COMPRESS_LEVEL
     ) as zf:
         if prepared.snapshot is not None:
-            async for chunk in _write_large(zf, sink, prepared.snapshot, DATABASE):
+            async for chunk in _write_file(zf, sink, prepared.snapshot, DATABASE):
                 yield chunk
             size = zf.getinfo(DATABASE).file_size
             parts["data"] = {
@@ -474,11 +513,11 @@ async def write_archive(
             written: list[tuple[str, Path]] = []
             for name, path in survey_files(data_dir):
                 try:
-                    await asyncio.to_thread(zf.write, path, name)
+                    async for chunk in _write_file(zf, sink, path, name):
+                        yield chunk
                 except FileNotFoundError:
                     continue  # removed since the listing
                 written.append((name, path))
-                yield sink.take()
             parts["surveys"] = {
                 "files": [n for n, _ in written],
                 "bytes": sum(zf.getinfo(n).file_size for n, _ in written),
@@ -526,11 +565,12 @@ def _write_json(
     return {"files": [name], "bytes": len(data)}
 
 
-async def _write_large(
+async def _write_file(
     zf: zipfile.ZipFile, sink: ChunkSink, path: Path, name: str
 ) -> AsyncIterator[bytes]:
     """One file a chunk at a time, read and compressed off the event loop, so
-    neither memory nor the loop holds the database at once."""
+    neither memory nor the loop ever holds a whole file: not the database,
+    and not a survey log, which grows with the run that wrote it."""
     # From the file, as ZipFile.write builds it: its date, its mode, and its
     # size, which decides Zip64 up front — the stream cannot go back and add
     # it once the entry is written.

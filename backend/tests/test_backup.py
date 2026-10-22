@@ -5,10 +5,13 @@ as a consistent, compact database without the settings and layouts that are
 parts of their own, and no credential unless the tokens part was asked for.
 """
 
+import asyncio
 import io
 import json
+import os
 import sqlite3
 import stat
+import threading
 import zipfile
 from collections import namedtuple
 
@@ -215,8 +218,14 @@ async def test_deleted_recordings_do_not_travel_in_the_snapshot(client) -> None:
     session_id = service.session_id
     sentinel = "deleted-note-7f3a9c"
     await c.patch(f"/api/sessions/{session_id}", json={"note": sentinel})
-    await service.repo.delete_session(session_id)
-    # Still in the file's free space, as a copied database would carry it.
+    # Deleted with secure_delete off, so the bytes stay in the file's free
+    # space as a copied database would carry them. Whether a plain DELETE
+    # leaves them depends on how SQLite was built: Ubuntu's (CI) zeroes
+    # them by default, macOS's does not.
+    with sqlite3.connect(service.settings.db_path) as db:
+        db.execute("PRAGMA secure_delete = OFF")
+        db.execute("DELETE FROM laps WHERE session_id = ?", (session_id,))
+        db.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
     assert sentinel.encode() in service.settings.db_path.read_bytes()
     zf = await make_backup(c, ["data"])
     assert sentinel.encode() not in zf.read("gt7.db")
@@ -357,6 +366,91 @@ def test_a_database_that_keeps_changing_is_refused(database, tmp_path, monkeypat
         backup.snapshot_database(database, dest, set(), on_step=write_every_step)
     assert not dest.exists()
     assert not (tmp_path / "snapshot.db.part").exists()
+
+
+def test_writes_that_change_pages_in_place_are_refused_too(
+    database, tmp_path, monkeypatch
+) -> None:
+    """An UPDATE that keeps the file the same size restarts the copy at the
+    page count it already had: no count goes up, and it must still end."""
+    monkeypatch.setattr(backup, "STEP_PAGES", 1)
+    monkeypatch.setattr(backup, "MAX_RESTARTS", 3)
+    steps = 0
+
+    def update_every_step() -> None:
+        nonlocal steps
+        steps += 1
+        assert steps < 100, "the copy was never refused"
+        with sqlite3.connect(database) as db:
+            db.execute(
+                "update settings set value = ? where key = 'filler-0'", (str(steps % 2) * 3000,)
+            )
+
+    dest = tmp_path / "snapshot.db"
+    with pytest.raises(backup.BackupError, match="kept changing"):
+        backup.snapshot_database(database, dest, set(), on_step=update_every_step)
+    assert not dest.exists()
+    assert not (tmp_path / "snapshot.db.part").exists()
+    # Once the writes stop, the next one goes through.
+    backup.snapshot_database(database, dest, set())
+    assert dest.exists()
+
+
+def test_a_copy_that_runs_past_its_deadline_is_refused(database, tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(backup, "COPY_DEADLINE_S", -1)
+    dest = tmp_path / "snapshot.db"
+    with pytest.raises(backup.BackupError, match="took more than"):
+        backup.snapshot_database(database, dest, set())
+    assert not dest.exists()
+    assert not (tmp_path / "snapshot.db.part").exists()
+
+
+async def test_a_large_survey_log_is_streamed_in_pieces(client) -> None:
+    _, service = client
+    data_dir = service.settings.db_path.parent
+    log = os.urandom(4 * backup.CHUNK)  # incompressible: deflate cannot shrink it
+    (data_dir / "surface_survey_20260101_000000.jsonl").write_bytes(log)
+    prepared = backup.Prepared(id="x", parts=("surveys",), created_at="now", name="b.zip")
+    chunks = [c async for c in backup.write_archive(prepared, data_dir, service.repo, {})]
+    assert max(len(c) for c in chunks) <= backup.CHUNK + 64 * 1024
+    zf = zipfile.ZipFile(io.BytesIO(b"".join(chunks)))
+    assert zf.read("surface_survey_20260101_000000.jsonl") == log
+    surveys = json.loads(zf.read("manifest.json"))["parts"]["surveys"]
+    assert surveys["bytes"] == len(log)
+    assert surveys["logs"] == 1
+
+
+async def test_a_cancelled_snapshot_is_waited_for_and_removed(
+    database, tmp_path, monkeypatch
+) -> None:
+    started, release = threading.Event(), threading.Event()
+    real = backup.snapshot_database
+
+    def held_snapshot(src, dest, drop, **kw):
+        if not started.is_set():
+            started.set()
+            assert release.wait(5)
+            dest.write_bytes(b"orphan")  # what the copy writes after its request is gone
+            return {"revision": "r", "sessions": 0, "laps": 0}
+        return real(src, dest, drop, **kw)
+
+    monkeypatch.setattr(backup, "snapshot_database", held_snapshot)
+    backups = backup.Backups(tmp_path)
+    first = asyncio.create_task(backups.prepare(["data"], database, "r"))
+    await asyncio.to_thread(started.wait, 5)
+    first.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await first
+
+    # The next backup waits for the cancelled copy rather than running beside it.
+    second = asyncio.create_task(backups.prepare(["data"], database, "r"))
+    await asyncio.sleep(0.05)
+    assert not second.done()
+    release.set()
+    prepared = await second
+    # Only the new backup's snapshot is left: the cancelled one's is gone.
+    assert list(tmp_path.glob(".backup-*")) == [prepared.snapshot]
+    backups.discard_all()
 
 
 def test_leftovers_of_an_interrupted_backup_are_cleared_at_start(tmp_path) -> None:

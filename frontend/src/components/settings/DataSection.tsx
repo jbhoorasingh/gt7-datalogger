@@ -3,7 +3,7 @@ import { Toggle } from "@/components/ui/Toggle";
 import { docsUrl } from "@/lib/analysisGuide";
 import { api } from "@/lib/api";
 import type { AdminStats, BackupInventory, BackupPart, PreparedBackup } from "@/lib/types";
-import { BACKUP_PARTS, chosenParts, DEFAULT_PARTS, partDetail, tokensWarning } from "./backup";
+import { BACKUP_PARTS, chosenParts, DEFAULT_PARTS, makeBackup, partDetail, tokensWarning } from "./backup";
 import { INPUT_BASE, mb, SectionPanel, SettingRow, type SectionProps } from "./parts";
 
 const BACKUP = "Back up";
@@ -28,11 +28,12 @@ export function DataSection({
   const [inventory, setInventory] = useState<BackupInventory | null>(null);
   const [selected, setSelected] = useState<ReadonlySet<BackupPart>>(() => new Set(DEFAULT_PARTS));
   const laps = stats?.db.laps;
-  const sessions = stats?.db.sessions;
   const reclaimable = stats?.db.reclaimable_bytes ?? 0;
   const parts = chosenParts(selected, inventory);
 
-  // Again whenever the recordings change, not on every stats poll.
+  // Again on every stats poll: a lap is not the only thing that changes it —
+  // settings applied from the pending bar and layouts saved elsewhere do too.
+  // Making the backup asks once more, so the switches are never the last word.
   useEffect(() => {
     let live = true;
     api.admin
@@ -42,7 +43,7 @@ export function DataSection({
     return () => {
       live = false;
     };
-  }, [laps, sessions]);
+  }, [stats]);
 
   function toggle(id: BackupPart, on: boolean) {
     setSelected((cur) => {
@@ -108,7 +109,8 @@ export function DataSection({
                 void run(
                   BACKUP,
                   async () => {
-                    const made = await api.admin.makeBackup(parts);
+                    const { made, inventory: now } = await makeBackup(selected, api.admin);
+                    setInventory(now);
                     download(made);
                     return made;
                   },

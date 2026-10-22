@@ -1,7 +1,7 @@
 // Settings › Data › Back up (#161): the parts one backup file can hold, and
 // how each is described from what the server says it would hold now.
 
-import type { BackupInventory, BackupPart } from "@/lib/types";
+import type { BackupInventory, BackupPart, PreparedBackup } from "@/lib/types";
 import { mb } from "./parts";
 
 export interface BackupPartInfo {
@@ -75,4 +75,23 @@ export function partDetail(id: BackupPart, inv: BackupInventory | null): string 
 /** The parts to ask for: ticked, and holding something when the server has said. */
 export function chosenParts(selected: ReadonlySet<BackupPart>, inv: BackupInventory | null): BackupPart[] {
   return BACKUP_PARTS.map((p) => p.id).filter((id) => selected.has(id) && (!inv || inv[id].available));
+}
+
+export interface BackupClient {
+  backupInventory: () => Promise<BackupInventory>;
+  makeBackup: (parts: BackupPart[]) => Promise<PreparedBackup>;
+}
+
+/** Make a backup of the ticked parts, judged against what the server holds
+ * at the click rather than when the section last asked: settings applied from
+ * the pending bar, or a layout saved in another tab, change that without a
+ * lap, and a part left out on a stale answer would be missing from the file. */
+export async function makeBackup(
+  selected: ReadonlySet<BackupPart>,
+  client: BackupClient,
+): Promise<{ made: PreparedBackup; inventory: BackupInventory }> {
+  const inventory = await client.backupInventory();
+  const parts = chosenParts(selected, inventory);
+  if (!parts.length) throw new Error("Nothing to back up: the parts switched on hold nothing yet");
+  return { made: await client.makeBackup(parts), inventory };
 }
