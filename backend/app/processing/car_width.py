@@ -68,6 +68,14 @@ def remember(
         "car": car_name,
         "updated_at": datetime.now(UTC).isoformat(),
     }
+    save(data_dir, cars)
+    log.info("axle track remembered for car %s%s: %.3f m (%d samples)",
+             car_id, f" ({car_name})" if car_name else "", width_m, samples)
+    return cars
+
+
+def save(data_dir: Path, cars: dict[int, dict[str, Any]]) -> None:
+    """Write every car's width, replacing the file."""
     doc = {
         "format": FORMAT,
         "version": VERSION,
@@ -78,6 +86,3 @@ def remember(
     tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(doc, indent=1, sort_keys=True), encoding="utf-8")
     tmp.replace(path)  # atomic: a crash never leaves a half-written file
-    log.info("axle track remembered for car %s%s: %.3f m (%d samples)",
-             car_id, f" ({car_name})" if car_name else "", width_m, samples)
-    return cars

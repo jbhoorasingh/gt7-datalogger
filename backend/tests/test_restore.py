@@ -1,0 +1,965 @@
+"""Restore (#161): a backup put back into an install, part by part.
+
+What matters is that only the parts ticked change anything; that the
+recordings are replaced whole, with the ones they replace kept and this
+install's own settings and layouts carried over; that nothing writes while
+the database file changes hands; and that a file which is not a backup this
+version can take changes nothing at all.
+"""
+
+import asyncio
+import io
+import json
+import sqlite3
+import zipfile
+from pathlib import Path
+
+import pytest
+from alembic import command
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy import create_engine
+
+from app.config import Settings
+from app.main import create_app
+from app.processing import car_width, track_bundle, track_corrections
+from app.processing.cars import CarDatabase
+from app.service import TelemetryService
+from app.storage import backup, restore
+from app.storage.db import alembic_config, init_db, make_engine, make_session_factory
+from app.storage.repository import Repository
+from tests.test_api import drive_laps
+from tests.test_track_manager import _foreign_bundle
+
+HOOK = "https://discord.com/api/webhooks/1/hook-secret"
+SYNC_TOKEN = "gt7s_" + "a" * 40
+ADMIN_TOKEN = "admin-s3cret"
+LAYOUT = {"version": 2, "cols": 12, "rows": 8, "widgets": []}
+OTHER_LAYOUT = {"version": 2, "cols": 6, "rows": 4, "widgets": []}
+OFFICIAL = {
+    "track": "Ring", "layout": "GP", "official_id": "ring-gp", "official_name": "Ring GP",
+    "turns": 10, "length_m": 4000.0, "reverse": False,
+}
+STRANGER = "beef0000cafe"
+SOURCE_ID = "0123456789ab"
+ALL = ["data", "surveys", "source_id", "config", "layouts", "tokens"]
+
+
+class StubSource:
+    """A telemetry source that sends nothing: the restore stops and starts
+    it, and a test must not bind a port or run the simulator to see that."""
+
+    def __init__(self) -> None:
+        self.starts = 0
+        self.stops = 0
+
+    async def start(self) -> None:
+        self.starts += 1
+
+    async def stop(self) -> None:
+        self.stops += 1
+
+    @property
+    def stats(self) -> dict[str, object]:
+        return {"connected": False, "packets_received": 0}
+
+
+class Install:
+    def __init__(self, client: AsyncClient, service: TelemetryService, engine) -> None:
+        self.client = client
+        self.service = service
+        self.engine = engine
+
+    @property
+    def data_dir(self) -> Path:
+        return self.service.settings.db_path.parent
+
+    @property
+    def db_path(self) -> Path:
+        return self.service.settings.db_path
+
+
+async def make_install(root: Path, admin_token: str = "") -> Install:
+    settings = Settings(
+        source="udp", db_path=root / "data" / "gt7.db", ws_rate=1000, admin_token=admin_token
+    )
+    engine = make_engine(settings.db_path)
+    await init_db(engine)
+    repo = Repository(make_session_factory(engine))
+    service = TelemetryService(settings, repo, CarDatabase())
+    service.source = StubSource()  # type: ignore[assignment]
+    service.processor.min_lap_ticks = 1
+    app = create_app()
+    app.router.lifespan_context = None  # type: ignore[assignment]
+    app.state.service = service
+    client = AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
+    return Install(client, service, engine)
+
+
+@pytest.fixture
+async def installs(tmp_path):
+    made: list[Install] = []
+
+    async def make(name: str, admin_token: str = "") -> Install:
+        install = await make_install(tmp_path / name, admin_token)
+        made.append(install)
+        return install
+
+    yield make
+    for install in made:
+        await install.client.aclose()
+        await install.service.stop()
+        await install.engine.dispose()
+
+
+async def make_backup(install: Install, parts: list[str]) -> bytes:
+    made = await install.client.post("/api/admin/backup", json={"parts": parts})
+    assert made.status_code == 200, made.text
+    resp = await install.client.get(made.json()["url"])
+    assert resp.status_code == 200, resp.text
+    return resp.content
+
+
+async def upload(install: Install, body: bytes, headers=None):
+    return await install.client.post(
+        "/api/admin/restore?name=gt7-backup-2026-10-21.zip",
+        content=body,
+        headers={"Content-Type": "application/zip", **(headers or {})},
+    )
+
+
+async def restore_parts(install: Install, body: bytes, items, machine=()):
+    up = await upload(install, body)
+    assert up.status_code == 200, up.text
+    resp = await install.client.post(
+        f"/api/admin/restore/{up.json()['id']}",
+        json={"items": list(items), "machine_settings": list(machine)},
+    )
+    return up.json(), resp
+
+
+def craft(files: dict[str, bytes | str], manifest: dict | None = None, **parts) -> bytes:
+    """A backup made by hand: `files` as given, and a manifest listing each
+    under the part restore files it under, unless one is given."""
+    if manifest is None:
+        listed: dict[str, dict] = {}
+        for name in files:
+            part = restore.part_of(name)
+            assert part is not None, name
+            listed.setdefault(part, {"files": []})["files"].append(name)
+        for part, extra in parts.items():
+            listed.setdefault(part, {"files": []}).update(extra)
+        manifest = {
+            "format": backup.FORMAT,
+            "version": backup.VERSION,
+            "app_version": "0.8.1",
+            "created_at": "2026-10-21T20:00:00+00:00",
+            "alembic_revision": restore.schema_revisions()[-1],
+            "parts": listed,
+        }
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, data in files.items():
+            zf.writestr(name, data)
+        zf.writestr(backup.MANIFEST, json.dumps(manifest))
+    return out.getvalue()
+
+
+def count(db_path: Path, table: str) -> int:
+    with sqlite3.connect(db_path) as db:
+        return db.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
+
+
+def kept_copies(install: Install) -> list[Path]:
+    return sorted(install.data_dir.glob("gt7.db.before-restore-*"))
+
+
+def write_bundle(data_dir: Path, track="Ring", source=STRANGER, n=6, official=None) -> None:
+    doc = track_bundle.validate_document(_foreign_bundle(track=track, source=source, n=n))
+    track_bundle.merge_document(data_dir, doc)
+    if official is not None:
+        track_bundle.set_official(data_dir, track, official)
+
+
+def corrections_doc(official_id="ring-gp", smooth=False) -> dict:
+    return {
+        "format": track_corrections.FORMAT,
+        "version": track_corrections.VERSION,
+        "official_id": official_id,
+        "track": "Ring",
+        "compile": {"smooth_borders": smooth},
+        "exclude": [],
+        "draw": [],
+    }
+
+
+# --- the round trip ----------------------------------------------------------------
+
+
+async def test_a_whole_install_goes_back_into_a_clean_one(installs) -> None:
+    old = await installs("old")
+    await drive_laps(old.service, laps=3)
+    write_bundle(old.data_dir, official=OFFICIAL)
+    track_corrections.write(
+        old.data_dir, "ring", track_corrections.validate(corrections_doc())
+    )
+    (old.data_dir / "surface_survey_20260830_220427.jsonl").write_text(
+        '{"meta": {"started_at": "x", "track_width_m": 1.7}}\n'
+    )
+    car_width.remember(old.data_dir, 7, 1.82, 400, "Car 7")
+    track_bundle.set_source_id(old.data_dir, SOURCE_ID)
+    assert (await old.client.put("/api/admin/config", json={
+        "values": {"race_engineer_units": "imperial", "ws_rate": 20, "ps_ip": "10.0.0.9"},
+    })).status_code == 200
+    assert (await old.client.put("/api/admin/settings", json={
+        "webhook_url": HOOK, "sync_token": SYNC_TOKEN,
+    })).status_code == 200
+    assert (await old.client.post(
+        "/api/layouts", json={"name": "Pit wall", "kind": "dash", "config": LAYOUT}
+    )).status_code == 200
+    body = await make_backup(old, list(backup.PARTS))
+
+    new = await installs("new")
+    up = await upload(new, body)
+    assert up.status_code == 200, up.text
+    described = up.json()
+    assert described["name"] == "gt7-backup-2026-10-21.zip"
+    assert described["here"] == {"sessions": 0, "laps": 0, "source_id": False, "tokens": []}
+    parts = described["parts"]
+    assert parts["data"] | {"bytes": 0, "needs_bytes": 0} == {
+        "available": True, "bytes": 0, "sessions": 1, "laps": 3, "needs_bytes": 0, "refused": "",
+    }
+    assert parts["surveys"]["bundles"] == 1
+    assert parts["surveys"]["corrections"] == 1
+    assert parts["surveys"]["logs"] == 1
+    assert parts["surveys"]["car_widths"] is True
+    assert parts["source_id"] == {"available": True, "refused": ""}
+    listed = {s["key"]: s for s in parts["config"]["settings"]}
+    assert listed["ps_ip"]["machine"] is True
+    assert listed["ps_ip"]["value"] == "10.0.0.9"
+    assert listed["race_engineer_units"]["machine"] is False
+    assert parts["layouts"]["layouts"] == [{"name": "Pit wall", "kind": "dash", "replaces": False}]
+    assert parts["tokens"]["keys"] == ["webhook_url", "sync_token"]
+
+    resp = await new.client.post(
+        f"/api/admin/restore/{described['id']}", json={"items": ALL}
+    )
+    assert resp.status_code == 200, resp.text
+    report = resp.json()
+    assert report["data"]["sessions"] == 1 and report["data"]["laps"] == 3
+    assert report["config"]["left"] == ["ps_ip"]
+    assert "race_engineer_units" in report["config"]["applied"]
+    assert report["layouts"] == {"created": ["Pit wall"], "replaced": [], "skipped": []}
+    assert report["tokens"] == {"applied": ["webhook_url", "sync_token"], "skipped": []}
+    assert report["source_id"] == {"source_id": SOURCE_ID}
+    assert report["rejudging"] == ["ring"]
+
+    # The recordings, in the database the service now runs on.
+    assert (await new.service.repo.stats())["laps"] == 3
+    assert len(kept_copies(new)) == 1
+    # The settings, applied live and saved.
+    assert new.service.settings.race_engineer_units == "imperial"
+    assert new.service.settings.ws_rate == 20
+    assert new.service.settings.ps_ip == ""
+    stored = await new.service.repo.get_settings()
+    assert stored["race_engineer_units"] == "imperial"
+    assert "ps_ip" not in stored
+    # The credentials, beside the database and live.
+    assert new.service.secrets.read() == {"webhook_url": HOOK, "sync_token": SYNC_TOKEN}
+    assert new.service.notifier.url == HOOK
+    assert "sync_token" not in stored
+    # The layouts and the surveys.
+    assert [x["name"] for x in await new.service.repo.list_layouts()] == ["Pit wall"]
+    assert track_bundle.load(new.data_dir, "Ring")["meta"]["source_runs"] == {STRANGER: 4}
+    assert track_corrections.load(new.data_dir, "ring") is not None
+    assert (new.data_dir / "surface_survey_20260830_220427.jsonl").is_file()
+    assert car_width.load(new.data_dir)[7]["width_m"] == 1.82
+    assert track_bundle.source_id(new.data_dir) == SOURCE_ID
+    # One restore per upload: it is gone once applied.
+    assert not list(new.data_dir.glob(".restore-*"))
+    assert (await new.client.get("/api/admin/restore")).status_code == 404
+
+
+async def test_only_the_parts_ticked_change_anything(installs) -> None:
+    old = await installs("old")
+    await drive_laps(old.service, laps=2)
+    write_bundle(old.data_dir)
+    assert (await old.client.put(
+        "/api/admin/config", json={"values": {"race_engineer_units": "imperial"}}
+    )).status_code == 200
+    body = await make_backup(old, ["data", "surveys", "config"])
+
+    new = await installs("new")
+    _, resp = await restore_parts(new, body, ["config"])
+    assert resp.status_code == 200, resp.text
+    assert set(resp.json()) == {"config", "rejudging"}
+    assert (await new.service.repo.stats())["laps"] == 0
+    assert track_bundle.load(new.data_dir, "Ring") is None
+    assert not kept_copies(new)
+    assert new.service.settings.race_engineer_units == "imperial"
+
+
+# --- data --------------------------------------------------------------------------
+
+
+async def test_data_replaces_the_recordings_and_keeps_the_ones_it_replaced(installs) -> None:
+    old = await installs("old")
+    await drive_laps(old.service, laps=2)
+    body = await make_backup(old, ["data"])
+
+    new = await installs("new")
+    await drive_laps(new.service, laps=4)
+    await new.service.repo.set_setting("race_engineer_units", "imperial")
+    await new.service.repo.set_setting("cars_updated_at", "2026-10-01")
+    layout = await new.service.repo.create_layout("Mine", "overlay", LAYOUT)
+    before = (await new.client.get("/api/sessions/changes?since=0")).json()["revision"]
+    stopped = new.service.source.stops  # type: ignore[attr-defined]
+    replaced: list[int] = []
+
+    async def database_replaced() -> None:
+        # main.lifespan's: the start's work on the recordings, done again.
+        replaced.append((await new.service.repo.stats())["laps"])
+
+    new.service.database_replaced = database_replaced
+
+    described, resp = await restore_parts(new, body, ["data"])
+    assert described["here"]["laps"] == 4
+    assert resp.status_code == 200, resp.text
+    report = resp.json()["data"]
+    assert report["sessions"] == 1 and report["laps"] == 2
+    assert report["revision"] == restore.schema_revisions()[-1]
+    assert report["upgraded_from"] is None
+
+    # The old recordings, kept beside the new ones, whole.
+    [kept] = kept_copies(new)
+    assert report["kept"] == kept.name
+    assert count(kept, "laps") == 4
+    assert count(new.db_path, "laps") == 2
+    assert (await new.service.repo.stats())["laps"] == 2
+    # This install's own settings and layouts came across; the snapshot had neither.
+    stored = await new.service.repo.get_settings()
+    assert stored["race_engineer_units"] == "imperial"
+    assert stored["cars_updated_at"] == "2026-10-01"
+    assert await new.service.repo.list_layouts() == [layout]
+    # A client keeping a copy of the sessions is told every one changed.
+    changes = (await new.client.get(f"/api/sessions/changes?since={before}")).json()
+    assert len(changes["sessions"]) == 1
+    # The telemetry source was paused and started again, and what a start
+    # does for the recordings was done for the restored ones.
+    assert new.service.source.stops == stopped + 1  # type: ignore[attr-defined]
+    assert new.service.source.starts == 1  # type: ignore[attr-defined]
+    assert replaced == [2]
+
+
+async def test_recording_carries_on_into_the_restored_database(installs) -> None:
+    old = await installs("old")
+    await drive_laps(old.service, laps=2)
+    body = await make_backup(old, ["data"])
+
+    new = await installs("new")
+    await drive_laps(new.service, laps=1)
+    assert new.service.session_id is not None
+    _, resp = await restore_parts(new, body, ["data"])
+    assert resp.status_code == 200, resp.text
+    # The recorder forgot the session that lives in the kept database ...
+    assert new.service.session_id is None
+    # ... and the next drive is a new session in the restored one.
+    await drive_laps(new.service, laps=2)
+    sessions = await new.service.repo.list_sessions()
+    assert len(sessions) == 2
+    assert (await new.service.repo.stats())["laps"] == 4
+
+
+async def test_a_backup_from_a_newer_version_is_refused_and_changes_nothing(
+    installs, tmp_path
+) -> None:
+    old = await installs("old")
+    await drive_laps(old.service, laps=1)
+    zf = zipfile.ZipFile(io.BytesIO(await make_backup(old, ["data"])))
+    future = tmp_path / "future.db"
+    future.write_bytes(zf.read("gt7.db"))
+    with sqlite3.connect(future) as db:
+        db.execute("UPDATE alembic_version SET version_num = '0099_from_the_future'")
+    newer = craft(
+        {"gt7.db": future.read_bytes()},
+        data={"sessions": 1, "laps": 1},
+    )
+    manifest = json.loads(zipfile.ZipFile(io.BytesIO(newer)).read("manifest.json"))
+    manifest["alembic_revision"] = "0099_from_the_future"
+    manifest["app_version"] = "0.9.0"
+    honest = craft({"gt7.db": future.read_bytes()}, manifest=manifest)
+
+    new = await installs("new")
+    await drive_laps(new.service, laps=2)
+    described, resp = await restore_parts(new, honest, ["data"])
+    refused = described["parts"]["data"]["refused"]
+    assert "newer version (0.9.0" in refused and "update this install" in refused
+    assert resp.status_code == 409
+    assert "newer version" in resp.json()["detail"]
+
+    # A manifest that says otherwise does not get it past: the database's
+    # own revision decides.
+    described, resp = await restore_parts(new, newer, ["data"])
+    assert described["parts"]["data"]["refused"] == ""
+    assert resp.status_code == 409, resp.text
+    assert "newer version" in resp.json()["detail"]
+
+    assert (await new.service.repo.stats())["laps"] == 2
+    assert not kept_copies(new)
+    assert not list(new.data_dir.glob(".restore-*.db"))
+
+
+async def test_a_database_from_an_older_version_is_upgraded(installs, tmp_path) -> None:
+    older = restore.schema_revisions()[-2]
+    path = tmp_path / "older.db"
+    engine = create_engine(f"sqlite:///{path}")
+    with engine.begin() as connection:
+        cfg = alembic_config()
+        cfg.attributes["connection"] = connection
+        command.upgrade(cfg, older)
+    engine.dispose()
+    manifest_parts = {"data": {"files": ["gt7.db"], "sessions": 0, "laps": 0}}
+    body = craft(
+        {"gt7.db": path.read_bytes()},
+        manifest={
+            "format": backup.FORMAT, "version": backup.VERSION, "app_version": "0.8.0",
+            "created_at": "2026-10-01T00:00:00+00:00", "alembic_revision": older,
+            "parts": manifest_parts,
+        },
+    )
+    new = await installs("new")
+    _, resp = await restore_parts(new, body, ["data"])
+    assert resp.status_code == 200, resp.text
+    report = resp.json()["data"]
+    assert report["upgraded_from"] == older
+    assert report["revision"] == restore.schema_revisions()[-1]
+    assert await new.service.repo.schema_revision() == restore.schema_revisions()[-1]
+
+
+async def test_a_damaged_database_is_refused(installs) -> None:
+    new = await installs("new")
+    body = craft({"gt7.db": b"SQLite format 3\x00" + b"\x00" * 4000}, data={"sessions": 0})
+    _, resp = await restore_parts(new, body, ["data"])
+    assert resp.status_code == 409
+    assert "database" in resp.json()["detail"]
+    assert not kept_copies(new)
+
+
+async def test_an_unfinished_transaction_refuses_the_swap(installs) -> None:
+    old = await installs("old")
+    await drive_laps(old.service, laps=1)
+    body = await make_backup(old, ["data"])
+    new = await installs("new")
+    await drive_laps(new.service, laps=2)
+    journal = new.db_path.with_name("gt7.db-journal")
+    journal.write_bytes(b"")
+    _, resp = await restore_parts(new, body, ["data"])
+    journal.unlink()
+    assert resp.status_code == 409
+    assert "unfinished transaction" in resp.json()["detail"]
+    assert not kept_copies(new)
+    assert (await new.service.repo.stats())["laps"] == 2
+
+
+async def test_a_failed_swap_puts_the_recordings_back(installs, monkeypatch) -> None:
+    old = await installs("old")
+    await drive_laps(old.service, laps=1)
+    body = await make_backup(old, ["data"])
+    new = await installs("new")
+    await drive_laps(new.service, laps=3)
+
+    import app.service as service_module
+
+    real = service_module.init_db
+    calls = 0
+
+    async def fail_on_the_swap(engine) -> None:
+        nonlocal calls
+        calls += 1
+        raise RuntimeError("migration exploded")
+
+    monkeypatch.setattr(service_module, "init_db", fail_on_the_swap)
+    up = await upload(new, body)
+    with pytest.raises(RuntimeError):
+        await new.client.post(
+            f"/api/admin/restore/{up.json()['id']}", json={"items": ["data"]}
+        )
+    monkeypatch.setattr(service_module, "init_db", real)
+    assert calls == 1
+    assert not kept_copies(new)
+    assert (await new.service.repo.stats())["laps"] == 3
+    # And the service carries on.
+    assert new.service.source.starts == 1  # type: ignore[attr-defined]
+    await drive_laps(new.service, laps=1)
+
+
+async def test_data_that_would_not_fit_is_refused_before_anything_changes(
+    installs, monkeypatch
+) -> None:
+    old = await installs("old")
+    await drive_laps(old.service, laps=1)
+    body = await make_backup(old, ["data"])
+    new = await installs("new")
+    up = await upload(new, body)
+    size = up.json()["parts"]["data"]["needs_bytes"]
+    usage = type("Usage", (), {"free": size - 1, "total": 0, "used": 0})
+    monkeypatch.setattr("app.api.restore.shutil.disk_usage", lambda _: usage)
+    described = (await new.client.get("/api/admin/restore")).json()
+    assert "MB free here" in described["parts"]["data"]["refused"]
+    resp = await new.client.post(
+        f"/api/admin/restore/{up.json()['id']}", json={"items": ["data"]}
+    )
+    assert resp.status_code == 409
+    assert not kept_copies(new)
+
+
+# --- surveys and the install identity -------------------------------------------------
+
+
+async def test_surveys_merge_and_never_replace_what_is_here(installs) -> None:
+    old = await installs("old")
+    write_bundle(old.data_dir, official=OFFICIAL)
+    track_corrections.write(
+        old.data_dir, "ring", track_corrections.validate(corrections_doc(smooth=False))
+    )
+    write_bundle(old.data_dir, track="Bay", n=4)
+    track_corrections.write(
+        old.data_dir, "bay",
+        track_corrections.validate(corrections_doc(official_id="bay-a") | {"track": "Bay"}),
+    )
+    (old.data_dir / "surface_survey_a.jsonl").write_text("theirs\n")
+    (old.data_dir / "surface_survey_b.jsonl").write_text("theirs\n")
+    car_width.remember(old.data_dir, 7, 1.90, 900)
+    car_width.remember(old.data_dir, 8, 1.70, 300)
+    body = await make_backup(old, ["surveys"])
+
+    new = await installs("new")
+    mine = track_bundle.source_id(new.data_dir)
+    write_bundle(new.data_dir, source=mine, n=8, official=OFFICIAL)
+    track_corrections.write(
+        new.data_dir, "ring", track_corrections.validate(corrections_doc(smooth=True))
+    )
+    (new.data_dir / "surface_survey_a.jsonl").write_text("mine\n")
+    car_width.remember(new.data_dir, 7, 1.80, 100)
+
+    _, resp = await restore_parts(new, body, ["surveys"])
+    assert resp.status_code == 200, resp.text
+    report = resp.json()["surveys"]
+    assert sorted(b["track"] for b in report["bundles"]) == ["Bay", "Ring"]
+    assert report["corrections"] == ["Bay"]
+    assert report["logs"] == ["surface_survey_b.jsonl"]
+    assert report["car_widths"] == 1
+    assert report["failed"] == []
+    assert resp.json()["rejudging"] == ["bay", "ring"]
+
+    ring = track_bundle.load(new.data_dir, "Ring")
+    assert ring["meta"]["source_runs"] == {mine: 4, STRANGER: 4}
+    # What was here stays: corrections, a log of the same name, a measured car.
+    assert track_corrections.load(new.data_dir, "ring")["compile"]["smooth_borders"] is True
+    assert track_corrections.load(new.data_dir, "bay") is not None
+    assert (new.data_dir / "surface_survey_a.jsonl").read_text() == "mine\n"
+    assert (new.data_dir / "surface_survey_b.jsonl").read_text() == "theirs\n"
+    widths = car_width.load(new.data_dir)
+    assert widths[7]["width_m"] == 1.80 and widths[8]["width_m"] == 1.70
+    # Not ticked, so this install is still itself.
+    assert track_bundle.source_id(new.data_dir) == mine
+
+
+async def test_a_bundle_that_does_not_validate_is_listed_and_the_rest_go(installs) -> None:
+    good = _foreign_bundle(track="Ring")
+    body = craft(
+        {
+            "track-bundles/ring.json": json.dumps(good),
+            "track-bundles/broken.json": json.dumps({"format": "nope"}),
+        },
+        surveys={"bundles": 2},
+    )
+    new = await installs("new")
+    _, resp = await restore_parts(new, body, ["surveys"])
+    assert resp.status_code == 200, resp.text
+    report = resp.json()["surveys"]
+    assert [b["track"] for b in report["bundles"]] == ["Ring"]
+    assert [f["file"] for f in report["failed"]] == ["track-bundles/broken.json"]
+
+
+async def test_the_install_identity_goes_only_when_ticked(installs) -> None:
+    body = craft(
+        {"source-id.json": json.dumps({"source_id": SOURCE_ID})}, surveys={"bundles": 0}
+    )
+    new = await installs("new")
+    await drive_laps(new.service, laps=1)
+    mine = track_bundle.source_id(new.data_dir)
+    described, resp = await restore_parts(new, body, ["surveys"])
+    assert described["here"]["source_id"] is True
+    assert described["here"]["sessions"] == 1
+    assert resp.status_code == 200
+    assert track_bundle.source_id(new.data_dir) == mine
+
+    _, resp = await restore_parts(new, body, ["source_id"])
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["source_id"] == {"source_id": SOURCE_ID}
+    assert track_bundle.source_id(new.data_dir) == SOURCE_ID
+    on_disk = json.loads((new.data_dir / "source-id.json").read_text())
+    assert on_disk["source_id"] == SOURCE_ID
+
+
+# --- config, layouts, tokens ----------------------------------------------------------
+
+
+async def test_config_merges_through_the_registry(installs) -> None:
+    config = {
+        "format": backup.CONFIG_FORMAT,
+        "version": 1,
+        "values": {
+            "race_engineer_units": "imperial",
+            "webhook_events": ["personal_best"],
+            "ps_ip": "10.0.0.9",
+            "telemetry_port": 40000,
+            "ws_rate": 999,
+            "admin_token": "let-me-in",
+            "sync_token": SYNC_TOKEN,
+            "http_port": 9000,
+            "flux_capacitor": True,
+        },
+    }
+    body = craft({"config.json": json.dumps(config)}, config={"settings": 9})
+    new = await installs("new")
+    described, resp = await restore_parts(new, body, ["config"], machine=["ps_ip"])
+    listing = described["parts"]["config"]
+    assert [s["key"] for s in listing["settings"]] == [
+        "race_engineer_units", "webhook_events", "ps_ip", "telemetry_port",
+    ]
+    assert {s["key"] for s in listing["skipped"]} == {
+        "ws_rate", "admin_token", "sync_token", "http_port", "flux_capacitor",
+    }
+    assert resp.status_code == 200, resp.text
+    report = resp.json()["config"]
+    assert report["applied"] == ["race_engineer_units", "webhook_events", "ps_ip"]
+    assert report["left"] == ["telemetry_port"]
+    assert new.service.settings.ps_ip == "10.0.0.9"
+    assert new.service.settings.telemetry_port != 40000
+    assert new.service.settings.admin_token == ""
+    assert new.service.settings.sync_token == ""
+    assert new.service.settings.webhook_events == "personal_best"
+
+
+async def test_a_setting_its_endpoint_refuses_is_skipped_and_the_rest_go(installs) -> None:
+    config = {
+        "format": backup.CONFIG_FORMAT,
+        "version": 1,
+        "values": {"ps_ip": "not a host!", "race_engineer_units": "imperial"},
+    }
+    body = craft({"config.json": json.dumps(config)}, config={"settings": 2})
+    new = await installs("new")
+    _, resp = await restore_parts(new, body, ["config"], machine=["ps_ip"])
+    assert resp.status_code == 200, resp.text
+    report = resp.json()["config"]
+    assert report["applied"] == ["race_engineer_units"]
+    assert report["skipped"] == [{"key": "ps_ip", "reason": "not a valid IP address or hostname"}]
+
+
+async def test_layouts_merge_by_name_keeping_the_id_here(installs) -> None:
+    layouts = {
+        "format": backup.LAYOUTS_FORMAT,
+        "version": 1,
+        "layouts": [
+            {"name": "Pit wall", "kind": "dash", "config": OTHER_LAYOUT},
+            {"name": "Stream", "kind": "overlay", "config": LAYOUT},
+            {"name": "Old", "kind": "overlay", "config": {"version": 1}},
+        ],
+    }
+    body = craft({"layouts.json": json.dumps(layouts)}, layouts={"layouts": 3})
+    new = await installs("new")
+    mine = await new.service.repo.create_layout("Pit wall", "overlay", LAYOUT)
+    described, resp = await restore_parts(new, body, ["layouts"])
+    assert described["parts"]["layouts"]["layouts"] == [
+        {"name": "Pit wall", "kind": "dash", "replaces": True},
+        {"name": "Stream", "kind": "overlay", "replaces": False},
+    ]
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["layouts"] == {
+        "created": ["Stream"],
+        "replaced": ["Pit wall"],
+        "skipped": [{"name": "Old", "reason": "layout config must have version 2"}],
+    }
+    pit = await new.service.repo.get_layout_by_name("Pit wall")
+    assert pit["id"] == mine["id"]
+    assert pit["kind"] == "dash" and pit["config"] == OTHER_LAYOUT
+
+
+async def test_tokens_are_written_only_when_ticked(installs) -> None:
+    secrets = {
+        "format": "gt7-datalogger-secrets",
+        "version": 1,
+        "settings": {"webhook_url": HOOK, "sync_token": SYNC_TOKEN},
+    }
+    body = craft(
+        {"secrets.json": json.dumps(secrets), "config.json": json.dumps(
+            {"format": backup.CONFIG_FORMAT, "version": 1, "values": {}}
+        )},
+        tokens={"keys": ["webhook_url", "sync_token"]},
+    )
+    new = await installs("new")
+    _, resp = await restore_parts(new, body, ["config"])
+    assert resp.status_code == 200, resp.text
+    assert new.service.secrets.read() == {}
+    assert not (new.data_dir / "secrets.json").exists()
+
+    _, resp = await restore_parts(new, body, ["tokens"])
+    assert resp.status_code == 200, resp.text
+    assert new.service.secrets.read() == {"webhook_url": HOOK, "sync_token": SYNC_TOKEN}
+    assert new.service.settings.sync_token == SYNC_TOKEN
+    assert "sync_token" not in await new.service.repo.get_settings()
+
+
+# --- what is refused ------------------------------------------------------------------
+
+
+def _zip(entries: list[tuple[str, bytes]]) -> bytes:
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w") as zf:
+        for name, data in entries:
+            zf.writestr(name, data)
+    return out.getvalue()
+
+
+GOOD_MANIFEST = {
+    "format": backup.FORMAT, "version": backup.VERSION, "app_version": "0.8.1",
+    "created_at": "2026-10-21T20:00:00+00:00", "alembic_revision": "x",
+    "parts": {"layouts": {"files": ["layouts.json"]}},
+}
+
+
+@pytest.mark.parametrize(
+    "body, why",
+    [
+        (b"not a zip at all", "not a ZIP"),
+        (_zip([("layouts.json", b"{}")]), "no manifest.json"),
+        (_zip([("manifest.json", b"{nope")]), "manifest.json does not read"),
+        (_zip([("manifest.json", json.dumps({"format": "other"}).encode())]),
+         "not a datalogger backup"),
+        (_zip([("manifest.json", json.dumps(GOOD_MANIFEST | {"version": 2}).encode()),
+               ("layouts.json", b"{}")]), "update this install"),
+        (_zip([("manifest.json", json.dumps(GOOD_MANIFEST).encode())]),
+         "which is not in the file"),
+        (_zip([("manifest.json", json.dumps(GOOD_MANIFEST).encode()),
+               ("layouts.json", b"{}"), ("config.json", b"{}")]),
+         "not in its manifest"),
+        (_zip([("manifest.json", json.dumps(GOOD_MANIFEST).encode()),
+               ("layouts.json", b"{}"), ("../gt7.db", b"x")]),
+         "not something a backup holds"),
+        (_zip([("manifest.json", json.dumps(GOOD_MANIFEST).encode()),
+               ("layouts.json", b"{}"), ("track-bundles/compiled/ring.json", b"{}")]),
+         "not something a backup holds"),
+        (_zip([("manifest.json", json.dumps(GOOD_MANIFEST).encode()),
+               ("layouts.json", b" " * (restore.SMALL_MAX + 1))]),
+         "larger than a backup's ever is"),
+    ],
+)
+async def test_a_file_that_is_not_a_backup_is_refused(installs, body, why) -> None:
+    new = await installs("new")
+    resp = await upload(new, body)
+    assert resp.status_code == 400
+    assert why in resp.json()["detail"]
+    assert not list(new.data_dir.glob(".restore-*"))
+
+
+async def test_a_name_held_twice_is_refused(installs) -> None:
+    with pytest.warns(UserWarning):
+        body = _zip([
+            ("manifest.json", json.dumps(GOOD_MANIFEST).encode()),
+            ("layouts.json", b"{}"),
+            ("layouts.json", b"{}"),
+        ])
+    new = await installs("new")
+    resp = await upload(new, body)
+    assert resp.status_code == 400
+    assert "two entries under one name" in resp.json()["detail"]
+
+
+async def test_a_document_that_does_not_read_refuses_its_part_only(installs) -> None:
+    config = {
+        "format": backup.CONFIG_FORMAT, "version": 1,
+        "values": {"race_engineer_units": "imperial"},
+    }
+    body = craft({"layouts.json": "{broken", "config.json": json.dumps(config)})
+    new = await installs("new")
+    described, resp = await restore_parts(new, body, ["layouts"])
+    assert "layouts.json does not read" in described["parts"]["layouts"]["refused"]
+    assert resp.status_code == 409
+    resp = await new.client.post(
+        f"/api/admin/restore/{described['id']}", json={"items": ["config"]}
+    )
+    assert resp.status_code == 200, resp.text
+
+
+async def test_a_part_the_backup_does_not_hold_is_refused(installs) -> None:
+    body = craft({"layouts.json": json.dumps(
+        {"format": backup.LAYOUTS_FORMAT, "version": 1, "layouts": []}
+    )})
+    new = await installs("new")
+    _, resp = await restore_parts(new, body, ["data"])
+    assert resp.status_code == 400
+    assert "holds no Data" in resp.json()["detail"]
+
+
+async def test_an_upload_that_would_fill_the_disk_is_refused(installs, monkeypatch) -> None:
+    new = await installs("new")
+    usage = type("Usage", (), {"free": restore.SPACE_MARGIN + 10, "total": 0, "used": 0})
+    monkeypatch.setattr("app.storage.restore.shutil.disk_usage", lambda _: usage)
+    resp = await upload(new, b"x" * 100)
+    assert resp.status_code == 507
+    assert not list(new.data_dir.glob(".restore-*"))
+
+
+async def test_surveys_that_would_unpack_past_the_disk_are_refused(installs, monkeypatch) -> None:
+    # A survey log of one repeated byte: 60 MB that compresses to almost nothing.
+    log = b"x" * (60 << 20)
+    body = craft({"surface_survey_bomb.jsonl": log}, surveys={"logs": 1})
+    assert len(body) < 1 << 20
+    new = await installs("new")
+    up = await upload(new, body)
+    assert up.status_code == 200, up.text
+    usage = type("Usage", (), {"free": 32 << 20, "total": 0, "used": 0})
+    monkeypatch.setattr("app.api.restore.shutil.disk_usage", lambda _: usage)
+    resp = await new.client.post(
+        f"/api/admin/restore/{up.json()['id']}", json={"items": ["surveys"]}
+    )
+    assert resp.status_code == 507
+    assert not (new.data_dir / "surface_survey_bomb.jsonl").exists()
+
+
+async def test_an_upload_that_expires_while_it_is_applied_goes_afterwards(installs) -> None:
+    body = craft({"layouts.json": json.dumps(
+        {"format": backup.LAYOUTS_FORMAT, "version": 1, "layouts": []}
+    )})
+    new = await installs("new")
+    up = await upload(new, body)
+    restores = new.service.restores
+    held = restores.get(up.json()["id"])
+    assert held is not None
+    with pytest.raises(restore.RestoreError):
+        async with restores.applying(held):
+            restores._expire(held)
+            assert held.path.exists()
+            raise restore.RestoreError("the apply failed")
+    assert not held.path.exists()
+    assert restores.get() is None
+
+
+async def test_restoring_needs_the_token(installs) -> None:
+    new = await installs("new", admin_token=ADMIN_TOKEN)
+    body = craft({"layouts.json": json.dumps(
+        {"format": backup.LAYOUTS_FORMAT, "version": 1, "layouts": []}
+    )})
+    assert (await upload(new, body)).status_code == 401
+    assert (await new.client.get("/api/admin/restore")).status_code == 401
+    up = await upload(new, body, headers={"X-API-Key": ADMIN_TOKEN})
+    assert up.status_code == 200
+    resp = await new.client.post(
+        f"/api/admin/restore/{up.json()['id']}", json={"items": ["layouts"]}
+    )
+    assert resp.status_code == 401
+
+
+async def test_a_new_upload_replaces_the_last_and_forgetting_deletes_it(installs) -> None:
+    body = craft({"layouts.json": json.dumps(
+        {"format": backup.LAYOUTS_FORMAT, "version": 1, "layouts": []}
+    )})
+    new = await installs("new")
+    first = (await upload(new, body)).json()
+    second = (await upload(new, body)).json()
+    assert len(list(new.data_dir.glob(".restore-*.zip"))) == 1
+    resp = await new.client.post(f"/api/admin/restore/{first['id']}", json={"items": ["layouts"]})
+    assert resp.status_code == 404
+    assert (await new.client.get("/api/admin/restore")).json()["id"] == second["id"]
+    assert (await new.client.delete(f"/api/admin/restore/{second['id']}")).status_code == 200
+    assert not list(new.data_dir.glob(".restore-*"))
+
+
+async def test_a_restore_waits_for_a_survey_to_stop(installs) -> None:
+    old = await installs("old")
+    await drive_laps(old.service, laps=1)
+    body = await make_backup(old, ["data"])
+    new = await installs("new")
+    new.service.survey.active = True
+    _, resp = await restore_parts(new, body, ["data"])
+    new.service.survey.active = False
+    assert resp.status_code == 409
+    assert "survey" in resp.json()["detail"]
+
+
+def test_leftovers_of_an_interrupted_restore_are_cleared_at_start(tmp_path) -> None:
+    (tmp_path / ".restore-abc.zip.part").write_bytes(b"x")
+    (tmp_path / ".restore-abc.db").write_bytes(b"x")
+    (tmp_path / "gt7.db.before-restore-20261022-101010").write_bytes(b"kept")
+    restore.Restores(tmp_path)
+    assert [p.name for p in tmp_path.iterdir()] == ["gt7.db.before-restore-20261022-101010"]
+
+
+# --- nothing writes while the file changes hands ---------------------------------------
+
+
+async def test_the_gate_waits_for_sessions_in_progress_and_holds_new_ones(installs) -> None:
+    install = await installs("one")
+    repo = install.service.repo
+    order: list[str] = []
+    release = asyncio.Event()
+
+    async def long_session() -> None:
+        async with repo._sf() as db:
+            order.append("long started")
+            await release.wait()
+            await db.commit()
+        order.append("long done")
+
+    async def swap() -> None:
+        async with repo.gate.shut(5.0):
+            order.append("swapping")
+            await asyncio.sleep(0.05)
+        order.append("swapped")
+
+    async def late_session() -> None:
+        order.append("late asked")
+        await repo.stats()
+        order.append("late done")
+
+    first = asyncio.create_task(long_session())
+    await asyncio.sleep(0.01)
+    swapping = asyncio.create_task(swap())
+    await asyncio.sleep(0.01)
+    late = asyncio.create_task(late_session())
+    await asyncio.sleep(0.01)
+    assert order == ["long started", "late asked"]
+    release.set()
+    await asyncio.gather(first, swapping, late)
+    assert order == [
+        "long started", "late asked", "long done", "swapping", "swapped", "late done",
+    ]
+
+
+async def test_a_session_that_outlasts_the_wait_refuses_the_swap(installs) -> None:
+    install = await installs("one")
+    repo = install.service.repo
+    release = asyncio.Event()
+
+    async def long_session() -> None:
+        async with repo._sf():
+            await release.wait()
+
+    task = asyncio.create_task(long_session())
+    await asyncio.sleep(0.01)
+    with pytest.raises(TimeoutError):
+        async with repo.gate.shut(0.05):
+            pass
+    # Open again: new sessions are not held behind a swap that gave up.
+    assert (await repo.stats())["laps"] == 0
+    release.set()
+    await task
+
+
+async def test_a_session_inside_a_session_passes_the_gate(installs) -> None:
+    install = await installs("one")
+    repo = install.service.repo
+    async with repo._sf():
+        # Would queue behind a swap waiting for the outer session, forever.
+        assert (await repo.stats())["sessions"] == 0

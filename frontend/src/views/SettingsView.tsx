@@ -325,7 +325,18 @@ export function SettingsView({ section: sectionParam }: { section?: string | nul
       case "health":
         return <HealthSection busy={busy} run={run} stats={stats} hz={hz} />;
       case "data":
-        return <DataSection busy={busy} run={run} stats={stats} />;
+        return (
+          <DataSection
+            busy={busy}
+            run={run}
+            stats={stats}
+            onRestored={() => {
+              reloadSettings();
+              reloadSync();
+              reloadLayouts();
+            }}
+          />
+        );
       case "access":
         return <AccessSection protection={protection} locked={locked} />;
       case "advanced":

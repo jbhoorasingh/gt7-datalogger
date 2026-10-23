@@ -347,6 +347,38 @@
         "title": "RejectSuggestionPayload",
         "type": "object"
       },
+      "RestoreRequest": {
+        "properties": {
+          "items": {
+            "items": {
+              "enum": [
+                "data",
+                "surveys",
+                "source_id",
+                "config",
+                "layouts",
+                "tokens"
+              ],
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Items",
+            "type": "array"
+          },
+          "machine_settings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Machine Settings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "RestoreRequest",
+        "type": "object"
+      },
       "SessionPatch": {
         "additionalProperties": false,
         "description": "Fields the user may edit on a session; absent fields stay untouched.\n\nUnknown fields are rejected rather than ignored: a script that typos\n`bests_exclude` must get a 422, not a 200 that quietly leaves the\nreplay's laps owning the personal-best board (#26).",
@@ -1373,6 +1405,225 @@
           }
         },
         "summary": "Restart Source"
+      }
+    },
+    "/api/admin/restore": {
+      "get": {
+        "operationId": "restore_waiting_api_admin_restore_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Restore Waiting Api Admin Restore Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Restore Waiting"
+      },
+      "post": {
+        "description": "Take a backup to restore. `?name=` carries the file's own name, for display.",
+        "operationId": "upload_restore_api_admin_restore_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Upload Restore Api Admin Restore Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upload Restore"
+      }
+    },
+    "/api/admin/restore/{upload_id}": {
+      "delete": {
+        "operationId": "forget_restore_api_admin_restore__upload_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "upload_id",
+            "required": true,
+            "schema": {
+              "title": "Upload Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Forget Restore Api Admin Restore  Upload Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Forget Restore"
+      },
+      "post": {
+        "operationId": "apply_restore_api_admin_restore__upload_id__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "upload_id",
+            "required": true,
+            "schema": {
+              "title": "Upload Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestoreRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Apply Restore Api Admin Restore  Upload Id  Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Apply Restore"
       }
     },
     "/api/admin/settings": {

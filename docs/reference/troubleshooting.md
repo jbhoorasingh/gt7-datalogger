@@ -101,7 +101,7 @@ built a separate app that calls this API from another origin, set
 - `GET /api/status` reports connection state, packet rates, and decode errors — useful
   when filing an issue.
 - Database growing large? **Settings › Data** shows its size, how much **Compact**
-  would reclaim, and the backup and delete-everything actions.
+  would reclaim, and the backup, restore and delete-everything actions.
 
 Still stuck? [Open an issue](https://github.com/jbhoorasingh/gt7-datalogger/issues) with
 your setup (Docker/native, network layout) and the output of `/api/status`.

@@ -43,7 +43,7 @@ class LayoutPatch(BaseModel):
     config: dict[str, Any] | None = None
 
 
-def _validate_config(config: dict[str, Any]) -> None:
+def validate_config(config: dict[str, Any]) -> None:
     if config.get("version") != 2:
         raise HTTPException(400, "layout config must have version 2")
     if len(json.dumps(config, separators=(",", ":"))) > MAX_CONFIG_BYTES:
@@ -65,7 +65,7 @@ async def get_layout(request: Request, ref: str) -> dict[str, Any]:
 
 @router.post("", dependencies=[Depends(require_admin)])
 async def create_layout(request: Request, payload: LayoutPayload) -> dict[str, Any]:
-    _validate_config(payload.config)
+    validate_config(payload.config)
     name = payload.name.strip()
     if not name:
         raise HTTPException(400, "layout name cannot be blank")
@@ -93,7 +93,7 @@ async def update_layout(
         if existing is not None and existing["id"] != layout_id:
             raise HTTPException(409, f'a layout named "{name}" already exists')
     if patch.config is not None:
-        _validate_config(patch.config)
+        validate_config(patch.config)
     try:
         updated = await repo.update_layout(
             layout_id, name=name, kind=patch.kind, config=patch.config

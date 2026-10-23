@@ -7,8 +7,10 @@ import json
 import logging
 import time
 from collections import OrderedDict
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from fastapi import WebSocket
@@ -36,14 +38,21 @@ from app.processing.tracks import signature_from_samples
 from app.race_engineer import CATEGORIES, VoiceCallout
 from app.race_engineer.manager import RaceEngineerManager
 from app.rejudge import SurveyRejudge
+from app.storage import restore
 from app.storage.backup import Backups
+from app.storage.db import init_db
 from app.storage.repository import Repository, lap_summary  # noqa: F401  (re-export)
+from app.storage.restore import Restores
 from app.storage.secret_store import SecretStore
 from app.sync import SyncClient
 from app.telemetry.listener import UdpTelemetrySource
 from app.telemetry.simulator import SimTelemetrySource, scenario_for
 
 log = logging.getLogger(__name__)
+
+# How long a restore waits for the database sessions in progress to finish
+# before it swaps the file; a request that outlasts it refuses the restore.
+SWAP_WAIT_S = 30.0
 
 
 @dataclass(slots=True)
@@ -127,8 +136,17 @@ class TelemetryService:
         # Where Admin saves the webhook URL and sync token: beside the
         # database, never in it (#94).
         self.secrets = SecretStore(settings.db_path.parent)
-        # The backup made in Settings › Data and waiting for its download (#161).
+        # The backup made in Settings › Data and waiting for its download, and
+        # the one uploaded there to be restored (#161).
         self.backups = Backups(settings.db_path.parent)
+        self.restores = Restores(settings.db_path.parent)
+        # Work going through the stored laps in the background (the startup
+        # re-check of lap starts): a restored database makes it stale, so a
+        # restore cancels it, and `database_replaced` runs it again.
+        self.data_tasks: set[asyncio.Task[Any]] = set()
+        # What a start does for the recordings, done again for a database a
+        # restore put in place; main.lifespan sets it.
+        self.database_replaced: Callable[[], Awaitable[None]] | None = None
         self.notifier = Notifier()
         self.notifier.url = settings.webhook_url
         self.notifier.enabled = settings.enabled_webhook_events()
@@ -406,6 +424,7 @@ class TelemetryService:
         await self.sync.stop()
         await self.rejudge.stop()
         self.backups.discard_all()
+        self.restores.discard_all()
         tasks = [c.task for c in self._clients.values() if c.task]
         if self._reference_task is not None:
             tasks.append(self._reference_task)
@@ -1359,6 +1378,71 @@ class TelemetryService:
             await self.repo.clear_all()
             self.sync.sessions.forget_all()
             await self._reset_recorder()
+
+    async def replace_database(self, staged: Path) -> Path:
+        """Put the database at `staged` in place of the recordings (#161), and
+        return where the one it replaced is kept.
+
+        `staged` is at this build's schema already (restore.upgrade_database),
+        so the recorder is paused for the swap alone. Nothing may write while
+        the files change hands: SQLite finds its journal by the file's name,
+        and save_lap does not retry a locked database. So everything that
+        writes stops first — the telemetry source (a lap it holds is saved,
+        into the recordings being kept), the work going through stored laps,
+        sync, re-judging, a backup being made — and then the gate shuts once
+        the sessions in progress are done. Afterwards the recorder starts a
+        new session at the next packet, and what a start does for the
+        recordings is done again.
+        """
+        db_path = self.settings.db_path
+        kept = restore.kept_path(db_path)
+        await self.source.stop()
+        try:
+            async with self.session_lock:
+                if self.recording:
+                    await self.processor.flush()
+                tasks = [*self.data_tasks]
+                if self._reference_task is not None:
+                    tasks.append(self._reference_task)
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                await self.sync.stop()
+                async with self.rejudge.paused(), self.backups.suspended():
+                    try:
+                        async with self.repo.gate.shut(SWAP_WAIT_S):
+                            await self.repo.engine.dispose()
+                            await asyncio.to_thread(
+                                restore.install_database, db_path, staged, kept
+                            )
+                            try:
+                                await init_db(self.repo.engine)
+                            except BaseException:
+                                await self.repo.engine.dispose()
+                                await asyncio.to_thread(
+                                    restore.uninstall_database, db_path, kept
+                                )
+                                raise
+                    except TimeoutError as exc:
+                        raise restore.RestoreError(
+                            "the database stayed busy; try again in a minute"
+                        ) from exc
+                log.info("recordings replaced from a backup; kept the old ones as %s", kept.name)
+                # Everything remembered by lap or session id was about the
+                # database just replaced.
+                self.gear_verdicts.clear()
+                self._official_ids.clear()
+                self.sync.sessions.forget_all()
+                await self._reset_recorder()
+            if self.database_replaced is not None:
+                await self.database_replaced()
+        finally:
+            await self.sync.start()
+            try:
+                await self.source.start()
+            except OSError:
+                log.exception("telemetry source did not restart after the restore")
+        return kept
 
     async def _reset_recorder(self) -> None:
         """Forget the recorder's session: its unfinished lap, its best-lap

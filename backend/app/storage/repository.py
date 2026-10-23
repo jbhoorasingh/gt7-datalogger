@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from contextvars import ContextVar
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -22,7 +24,7 @@ from sqlalchemy import (
     text,
     update,
 )
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.processing import tracks as tracks_module
 from app.processing.cars import Car
@@ -205,9 +207,86 @@ def car_figures(car: Car | None) -> dict[str, Any]:
     }
 
 
+# Whether the running task already holds a place at the gate: a session
+# opened inside another one passes straight through rather than queueing
+# behind a swap that is waiting for the outer one to finish.
+_AT_GATE: ContextVar[bool] = ContextVar("_AT_GATE", default=False)
+
+
+class SessionGate:
+    """Every database session goes through it; replacing the database file
+    shuts it (#161).
+
+    SQLite finds its rollback journal by the file's name, so a connection
+    still open on the old file when a restored one takes its name could roll
+    a hot journal into the wrong database. Shutting the gate waits for the
+    sessions in progress to finish and holds new ones back until the swap is
+    done; they then open the new file, and never see an error.
+    """
+
+    def __init__(self) -> None:
+        self._open = 0
+        self._shut = False
+        self._changed = asyncio.Condition()
+
+    @asynccontextmanager
+    async def session(
+        self, factory: async_sessionmaker[AsyncSession]
+    ) -> AsyncIterator[AsyncSession]:
+        if _AT_GATE.get():
+            async with factory() as db:
+                yield db
+            return
+        async with self._changed:
+            await self._changed.wait_for(lambda: not self._shut)
+            self._open += 1
+        token = _AT_GATE.set(True)
+        try:
+            async with factory() as db:
+                yield db
+        finally:
+            _AT_GATE.reset(token)
+            async with self._changed:
+                self._open -= 1
+                self._changed.notify_all()
+
+    @asynccontextmanager
+    async def shut(self, timeout: float) -> AsyncIterator[None]:
+        """No session open while the block runs. Raises TimeoutError when the
+        ones in progress outlast `timeout`, and opens again either way."""
+        if _AT_GATE.get():
+            raise RuntimeError("the gate cannot be shut from inside a session")
+        async with self._changed:
+            if self._shut:
+                raise RuntimeError("the gate is already shut")
+            self._shut = True
+            try:
+                async with asyncio.timeout(timeout):
+                    await self._changed.wait_for(lambda: self._open == 0)
+            except BaseException:
+                self._shut = False
+                self._changed.notify_all()
+                raise
+        try:
+            yield
+        finally:
+            async with self._changed:
+                self._shut = False
+                self._changed.notify_all()
+
+
 class Repository:
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
-        self._sf = session_factory
+        self._factory = session_factory
+        self.gate = SessionGate()
+
+    def _sf(self) -> AbstractAsyncContextManager[AsyncSession]:
+        return self.gate.session(self._factory)
+
+    @property
+    def engine(self) -> AsyncEngine:
+        engine: AsyncEngine = self._factory.kw["bind"]
+        return engine
 
     @staticmethod
     async def _touch(db: AsyncSession, sessions: Any) -> None:
