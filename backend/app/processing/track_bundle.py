@@ -176,6 +176,24 @@ def source_id(data_dir: Path) -> str:
     return value
 
 
+def set_source_id(data_dir: Path, value: str) -> None:
+    """Make this installation the one `value` names: a restore that moves an
+    install to new hardware (#161), so its votes go on counting as one
+    source. Replaces the file, and what this process remembered of it."""
+    if not is_source_id(value):
+        raise ValueError(f"not an installation id: {value!r}")
+    data_dir.mkdir(parents=True, exist_ok=True)
+    path = data_dir / SOURCE_FILE
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(
+        json.dumps({"source_id": value, "created_at": datetime.now(UTC).isoformat()}),
+        encoding="utf-8",
+    )
+    tmp.replace(path)
+    _source_cache[data_dir] = value
+    log.info("installation source id set: %s", value)
+
+
 def is_source_id(value: Any) -> bool:
     """Whether a string is a well-formed installation id."""
     return isinstance(value, str) and bool(_SOURCE_RE.match(value))

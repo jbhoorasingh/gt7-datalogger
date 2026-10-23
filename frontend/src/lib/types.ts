@@ -1204,6 +1204,75 @@ export interface PreparedBackup {
   database_bytes: number;
 }
 
+// Restore (#161): a backup uploaded to be put back (POST /api/admin/restore),
+// part by part, and what applying the ticked parts did. Each part says
+// whether the file holds it and, when this install cannot take it, why.
+export type RestoreItem = "data" | "surveys" | "source_id" | "config" | "layouts" | "tokens";
+
+export interface RestorePartState {
+  available: boolean;
+  /** Held, but not something this install can take: why. */
+  refused?: string;
+}
+
+export interface RestoreSetting {
+  key: string;
+  label: string;
+  group: string;
+  value: ConfigValue;
+  /** Describes the machine (console IP, ports, source…): unticked to begin with. */
+  machine: boolean;
+}
+
+export interface RestoreUpload {
+  id: string;
+  name: string;
+  bytes: number;
+  received_at: string;
+  expires_in_s: number;
+  /** The version that made the backup, when, and its database's schema. */
+  app_version: string;
+  created_at: string;
+  alembic_revision: string;
+  free_bytes: number;
+  /** This install as it is now. */
+  here: { sessions: number; laps: number; source_id: boolean; tokens: string[] };
+  parts: {
+    data: RestorePartState & { bytes?: number; sessions?: number; laps?: number; needs_bytes?: number };
+    surveys: RestorePartState & {
+      bytes?: number;
+      bundles?: number;
+      corrections?: number;
+      logs?: number;
+      car_widths?: boolean;
+    };
+    source_id: RestorePartState;
+    config: RestorePartState & { settings?: RestoreSetting[]; skipped?: { key: string; reason: string }[] };
+    layouts: RestorePartState & {
+      layouts?: { name: string; kind: string; replaces: boolean }[];
+      skipped?: { name: string; reason: string }[];
+    };
+    tokens: RestorePartState & { keys?: string[] };
+  };
+}
+
+export interface RestoreReport {
+  data?: { sessions: number; laps: number; revision: string; upgraded_from: string | null; kept: string };
+  surveys?: {
+    bundles: { track: string; slug: string; added_points: number }[];
+    corrections: string[];
+    logs: string[];
+    car_widths: number;
+    failed: { file: string; error: string }[];
+  };
+  source_id?: { source_id: string | null; error?: string };
+  config?: { applied: string[]; skipped: { key: string; reason: string }[]; left: string[] };
+  layouts?: { created: string[]; replaced: string[]; skipped: { name: string; reason: string }[] };
+  tokens?: { applied: string[]; skipped: { key: string; reason: string }[] };
+  /** Circuits whose laps are being re-judged against the surveys here. */
+  rejudging: string[];
+}
+
 export type WsMessage =
   | { type: "telemetry"; data: LiveFrame }
   | { type: "lap"; data: LapSummary }

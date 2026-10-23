@@ -307,6 +307,8 @@ The section header shows how many sessions and laps are stored and the size on d
 - **Back up** — everything this install holds, as one file to move it to another
   machine or keep: pick the parts, then **Download backup**. See
   [Back up and move](#back-up-and-move).
+- **Restore** — put a backup back: upload the file, tick the parts, **Restore**. See
+  [Putting it back](#putting-it-back).
 - **Export laps** — **Export all laps (JSON)** downloads a ZIP with each lap's JSON
   export in a folder per session (each importable again, one lap at a time); **CSV
   (all laps)** is the same with each lap's CSV export. These are for reading laps
@@ -345,8 +347,51 @@ Not in it: `cars.json` (the car refresh rebuilds it), the sync client's
 
 #### Putting it back
 
-Settings cannot restore a backup yet. The ZIP is laid out like the data folder, so
-it goes back by hand:
+**Settings › Data › Restore** takes a backup back, on the same machine or a new one.
+Install the same version or a newer one there, start it, open Settings › Data, and:
+
+1. **Choose backup…** and pick the ZIP. It is uploaded into the data folder, not held
+   in memory, so a large one is fine on a Pi; then it is checked and its parts listed,
+   each with what it holds and what it would do here. Nothing has changed yet. The
+   upload waits 30 minutes for the next step; **Forget this file** deletes it sooner.
+2. Tick the parts to put back and press **Restore**. Only the ticked parts change
+   anything:
+
+| Part | What restoring it does |
+| --- | --- |
+| **Data** | **replaces** every session and lap here with the backup's. The ones it replaces are kept beside the database as `gt7.db.before-restore-<time>`. Settings, layouts and credentials saved here stay as they are. When this install has recordings, **Restore** asks once more before replacing them |
+| **Surveys** | **merged**: each track bundle the way an import merges one (votes counted once per source, the corners you labelled here kept), then corrections, survey logs and car widths added where this install has none of its own. Nothing here is replaced |
+| **Install identity** | makes this install the one that made the backup, in the votes of the survey bundles (`source-id.json`). Ticked to begin with only when this install has no recordings yet: right when the machine replaces the old one, wrong for a second install that keeps its own recordings, whose votes would then count as the other's |
+| **Config** | **merged**: each saved setting is applied as Settings › Advanced applies it, with the same checks. One this version does not have, or will not take, is skipped and listed. The settings that describe the machine (telemetry source, console IP, ports, simulator scenario, LAN announcement and any file path) are listed under Config, unticked: tick the ones that should come across too |
+| **Dash/OBS** | **merged** by name: a layout from the backup replaces the one here with the same name, keeping its id so overlay URLs still work, and the rest are added |
+| **Tokens** | the webhook URL and sync token, saved and applied as Settings saves them. Ticked to begin with only when neither is saved here |
+
+The Data part does its slow work before it touches anything: the backup's database is
+unpacked beside yours, checked for damage, upgraded if an older version made it, and
+given this install's saved settings and layouts. Only then is the recorder paused,
+for the moment the two files change places; a lap you are driving then is saved into
+the recordings being kept, and the next one starts a new session. It needs free space
+for the unpacked database (twice that when it has to be upgraded); the part says so
+when there is not enough. A backup made by a **newer** version cannot go back for
+Data, since an older version cannot open its database: update this install first.
+Its other parts can still go back.
+
+Afterwards, the laps on every circuit the restored sessions name or the merged surveys
+cover are judged again against the surveys now here, in the background: on a Pi with a
+large database that takes a few minutes. Settings lists anything that was skipped, and
+where the replaced recordings went. Once you are happy with the result, delete the
+`gt7.db.before-restore-<time>` file; until then, putting it back as `gt7.db` with the
+datalogger stopped undoes the Data part.
+
+A restore waits while a survey is running. It never brings back the admin token (no
+backup holds it), what each browser keeps for itself (overlay presets, Race Engineer
+voice settings, Analysis channel picks), or what the sync client has sent: sync works
+that out again, and nothing it had queued from the replaced recordings is sent.
+
+##### By hand
+
+When Settings cannot be reached (the datalogger will not start, say), the ZIP is laid
+out like the data folder, so it goes back by hand:
 
 1. Install the **same version or a newer one** on the new machine and start it once,
    so its data folder exists (`data/` beside the app, or the Docker volume). A

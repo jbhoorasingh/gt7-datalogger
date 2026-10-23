@@ -39,7 +39,7 @@ export function tokensWarning(inv: BackupInventory | null): string {
 
 export const DEFAULT_PARTS: BackupPart[] = BACKUP_PARTS.filter((p) => p.defaultOn).map((p) => p.id);
 
-function plural(n: number, one: string, many = `${one}s`): string {
+export function plural(n: number, one: string, many = `${one}s`): string {
   return `${n.toLocaleString()} ${n === 1 ? one : many}`;
 }
 

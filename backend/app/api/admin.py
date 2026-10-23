@@ -246,6 +246,13 @@ async def _apply_generic(service: TelemetryService, key: str, value: Any) -> Non
 @router.put("/config")
 async def put_config(request: Request, patch: ConfigPatch) -> dict[str, Any]:
     service = svc(request)
+    await apply_config(service, patch)
+    return await _config(service)
+
+
+async def apply_config(service: TelemetryService, patch: ConfigPatch) -> None:
+    """Validate a patch as a whole, then apply and save it; raises the 400s
+    PUT /config answers. A restore's config part comes through here too."""
     registry = settings_registry
     keys = [*patch.values, *patch.reset]
     for key in keys:
@@ -303,7 +310,6 @@ async def put_config(request: Request, patch: ConfigPatch) -> dict[str, Any]:
             await service.repo.delete_setting(key)
         log.info("setting %s reset to %s", key, "environment" if key in
                  service.env_settings.model_fields_set else "default")
-    return await _config(service)
 
 
 async def _apply_sync(service: TelemetryService, payload: SettingsPayload) -> None:

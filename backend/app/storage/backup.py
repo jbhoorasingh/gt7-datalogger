@@ -47,7 +47,7 @@ import sqlite3
 import time
 import zipfile
 from collections.abc import AsyncIterator, Callable, Collection
-from contextlib import closing
+from contextlib import asynccontextmanager, closing
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -464,6 +464,17 @@ class Backups:
     def discard_all(self) -> None:
         if self._current is not None:
             self.discard(self._current)
+
+    @asynccontextmanager
+    async def suspended(self) -> AsyncIterator[None]:
+        """No backup is made while the block runs — a restore replacing the
+        database (#161). One being made is waited for, and one waiting for
+        its download goes: its copy is of the recordings being replaced."""
+        async with self._lock:
+            if self._orphan is not None:
+                await asyncio.wait([self._orphan])
+            self.discard_all()
+            yield
 
     async def stream(
         self, prepared: Prepared, chunks: AsyncIterator[bytes]

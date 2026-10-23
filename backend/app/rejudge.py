@@ -42,7 +42,7 @@ import contextlib
 import json
 import logging
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -129,6 +129,17 @@ class SurveyRejudge:
         deadline = time.monotonic() + timeout
         while (self._due_now() or self._inflight) and time.monotonic() < deadline:
             await asyncio.sleep(0.01)
+
+    @contextlib.asynccontextmanager
+    async def paused(self) -> AsyncIterator[None]:
+        """Nothing judged while the block runs — a restore replacing the
+        database (#161), under which a pass would carry one database's lap
+        ids into the other. The queue is dropped, a pass the worker is in is
+        cancelled (each row is its own transaction) and a manual one is
+        waited for. A later `changed` starts the worker again."""
+        await self.stop()
+        async with self._lock:
+            yield
 
     async def stop(self) -> None:
         if self._task is not None:

@@ -16,9 +16,22 @@ Notable changes to GT7 Datalogger. The format follows
   database's schema revision and what each part holds. The database is copied a few
   megabytes at a time, so the recorder keeps saving laps while a backup is made, and
   compacted, so deleted laps do not travel with it. The archive is laid out like the
-  data folder; Settings cannot restore one yet, and the guide says how to put it back
-  by hand. The lap exports that used to sit under Back up are now **Export laps**
-  (#161).
+  data folder, so it can also go back by hand. The lap exports that used to sit under
+  Back up are now **Export laps** (#161).
+- **Restore a backup.** Settings › Data › **Restore** uploads a backup, lists the
+  parts it holds with what each would do here, and applies only the ones ticked.
+  **Data** replaces the recordings: the backup's database is unpacked, checked,
+  upgraded if an older version made it, and swapped in with the recorder paused only
+  for the swap; the replaced database is kept as `gt7.db.before-restore-<time>`, and
+  this install's saved settings and layouts stay. A backup from a newer version is
+  refused for Data, with the version it came from. **Surveys** merge as an import
+  does, adding corrections, survey logs and car widths where this install has none;
+  **Install identity** (`source-id.json`) is its own switch, on by default only for
+  an install with no recordings yet. **Config** merges through the same checks as
+  Settings › Advanced, with the per-machine settings (source, console IP, ports,
+  simulator scenario, LAN announcement) listed but off by default. **Dash/OBS**
+  merges by name, and **Tokens** go into `secrets.json` only when ticked. Laps are
+  then re-judged against the surveys here in the background (#161).
 
 ## [0.8.1] - 2026-10-21
 

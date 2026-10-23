@@ -29,6 +29,12 @@ log = logging.getLogger(__name__)
 # The same cap a hand-imported file gets: a pulled bundle is an import.
 MAX_IMPORT_BYTES = 64 * 1024 * 1024
 
+# Settings key recording that this installation has had its first pull of
+# the shared track repo (main.pull_shared_on_first_start). Set once the pull
+# has run (or was not needed); a start that could not read the repo leaves
+# it unset and tries again.
+FIRST_PULL_KEY = "shared_bundles_first_pull"
+
 
 async def fetch_index(index_url: str) -> list[dict[str, Any]]:
     """The repo's bundle entries, each with the slug it pulls into."""
