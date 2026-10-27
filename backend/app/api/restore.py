@@ -161,6 +161,7 @@ async def describe(service: TelemetryService, upload: restore.Upload) -> dict[st
         }
     if "surveys" in parts:
         entry = parts["surveys"]
+        needs = int(found.get("surveys_bytes", 0)) + restore.SPACE_MARGIN
         out["surveys"] = {
             "available": True,
             "bytes": _count(entry, "bytes"),
@@ -168,7 +169,11 @@ async def describe(service: TelemetryService, upload: restore.Upload) -> dict[st
             "corrections": _count(entry, "corrections"),
             "logs": _count(entry, "logs"),
             "car_widths": upload.holds("car-widths.json"),
-            "refused": "",
+            "refused": (
+                f"the surveys unpack to {needs >> 20} MB; {free >> 20} MB is free here"
+                if free < needs
+                else ""
+            ),
         }
         if upload.holds(track_bundle.SOURCE_FILE):
             out["source_id"] = {"available": True, "refused": ""}
@@ -352,12 +357,16 @@ async def _restore_data(service: TelemetryService, upload: restore.Upload) -> di
             f"restoring the recordings needs {needs >> 20} MB free here; {free >> 20} MB is"
         )
     staged = data_dir / f".restore-{upload.id}.db"
+    # Every step on the staged file runs to its end before the finally can
+    # delete it, cancelled or not; see restore.run_to_end.
     try:
-        await asyncio.to_thread(restore.unpack_database, upload.path, staged)
-        facts = await asyncio.to_thread(
-            restore.check_database, staged, upload.manifest.get("app_version")
+        await restore.run_to_end(
+            asyncio.to_thread(restore.unpack_database, upload.path, staged)
         )
-        revision = await restore.upgrade_database(staged)
+        facts = await restore.run_to_end(
+            asyncio.to_thread(restore.check_database, staged, upload.manifest.get("app_version"))
+        )
+        revision = await restore.run_to_end(restore.upgrade_database(staged))
         kept = await service.replace_database(staged)
     finally:
         staged.unlink(missing_ok=True)

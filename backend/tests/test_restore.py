@@ -11,6 +11,7 @@ import asyncio
 import io
 import json
 import sqlite3
+import threading
 import zipfile
 from pathlib import Path
 
@@ -460,6 +461,70 @@ async def test_an_unfinished_transaction_refuses_the_swap(installs) -> None:
     assert (await new.service.repo.stats())["laps"] == 2
 
 
+async def staged_swap(installs, monkeypatch):
+    """An install with three laps, a staged database from another with one,
+    and an install step that waits in its thread until released."""
+    old = await installs("old")
+    await drive_laps(old.service, laps=1)
+    zf = zipfile.ZipFile(io.BytesIO(await make_backup(old, ["data"])))
+    new = await installs("new")
+    await drive_laps(new.service, laps=3)
+    staged = new.data_dir / ".restore-test.db"
+    staged.write_bytes(zf.read("gt7.db"))
+    entered, release = threading.Event(), threading.Event()
+    real = restore.install_database
+
+    def slow_install(live, staged, kept):
+        entered.set()
+        assert release.wait(5)
+        real(live, staged, kept)
+
+    monkeypatch.setattr(restore, "install_database", slow_install)
+    return new, staged, entered, release
+
+
+async def test_a_cancelled_restore_finishes_its_swap_before_letting_go(
+    installs, monkeypatch
+) -> None:
+    new, staged, entered, release = await staged_swap(installs, monkeypatch)
+    swap = asyncio.create_task(new.service.replace_database(staged))
+    assert await asyncio.to_thread(entered.wait, 5)
+    swap.cancel()
+    await asyncio.sleep(0.05)
+    # Cancelled while its thread is still renaming files: nothing is let go
+    # of — not the gate, not the writers.
+    assert not swap.done()
+    assert new.service.repo.gate.is_shut
+    assert new.service.source.starts == 0  # type: ignore[attr-defined]
+    reader = asyncio.create_task(new.service.repo.stats())
+    await asyncio.sleep(0.05)
+    assert not reader.done()
+
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await swap
+    # The swap went through first; the session held back reads the
+    # restored recordings, and the writers started again after it.
+    assert (await reader)["laps"] == 1
+    assert not new.service.repo.gate.is_shut
+    assert new.service.source.starts == 1  # type: ignore[attr-defined]
+    assert len(kept_copies(new)) == 1
+    assert not staged.exists()
+
+
+async def test_a_service_stopped_during_a_restore_is_not_started_again(
+    installs, monkeypatch
+) -> None:
+    new, staged, entered, release = await staged_swap(installs, monkeypatch)
+    swap = asyncio.create_task(new.service.replace_database(staged))
+    assert await asyncio.to_thread(entered.wait, 5)
+    stopping = asyncio.create_task(new.service.stop())
+    await asyncio.sleep(0.05)
+    release.set()
+    await asyncio.gather(swap, stopping)
+    assert new.service.source.starts == 0  # type: ignore[attr-defined]
+
+
 async def test_a_failed_swap_puts_the_recordings_back(installs, monkeypatch) -> None:
     old = await installs("old")
     await drive_laps(old.service, laps=1)
@@ -750,9 +815,9 @@ GOOD_MANIFEST = {
         (_zip([("manifest.json", json.dumps(GOOD_MANIFEST).encode()),
                ("layouts.json", b"{}"), ("track-bundles/compiled/ring.json", b"{}")]),
          "not something a backup holds"),
-        (_zip([("manifest.json", json.dumps(GOOD_MANIFEST).encode()),
-               ("layouts.json", b" " * (restore.SMALL_MAX + 1))]),
-         "larger than a backup's ever is"),
+        (_zip([("manifest.json", json.dumps(GOOD_MANIFEST).encode()
+                + b" " * restore.SMALL_MAX), ("layouts.json", b"{}")]),
+         "more than this version reads"),
     ],
 )
 async def test_a_file_that_is_not_a_backup_is_refused(installs, body, why) -> None:
@@ -821,11 +886,63 @@ async def test_surveys_that_would_unpack_past_the_disk_are_refused(installs, mon
     assert up.status_code == 200, up.text
     usage = type("Usage", (), {"free": 32 << 20, "total": 0, "used": 0})
     monkeypatch.setattr("app.api.restore.shutil.disk_usage", lambda _: usage)
+    described = (await new.client.get("/api/admin/restore")).json()
+    assert "MB is free here" in described["parts"]["surveys"]["refused"]
     resp = await new.client.post(
         f"/api/admin/restore/{up.json()['id']}", json={"items": ["surveys"]}
     )
-    assert resp.status_code == 507
+    assert resp.status_code == 409
     assert not (new.data_dir / "surface_survey_bomb.jsonl").exists()
+    # Data and surveys together are measured together, too.
+    room = restore.SPACE_MARGIN + (61 << 20)
+    assert restore.check_room(described_found(new), ["surveys"], room) is None
+    with pytest.raises(restore.NotEnoughSpace):
+        restore.check_room(described_found(new), ["surveys"], room - (2 << 20))
+
+
+def described_found(install: Install) -> dict:
+    upload = install.service.restores.get()
+    assert upload is not None
+    return upload.found
+
+
+async def test_files_past_what_an_import_takes_fail_alone(installs) -> None:
+    # A long survey writes a log past the 64 MB an import takes; the backup
+    # carries it whatever its size, and so must a restore. A bundle that
+    # large is read whole to be validated, so it is listed instead, and
+    # neither stops the rest of the backup going back.
+    big_log = b'{"meta": {}}\n' + b"x" * (65 << 20)
+    config = {
+        "format": backup.CONFIG_FORMAT, "version": 1,
+        "values": {"race_engineer_units": "imperial"},
+    }
+    body = craft(
+        {
+            "surface_survey_long.jsonl": big_log,
+            "track-bundles/huge.json": b" " * (restore.DOCUMENT_MAX + 1),
+            "track-bundles/ring.json": json.dumps(_foreign_bundle(track="Ring")),
+            "layouts.json": b" " * (restore.SMALL_MAX + 1),
+            "config.json": json.dumps(config),
+        },
+        surveys={"bundles": 2, "logs": 1},
+    )
+    new = await installs("new")
+    described, resp = await restore_parts(new, body, ["config"])
+    assert resp.status_code == 200, resp.text
+    assert new.service.settings.race_engineer_units == "imperial"
+    assert "more than this version reads" in described["parts"]["layouts"]["refused"]
+    assert described["parts"]["surveys"]["refused"] == ""
+
+    _, resp = await restore_parts(new, body, ["surveys"])
+    assert resp.status_code == 200, resp.text
+    report = resp.json()["surveys"]
+    assert report["logs"] == ["surface_survey_long.jsonl"]
+    assert (new.data_dir / "surface_survey_long.jsonl").stat().st_size == len(big_log)
+    assert [b["track"] for b in report["bundles"]] == ["Ring"]
+    assert report["failed"] == [{
+        "file": "track-bundles/huge.json",
+        "error": "track-bundles/huge.json is 65 MB, more than this version reads (64 MB)",
+    }]
 
 
 async def test_an_upload_that_expires_while_it_is_applied_goes_afterwards(installs) -> None:
@@ -955,6 +1072,27 @@ async def test_a_session_that_outlasts_the_wait_refuses_the_swap(installs) -> No
     assert (await repo.stats())["laps"] == 0
     release.set()
     await task
+
+
+async def test_a_session_cancelled_on_its_way_out_gives_its_place_back(installs) -> None:
+    install = await installs("one")
+    repo = install.service.repo
+    inside = asyncio.Event()
+
+    async def held() -> None:
+        async with repo._sf():
+            inside.set()
+            await asyncio.sleep(10)
+
+    tasks = [asyncio.create_task(held()) for _ in range(3)]
+    await inside.wait()
+    for task in tasks:
+        task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
+    # Nothing still counted as open: a swap shuts the gate at once.
+    async with repo.gate.shut(0.05):
+        assert repo.gate.is_shut
+    assert not repo.gate.is_shut
 
 
 async def test_a_session_inside_a_session_passes_the_gate(installs) -> None:

@@ -181,6 +181,9 @@ async def client(tmp_path):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c, service, settings.db_path.parent
+    # Identifying a session queues a re-judge of its circuit at once; one
+    # still reading laps when the loop closes never returns its connection.
+    await service.stop()
     await engine.dispose()
 
 

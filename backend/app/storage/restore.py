@@ -36,7 +36,7 @@ import secrets
 import shutil
 import sqlite3
 import zipfile
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable
 from contextlib import asynccontextmanager, closing
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -68,8 +68,9 @@ TTL_S = 30 * 60
 # The manifest and the small documents: config, layouts, secrets, the
 # source id and the car widths, each a few kilobytes when a backup makes it.
 SMALL_MAX = 4 << 20
-# A bundle, a corrections file or a survey log: what their own upload
-# endpoints take.
+# A bundle or a corrections file: what the import takes, since each is read
+# whole to be validated. Survey logs have no limit but free space: the backup
+# writes them whatever their size, and they are copied a chunk at a time.
 DOCUMENT_MAX = shared_pull.MAX_IMPORT_BYTES
 SPACE_MARGIN = backup.SPACE_MARGIN
 CHUNK = backup.CHUNK
@@ -115,6 +116,10 @@ class NotEnoughSpace(RestoreError):
     pass
 
 
+class TooLarge(ValueError):
+    """A file in the backup larger than this version reads; it fails alone."""
+
+
 def is_machine_setting(key: str) -> bool:
     entry = settings_registry.BY_KEY.get(key)
     return key in MACHINE_SETTINGS or (entry is not None and entry.kind == "path")
@@ -150,10 +155,24 @@ def part_of(name: str) -> str | None:
 
 
 def _limit(name: str) -> int | None:
-    """The most a member may hold; None for the database, which free space bounds."""
-    if name == backup.DATABASE:
+    """The most a member may hold when it is read whole; None for the ones
+    copied a chunk at a time (the database, survey logs), which free space
+    bounds."""
+    if name == backup.DATABASE or _LOG.fullmatch(name):
         return None
     return SMALL_MAX if name in _SMALL else DOCUMENT_MAX
+
+
+def _read(zf: zipfile.ZipFile, name: str) -> bytes:
+    """A member read whole, refused as TooLarge past its limit. The size is
+    the one the archive states, and reading never yields more than that."""
+    size = zf.getinfo(name).file_size
+    limit = _limit(name)
+    if limit is not None and size > limit:
+        # Rounded up: just past the limit must not read as the limit itself.
+        mb = -(-size // (1 << 20))
+        raise TooLarge(f"{name} is {mb} MB, more than this version reads ({limit >> 20} MB)")
+    return zf.read(name)
 
 
 # --- reading an upload -------------------------------------------------------------
@@ -185,15 +204,17 @@ def inspect(path: Path) -> dict[str, Any]:
                 raise RestoreError(f"{name} is encrypted")
             if info.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
                 raise RestoreError(f"{name} is compressed in a way a backup never is")
-            limit = _limit(name)
-            if limit is not None and info.file_size > limit:
-                raise RestoreError(f"{name} is larger than a backup's ever is")
+        # Sizes are checked where each file is read, so that one larger than
+        # this version takes fails its own part, never the whole file — all
+        # but the manifest, without which nothing can be listed.
         if backup.MANIFEST not in names:
             raise RestoreError(
                 "there is no manifest.json in it: not a backup made in Settings › Data"
             )
         try:
-            manifest = json.loads(zf.read(backup.MANIFEST))
+            manifest = json.loads(_read(zf, backup.MANIFEST))
+        except TooLarge as exc:
+            raise RestoreError(str(exc)) from exc
         except (ValueError, zipfile.BadZipFile) as exc:
             raise RestoreError(f"manifest.json does not read: {exc}") from exc
         check_manifest(manifest, names)
@@ -212,7 +233,9 @@ def inspect(path: Path) -> dict[str, Any]:
             if name not in names:
                 continue
             try:
-                found[key] = read(json.loads(zf.read(name)))
+                found[key] = read(json.loads(_read(zf, name)))
+            except TooLarge as exc:
+                found[f"{key}_error"] = str(exc)
             except (ValueError, zipfile.BadZipFile) as exc:
                 found[f"{key}_error"] = f"{name} does not read: {exc}"
     return found
@@ -471,6 +494,30 @@ def _display_name(name: str) -> str:
 # --- data --------------------------------------------------------------------------
 
 
+async def run_to_end[T](work: Awaitable[T]) -> T:
+    """Await `work` in a task of its own that a cancelled caller waits out.
+
+    A thread cannot be stopped, and cancelling the coroutine that waits on it
+    does not stop it either: a restore cancelled mid-swap would otherwise
+    reopen the session gate, restart the writers and delete its staged file
+    while the thread was still renaming the database. So the caller's
+    cancellation is held until `work` has ended, done or undone, and only
+    then goes on.
+    """
+    task = asyncio.ensure_future(work)
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        while not task.done():
+            try:
+                await asyncio.wait([task])
+            except asyncio.CancelledError:
+                continue
+        if not task.cancelled() and task.exception() is not None:
+            log.warning("restore step cancelled by its caller failed: %s", task.exception())
+        raise
+
+
 def unpack_database(upload: Path, dest: Path) -> None:
     """The backup's database, written to `dest` a chunk at a time. Blocking."""
     dest.unlink(missing_ok=True)
@@ -620,7 +667,7 @@ def restore_surveys(upload: Path, data_dir: Path) -> dict[str, Any]:
         names = zf.namelist()
         for name in sorted(n for n in names if _BUNDLE.fullmatch(n)):
             try:
-                doc = track_bundle.validate_document(json.loads(zf.read(name)))
+                doc = track_bundle.validate_document(json.loads(_read(zf, name)))
                 result = track_bundle.merge_document(data_dir, doc)
             except (ValueError, zipfile.BadZipFile) as exc:  # BundleError is a ValueError
                 failed.append({"file": name, "error": str(exc)})
@@ -638,8 +685,8 @@ def restore_surveys(upload: Path, data_dir: Path) -> dict[str, Any]:
             if track_corrections.path(data_dir, slug).exists():
                 continue  # this install's own, which a restore never replaces
             try:
-                error = _add_corrections(data_dir, slug, zf.read(name))
-            except zipfile.BadZipFile as exc:
+                error = _add_corrections(data_dir, slug, _read(zf, name))
+            except (TooLarge, zipfile.BadZipFile) as exc:
                 error = str(exc)
             if error:
                 failed.append({"file": name, "error": error})
@@ -656,7 +703,7 @@ def restore_surveys(upload: Path, data_dir: Path) -> dict[str, Any]:
                 failed.append({"file": name, "error": str(exc)})
         if car_width.FILENAME in names:
             try:
-                widths = _add_car_widths(data_dir, json.loads(zf.read(car_width.FILENAME)))
+                widths = _add_car_widths(data_dir, json.loads(_read(zf, car_width.FILENAME)))
             except (ValueError, zipfile.BadZipFile) as exc:
                 failed.append({"file": car_width.FILENAME, "error": str(exc)})
     return {
@@ -743,7 +790,7 @@ def restore_source_id(upload: Path, data_dir: Path) -> str:
     """Make this install the one that made the backup, in the survey votes."""
     with zipfile.ZipFile(upload) as zf:
         try:
-            doc = json.loads(zf.read(track_bundle.SOURCE_FILE))
+            doc = json.loads(_read(zf, track_bundle.SOURCE_FILE))
         except (KeyError, ValueError, zipfile.BadZipFile) as exc:
             raise RestoreError(f"{track_bundle.SOURCE_FILE} does not read") from exc
     value = doc.get("source_id") if isinstance(doc, dict) else None
@@ -757,7 +804,7 @@ def read_tokens(upload: Path) -> dict[str, str]:
     """The credentials in a backup's secrets.json, as SecretStore reads them."""
     with zipfile.ZipFile(upload) as zf:
         try:
-            doc = json.loads(zf.read(secret_store.FILENAME))
+            doc = json.loads(_read(zf, secret_store.FILENAME))
         except (KeyError, ValueError, zipfile.BadZipFile) as exc:
             raise RestoreError(f"{secret_store.FILENAME} does not read") from exc
     values = doc.get("settings") if isinstance(doc, dict) else None

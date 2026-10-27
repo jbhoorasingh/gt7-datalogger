@@ -147,6 +147,8 @@ class TelemetryService:
         # What a start does for the recordings, done again for a database a
         # restore put in place; main.lifespan sets it.
         self.database_replaced: Callable[[], Awaitable[None]] | None = None
+        # Set by stop(), so a restore finishing after it restarts nothing.
+        self._stopping = False
         self.notifier = Notifier()
         self.notifier.url = settings.webhook_url
         self.notifier.enabled = settings.enabled_webhook_events()
@@ -410,6 +412,7 @@ class TelemetryService:
         await self.sync.start()
 
     async def stop(self) -> None:
+        self._stopping = True
         await self.source.stop()
         # A lap salvaged during a stop waits for driving to resume (#153);
         # driving will not resume now.
@@ -1383,6 +1386,15 @@ class TelemetryService:
         """Put the database at `staged` in place of the recordings (#161), and
         return where the one it replaced is kept.
 
+        Run to its end even when the caller is cancelled (restore.run_to_end):
+        a swap stopped halfway would leave the gate open and the writers
+        running beside a file still being renamed.
+        """
+        return await restore.run_to_end(self._swap_database(staged))
+
+    async def _swap_database(self, staged: Path) -> Path:
+        """The swap itself; see replace_database.
+
         `staged` is at this build's schema already (restore.upgrade_database),
         so the recorder is paused for the swap alone. Nothing may write while
         the files change hands: SQLite finds its journal by the file's name,
@@ -1437,11 +1449,14 @@ class TelemetryService:
             if self.database_replaced is not None:
                 await self.database_replaced()
         finally:
-            await self.sync.start()
-            try:
-                await self.source.start()
-            except OSError:
-                log.exception("telemetry source did not restart after the restore")
+            # Unless the service stopped meanwhile: its stop has already
+            # stopped these, and must not find them running again.
+            if not self._stopping:
+                await self.sync.start()
+                try:
+                    await self.source.start()
+                except OSError:
+                    log.exception("telemetry source did not restart after the restore")
         return kept
 
     async def _reset_recorder(self) -> None:

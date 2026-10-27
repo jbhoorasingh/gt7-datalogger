@@ -222,12 +222,19 @@ class SessionGate:
     a hot journal into the wrong database. Shutting the gate waits for the
     sessions in progress to finish and holds new ones back until the swap is
     done; they then open the new file, and never see an error.
+
+    A session's count is given back without awaiting anything, so a session
+    cancelled on its way out cannot leave the gate thinking it is still
+    open — which would refuse every restore after it as busy.
     """
 
     def __init__(self) -> None:
         self._open = 0
         self._shut = False
-        self._changed = asyncio.Condition()
+        self._idle = asyncio.Event()
+        self._idle.set()
+        self._opened = asyncio.Event()
+        self._opened.set()
 
     @asynccontextmanager
     async def session(
@@ -237,18 +244,20 @@ class SessionGate:
             async with factory() as db:
                 yield db
             return
-        async with self._changed:
-            await self._changed.wait_for(lambda: not self._shut)
-            self._open += 1
+        while self._shut:
+            await self._opened.wait()
+        # Nothing awaited from the check to here: no swap can start between.
+        self._open += 1
+        self._idle.clear()
         token = _AT_GATE.set(True)
         try:
             async with factory() as db:
                 yield db
         finally:
             _AT_GATE.reset(token)
-            async with self._changed:
-                self._open -= 1
-                self._changed.notify_all()
+            self._open -= 1
+            if not self._open:
+                self._idle.set()
 
     @asynccontextmanager
     async def shut(self, timeout: float) -> AsyncIterator[None]:
@@ -256,23 +265,22 @@ class SessionGate:
         ones in progress outlast `timeout`, and opens again either way."""
         if _AT_GATE.get():
             raise RuntimeError("the gate cannot be shut from inside a session")
-        async with self._changed:
-            if self._shut:
-                raise RuntimeError("the gate is already shut")
-            self._shut = True
-            try:
-                async with asyncio.timeout(timeout):
-                    await self._changed.wait_for(lambda: self._open == 0)
-            except BaseException:
-                self._shut = False
-                self._changed.notify_all()
-                raise
+        if self._shut:
+            raise RuntimeError("the gate is already shut")
+        self._shut = True
+        self._opened.clear()
         try:
+            async with asyncio.timeout(timeout):
+                while self._open:
+                    await self._idle.wait()
             yield
         finally:
-            async with self._changed:
-                self._shut = False
-                self._changed.notify_all()
+            self._shut = False
+            self._opened.set()
+
+    @property
+    def is_shut(self) -> bool:
+        return self._shut
 
 
 class Repository:
