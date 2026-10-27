@@ -383,10 +383,15 @@ where the replaced recordings went. Once you are happy with the result, delete t
 `gt7.db.before-restore-<time>` file; until then, putting it back as `gt7.db` with the
 datalogger stopped undoes the Data part.
 
-A restore waits while a survey is running. It never brings back the admin token (no
-backup holds it), what each browser keeps for itself (overlay presets, Race Engineer
-voice settings, Analysis channel picks), or what the sync client has sent: sync works
-that out again, and nothing it had queued from the replaced recordings is sent.
+A restore is refused while a survey is running; stop the survey first. One job fills
+the disk at a time, so that two never count on the same free space: while a backup is
+uploaded, restored or has its database copied, another upload or restore is refused
+with what is in progress, and a backup waits its turn.
+
+A restore never brings back the admin token (no backup holds it), what each browser
+keeps for itself (overlay presets, Race Engineer voice settings, Analysis channel
+picks), or what the sync client has sent: sync works that out again, and nothing it
+had queued from the replaced recordings is sent.
 
 ##### By hand
 

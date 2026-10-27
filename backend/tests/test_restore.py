@@ -1005,6 +1005,114 @@ async def test_a_restore_waits_for_a_survey_to_stop(installs) -> None:
     assert "survey" in resp.json()["detail"]
 
 
+# --- one job filling the disk at a time ---------------------------------------------
+
+
+async def held_body(body: bytes, release: asyncio.Event):
+    """An upload whose browser sends the first bytes, then waits."""
+    yield body[:10]
+    await release.wait()
+    yield body[10:]
+
+
+async def holding(install: Install, holder: str) -> None:
+    for _ in range(200):
+        if install.service.restores.disk.holder == holder:
+            return
+        await asyncio.sleep(0.005)
+    raise AssertionError(f"the disk never held {holder!r}")
+
+
+async def spooling(install: Install) -> None:
+    """Until an upload has begun writing its .part file."""
+    for _ in range(200):
+        if list(install.data_dir.glob(".restore-*.zip.part")):
+            return
+        await asyncio.sleep(0.005)
+    raise AssertionError("no upload started")
+
+
+LAYOUTS_ONLY = craft({"layouts.json": json.dumps(
+    {"format": backup.LAYOUTS_FORMAT, "version": 1, "layouts": []}
+)})
+
+
+async def test_a_second_upload_at_the_same_time_is_refused(installs) -> None:
+    # Two Settings tabs uploading at once would each count on the same free
+    # space; the second is told why it cannot, before it writes a byte.
+    new = await installs("new")
+    release = asyncio.Event()
+    first = asyncio.create_task(upload(new, held_body(LAYOUTS_ONLY, release)))
+    await spooling(new)
+    second = await upload(new, LAYOUTS_ONLY)
+    assert second.status_code == 409
+    assert second.json()["detail"] == "a backup is being uploaded; try again once that is done"
+    assert len(list(new.data_dir.glob(".restore-*"))) == 1  # the first's .part alone
+
+    release.set()
+    assert (await first).status_code == 200
+    assert (await upload(new, LAYOUTS_ONLY)).status_code == 200
+
+
+async def test_nothing_else_fills_the_disk_while_an_upload_does(installs) -> None:
+    new = await installs("new")
+    await drive_laps(new.service, laps=1)
+    waiting = (await upload(new, LAYOUTS_ONLY)).json()
+    release = asyncio.Event()
+    uploading = asyncio.create_task(upload(new, held_body(LAYOUTS_ONLY, release)))
+    await spooling(new)
+
+    # A restore is refused ...
+    resp = await new.client.post(
+        f"/api/admin/restore/{waiting['id']}", json={"items": ["layouts"]}
+    )
+    assert resp.status_code == 409
+    assert "being uploaded" in resp.json()["detail"]
+    # ... a backup of the recordings waits its turn ...
+    snapshot = asyncio.create_task(
+        new.client.post("/api/admin/backup", json={"parts": ["data"]})
+    )
+    await asyncio.sleep(0.05)
+    assert not snapshot.done()
+    # ... and one that copies no database does not need to.
+    made = await new.client.post("/api/admin/backup", json={"parts": ["layouts"]})
+    assert made.status_code == 200
+
+    release.set()
+    assert (await uploading).status_code == 200
+    assert (await snapshot).status_code == 200
+
+
+async def test_a_cancelled_snapshot_holds_the_disk_until_its_copy_ends(
+    installs, monkeypatch
+) -> None:
+    new = await installs("new")
+    await drive_laps(new.service, laps=1)
+    started, release = threading.Event(), threading.Event()
+
+    def held_snapshot(src, dest, drop, **kw):
+        started.set()
+        assert release.wait(5)
+        dest.write_bytes(b"orphan")
+        return {"revision": "r", "sessions": 0, "laps": 0}
+
+    monkeypatch.setattr(backup, "snapshot_database", held_snapshot)
+    making = asyncio.create_task(new.service.backups.prepare(["data"], new.db_path, "r"))
+    assert await asyncio.to_thread(started.wait, 5)
+    making.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await making
+    # The request is gone, but its thread is still writing a copy.
+    resp = await upload(new, LAYOUTS_ONLY)
+    assert resp.status_code == 409
+    assert "being made" in resp.json()["detail"]
+
+    release.set()
+    await holding(new, "")
+    assert (await upload(new, LAYOUTS_ONLY)).status_code == 200
+    assert not list(new.data_dir.glob(".backup-*"))
+
+
 def test_leftovers_of_an_interrupted_restore_are_cleared_at_start(tmp_path) -> None:
     (tmp_path / ".restore-abc.zip.part").write_bytes(b"x")
     (tmp_path / ".restore-abc.db").write_bytes(b"x")

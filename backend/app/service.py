@@ -39,7 +39,7 @@ from app.race_engineer import CATEGORIES, VoiceCallout
 from app.race_engineer.manager import RaceEngineerManager
 from app.rejudge import SurveyRejudge
 from app.storage import restore
-from app.storage.backup import Backups
+from app.storage.backup import Backups, DiskClaim
 from app.storage.db import init_db
 from app.storage.repository import Repository, lap_summary  # noqa: F401  (re-export)
 from app.storage.restore import Restores
@@ -138,8 +138,10 @@ class TelemetryService:
         self.secrets = SecretStore(settings.db_path.parent)
         # The backup made in Settings › Data and waiting for its download, and
         # the one uploaded there to be restored (#161).
-        self.backups = Backups(settings.db_path.parent)
-        self.restores = Restores(settings.db_path.parent)
+        # Both fill the disk beside the database, so they take turns on it.
+        disk = DiskClaim()
+        self.backups = Backups(settings.db_path.parent, disk)
+        self.restores = Restores(settings.db_path.parent, disk)
         # Work going through the stored laps in the background (the startup
         # re-check of lap starts): a restored database makes it stale, so a
         # restore cancels it, and `database_replaced` runs it again.

@@ -231,14 +231,14 @@ async def describe(service: TelemetryService, upload: restore.Upload) -> dict[st
 async def upload_restore(request: Request) -> dict[str, Any]:
     """Take a backup to restore. `?name=` carries the file's own name, for display."""
     service = svc(request)
-    if service.restores.busy:
-        raise HTTPException(409, "a restore is running; wait for it to finish")
     header = request.headers.get("content-length")
     length = int(header) if header is not None and header.isdigit() else None
     try:
         upload = await service.restores.receive(
             request.stream(), request.query_params.get("name", ""), length
         )
+    except backup.DiskBusy as exc:
+        raise HTTPException(409, str(exc)) from exc
     except restore.NotEnoughSpace as exc:
         raise HTTPException(507, str(exc)) from exc
     except restore.RestoreError as exc:
@@ -290,10 +290,14 @@ async def apply_restore(
     if service.survey.active and {"data", "surveys", "source_id"} & set(items):
         raise HTTPException(409, "a survey is running; stop it before restoring")
     try:
-        free = shutil.disk_usage(service.settings.db_path.parent).free
-        restore.check_room(upload.found, items, free)
         async with service.restores.applying(upload):
+            # Measured holding the disk, so no upload or snapshot can be
+            # counting on the same free space.
+            free = shutil.disk_usage(service.settings.db_path.parent).free
+            restore.check_room(upload.found, items, free)
             report = await _apply(service, upload, items, set(payload.machine_settings))
+    except backup.DiskBusy as exc:
+        raise HTTPException(409, str(exc)) from exc
     except restore.NotEnoughSpace as exc:
         raise HTTPException(507, str(exc)) from exc
     except restore.RestoreError as exc:

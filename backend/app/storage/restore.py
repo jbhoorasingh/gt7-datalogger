@@ -381,18 +381,14 @@ class Restores:
     A new upload replaces the one before; one being applied cannot be.
     """
 
-    def __init__(self, data_dir: Path) -> None:
+    def __init__(self, data_dir: Path, disk: backup.DiskClaim | None = None) -> None:
         self.data_dir = data_dir
+        # Shared with backups: one upload, restore or snapshot at a time.
+        self.disk = disk or backup.DiskClaim()
         self._current: Upload | None = None
-        # One restore applied at a time.
-        self._apply = asyncio.Lock()
         # Whatever a crash or a stop mid-upload or mid-restore left behind.
         for leftover in data_dir.glob(".restore-*"):
             leftover.unlink(missing_ok=True)
-
-    @property
-    def busy(self) -> bool:
-        return self._apply.locked()
 
     async def receive(
         self, chunks: AsyncIterator[bytes], name: str, length: int | None
@@ -401,8 +397,22 @@ class Restores:
 
         Refused before a byte is written when its stated length would not fit,
         and stopped when it outgrows the space there was at the start: a
-        chunked upload states no length.
+        chunked upload states no length. Refused (DiskBusy) while another
+        upload, a restore or a backup's snapshot is filling the disk, since
+        that space is theirs.
         """
+        async with self.disk.claim(backup.UPLOADING):
+            upload = await self._receive(chunks, name, length)
+        if self._current is not None:
+            self.discard(self._current)
+        upload.expiry = asyncio.get_running_loop().call_later(TTL_S, self._expire, upload)
+        self._current = upload
+        log.info("backup uploaded for restore: %s, %d MB", upload.name, upload.size >> 20)
+        return upload
+
+    async def _receive(
+        self, chunks: AsyncIterator[bytes], name: str, length: int | None
+    ) -> Upload:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         room = shutil.disk_usage(self.data_dir).free - SPACE_MARGIN
         if length is not None and length > room:
@@ -429,15 +439,7 @@ class Restores:
         except BaseException:
             part.unlink(missing_ok=True)
             raise
-        upload = Upload(
-            id=upload_id, name=_display_name(name), path=path, size=size, found=found
-        )
-        if self._current is not None:
-            self.discard(self._current)
-        upload.expiry = asyncio.get_running_loop().call_later(TTL_S, self._expire, upload)
-        self._current = upload
-        log.info("backup uploaded for restore: %s, %d MB", upload.name, size >> 20)
-        return upload
+        return Upload(id=upload_id, name=_display_name(name), path=path, size=size, found=found)
 
     def get(self, upload_id: str | None = None) -> Upload | None:
         current = self._current
@@ -451,11 +453,10 @@ class Restores:
 
     @asynccontextmanager
     async def applying(self, upload: Upload) -> AsyncIterator[None]:
-        """Hold the upload while it is applied: one restore at a time, and
-        neither its expiry nor a new upload deletes it underneath."""
-        if self._apply.locked():
-            raise RestoreError("a restore is already running")
-        async with self._apply:
+        """Hold the upload while it is applied: one restore at a time, none
+        beside an upload or a backup's snapshot (DiskBusy), and neither its
+        expiry nor a new upload deletes it underneath."""
+        async with self.disk.claim(backup.RESTORING):
             upload.applying = True
             try:
                 yield

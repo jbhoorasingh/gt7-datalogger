@@ -47,7 +47,7 @@ import sqlite3
 import time
 import zipfile
 from collections.abc import AsyncIterator, Callable, Collection
-from contextlib import asynccontextmanager, closing
+from contextlib import asynccontextmanager, closing, nullcontext
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -110,6 +110,60 @@ class BackupError(Exception):
 
 class NotEnoughSpace(BackupError):
     pass
+
+
+class DiskBusy(Exception):
+    """Another job is filling the disk beside the database; the message says which."""
+
+
+# What holds the disk, as a refusal names it.
+MAKING = "a backup is being made"
+UPLOADING = "a backup is being uploaded"
+RESTORING = "a backup is being restored"
+
+
+class DiskClaim:
+    """One job at a time that fills the disk beside the database: making a
+    backup (a database snapshot), receiving one to restore (the upload) and
+    restoring one (the database unpacked). Each measures the free space it
+    needs while it holds the claim, so two can never both count on the same
+    free space and between them fill the disk the recorder writes to — an SD
+    card, on a Pi.
+
+    An upload or a restore that finds the claim taken is refused at once,
+    naming what holds it; a backup waits its turn, as it always waited for a
+    backup before it.
+    """
+
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self.holder = ""
+        self._until: asyncio.Future[Any] | None = None
+
+    @asynccontextmanager
+    async def claim(self, what: str, *, wait: bool = False) -> AsyncIterator[None]:
+        if not wait and self._lock.locked():
+            raise DiskBusy(f"{self.holder}; try again once that is done")
+        await self._lock.acquire()
+        self.holder, self._until = what, None
+        try:
+            yield
+        finally:
+            until = self._until
+            if until is not None and not until.done():
+                until.add_done_callback(lambda _: self._release())
+            else:
+                self._release()
+
+    def hold_until(self, work: asyncio.Future[Any]) -> None:
+        """Keep the claim past the end of its block until `work` is done: a
+        thread still writing to the disk, which a cancelled request left
+        behind and nothing can stop."""
+        self._until = work
+
+    def _release(self) -> None:
+        self.holder = ""
+        self._lock.release()
 
 
 def backup_name(today: date | None = None) -> str:
@@ -378,8 +432,10 @@ class Backups:
     because a browser download cannot carry the X-API-Key header.
     """
 
-    def __init__(self, data_dir: Path) -> None:
+    def __init__(self, data_dir: Path, disk: DiskClaim | None = None) -> None:
         self.data_dir = data_dir
+        # Shared with restores, which also fill the disk (#161).
+        self.disk = disk or DiskClaim()
         self._current: Prepared | None = None
         self._lock = asyncio.Lock()
         # The snapshot of a backup whose request was cancelled. Its thread
@@ -393,7 +449,9 @@ class Backups:
         self, parts: Collection[Part], db_path: Path, revision: str | None
     ) -> Prepared:
         ordered = tuple(p for p in PARTS if p in parts)
-        async with self._lock:
+        # The disk first, then this lock: a restore holds them in that order.
+        disk = self.disk.claim(MAKING, wait=True) if "data" in ordered else nullcontext()
+        async with disk, self._lock:
             # One copy of the database at a time, a cancelled one included.
             if self._orphan is not None:
                 await asyncio.wait([self._orphan])
@@ -434,6 +492,8 @@ class Backups:
             # the thread recreating it, so it goes once the thread is done.
             self._orphan = work
             work.add_done_callback(lambda done: self._drop_orphan(done, snapshot))
+            # And it still fills the disk: nothing else may count on that space.
+            self.disk.hold_until(work)
             raise
 
     def _drop_orphan(self, work: asyncio.Future[dict[str, Any]], snapshot: Path) -> None:
