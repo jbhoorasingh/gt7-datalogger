@@ -207,28 +207,22 @@ def car_figures(car: Car | None) -> dict[str, Any]:
     }
 
 
-# Whether the running task already holds a place at the gate: a session
-# opened inside another one passes straight through rather than queueing
-# behind a swap that is waiting for the outer one to finish.
-_AT_GATE: ContextVar[bool] = ContextVar("_AT_GATE", default=False)
+class Gate:
+    """Work goes through it; replacing the database file shuts it (#161).
 
+    Shutting it waits for the work in progress to finish and holds new work
+    back until the block is done, which then goes on without an error. Work
+    entered inside other work at the same gate passes straight through, so
+    it cannot queue behind a shut that is waiting for its outer part.
 
-class SessionGate:
-    """Every database session goes through it; replacing the database file
-    shuts it (#161).
-
-    SQLite finds its rollback journal by the file's name, so a connection
-    still open on the old file when a restored one takes its name could roll
-    a hot journal into the wrong database. Shutting the gate waits for the
-    sessions in progress to finish and holds new ones back until the swap is
-    done; they then open the new file, and never see an error.
-
-    A session's count is given back without awaiting anything, so a session
-    cancelled on its way out cannot leave the gate thinking it is still
-    open — which would refuse every restore after it as busy.
+    A place is given back without awaiting anything, so work cancelled on
+    its way out cannot leave the gate thinking it is still busy — which
+    would refuse every restore after it.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, name: str) -> None:
+        # Whether the running task already holds a place here.
+        self._inside: ContextVar[bool] = ContextVar(f"gate:{name}", default=False)
         self._open = 0
         self._shut = False
         self._idle = asyncio.Event()
@@ -237,34 +231,30 @@ class SessionGate:
         self._opened.set()
 
     @asynccontextmanager
-    async def session(
-        self, factory: async_sessionmaker[AsyncSession]
-    ) -> AsyncIterator[AsyncSession]:
-        if _AT_GATE.get():
-            async with factory() as db:
-                yield db
+    async def entered(self) -> AsyncIterator[None]:
+        if self._inside.get():
+            yield
             return
         while self._shut:
             await self._opened.wait()
-        # Nothing awaited from the check to here: no swap can start between.
+        # Nothing awaited from the check to here: no shut can start between.
         self._open += 1
         self._idle.clear()
-        token = _AT_GATE.set(True)
+        token = self._inside.set(True)
         try:
-            async with factory() as db:
-                yield db
+            yield
         finally:
-            _AT_GATE.reset(token)
+            self._inside.reset(token)
             self._open -= 1
             if not self._open:
                 self._idle.set()
 
     @asynccontextmanager
     async def shut(self, timeout: float) -> AsyncIterator[None]:
-        """No session open while the block runs. Raises TimeoutError when the
-        ones in progress outlast `timeout`, and opens again either way."""
-        if _AT_GATE.get():
-            raise RuntimeError("the gate cannot be shut from inside a session")
+        """Nothing in progress while the block runs. Raises TimeoutError when
+        the work in progress outlasts `timeout`, and opens again either way."""
+        if self._inside.get():
+            raise RuntimeError("the gate cannot be shut from inside it")
         if self._shut:
             raise RuntimeError("the gate is already shut")
         self._shut = True
@@ -281,6 +271,25 @@ class SessionGate:
     @property
     def is_shut(self) -> bool:
         return self._shut
+
+
+class SessionGate(Gate):
+    """Every database session goes through it.
+
+    SQLite finds its rollback journal by the file's name, so a connection
+    still open on the old file when a restored one takes its name could roll
+    a hot journal into the wrong database. With this gate shut, none is.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("sessions")
+
+    @asynccontextmanager
+    async def session(
+        self, factory: async_sessionmaker[AsyncSession]
+    ) -> AsyncIterator[AsyncSession]:
+        async with self.entered(), factory() as db:
+            yield db
 
 
 class Repository:

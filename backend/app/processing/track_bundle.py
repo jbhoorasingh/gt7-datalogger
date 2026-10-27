@@ -82,12 +82,36 @@ import logging
 import math
 import re
 import secrets
-from collections.abc import Iterable
+import threading
+from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
+from functools import wraps
 from pathlib import Path
 from typing import Any
 
 log = logging.getLogger(__name__)
+
+# Every write to the survey files beside the database — the bundles, their
+# corrections, the car widths — happens holding this lock. Each is a read,
+# a change and a write back through a shared .json.tmp name, and the writers
+# run on the event loop (the survey, the API) and in threads (a shared pull,
+# a restore, #161): two at once on one circuit would lose one's change — a
+# corner just labelled, overwritten by a merge that read the file before
+# it — or collide on the temp file. Reentrant: a rename is a merge and a
+# delete. Held for one file's change at a time, a few milliseconds.
+WRITE_LOCK = threading.RLock()
+
+
+def serialized[**P, R](fn: Callable[P, R]) -> Callable[P, R]:
+    """`fn` holds WRITE_LOCK while it runs."""
+
+    @wraps(fn)
+    def held(*args: P.args, **kwargs: P.kwargs) -> R:
+        with WRITE_LOCK:
+            return fn(*args, **kwargs)
+
+    return held
+
 
 BUNDLE_FORMAT = "gt7-datalogger-track-bundle"
 BUNDLE_VERSION = 5
@@ -176,6 +200,7 @@ def source_id(data_dir: Path) -> str:
     return value
 
 
+@serialized
 def set_source_id(data_dir: Path, value: str) -> None:
     """Make this installation the one `value` names: a restore that moves an
     install to new hardware (#161), so its votes go on counting as one
@@ -617,6 +642,7 @@ def _document(
     }
 
 
+@serialized
 def save(
     data_dir: Path,
     track: str,
@@ -661,6 +687,7 @@ def save(
     return meta
 
 
+@serialized
 def save_replacing_run(
     data_dir: Path,
     track: str,
@@ -764,6 +791,7 @@ def list_bundles(data_dir: Path) -> list[dict[str, Any]]:
 # --- authored corners and sections (#48) --------------------------------------
 
 
+@serialized
 def set_authored(
     data_dir: Path,
     track: str,
@@ -797,6 +825,7 @@ def renumber(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [{**item, "n": i + 1} for i, item in enumerate(items)]
 
 
+@serialized
 def set_official(data_dir: Path, track: str, official: dict[str, Any] | None) -> bool:
     doc = load(data_dir, track)
     if doc is None:
@@ -1134,6 +1163,7 @@ def _foreign_source(doc: dict[str, Any]) -> str:
     return digest.hexdigest()[:SOURCE_ID_CHARS]
 
 
+@serialized
 def merge_document(
     data_dir: Path, doc: dict[str, Any], track: str | None = None
 ) -> dict[str, Any]:
@@ -1226,6 +1256,7 @@ def own_evidence(doc: dict[str, Any], source: str) -> dict[str, Any] | None:
     }
 
 
+@serialized
 def delete(data_dir: Path, slug: str) -> bool:
     path = data_dir / BUNDLE_DIR / f"{slug}.json"
     if not path.exists():
@@ -1235,6 +1266,7 @@ def delete(data_dir: Path, slug: str) -> bool:
     return True
 
 
+@serialized
 def rename(data_dir: Path, slug: str, new_track: str) -> dict[str, Any]:
     """Re-label a bundle, merging into the target when one already exists."""
     doc = load_slug(data_dir, slug)

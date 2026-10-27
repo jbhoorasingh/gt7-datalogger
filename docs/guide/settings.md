@@ -370,7 +370,10 @@ The Data part does its slow work before it touches anything: the backup's databa
 unpacked beside yours, checked for damage, upgraded if an older version made it, and
 given this install's saved settings and layouts. Only then is the recorder paused,
 for the moment the two files change places; a lap you are driving then is saved into
-the recordings being kept, and the next one starts a new session. It needs free space
+the recordings being kept, and the next one starts a new session. Pages already
+asking the server for something finish first, and anything asked in that moment waits
+for the swap and is answered from the restored recordings. Once a restore has started
+it finishes, even if the browser is closed or the connection drops. It needs free space
 for the unpacked database (twice that when it has to be upgraded); the part says so
 when there is not enough. A backup made by a **newer** version cannot go back for
 Data, since an older version cannot open its database: update this install first.

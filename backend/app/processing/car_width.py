@@ -23,6 +23,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from app.processing.track_bundle import serialized
+
 log = logging.getLogger(__name__)
 
 FORMAT = "gt7-datalogger-car-widths"
@@ -50,6 +52,7 @@ def load(data_dir: Path) -> dict[int, dict[str, Any]]:
         return {}
 
 
+@serialized
 def remember(
     data_dir: Path, car_id: int, width_m: float, samples: int, car_name: str = ""
 ) -> dict[int, dict[str, Any]]:
@@ -74,6 +77,7 @@ def remember(
     return cars
 
 
+@serialized
 def save(data_dir: Path, cars: dict[int, dict[str, Any]]) -> None:
     """Write every car's width, replacing the file."""
     doc = {

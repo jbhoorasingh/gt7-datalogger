@@ -62,7 +62,7 @@ from pathlib import Path
 from typing import Any
 
 from app.processing import track_bundle
-from app.processing.track_bundle import BundleError, edge_key, same_level
+from app.processing.track_bundle import BundleError, edge_key, same_level, serialized
 
 log = logging.getLogger(__name__)
 
@@ -424,6 +424,7 @@ def load(data_dir: Path, slug: str) -> dict[str, Any] | None:
         return None
 
 
+@serialized
 def write(data_dir: Path, slug: str, doc: dict[str, Any]) -> Path:
     """Keep a validated document as the circuit's corrections, replacing any."""
     file = path(data_dir, slug)
@@ -434,6 +435,7 @@ def write(data_dir: Path, slug: str, doc: dict[str, Any]) -> Path:
     return file
 
 
+@serialized
 def remove(data_dir: Path, slug: str) -> bool:
     file = path(data_dir, slug)
     try:
@@ -443,6 +445,7 @@ def remove(data_dir: Path, slug: str) -> bool:
     return True
 
 
+@serialized
 def move(data_dir: Path, slug: str, new_slug: str) -> bool:
     """A renamed bundle keeps its corrections — unless the name it moved onto
     already has some, which are that circuit's and stay."""

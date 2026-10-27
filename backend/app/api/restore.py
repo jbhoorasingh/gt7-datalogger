@@ -295,15 +295,19 @@ async def apply_restore(
             # counting on the same free space.
             free = shutil.disk_usage(service.settings.db_path.parent).free
             restore.check_room(upload.found, items, free)
-            report = await _apply(service, upload, items, set(payload.machine_settings))
+            # To its end even when the request goes away (the browser closed,
+            # the connection dropped): a restore abandoned halfway would let go
+            # of the disk while a thread still writes to it, and leave merged
+            # circuits never re-judged or re-synced.
+            report = await restore.run_to_end(
+                _apply(service, upload, items, set(payload.machine_settings))
+            )
     except backup.DiskBusy as exc:
         raise HTTPException(409, str(exc)) from exc
     except restore.NotEnoughSpace as exc:
         raise HTTPException(507, str(exc)) from exc
     except restore.RestoreError as exc:
         raise HTTPException(409, str(exc)) from exc
-    service.restores.discard(upload)
-    log.info("backup restored: %s", ", ".join(LABELS[item] for item in items))
     return report
 
 
@@ -337,7 +341,9 @@ async def _apply(
         else:
             report["source_id"] = {"source_id": source}
     if "surveys" in items:
-        result = await asyncio.to_thread(restore.restore_surveys, upload.path, data_dir)
+        result = await restore.run_to_end(
+            asyncio.to_thread(restore.restore_surveys, upload.path, data_dir)
+        )
         changed = result.pop("tracks")
         for track in changed:
             # Re-judged at once, re-synced, and the map recompiled.
@@ -349,6 +355,9 @@ async def _apply(
     report["rejudging"] = sorted({track_bundle.slugify(t) for t in rejudge if t})
     if "tokens" in items:
         report["tokens"] = await _restore_tokens(service, upload)
+    # Done, whoever is still waiting for the answer: the upload goes.
+    upload.applied = True
+    log.info("backup restored: %s", ", ".join(LABELS[item] for item in items))
     return report
 
 

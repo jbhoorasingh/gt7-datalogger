@@ -362,8 +362,10 @@ class Upload:
     received_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     applying: bool = False
     discarded: bool = False
-    # Its time ran out while it was being applied: it goes once that is done.
+    # Its time ran out while it was being applied, or it was applied: either
+    # way it goes once the restore is done.
     expired: bool = False
+    applied: bool = False
     expiry: asyncio.TimerHandle | None = None
 
     @property
@@ -462,7 +464,7 @@ class Restores:
                 yield
             finally:
                 upload.applying = False
-                if upload.expired:
+                if upload.expired or upload.applied:
                     self.discard(upload)
 
     def _expire(self, upload: Upload) -> None:
@@ -647,7 +649,8 @@ def uninstall_database(live: Path, kept: Path) -> None:
 
 
 def restore_surveys(upload: Path, data_dir: Path) -> dict[str, Any]:
-    """Merge a backup's surveys into this install's. Blocking.
+    """Merge a backup's surveys into this install's. Blocking; every write
+    holds track_bundle.WRITE_LOCK, as every other writer of these files does.
 
     Bundles merge as an import does — votes counted once per source however
     often the same bundle arrives, this install's authored corners kept.
@@ -683,12 +686,17 @@ def restore_surveys(upload: Path, data_dir: Path) -> dict[str, Any]:
             if match is None:
                 continue
             slug = match.group(1)
-            if track_corrections.path(data_dir, slug).exists():
-                continue  # this install's own, which a restore never replaces
             try:
-                error = _add_corrections(data_dir, slug, _read(zf, name))
+                raw = _read(zf, name)
             except (TooLarge, zipfile.BadZipFile) as exc:
-                error = str(exc)
+                failed.append({"file": name, "error": str(exc)})
+                continue
+            # Looked for and written in one hold of the lock: corrections
+            # saved here meanwhile are this install's own, and are kept.
+            with track_bundle.WRITE_LOCK:
+                if track_corrections.path(data_dir, slug).exists():
+                    continue
+                error = _add_corrections(data_dir, slug, raw)
             if error:
                 failed.append({"file": name, "error": error})
                 continue
@@ -756,6 +764,7 @@ def _add_file(zf: zipfile.ZipFile, name: str, dest: Path) -> bool:
     return True
 
 
+@track_bundle.serialized
 def _add_car_widths(data_dir: Path, doc: Any) -> int:
     """Add the widths of cars this install has not measured; how many."""
     if not isinstance(doc, dict) or doc.get("format") != car_width.FORMAT:

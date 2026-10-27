@@ -41,7 +41,7 @@ from app.rejudge import SurveyRejudge
 from app.storage import restore
 from app.storage.backup import Backups, DiskClaim
 from app.storage.db import init_db
-from app.storage.repository import Repository, lap_summary  # noqa: F401  (re-export)
+from app.storage.repository import Gate, Repository, lap_summary  # noqa: F401  (re-export)
 from app.storage.restore import Restores
 from app.storage.secret_store import SecretStore
 from app.sync import SyncClient
@@ -138,6 +138,10 @@ class TelemetryService:
         self.secrets = SecretStore(settings.db_path.parent)
         # The backup made in Settings › Data and waiting for its download, and
         # the one uploaded there to be restored (#161).
+        # Every API request holds a place here (main.DrainForRestore), so a
+        # restore can let the ones in progress finish before it swaps the
+        # database, and hold new ones until it has (#161).
+        self.requests = Gate("requests")
         # Both fill the disk beside the database, so they take turns on it.
         disk = DiskClaim()
         self.backups = Backups(settings.db_path.parent, disk)
@@ -1400,54 +1404,27 @@ class TelemetryService:
         `staged` is at this build's schema already (restore.upgrade_database),
         so the recorder is paused for the swap alone. Nothing may write while
         the files change hands: SQLite finds its journal by the file's name,
-        and save_lap does not retry a locked database. So everything that
-        writes stops first — the telemetry source (a lap it holds is saved,
-        into the recordings being kept), the work going through stored laps,
-        sync, re-judging, a backup being made — and then the gate shuts once
-        the sessions in progress are done. Afterwards the recorder starts a
-        new session at the next packet, and what a start does for the
-        recordings is done again.
+        and save_lap does not retry a locked database. So the API requests in
+        progress finish first and new ones wait (a request can read ids in one
+        session and write by them in the next, and must not do so across the
+        swap); then everything else that writes stops — the telemetry source
+        (a lap it holds is saved, into the recordings being kept), the work
+        going through stored laps, sync, re-judging, a backup being made —
+        and the session gate shuts once the sessions in progress are done.
+        Afterwards the recorder starts a new session at the next packet, and
+        what a start does for the recordings is done again.
         """
         db_path = self.settings.db_path
         kept = restore.kept_path(db_path)
         await self.source.stop()
         try:
-            async with self.session_lock:
-                if self.recording:
-                    await self.processor.flush()
-                tasks = [*self.data_tasks]
-                if self._reference_task is not None:
-                    tasks.append(self._reference_task)
-                for task in tasks:
-                    task.cancel()
-                await asyncio.gather(*tasks, return_exceptions=True)
-                await self.sync.stop()
-                async with self.rejudge.paused(), self.backups.suspended():
-                    try:
-                        async with self.repo.gate.shut(SWAP_WAIT_S):
-                            await self.repo.engine.dispose()
-                            await asyncio.to_thread(
-                                restore.install_database, db_path, staged, kept
-                            )
-                            try:
-                                await init_db(self.repo.engine)
-                            except BaseException:
-                                await self.repo.engine.dispose()
-                                await asyncio.to_thread(
-                                    restore.uninstall_database, db_path, kept
-                                )
-                                raise
-                    except TimeoutError as exc:
-                        raise restore.RestoreError(
-                            "the database stayed busy; try again in a minute"
-                        ) from exc
-                log.info("recordings replaced from a backup; kept the old ones as %s", kept.name)
-                # Everything remembered by lap or session id was about the
-                # database just replaced.
-                self.gear_verdicts.clear()
-                self._official_ids.clear()
-                self.sync.sessions.forget_all()
-                await self._reset_recorder()
+            try:
+                async with self.requests.shut(SWAP_WAIT_S):
+                    await self._swap_files(db_path, staged, kept)
+            except TimeoutError as exc:
+                raise restore.RestoreError(
+                    "the database stayed busy; try again in a minute"
+                ) from exc
             if self.database_replaced is not None:
                 await self.database_replaced()
         finally:
@@ -1460,6 +1437,38 @@ class TelemetryService:
                 except OSError:
                     log.exception("telemetry source did not restart after the restore")
         return kept
+
+    async def _swap_files(self, db_path: Path, staged: Path, kept: Path) -> None:
+        async with self.session_lock:
+            if self.recording:
+                await self.processor.flush()
+            tasks = [*self.data_tasks]
+            if self._reference_task is not None:
+                tasks.append(self._reference_task)
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            await self.sync.stop()
+            async with (
+                self.rejudge.paused(),
+                self.backups.suspended(),
+                self.repo.gate.shut(SWAP_WAIT_S),
+            ):
+                await self.repo.engine.dispose()
+                await asyncio.to_thread(restore.install_database, db_path, staged, kept)
+                try:
+                    await init_db(self.repo.engine)
+                except BaseException:
+                    await self.repo.engine.dispose()
+                    await asyncio.to_thread(restore.uninstall_database, db_path, kept)
+                    raise
+            log.info("recordings replaced from a backup; kept the old ones as %s", kept.name)
+            # Everything remembered by lap or session id was about the
+            # database just replaced.
+            self.gear_verdicts.clear()
+            self._official_ids.clear()
+            self.sync.sessions.forget_all()
+            await self._reset_recorder()
 
     async def _reset_recorder(self) -> None:
         """Forget the recorder's session: its unfinished lap, its best-lap

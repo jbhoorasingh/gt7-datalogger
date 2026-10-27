@@ -65,10 +65,11 @@ class StubSource:
 
 
 class Install:
-    def __init__(self, client: AsyncClient, service: TelemetryService, engine) -> None:
+    def __init__(self, client: AsyncClient, service: TelemetryService, engine, app) -> None:
         self.client = client
         self.service = service
         self.engine = engine
+        self.app = app
 
     @property
     def data_dir(self) -> Path:
@@ -93,7 +94,7 @@ async def make_install(root: Path, admin_token: str = "") -> Install:
     app.router.lifespan_context = None  # type: ignore[assignment]
     app.state.service = service
     client = AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
-    return Install(client, service, engine)
+    return Install(client, service, engine, app)
 
 
 @pytest.fixture
@@ -1111,6 +1112,145 @@ async def test_a_cancelled_snapshot_holds_the_disk_until_its_copy_ends(
     await holding(new, "")
     assert (await upload(new, LAYOUTS_ONLY)).status_code == 200
     assert not list(new.data_dir.glob(".backup-*"))
+
+
+# --- what runs beside a restore --------------------------------------------------------
+
+
+async def test_a_request_in_progress_finishes_before_the_swap_and_new_ones_wait(
+    installs,
+) -> None:
+    """A request that reads ids in one session and writes by them in the next
+    (as /api/tracks/identify does) must not straddle the swap: the old
+    database's session 1 and the restored one's are different sessions."""
+    old = await installs("old")
+    await drive_laps(old.service, laps=1)
+    zf = zipfile.ZipFile(io.BytesIO(await make_backup(old, ["data"])))
+    new = await installs("new")
+    await drive_laps(new.service, laps=3)
+    staged = new.data_dir / ".restore-test.db"
+    staged.write_bytes(zf.read("gt7.db"))
+    read, write = asyncio.Event(), asyncio.Event()
+
+    async def name_the_first_session() -> dict[str, int]:
+        first = (await new.service.repo.list_sessions())[0]["id"]
+        read.set()
+        await write.wait()
+        await new.service.repo.set_session_track(first, "Old circuit")
+        return {"id": first}
+
+    # Ahead of the app's own routes: a built frontend is mounted at "/".
+    new.app.add_api_route("/api/test/name-the-first-session", name_the_first_session,
+                          methods=["POST"])
+    new.app.router.routes.insert(0, new.app.router.routes.pop())
+    naming = asyncio.create_task(new.client.post("/api/test/name-the-first-session"))
+    await asyncio.wait_for(read.wait(), 5)
+    swap = asyncio.create_task(new.service.replace_database(staged))
+    await asyncio.sleep(0.05)
+    # The swap waits for the request, and holds back the ones after it.
+    assert not swap.done()
+    assert new.service.requests.is_shut
+    listing = asyncio.create_task(new.client.get("/api/sessions"))
+    await asyncio.sleep(0.05)
+    assert not listing.done()
+
+    write.set()
+    first = (await asyncio.wait_for(naming, 5)).json()["id"]
+    await asyncio.wait_for(swap, 5)
+    # The name went to the session the request read, in the kept database ...
+    [kept] = kept_copies(new)
+    with sqlite3.connect(kept) as db:
+        assert db.execute(
+            "SELECT track_name FROM sessions WHERE id = ?", (first,)
+        ).fetchone() == ("Old circuit",)
+    # ... and the request held back saw only the restored recordings.
+    sessions = (await listing).json()
+    assert len(sessions) == 1
+    assert all(s["track_name"] != "Old circuit" for s in sessions)
+
+
+def test_survey_file_writers_take_turns(tmp_path) -> None:
+    """A merge (a restore's, a shared pull's) reads the bundle, works, and
+    writes it back; a corner labelled meanwhile must not be lost to it."""
+    write_bundle(tmp_path)
+    doc = track_bundle.validate_document(_foreign_bundle(track="Ring", source="feed0000beef"))
+    merging, release = threading.Event(), threading.Event()
+    real_write = track_bundle._write
+
+    def slow_write(data_dir, track, document):
+        merging.set()
+        assert release.wait(5)
+        return real_write(data_dir, track, document)
+
+    corner = {"n": 1, "name": "T1", "apex": {"x": 1.0, "z": 0.0}}
+    track_bundle._write = slow_write
+    try:
+        merge = threading.Thread(target=track_bundle.merge_document, args=(tmp_path, doc))
+        merge.start()
+        assert merging.wait(5)
+        track_bundle._write = real_write
+        label = threading.Thread(
+            target=track_bundle.set_authored,
+            args=(tmp_path, "Ring"),
+            kwargs={"corners": [track_bundle.validate_corner(corner, 0)]},
+        )
+        label.start()
+        label.join(0.1)
+        assert label.is_alive()  # waits for the merge in progress
+        release.set()
+        merge.join(5)
+        label.join(5)
+    finally:
+        track_bundle._write = real_write
+        release.set()
+    ring = track_bundle.load(tmp_path, "Ring")
+    assert [c["name"] for c in ring["corners"]] == ["T1"]
+    assert set(ring["meta"]["source_runs"]) == {STRANGER, "feed0000beef"}
+
+
+async def test_a_restore_cancelled_mid_surveys_finishes_them_first(
+    installs, monkeypatch
+) -> None:
+    old = await installs("old")
+    write_bundle(old.data_dir)
+    body = await make_backup(old, ["surveys"])
+    new = await installs("new")
+    changed: list[str] = []
+    monkeypatch.setattr(
+        new.service, "bundle_changed", lambda track, road=True: changed.append(track)
+    )
+    merging, release = threading.Event(), threading.Event()
+    real = restore.restore_surveys
+
+    def slow_surveys(upload_path, data_dir):
+        merging.set()
+        assert release.wait(5)
+        return real(upload_path, data_dir)
+
+    monkeypatch.setattr(restore, "restore_surveys", slow_surveys)
+    up = (await upload(new, body)).json()
+    applying = asyncio.create_task(
+        new.client.post(f"/api/admin/restore/{up['id']}", json={"items": ["surveys"]})
+    )
+    assert await asyncio.to_thread(merging.wait, 5)
+    applying.cancel()
+    await asyncio.sleep(0.05)
+    # The request is cancelled, but the merge goes on, and holds the disk.
+    assert not applying.done()
+    assert new.service.restores.disk.holder == backup.RESTORING
+    refused = await upload(new, body)
+    assert refused.status_code == 409
+
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await applying
+    # Finished: merged, re-judged and re-synced, the disk let go, and the
+    # upload gone, as after any restore.
+    assert track_bundle.load(new.data_dir, "Ring") is not None
+    assert changed == ["Ring"]
+    assert new.service.restores.disk.holder == ""
+    assert new.service.restores.get() is None
+    assert not list(new.data_dir.glob(".restore-*"))
 
 
 def test_leftovers_of_an_interrupted_restore_are_cleared_at_start(tmp_path) -> None:

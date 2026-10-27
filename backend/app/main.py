@@ -359,6 +359,44 @@ class LiveCORSMiddleware:
         await cors(scope, receive, send)
 
 
+# API paths outside the request gate: the restore's own requests (one of
+# them is what shuts it) and the backup's, which take turns with a restore
+# through the disk claim and the backup lock instead.
+UNGATED = ("/api/admin/restore", "/api/admin/backup", "/api/backup/")
+
+
+class DrainForRestore:
+    """Every other API request runs inside the service's request gate (#161).
+
+    A restore swaps the database file under the running app. The session
+    gate keeps a connection from straddling the swap, but a request can
+    carry ids from one session to the next — /api/tracks/identify reads the
+    unnamed sessions, matches them off the event loop, then names each by
+    id — and so write a fact about the old database into an unrelated row
+    of the new one. The restore shuts this gate before anything else: the
+    requests in progress finish against the old database, and new ones wait
+    for the swap and then see the new one. WebSockets are not requests and
+    are left alone: they live for hours, and send nothing that writes.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        service = getattr(scope["app"].state, "service", None) if "app" in scope else None
+        path = scope.get("path", "")
+        if (
+            scope["type"] != "http"
+            or service is None
+            or not path.startswith("/api/")
+            or path.startswith(UNGATED)
+        ):
+            await self.app(scope, receive, send)
+            return
+        async with service.requests.entered():
+            await self.app(scope, receive, send)
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title="GT7 Datalogger",
@@ -372,6 +410,7 @@ def create_app() -> FastAPI:
     # default — sends no CORS headers at all, since both serving modes are
     # same-origin (the SPA is mounted below; the dev server proxies /api and
     # /ws) and a native app needs none.
+    app.add_middleware(DrainForRestore)
     app.add_middleware(LiveCORSMiddleware)
     app.include_router(routes.router)
     app.include_router(admin.router)
