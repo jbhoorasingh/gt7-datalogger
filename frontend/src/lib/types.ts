@@ -599,7 +599,8 @@ export interface Sector {
 
 // Every lap of a session split at the same sector boundaries (#22).
 // `splits_ms` is null on a lap that has no sector times: it never passed a
-// boundary (a cut, another layout) or has no lap time.
+// boundary (a cut, another layout), has no lap time, or has a clock that does
+// not account for its lap time (a recording joined part way round).
 export interface SectorTimes {
   session_id: number;
   source: "track" | "thirds" | "none";

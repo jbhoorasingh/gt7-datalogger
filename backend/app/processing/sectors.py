@@ -28,6 +28,7 @@ from app.processing.analysis import (
     _lap_path,
     _nearest_index,
 )
+from app.processing.laps import SALVAGE_TOLERANCE_MS, SALVAGE_TOLERANCE_RATIO
 
 # Thirds: the fallback when the circuit has no authored sectors.
 DEFAULT_SECTOR_COUNT = 3
@@ -136,8 +137,8 @@ def splits_ms(
     lap time. The clock at each boundary is read off the lap's own `t`
     channel at the boundary's distance; the last sector takes whatever is
     left of the lap time, so the splits add up to the figure GT7 showed.
-    None when the lap has no sector times: no clock, no lap time, or a
-    boundary it never passed."""
+    None when the lap has no sector times: no clock, no lap time, a clock
+    that does not account for the lap time, or a boundary it never passed."""
     if not points or time_ms <= 0:
         return None
     bounds = project(samples, points)
@@ -149,6 +150,17 @@ def splits_ms(
     if n < 2:
         return None
     d, t = list(dist[:n]), list(clock[:n])
+    # The splits share GT7's lap time out by the lap's own clock, so that
+    # clock has to have run the whole lap. One that started where a
+    # recording joined part way round, or froze through a stop the sampler
+    # skipped, falls short of the lap time by what it missed, and every
+    # boundary after the gap would read early by that much: the sector it
+    # fell in short, the last sector long. Agreeing within the window a
+    # salvaged lap has to meet to be believed (laps.SALVAGE_TOLERANCE_MS)
+    # is the clock describing this lap.
+    tolerance = max(SALVAGE_TOLERANCE_MS, time_ms * SALVAGE_TOLERANCE_RATIO)
+    if abs(time_ms - t[-1] * 1000) > tolerance:
+        return None
     # The stored clock is anchored on the line: t = 0 is the crossing and
     # the first sample sits half a frame past it (lap-file-format.md). Read
     # as it stands — measured from the first sample instead, S1 would lose

@@ -28,6 +28,17 @@ Notable changes to GT7 Datalogger. The format follows
   truncated, for sector and lap time announcements alike. Contributed by
   @Marstiphal (#165).
 
+### Fixed
+
+- **Sector times put time the recording missed into the last sector.** Analysis ›
+  Sector times shares GT7's lap time out by the lap's own clock, and the last sector
+  takes the remainder. A lap the logger joined part way round, or whose clock froze
+  through a stop or an outage it skipped, has a clock that falls short of the lap time,
+  so the sectors where it lost time read short and the last sector long by everything
+  missed — up to six minutes on recorded laps. A lap whose clock does not agree with its lap
+  time, within the window a salvaged lap has to meet (500 ms, or 0.5 % of the lap),
+  now shows no sector times. Partial laps timed line to line keep theirs.
+
 ## [0.8.1] - 2026-10-21
 
 ### Added

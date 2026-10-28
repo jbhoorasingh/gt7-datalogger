@@ -309,7 +309,10 @@ and the last sector runs to the start/finish line. A circuit without them is spl
 which. Either way the boundaries are *places on the road*: on a circuit without its own,
 the thirds are taken from the session's quickest lap and then found on every other lap,
 so that a wider line through a corner does not move the split. A lap that never passed a
-boundary (a cut, or another layout under the same name) shows no sector times.
+boundary (a cut, or another layout under the same name) shows no sector times, and neither
+does one the recording did not time from start to finish — joined part way round, or
+through a stop the logger skipped: GT7's lap time covers the whole lap, and there is no
+telling which sector the missing time belongs to.
 
 ## Race line map
 
