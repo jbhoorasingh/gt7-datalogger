@@ -87,11 +87,15 @@ def spoken_gap(ms: float) -> str:
 
     Never says "zero tenths" — callers only ask for a gap they already found
     worth mentioning, so a sub-tenth value rounds up rather than vanishing.
+    Rounds before choosing the unit, so 950-999 ms — ten tenths — carries
+    to "one second", as spoken_lap_time carries 59.96 s to a minute.
     """
     seconds = abs(ms) / 1000
-    if seconds < 1.0:
-        tenths = max(1, round(seconds * 10))
+    tenths = max(1, round(seconds * 10))
+    if tenths < 10:
         return f"{spoken_int(tenths)} {plural(tenths, 'tenth')}"
+    if seconds < 1.0:
+        seconds = tenths / 10
     return f"{spoken_decimal(seconds)} {plural(round(seconds, 1), 'second')}"
 
 

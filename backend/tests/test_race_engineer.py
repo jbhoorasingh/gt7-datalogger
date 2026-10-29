@@ -117,6 +117,31 @@ def test_spoken_plurals_and_labels() -> None:
     assert spoken_wheels(["rl", "rr"]) == "rear"
 
 
+# 950-999 ms is ten tenths once rounded, which is one second.
+GAPS_NEAR_A_SECOND = [
+    (949, "nine tenths"),
+    (950, "one second"),
+    (980, "one second"),
+    (999, "one second"),
+    (1000, "one second"),
+]
+
+
+@pytest.mark.parametrize(("ms", "said"), GAPS_NEAR_A_SECOND)
+def test_a_gap_that_rounds_to_ten_tenths_is_one_second(ms: int, said: str) -> None:
+    assert spoken_gap(ms) == said
+    assert spoken_gap(-ms) == said
+
+
+@pytest.mark.parametrize(("ms", "said"), GAPS_NEAR_A_SECOND)
+def test_lap_delta_near_a_second(ms: int, said: str) -> None:
+    mgr = manager()
+    lap = mgr.on_lap(
+        completed_lap(number=2, time_ms=92_000 + ms, session_best_before_ms=92_000)
+    )[0]
+    assert lap.text.endswith(f" {said.capitalize()} slower.")
+
+
 # --- threshold helper --------------------------------------------------------
 
 
@@ -593,6 +618,31 @@ def test_corner_loss_falls_back_to_plain_wording_without_a_clear_cause() -> None
     assert call.message_args["brake_delta_m"] is None
     assert call.message_args["apex_delta_kmh"] is None
     assert call.metadata["brake_delta_m"] == 0.0
+
+
+@pytest.mark.parametrize(("ms", "said"), GAPS_NEAR_A_SECOND)
+@pytest.mark.parametrize("brake_at", [400.0, 380.0], ids=["plain", "with-cause"])
+def test_corner_loss_near_a_second(ms: int, said: str, brake_at: float) -> None:
+    mgr = manager(verbosity="coach")
+    mgr.ctx.corners = [
+        {"n": 6, "entry_dist": 500.0, "exit_dist": 620.0, "apex_dist": 560.0}
+    ]
+    mgr.ctx.reference = _corner_lap(brake_at=400.0, apex_speed=100.0)
+    mgr.ctx.best_lap_ms = 92_000
+
+    lap = _corner_lap(brake_at=brake_at, apex_speed=100.0, lost_ms=ms)
+    call = next(
+        c
+        for c in mgr.on_lap(
+            completed_lap(number=5, time_ms=92_000 + ms, samples=lap, session_best_before_ms=92_000)
+        )
+        if c.event_type == "corner_time_loss"
+    )
+    expected = (
+        f"You were {said} slower." if brake_at == 400.0 else f"You lost {said} in turn six."
+    )
+    assert expected in call.text
+    assert call.message_args["loss_ms"] == ms
 
 
 def test_spoken_units_follow_the_server_setting() -> None:

@@ -69,6 +69,11 @@ Notable changes to GT7 Datalogger. The format follows
   time, within the window a salvaged lap has to meet (500 ms, or 0.5 % of the lap),
   now shows no sector times. Partial laps timed line to line keep theirs.
 
+- **The Race Engineer said "ten tenths" for a gap of 950–999 ms.** A lap delta,
+  personal-best gain, pace drop or corner loss chose tenths before rounding, so just
+  under a second came out as "ten tenths slower". It now rounds first and says "one
+  second", like a lap time carries 59.96 s to the next minute.
+
 ## [0.8.1] - 2026-10-21
 
 ### Added
