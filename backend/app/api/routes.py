@@ -1194,6 +1194,17 @@ async def set_recording(request: Request, payload: RecordingPayload) -> dict[str
     return await svc(request).status()
 
 
+class ReplayRecordingPayload(BaseModel):
+    enabled: bool
+
+
+@router.post("/control/replay-recording", dependencies=[Depends(require_admin)])
+async def set_replay_recording(
+    request: Request, payload: ReplayRecordingPayload
+) -> dict[str, Any]:
+    await svc(request).set_replay_recording(payload.enabled)
+    return await svc(request).status()
+
 @router.post("/control/log-lap-now", dependencies=[Depends(require_admin)])
 async def log_lap_now(request: Request) -> dict[str, Any]:
     result = await svc(request).log_lap_now()

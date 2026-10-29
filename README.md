@@ -180,6 +180,16 @@ per-feature guides, how every calculation works, and the API reference.
   their laps, and a single-lap leaderboard replay (which ends *at* the line, before a
   lap would normally commit) is salvaged whenever GT7's own reported lap time matches
   the recording — watch the TT leader's replay, then overlay their lap against yours.
+- **Leaderboard Replay Recording mode**: enable **Replay Recording** on the
+  **Live** dashboard before starting a GT7 leaderboard replay. This allows
+  telemetry capture even when GT7 does not set its normal on-track flag.
+  Sessions created while the mode is enabled are automatically excluded
+  from personal bests. Completed replay laps remain available under
+  **Sessions**, even if Live switches to a new, empty session afterwards.
+  Turn Replay Recording OFF before returning to normal driving, ideally
+  before starting a new session. Enabling it midway through an existing
+  session does not retroactively exclude that session from personal bests.
+  Replay Recording resets to OFF when the application restarts.
 - **Simulated source** (`GT7_SOURCE=sim`) drives laps around a synthetic circuit at 60 Hz —
   including lockups, wheelspin, kerb strikes, and aid activity — so everything can be
   developed and demoed without a PlayStation. Scenarios (`GT7_SIM_SCENARIO`) stage

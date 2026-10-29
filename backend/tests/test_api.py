@@ -652,3 +652,111 @@ async def test_delete_all_while_recording_resumes_into_a_fresh_session(client):
     assert sessions[0]["lap_count"] == 2
     laps = await service.repo.list_laps(sessions[0]["id"])
     assert sorted(lap["number"] for lap in laps) == [2, 3]
+
+async def test_replay_recording_api_excludes_new_sessions(client) -> None:
+    """New replay sessions are excluded; subsequent normal sessions are not."""
+    c, service = client
+
+    enabled = await c.post(
+        "/api/control/replay-recording", json={"enabled": True}
+    )
+    assert enabled.status_code == 200
+    assert enabled.json()["replay_recording"] is True
+
+    await service._on_packet(parse_packet(build_packet(
+        current_lap=1, flags=0, speed_mps=40.0, car_id=7
+    )))
+    replay_id = service.session_id
+    assert replay_id is not None
+
+    sessions = (await c.get("/api/sessions")).json()
+    replay_session = next(s for s in sessions if s["id"] == replay_id)
+    assert replay_session["bests_excluded"] is True
+
+    disabled = await c.post(
+        "/api/control/replay-recording", json={"enabled": False}
+    )
+    assert disabled.status_code == 200
+    assert disabled.json()["replay_recording"] is False
+
+    # A different car forces a normal session boundary.
+    await service._on_packet(parse_packet(build_packet(
+        current_lap=1, flags=ON_TRACK, speed_mps=40.0, car_id=8
+    )))
+    normal_id = service.session_id
+    assert normal_id is not None
+    assert normal_id != replay_id
+
+    sessions = (await c.get("/api/sessions")).json()
+    flags = {s["id"]: s["bests_excluded"] for s in sessions}
+
+    # Upstream deletes empty sessions when a new session starts.
+    # The replay session was already verified as excluded above.
+    assert replay_id not in flags
+    assert flags[normal_id] is False
+
+async def test_completed_replay_session_stays_excluded(client) -> None:
+    """A saved replay lap survives a switch back to normal recording."""
+    c, service = client
+
+    response = await c.post(
+        "/api/control/replay-recording", json={"enabled": True}
+    )
+    assert response.status_code == 200
+
+    for tick in range(120):
+        await service._on_packet(parse_packet(build_packet(
+            packet_id=1000 + tick,
+            current_lap=1,
+            flags=0,
+            speed_mps=45.0,
+            car_id=7,
+        )))
+
+    samples = service.processor.live_lap_samples["t"]
+    assert len(samples) == 120
+    gt7_time_ms = round((samples[-1] - samples[0]) * 1000)
+
+    await service._on_packet(parse_packet(build_packet(
+        packet_id=1120,
+        current_lap=2,
+        flags=0,
+        speed_mps=45.0,
+        car_id=7,
+        last_lap_time_ms=gt7_time_ms,
+    )))
+
+    replay_id = service.session_id
+    assert replay_id is not None
+
+    laps = await service.repo.list_laps(replay_id)
+    assert len(laps) == 1
+    assert laps[0]["time_ms"] == gt7_time_ms
+
+    response = await c.post(
+        "/api/control/replay-recording", json={"enabled": False}
+    )
+    assert response.status_code == 200
+
+    # Changing cars opens a normal session and closes the saved replay.
+    await service._on_packet(parse_packet(build_packet(
+        current_lap=1,
+        flags=ON_TRACK,
+        speed_mps=40.0,
+        car_id=8,
+    )))
+
+    normal_id = service.session_id
+    assert normal_id is not None
+    assert normal_id != replay_id
+
+    sessions = (await c.get("/api/sessions")).json()
+    flags = {s["id"]: s["bests_excluded"] for s in sessions}
+
+    assert flags[replay_id] is True
+    assert flags[normal_id] is False
+
+    # The recorded telemetry remains available for comparison.
+    saved_laps = await service.repo.list_laps(replay_id)
+    assert len(saved_laps) == 1
+    assert saved_laps[0]["time_ms"] == gt7_time_ms

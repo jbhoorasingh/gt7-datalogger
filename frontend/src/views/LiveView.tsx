@@ -3,6 +3,7 @@
 // instead of once per animation frame. The input trace samples liveFrameRef
 // on its own animation loop and never re-renders at all.
 
+import { api } from "../lib/api";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { NoTelemetryPage } from "@/components/errors";
 import { rich, useT, type MessageKey, type Translate } from "@/i18n";
@@ -64,6 +65,7 @@ function useTelemetrySilent(): boolean {
 function Dashboard({ frame }: { frame: LiveFrame }) {
   const t = useT();
   const units = useSettings((s) => s.units);
+  const replayRecording = useTelemetry((s) => s.status?.replay_recording ?? false);
   const recentLaps = useTelemetry((s) => s.recentLaps);
   const sessionId = useTelemetry((s) => s.status?.session_id ?? null) ?? recentLaps[0]?.session_id;
   // The lap feed survives session boundaries (for the fuel projection); the
@@ -117,6 +119,23 @@ function Dashboard({ frame }: { frame: LiveFrame }) {
             on /dash. */}
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <EngineerChip />
+          <button
+            type="button"
+            aria-pressed={replayRecording}
+            onClick={() => {
+              api.setReplayRecording(!replayRecording)
+                .then((status) => useTelemetry.setState({ status }))
+                .catch((err) => console.error("Replay recording toggle failed:", err));
+            }}
+            className={`rounded border px-3 py-1.5 text-xs font-semibold transition-colors ${
+              replayRecording
+                ? "border-amber-500 bg-amber-500/20 text-amber-300"
+                : "border-edge text-ink-faint hover:text-ink"
+            }`}
+            title="Enable when recording GT7 leaderboard replays. Leave OFF for normal driving."
+          >
+            Replay Recording: {replayRecording ? "ON" : "OFF"}
+          </button>
           <a className="btn no-underline" href="#/dash">
             {t("live.driverDash")}
           </a>

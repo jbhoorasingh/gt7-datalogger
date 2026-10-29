@@ -598,6 +598,8 @@ class LapProcessor:
     on_session: SessionCallback
     on_race_result: RaceResultCallback | None = None
     min_lap_ticks: int = MIN_LAP_TICKS
+    replay_recording: bool = False
+    _replay_started: bool = False
     # How many console frames a salvage held through a stop waits for driving
     # to resume before it is emitted anyway; 0 emits at once.
     salvage_wait_frames: int = SALVAGE_WAIT_FRAMES
@@ -616,6 +618,11 @@ class LapProcessor:
     _elapsed_s: float = 0.0
     _last_pid: int = -1
     _pending_dt: int = 1  # frames covered by the next sample (1 = no drops)
+    # Frames and metres a replay spent stopped under the speed gate since its
+    # last sample. Unsampled, they are still lap time: the next sample carries
+    # them, or salvage would match a t axis short by the stop.
+    _stopped_dt: int = 0
+    _stopped_dist: float = 0.0
     _dropped_frames: int = 0
     # (lap number, distance span, time) for every lap of the session, and the
     # lap numbers currently judged partial. Both are needed to *recompute* the
@@ -703,6 +710,7 @@ class LapProcessor:
 
         if p.is_loading:
             self._clock_offset_ms = None
+            self._stopped_dt, self._stopped_dist = 0, 0.0
             # A replay that just ended streams LOADING while the menu builds,
             # and the finished flying lap is still in the buffer — the counter
             # step that would commit it never arrives (#26). The lap is held
@@ -713,6 +721,10 @@ class LapProcessor:
             await self._emit_held_if_stale(p)
             return
 
+        if self.replay_recording and not self._replay_started:
+            if not p.is_paused and p.current_lap >= 0 and p.speed_mps > 1.0:
+                self._replay_started = True
+
         finish_boundary = (
             self._session is not None
             and p.car_id == self._session.car_id
@@ -720,7 +732,14 @@ class LapProcessor:
             and p.current_lap == self._current_lap + 1
             and 0 < p.total_laps == self._current_lap
         )
-        if (not p.is_on_track or p.is_paused or p.current_lap < 0) and not finish_boundary:
+        if (
+            (
+                (not p.is_on_track and not (self.replay_recording and self._replay_started))
+                or p.is_paused
+                or p.current_lap < 0
+            )
+            and not finish_boundary
+        ):
             # Inactive counters cannot confirm a restart. A matching GT7 time
             # can still vouch for a replay that ended without a line crossing.
             if self._session is not None and not p.is_paused:
@@ -733,6 +752,7 @@ class LapProcessor:
                     self._last_packet = p
             await self._emit_held_if_stale(p)
             self._clock_offset_ms = None
+            self._stopped_dt, self._stopped_dist = 0, 0.0
             return
 
         await self._resolve_held(p)
@@ -837,7 +857,9 @@ class LapProcessor:
         # the only path that can commit it (#26). The completion rule still
         # requires prev > 0, so a real out-lap's 0 -> 1 boundary behaves
         # exactly as before.
-        if p.is_on_track and not p.is_paused and p.current_lap >= 0 and not past_finish:
+        replaying = self.replay_recording and self._replay_started
+        sampling = not p.is_paused and p.current_lap >= 0 and not past_finish
+        if sampling and (p.is_on_track or (replaying and p.speed_mps > 1.0)):
             if self._current_lap == 0 and len(self._samples["t"]) >= LAP0_MAX_TICKS:
                 # No boundary ever empties the lap-0 buffer; without the cap a
                 # menu streaming stale on-track packets grows it forever.
@@ -852,18 +874,28 @@ class LapProcessor:
             # report false drift, so the #20 cross-check waits for a real lap.
             if p.current_lap > 0:
                 self._check_lap_clock(p)
+        elif sampling and replaying and self._samples["t"]:
+            # A replay stopped under the speed gate. Not sampled, because an
+            # idle menu looks the same, but the replay's clock keeps running:
+            # the next sample carries these frames (see _stopped_dt).
+            self._stopped_dt += self._pending_dt
+            self._stopped_dist += p.speed_mps * self._pending_dt * TICK_SECONDS
         else:
             # Sampler gated off (pause, menus, cool-down): our t axis froze
             # while GT7's lap clock may have kept counting, so a comparison
             # spanning the gap would report false drift. Re-anchor on the
             # next sampled packet instead.
             self._clock_offset_ms = None
+            self._stopped_dt, self._stopped_dist = 0, 0.0
         self._last_packet = p
 
     async def _handle_lap_boundary(self, p: TelemetryPacket) -> None:
         prev = self._current_lap
+        # Replay laps use the existing salvage path for GT7 time matching
+        # and pre-roll trimming, even when the lap counter advances normally.
         completing = (
-            prev > 0
+            not self.replay_recording
+            and prev > 0
             and p.current_lap == prev + 1
             and p.last_lap_time_ms > 0
             and len(self._samples["t"]) >= self.min_lap_ticks
@@ -955,6 +987,7 @@ class LapProcessor:
         self._gt_clock = []
         self._distance = 0.0
         self._elapsed_s = 0.0
+        self._stopped_dt, self._stopped_dist = 0, 0.0
         self._clock_offset_ms = None
         self._clock_last_gt_ms = -1
         self._lap_clock_drift_ms = 0
@@ -1348,8 +1381,9 @@ class LapProcessor:
         s = self._samples
         dt_s = self._pending_dt * TICK_SECONDS
         if s["t"]:
-            self._elapsed_s += dt_s
-            self._distance += p.speed_mps * dt_s
+            self._elapsed_s += dt_s + self._stopped_dt * TICK_SECONDS
+            self._distance += p.speed_mps * dt_s + self._stopped_dist
+            self._stopped_dt, self._stopped_dist = 0, 0.0
         else:
             # The lap's first sample. The line was crossed somewhere inside
             # the gap since the previous sample, so half of it is the unbiased

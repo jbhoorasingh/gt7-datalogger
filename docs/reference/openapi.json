@@ -347,6 +347,19 @@
         "title": "RejectSuggestionPayload",
         "type": "object"
       },
+      "ReplayRecordingPayload": {
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "ReplayRecordingPayload",
+        "type": "object"
+      },
       "RestoreRequest": {
         "properties": {
           "items": {
@@ -2656,6 +2669,64 @@
           }
         },
         "summary": "Set Recording"
+      }
+    },
+    "/api/control/replay-recording": {
+      "post": {
+        "operationId": "set_replay_recording_api_control_replay_recording_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplayRecordingPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Set Replay Recording Api Control Replay Recording Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Replay Recording"
       }
     },
     "/api/export/laps-csv.zip": {

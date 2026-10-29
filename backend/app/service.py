@@ -601,7 +601,11 @@ class TelemetryService:
     async def _on_session(self, info: SessionInfo) -> None:
         self.event_watcher.reset()
         await self._close_previous_session()
-        self.session_id = await self.repo.create_session(info, self.cars.get(info.car_id))
+        self.session_id = await self.repo.create_session(
+            info,
+            self.cars.get(info.car_id),
+            bests_excluded=self.processor.replay_recording,
+        )
         car = self.cars.name(info.car_id)
         self.sync.sessions.session_started(
             self.session_id,
@@ -1058,6 +1062,7 @@ class TelemetryService:
             "protocol": protocol.PROTOCOL_VERSION,
             "source": self.settings.source,
             "recording": self.recording,
+            "replay_recording": self.processor.replay_recording,
             "session_id": self.session_id,
             "track_name": self.track_name,
             # 60 Hz frames the console numbered but we never received
@@ -1551,6 +1556,7 @@ class TelemetryService:
             on_session=self._on_session,
             on_race_result=self._on_race_result,
             min_lap_ticks=self.processor.min_lap_ticks,
+            replay_recording=self.processor.replay_recording,
         )
         self.session_id = None
         self.survey.session_id = None
@@ -1565,6 +1571,12 @@ class TelemetryService:
     async def set_recording(self, recording: bool) -> None:
         async with self.session_lock:
             self.recording = recording
+        self._publish({"type": "status", "data": await self.status()})
+
+    async def set_replay_recording(self, enabled: bool) -> None:
+        async with self.session_lock:
+            self.processor.replay_recording = enabled
+            self.processor._replay_started = False
         self._publish({"type": "status", "data": await self.status()})
 
     async def log_lap_now(self) -> dict[str, Any] | None:

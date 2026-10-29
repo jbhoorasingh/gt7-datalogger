@@ -323,7 +323,9 @@ class Repository:
     def _lap_session(lap_ids: Any) -> Any:
         return select(LapRow.session_id).where(LapRow.id.in_(lap_ids))
 
-    async def create_session(self, info: SessionInfo, car: Car | None) -> int:
+    async def create_session(
+        self, info: SessionInfo, car: Car | None, *, bests_excluded: bool = False
+    ) -> int:
         """Open a session, denormalising what the inventory knows about the car.
 
         `car` is None for an id the inventory has never heard of — a car added
@@ -338,6 +340,7 @@ class Repository:
                 # The packet's category wins over the inventory's: it is what
                 # the car was actually racing as, and packet C sends it live.
                 car_category=info.car_category or (car.category if car else ""),
+                bests_excluded=bests_excluded,
                 **car_figures(car),
             )
             db.add(row)

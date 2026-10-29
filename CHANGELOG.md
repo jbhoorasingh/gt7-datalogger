@@ -78,6 +78,16 @@ Notable changes to GT7 Datalogger. The format follows
   theoretical best lap and how far it is under the reference. Bests come only from laps
   that count; a reference from another session has no comparison, since the bests are
   this session's. Contributed by @Marstiphal (#167).
+- **Replay Recording for leaderboard replays.** Some GT7 leaderboard replays stream
+  without the on-track flag, so the recorder skipped every packet and the lap never
+  reached replay salvage. A **Replay Recording** switch on the Live dashboard (off by
+  default, and off again after a restart) records them anyway: replay packets are
+  sampled while the car is moving, a stop in the replay keeps its time, and paused,
+  loading and idle-menu packets are still skipped. While it is on, every lap completes
+  only through replay salvage, so GT7's own lap time has to vouch for it, and the
+  sessions it opens are excluded from bests. Turn it on before the replay starts and
+  off before driving; it applies to new sessions, not the one already open
+  (`POST /api/control/replay-recording`, admin). Contributed by @Marstiphal (#171, #87).
 
 ### Fixed
 

@@ -652,3 +652,173 @@ async def test_salvage_trims_frozen_final_frame_hold(setup) -> None:
     assert lap.salvaged is True
     assert lap.time_ms == gt
     assert abs(lap.total_ticks - 400) <= 2
+
+async def test_replay_recording_captures_off_track_telemetry(setup) -> None:
+    """A replay can send driving telemetry without CAR_ON_TRACK."""
+    proc, collector = setup
+    proc.replay_recording = True
+
+    for _ in range(120):
+        await proc.feed(make_packet(
+            current_lap=1, flags=0, speed_mps=45.0
+        ))
+
+    assert proc._replay_started is True
+    assert len(proc.live_lap_samples["t"]) == 120
+
+    samples = proc.live_lap_samples["t"]
+    recorded_ms = round((samples[-1] - samples[0]) * 1000)
+
+    await proc.feed(make_packet(
+        current_lap=2,
+        flags=0,
+        speed_mps=45.0,
+        last_lap_time_ms=recorded_ms,
+    ))
+
+    assert len(collector.laps) == 1
+    assert collector.laps[0].number == 1
+    assert collector.laps[0].time_ms == recorded_ms
+    assert collector.laps[0].total_ticks == 120
+    assert collector.laps[0].salvaged is True
+
+
+async def test_replay_recording_rejects_inconsistent_lap_time(setup) -> None:
+    """A significantly mismatched GT7 time cannot complete a replay lap."""
+    proc, collector = setup
+    proc.replay_recording = True
+
+    for _ in range(120):
+        await proc.feed(make_packet(
+            current_lap=1, flags=0, speed_mps=45.0
+        ))
+
+    assert len(proc.live_lap_samples["t"]) == 120
+
+    await proc.feed(make_packet(
+        current_lap=2,
+        flags=0,
+        speed_mps=45.0,
+        last_lap_time_ms=80_000,
+    ))
+
+    assert collector.laps == []
+
+async def test_replay_recording_ignores_paused_loading_and_menu(setup) -> None:
+    """Replay mode must not capture paused, loading, or menu packets."""
+    proc, _ = setup
+    proc.replay_recording = True
+
+    paused = int(SimulatorFlags.PAUSED)
+    loading = int(SimulatorFlags.LOADING)
+
+    # Stale speed must not activate replay capture while inactive.
+    for flags in (paused, loading):
+        for _ in range(10):
+            await proc.feed(make_packet(
+                current_lap=1, flags=flags, speed_mps=45.0
+            ))
+
+    assert proc._replay_started is False
+    assert len(proc.live_lap_samples["t"]) == 0
+
+    # A genuine off-track-flag replay can now start.
+    for _ in range(120):
+        await proc.feed(make_packet(
+            current_lap=1, flags=0, speed_mps=45.0
+        ))
+
+    assert proc._replay_started is True
+    assert len(proc.live_lap_samples["t"]) == 120
+
+    # Neither pause nor loading may append telemetry.
+    for flags in (paused, loading):
+        await proc.feed(make_packet(
+            current_lap=1, flags=flags, speed_mps=45.0
+        ))
+
+    assert len(proc.live_lap_samples["t"]) == 120
+
+    # GT7 returns to an idle menu (0x0190 observed on PS5).
+    for _ in range(10):
+        await proc.feed(make_packet(
+            current_lap=0, flags=0x0190, speed_mps=0.0
+        ))
+
+    # The new menu context must not accumulate samples.
+    assert len(proc.live_lap_samples["t"]) == 0
+
+async def test_replay_recording_accepts_real_ps5_flags(setup) -> None:
+    """Capture leaderboard replays using flags observed on a real PS5."""
+    proc, collector = setup
+    proc.replay_recording = True
+
+    # Actual moving-replay values captured on PS5, 29 October 2026.
+    # None has CAR_ON_TRACK, PAUSED, or LOADING set.
+    replay_flags = (0x0198, 0x0190, 0x01B8)
+
+    for flags in replay_flags:
+        assert not (flags & int(SimulatorFlags.CAR_ON_TRACK))
+        assert not (flags & int(SimulatorFlags.PAUSED))
+        assert not (flags & int(SimulatorFlags.LOADING))
+
+    for index in range(120):
+        await proc.feed(make_packet(
+            current_lap=1,
+            flags=replay_flags[index % len(replay_flags)],
+            speed_mps=45.0,
+        ))
+
+    assert proc._replay_started is True
+
+    samples = proc.live_lap_samples["t"]
+    assert len(samples) == 120
+
+    recorded_ms = round((samples[-1] - samples[0]) * 1000)
+
+    await proc.feed(make_packet(
+        current_lap=2,
+        flags=0x0198,
+        speed_mps=45.0,
+        last_lap_time_ms=recorded_ms,
+    ))
+
+    assert len(collector.laps) == 1
+
+    lap = collector.laps[0]
+
+    assert lap.number == 1
+    assert lap.time_ms == recorded_ms
+    assert lap.total_ticks == 120
+    assert lap.salvaged is True
+
+
+async def test_replay_recording_keeps_time_through_a_stop(setup) -> None:
+    """A replay stopped under the speed gate keeps the stop on its t axis.
+
+    The stopped frames are not sampled, but they are lap time: dropping them
+    left the lap short of GT7's time, and salvage then rejected all of it.
+    """
+    proc, collector = setup
+    proc.replay_recording = True
+
+    for speed, packets in ((45.0, 60), (0.0, 120), (45.0, 60)):
+        for _ in range(packets):
+            await proc.feed(make_packet(current_lap=1, flags=0, speed_mps=speed))
+
+    live = proc.live_lap_samples
+    assert len(live["t"]) == 120
+    # 240 packets of one frame each: 239 frames from the first sample to the last.
+    assert live["t"][-1] - live["t"][0] == pytest.approx(239 / 60, abs=1e-3)
+    # The stop itself covers no ground: one frame at 45 m/s, not two seconds
+    # of it. dist is stored to 2 decimals, so each end can be 0.005 out.
+    assert live["dist"][60] - live["dist"][59] == pytest.approx(45.0 / 60, abs=0.02)
+
+    gt_ms = round(239 / 60 * 1000)
+    await proc.feed(make_packet(
+        current_lap=2, flags=0, speed_mps=45.0, last_lap_time_ms=gt_ms
+    ))
+
+    assert len(collector.laps) == 1
+    assert collector.laps[0].time_ms == gt_ms
+    assert collector.laps[0].salvaged is True
