@@ -131,7 +131,7 @@ per-feature guides, how every calculation works, and the API reference.
 
 ### Tracks
 
-- **Track auto-identification** — 78 GT7 configurations are recognised out of the box,
+- **Track auto-identification** — 80 GT7 configurations are recognised out of the box,
   from signatures shipped with the app, so a fresh install tags sessions on the first
   lap without you naming anything. Naming a circuit yourself always outranks a shipped
   name, surveyed circuits identify themselves from their borders, and a lap driven the
@@ -514,14 +514,14 @@ newer channels are simply absent and the charts skip them.
   parser for ESP32 / ESP8266 boards, and a great reference for the packet format.
 - [zetetos/gt-telemetry](https://github.com/zetetos/gt-telemetry) — a Go telemetry
   library, and the source of the **circuit captures the shipped track signatures are
-  built from**: 84 recorded laps, one per configuration, published as world coordinates
+  built from**: 85 recorded laps, one per configuration, published as world coordinates
   under MIT. Their coordinates are GT7's own, so they line up with ours with no
   transform — which is what makes a circuit identify itself on a fresh install before
   anyone has driven or surveyed it. Not affiliated; the captures are used with
   attribution.
 - [jbhoorasingh/gt7-datalogger-track-data](https://github.com/jbhoorasingh/gt7-datalogger-track-data)
   — this project's own track data, kept separate because it changes every time somebody
-  drives: surveyed border geometry for GT7 circuits, the catalog of all 121
+  drives: surveyed border geometry for GT7 circuits, the catalog of all 122
   configurations, and the generated `signatures.json` this app vendors. The app can pull
   contributed bundles from it directly (**Tracks → Import ▾ → Pull from shared**) and,
   connected to a sync service (**Settings › Sync**), push its own surveys back once a run has settled.

@@ -24,7 +24,7 @@ about, merged across all three, with the gaps called out.
 ## Identifying sessions
 
 Most circuits recognise themselves before you have done anything at all: the
-app ships signatures for 78 GT7 configurations, so a session at one of them is
+app ships signatures for 80 GT7 configurations, so a session at one of them is
 named on its first completed lap. Those circuits say *named by shipped
 signature* (and the checklist explains it) to keep them apart from circuits you
 named yourself — and a name you write always wins
@@ -90,7 +90,7 @@ Filter it with **All**, **Needs work**, **Ready** and **Not surveyed**, or type 
   [Sync status](#sync-status)).
 
 Circuits that have only a shipped signature and nothing else get **no row** —
-they would be 78 lines restating the catalog, burying the rows that record an
+they would be 80 lines restating the catalog, burying the rows that record an
 actual disagreement. The footer counts them instead, so "nothing here knows
 that circuit" and "it is already waiting for you" stop looking identical.
 

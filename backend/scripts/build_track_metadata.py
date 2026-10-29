@@ -59,6 +59,7 @@ WIKI_TRACK_ALIASES = {
     "Goodwood": "Goodwood Motor Circuit",
     "Grand Valley - Highway 1": "Grand Valley",
     "Michelin Raceway Road Atlanta": "Michelin Raceway Road Atlanta",
+    "Sportsland SUGO": "SUGO International Racing Course",
 }
 
 

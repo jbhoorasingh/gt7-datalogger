@@ -4,7 +4,7 @@ GT7 telemetry doesn't include the track name — but its world coordinates are f
 circuit. The datalogger exploits that in three ways, tried in order:
 
 1. **A signature you wrote**, when you name a circuit by hand.
-2. **A signature that shipped with the app** — geometry for 78 configurations,
+2. **A signature that shipped with the app** — geometry for 80 configurations,
    computed offline so a fresh install recognises circuits it has never seen driven.
 3. **A [survey bundle](../guide/tracks-view.md)** — the surveyed road itself.
 
@@ -53,7 +53,7 @@ subject to this — the circuit you named is the one you meant.
   length by far more than 4 %, so they register as separate tracks — name each layout
   once.
 - Different **venues** can still collide. Two circuits that happen to occupy a similar
-  rectangle at a similar length are indistinguishable to a bounding box; 15 of the 84
+  rectangle at a similar length are indistinguishable to a bounding box; 15 of the 85
   published captures collide with another, which is why an ambiguous shipped signature
   declines rather than guesses.
 - Reverse layouts share geometry exactly — same tarmac, same box, same length. A
@@ -69,7 +69,7 @@ session stayed unnamed with no hint that naming one circuit would light up the t
 badge, the outline, category bests and corner labels.
 
 The app therefore ships `backend/data/track-signatures.json`: length, bounding box and
-racing line for 78 GT7 configurations, generated in
+racing line for 80 GT7 configurations, generated in
 [gt7-datalogger-track-data](https://github.com/jbhoorasingh/gt7-datalogger-track-data)
 and vendored so the first packet on an offline machine resolves.
 
@@ -80,7 +80,7 @@ packets carry, so no transform is involved — verified against this project's o
 surveys, where the capture and the surveyed borders agree to within a few metres of
 centre and a few percent of extent.
 
-Nine of them are derived from circuits that repository has **surveyed** — a bundle is the
+Twenty-six of them are derived from circuits that repository has **surveyed** — a bundle is the
 road itself, so its bounding box is better evidence than one lap's, and the configuration
 it belongs to is already confirmed rather than matched by name. The rest come from
 published circuit captures. A configuration we have surveyed but whose capture was
@@ -106,7 +106,7 @@ would have named reverse laps after the forward configuration. That is worse tha
 cosmetic mislabel: personal bests are keyed on the circuit name, so forward and reverse
 times would pool and compete for the same best. On the author's own recordings that was
 10 laps of Deep Forest Reverse filed as Deep Forest Raceway, alongside 6 genuine forward
-laps at that circuit — and 36 of the 78 shipped configurations have a reverse twin.
+laps at that circuit — and 36 of the 80 shipped configurations have a reverse twin.
 
 What separates them is the one thing a bounding box discards: **the order the road is
 driven in**. Each shipped signature carries the racing line thinned to a point every

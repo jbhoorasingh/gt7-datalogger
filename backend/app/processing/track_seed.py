@@ -37,7 +37,7 @@ log = logging.getLogger(__name__)
 
 SEED_FORMAT = "gt7-datalogger-track-signatures"
 SEED_VERSION = 1
-# The catalog knows 121 configurations; a seed listing hundreds more is not a
+# The catalog knows 122 configurations; a seed listing hundreds more is not a
 # seed for this game.
 MAX_SEED_ROWS = 500
 # The Nordschleife is 20 km; at a point every 20 m that is ~1,000. Ten times

@@ -7,6 +7,14 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Added
 
+- **Sportsland SUGO is recognised.** GT7 added SUGO International Racing Course in
+  its October update, after the shipped catalog was generated, so sessions there stayed
+  unnamed. The catalog now carries it (42 tracks, 122 configurations) and the shipped
+  signatures include it, built from the lap zetetos/gt-telemetry published; the
+  re-vendored file also brings the surveys gt7-datalogger-track-data has merged since
+  the last copy: 26 configurations now take their geometry from a surveyed road
+  instead of one captured lap, and 80 are recognised in all.
+
 - **Spanish, Brazilian Portuguese and Japanese.** A language menu in the status bar
   (and on `/engineer`) sets this device's language; *Auto* follows the browser. The
   Race Engineer speaks and captions its callouts in it, with that language's own

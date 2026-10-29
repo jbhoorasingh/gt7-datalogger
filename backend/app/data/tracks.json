@@ -1,13 +1,13 @@
 {
   "meta": {
-    "generated": "2026-08-08",
+    "generated": "2026-10-20",
     "sources": {
       "official": "https://www.gran-turismo.com/gb/gt7/tracklist/ (per-config ids, names, corner counts; exact metres from the metric locale of the same data)",
       "wiki": "https://gran-turismo.fandom.com/wiki/Gran_Turismo_7/Track_List (CC BY-SA: real/original, rain, GT Sophy, reversibility, roadway, page links)"
     },
-    "tracks": 41,
-    "layouts": 85,
-    "configurations_including_reverse": 121
+    "tracks": 42,
+    "layouts": 86,
+    "configurations_including_reverse": 122
   },
   "tracks": [
     {
@@ -1389,6 +1389,29 @@
           "sophy": "no",
           "roadway": "Tarmac",
           "wiki_page": "Special Stage Route X",
+          "reverse": null
+        }
+      ]
+    },
+    {
+      "name": "Sportsland SUGO",
+      "official_track_id": "30cb0b",
+      "country": "JPN",
+      "country_name": "Japan",
+      "layouts": [
+        {
+          "name": "Full Course",
+          "official_id": "4bf61b",
+          "official_name": "SUGO International Racing Course",
+          "turns": 13,
+          "length_m": 3586,
+          "elevation_m": 69.8,
+          "longest_straight_m": 704.5,
+          "type": "real",
+          "rain": true,
+          "sophy": "no",
+          "roadway": "Tarmac",
+          "wiki_page": "SUGO International Racing Course",
           "reverse": null
         }
       ]
