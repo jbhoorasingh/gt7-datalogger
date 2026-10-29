@@ -1,5 +1,6 @@
 // Small building blocks shared by the overlay/dashboard widgets.
 
+import { t } from "@/i18n";
 import type { WidgetRenderProps } from "@/lib/widgetMeta";
 import type { LiveFrame } from "@/lib/types";
 
@@ -33,7 +34,7 @@ export function liveDelta(frame: LiveFrame): { ms: number; live: boolean } | nul
 }
 
 export function lapLabel(frame: LiveFrame): string {
-  if (frame.total_laps > 0 && frame.current_lap > frame.total_laps) return "FIN";
+  if (frame.total_laps > 0 && frame.current_lap > frame.total_laps) return t("widget.times.finished");
   return `${frame.current_lap}${frame.total_laps > 0 ? `/${frame.total_laps}` : ""}`;
 }
 

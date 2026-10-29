@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { ackNote, formatAge, voiceState, type VoiceStateInput } from "./engineerState";
+import { translator } from "@/i18n";
+import en from "@/i18n/locales/en.json";
+import { ackNote as ackNoteKey, formatAge as formatAgeIn, voiceState, type VoiceStateInput } from "./engineerState";
+
+const t = translator("en", en);
+const ackNote = (...args: Parameters<typeof ackNoteKey>) => {
+  const note = ackNoteKey(...args);
+  return note && t(note.key, note.vars);
+};
+const formatAge = (ms: number) => formatAgeIn(ms, t);
 
 const base: VoiceStateInput = {
   supported: true,

@@ -1,4 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { useI18n } from "@/i18n";
+import en from "@/i18n/locales/en.json";
+import es from "@/i18n/locales/es.json";
+import ja from "@/i18n/locales/ja.json";
 import type { RestoreReport, RestoreUpload } from "@/lib/types";
 import {
   defaultItems,
@@ -150,22 +154,22 @@ describe("what each part says", () => {
   });
 });
 
-describe("after a restore", () => {
-  const report: RestoreReport = {
-    data: { sessions: 212, laps: 1840, revision: "0013_lap_wheelbase", upgraded_from: "0012_x", kept: "gt7.db.before-restore-20261022-101500" },
-    surveys: {
-      bundles: [{ track: "Ring", slug: "ring", added_points: 4 }],
-      corrections: [],
-      logs: [],
-      car_widths: 0,
-      failed: [{ file: "track-bundles/broken.json", error: "invalid bundle" }],
-    },
-    config: { applied: ["race_engineer_units"], skipped: [{ key: "ws_rate", reason: "must be at most 60" }], left: ["ps_ip"] },
-    layouts: { created: ["Stream"], replaced: ["Pit wall"], skipped: [] },
-    tokens: { applied: ["sync_token"], skipped: [] },
-    rejudging: ["ring"],
-  };
+const report: RestoreReport = {
+  data: { sessions: 212, laps: 1840, revision: "0013_lap_wheelbase", upgraded_from: "0012_x", kept: "gt7.db.before-restore-20261022-101500" },
+  surveys: {
+    bundles: [{ track: "Ring", slug: "ring", added_points: 4 }],
+    corrections: [],
+    logs: [],
+    car_widths: 0,
+    failed: [{ file: "track-bundles/broken.json", error: "invalid bundle" }],
+  },
+  config: { applied: ["race_engineer_units"], skipped: [{ key: "ws_rate", reason: "must be at most 60" }], left: ["ps_ip"] },
+  layouts: { created: ["Stream"], replaced: ["Pit wall"], skipped: [] },
+  tokens: { applied: ["sync_token"], skipped: [] },
+  rejudging: ["ring"],
+};
 
+describe("after a restore", () => {
   it("sums it up in one line", () => {
     expect(restoreSummary(report)).toBe("Restored 212 sessions, 1 circuit, 1 setting, 2 layouts, sync token");
   });
@@ -179,5 +183,35 @@ describe("after a restore", () => {
       "Left as they are here: ps_ip.",
       "Re-judging the laps on 1 circuit in the background.",
     ]);
+  });
+});
+
+describe("in another language", () => {
+  afterEach(() => useI18n.setState({ language: "en", messages: en }));
+
+  it("words what a part holds and does in it", () => {
+    useI18n.setState({ language: "ja", messages: ja });
+    expect(restoreDetail("data", fresh)).toBe("212セッション · 1,840ラップ · 845.0 MB");
+    expect(restoreWarning("tokens", lived)).toBe("ここに保存されている同期トークンを置き換えます。");
+    expect(restoreSummary(report)).toBe("復元しました: 212セッション、1コース、1件の設定、2件のレイアウト、同期トークン");
+  });
+
+  it("lists the way the language does", () => {
+    useI18n.setState({ language: "es", messages: es });
+    const two: RestoreUpload = {
+      ...lived,
+      parts: {
+        ...lived.parts,
+        layouts: {
+          ...lived.parts.layouts,
+          layouts: [
+            { name: "Pit wall", kind: "dash", replaces: true },
+            { name: "Stream", kind: "overlay", replaces: true },
+          ],
+        },
+      },
+    };
+    expect(restoreWarning("layouts", two)).toBe("Sustituye Pit wall y Stream que hay aquí.");
+    expect(restoreNotes(report).at(-1)).toBe("Revaluando en segundo plano las vueltas de 1 circuito.");
   });
 });

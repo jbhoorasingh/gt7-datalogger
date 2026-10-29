@@ -1,29 +1,51 @@
 // Settings › Data › Restore (#161): the parts an uploaded backup holds, which
 // are ticked to begin with, and what each would do to this install.
 
+import { currentLanguage, t, type MessageKey } from "@/i18n";
 import type { RestoreItem, RestoreReport, RestoreSetting, RestoreUpload } from "@/lib/types";
-import { plural } from "./backup";
 import { mb } from "./parts";
 
 export interface RestorePartInfo {
   id: RestoreItem;
-  label: string;
+  label: MessageKey;
 }
 
 // In the order the server applies them.
 export const RESTORE_PARTS: RestorePartInfo[] = [
-  { id: "data", label: "Data" },
-  { id: "surveys", label: "Surveys" },
-  { id: "source_id", label: "Install identity" },
-  { id: "config", label: "Config" },
-  { id: "layouts", label: "Dash/OBS" },
-  { id: "tokens", label: "Tokens" },
+  { id: "data", label: "backup.part.data" },
+  { id: "surveys", label: "backup.part.surveys" },
+  { id: "source_id", label: "restore.part.sourceId" },
+  { id: "config", label: "backup.part.config" },
+  { id: "layouts", label: "backup.part.layouts" },
+  { id: "tokens", label: "backup.part.tokens" },
 ];
 
-const TOKEN_NAMES: Record<string, string> = { webhook_url: "webhook URL", sync_token: "sync token" };
+const TOKEN_NAMES: Record<string, MessageKey> = {
+  webhook_url: "restore.token.webhook_url",
+  sync_token: "restore.token.sync_token",
+};
 
-function names(keys: string[]): string {
-  return keys.map((k) => TOKEN_NAMES[k] ?? k).join(" and ");
+function tokenName(key: string): string {
+  const name = TOKEN_NAMES[key];
+  return name ? t(name) : key;
+}
+
+// "a, b, c" the way the interface language lists things.
+const list = (items: string[]) =>
+  new Intl.ListFormat(currentLanguage(), { type: "conjunction", style: "narrow" }).format(items);
+
+/** The credentials a backup holds, in the order the server listed them. */
+function heldTokens(keys: string[]): string {
+  const hook = keys.includes("webhook_url");
+  const sync = keys.includes("sync_token");
+  if (hook && sync) {
+    return keys.indexOf("sync_token") < keys.indexOf("webhook_url")
+      ? t("backup.tokens.heldSyncHook")
+      : t("backup.tokens.heldHookSync");
+  }
+  if (hook) return t("backup.tokens.heldHook");
+  if (sync) return t("backup.tokens.heldSync");
+  return t("restore.detail.noTokens");
 }
 
 /** The parts to list: the ones the backup holds. */
@@ -83,35 +105,38 @@ export function restoreDetail(id: RestoreItem, up: RestoreUpload): string {
   const p = up.parts;
   switch (id) {
     case "data":
-      return `${plural(p.data.sessions ?? 0, "session")} · ${plural(p.data.laps ?? 0, "lap")} · ${mb(p.data.bytes ?? 0)}`;
+      return [
+        t("count.sessions", { count: p.data.sessions ?? 0 }),
+        t("count.laps", { count: p.data.laps ?? 0 }),
+        mb(p.data.bytes ?? 0),
+      ].join(" · ");
     case "surveys": {
       const s = p.surveys;
-      const bits = [plural(s.bundles ?? 0, "circuit")];
-      if (s.corrections) bits.push(plural(s.corrections, "correction"));
-      if (s.logs) bits.push(plural(s.logs, "survey log"));
-      if (s.car_widths) bits.push("car widths");
-      return `${bits.join(" · ")} · ${mb(s.bytes ?? 0)}. Merged with what is here`;
+      const bits = [t("backup.count.circuits", { count: s.bundles ?? 0 })];
+      if (s.corrections) bits.push(t("backup.count.corrections", { count: s.corrections }));
+      if (s.logs) bits.push(t("backup.count.logs", { count: s.logs }));
+      if (s.car_widths) bits.push(t("restore.detail.carWidths"));
+      bits.push(mb(s.bytes ?? 0));
+      return t("restore.detail.surveys", { held: bits.join(" · ") });
     }
     case "source_id":
-      return "Who made the survey votes in the backup. For a machine that replaces the one it came from";
+      return t("restore.detail.sourceId");
     case "config": {
       const all = p.config.settings ?? [];
       const machine = all.filter((s) => s.machine).length;
       const shared = all.length - machine;
-      const bits = [plural(shared, "saved setting")];
-      if (machine) bits.push(`${machine} for the machine, below`);
-      if (p.config.skipped?.length) bits.push(`${p.config.skipped.length} this version cannot take`);
+      const bits = [t("restore.count.savedSettings", { count: shared })];
+      if (machine) bits.push(t("restore.detail.machine", { count: machine }));
+      if (p.config.skipped?.length) bits.push(t("restore.detail.skipped", { count: p.config.skipped.length }));
       return bits.join(" · ");
     }
     case "layouts": {
-      const n = p.layouts.layouts?.length ?? 0;
+      const n = t("backup.count.layouts", { count: p.layouts.layouts?.length ?? 0 });
       const skipped = p.layouts.skipped?.length ?? 0;
-      return skipped ? `${plural(n, "layout")} · ${skipped} this version cannot take` : plural(n, "layout");
+      return skipped ? `${n} · ${t("restore.detail.skipped", { count: skipped })}` : n;
     }
-    case "tokens": {
-      const keys = p.tokens.keys ?? [];
-      return keys.length ? `The ${names(keys)}` : "No credentials";
-    }
+    case "tokens":
+      return heldTokens(p.tokens.keys ?? []);
   }
 }
 
@@ -122,19 +147,24 @@ export function restoreWarning(id: RestoreItem, up: RestoreUpload): string {
   switch (id) {
     case "data":
       return hasRecordings(up)
-        ? `Replaces the ${plural(here.sessions, "session")} and ${plural(here.laps, "lap")} here, which are kept beside the database as gt7.db.before-restore-<time>.`
+        ? t("restore.warn.data", {
+            sessions: t("count.sessions", { count: here.sessions }),
+            laps: t("count.laps", { count: here.laps }),
+          })
         : "";
     case "source_id":
-      return hasRecordings(up)
-        ? "This install has recordings of its own: its survey votes and the backup's would count as one source."
-        : "";
+      return hasRecordings(up) ? t("restore.warn.sourceId") : "";
     case "layouts": {
       const replaced = (up.parts.layouts.layouts ?? []).filter((l) => l.replaces).map((l) => l.name);
-      return replaced.length ? `Replaces ${replaced.join(", ")} here.` : "";
+      return replaced.length ? t("restore.warn.layouts", { names: list(replaced) }) : "";
     }
     case "tokens": {
       const replaced = (up.parts.tokens.keys ?? []).filter((k) => here.tokens.includes(k));
-      return replaced.length ? `Replaces the ${names(replaced)} saved here.` : "";
+      const hook = replaced.includes("webhook_url");
+      const sync = replaced.includes("sync_token");
+      if (hook && sync) return t("restore.warn.tokensBoth");
+      if (hook) return t("restore.warn.tokensHook");
+      return sync ? t("restore.warn.tokensSync") : "";
     }
     default:
       return "";
@@ -143,21 +173,23 @@ export function restoreWarning(id: RestoreItem, up: RestoreUpload): string {
 
 /** A machine setting's value as a person reads it. */
 export function settingValue(s: RestoreSetting): string {
-  if (Array.isArray(s.value)) return s.value.join(", ") || "none";
-  if (typeof s.value === "boolean") return s.value ? "on" : "off";
-  return s.value === "" ? "empty" : String(s.value);
+  if (Array.isArray(s.value)) return s.value.length ? list(s.value) : t("restore.value.none");
+  if (typeof s.value === "boolean") return s.value ? t("common.on") : t("common.off");
+  return s.value === "" ? t("restore.value.empty") : String(s.value);
 }
 
 /** The toast once a restore is done. */
 export function restoreSummary(report: RestoreReport): string {
   const bits: string[] = [];
-  if (report.data) bits.push(plural(report.data.sessions, "session"));
-  if (report.surveys) bits.push(plural(report.surveys.bundles.length, "circuit"));
-  if (report.source_id?.source_id) bits.push("the install identity");
-  if (report.config) bits.push(plural(report.config.applied.length, "setting"));
-  if (report.layouts) bits.push(plural(report.layouts.created.length + report.layouts.replaced.length, "layout"));
-  if (report.tokens?.applied.length) bits.push(names(report.tokens.applied));
-  return bits.length ? `Restored ${bits.join(", ")}` : "Restored";
+  if (report.data) bits.push(t("count.sessions", { count: report.data.sessions }));
+  if (report.surveys) bits.push(t("backup.count.circuits", { count: report.surveys.bundles.length }));
+  if (report.source_id?.source_id) bits.push(t("restore.summary.sourceId"));
+  if (report.config) bits.push(t("restore.count.settings", { count: report.config.applied.length }));
+  if (report.layouts) {
+    bits.push(t("backup.count.layouts", { count: report.layouts.created.length + report.layouts.replaced.length }));
+  }
+  for (const key of report.tokens?.applied ?? []) bits.push(tokenName(key));
+  return bits.length ? t("restore.summary", { parts: list(bits) }) : t("restore.summaryEmpty");
 }
 
 /** What did not go back, one line each: shown after the restore, so a
@@ -165,15 +197,18 @@ export function restoreSummary(report: RestoreReport): string {
 export function restoreNotes(report: RestoreReport): string[] {
   const notes: string[] = [];
   if (report.data) {
-    notes.push(`The recordings it replaced are kept as ${report.data.kept}; delete that file once you are happy.`);
-    if (report.data.upgraded_from) notes.push(`Its database was upgraded from ${report.data.upgraded_from}.`);
+    notes.push(t("restore.note.kept", { file: report.data.kept }));
+    if (report.data.upgraded_from) notes.push(t("restore.note.upgraded", { revision: report.data.upgraded_from }));
   }
+  // The reasons are the server's words, in English like any API error.
   for (const f of report.surveys?.failed ?? []) notes.push(`${f.file}: ${f.error}`);
-  if (report.source_id?.error) notes.push(`Install identity: ${report.source_id.error}`);
+  if (report.source_id?.error) notes.push(`${t("restore.part.sourceId")}: ${report.source_id.error}`);
   for (const s of report.config?.skipped ?? []) notes.push(`${s.key}: ${s.reason}`);
-  if (report.config?.left.length) notes.push(`Left as they are here: ${report.config.left.join(", ")}.`);
-  for (const s of report.layouts?.skipped ?? []) notes.push(`Layout ${s.name || "(unnamed)"}: ${s.reason}`);
-  for (const s of report.tokens?.skipped ?? []) notes.push(`${TOKEN_NAMES[s.key] ?? s.key}: ${s.reason}`);
-  if (report.rejudging.length) notes.push(`Re-judging the laps on ${plural(report.rejudging.length, "circuit")} in the background.`);
+  if (report.config?.left.length) notes.push(t("restore.note.left", { keys: list(report.config.left) }));
+  for (const s of report.layouts?.skipped ?? []) {
+    notes.push(t("restore.note.layout", { name: s.name || t("restore.note.unnamed"), reason: s.reason }));
+  }
+  for (const s of report.tokens?.skipped ?? []) notes.push(`${tokenName(s.key)}: ${s.reason}`);
+  if (report.rejudging.length) notes.push(t("restore.note.rejudging", { count: report.rejudging.length }));
   return notes;
 }

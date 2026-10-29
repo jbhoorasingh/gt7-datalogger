@@ -621,7 +621,8 @@ the chart says which.
 ## Side panels
 
 - **Race engineer — post-lap notes** — the [race engineer's](race-engineer.md)
-  coaching findings as text, in the exact wording voice would have used:
+  coaching findings as text, in the exact wording voice would have used (in the
+  interface's language):
   "repeated front-left lockups into turn four", "you are braking early into turn
   six, about fifteen meters", "you lost three tenths in turn five — braked
   eighteen meters earlier and carried five kilometers per hour less at the

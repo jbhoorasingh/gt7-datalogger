@@ -9,6 +9,7 @@
 // they can be tested without a chart. Colours are literals because a canvas
 // cannot read CSS custom properties; they match the tokens in index.css.
 
+import { t as translate, type MessageKey, type Translate } from "@/i18n";
 import { THRESHOLDS } from "@/lib/alerts";
 import { speedUnit, speedValue, type Units } from "@/lib/format";
 import type { Samples } from "@/lib/types";
@@ -17,25 +18,20 @@ export type MapLens = "inputs" | "speed" | "gain" | "tire_temp" | "tire_balance"
 
 export interface LensOption {
   value: MapLens;
-  label: string;
+  labelKey: MessageKey;
   /** Why the control greys the lens out when the comparison cannot draw it.
    *  Inputs can always be drawn. */
-  needs?: string;
+  needsKey?: MessageKey;
 }
 
-const TIRE_TEMPS_NEEDED =
-  "Needs tire temperatures — this lap was recorded before they were captured";
+const TIRE_TEMPS_NEEDED: MessageKey = "map.lens.needsTireTemps";
 
 export const LENS_OPTIONS: LensOption[] = [
-  { value: "inputs", label: "Inputs" },
-  { value: "speed", label: "Speed", needs: "This recording has no speed channel" },
-  {
-    value: "gain",
-    label: "Gain / loss",
-    needs: "Needs a second lap with a time delta against the reference",
-  },
-  { value: "tire_temp", label: "Tire temp", needs: TIRE_TEMPS_NEEDED },
-  { value: "tire_balance", label: "F−R temp", needs: TIRE_TEMPS_NEEDED },
+  { value: "inputs", labelKey: "map.lens.inputs" },
+  { value: "speed", labelKey: "common.speed", needsKey: "map.lens.needsSpeed" },
+  { value: "gain", labelKey: "map.lens.gain", needsKey: "map.lens.needsGain" },
+  { value: "tire_temp", labelKey: "map.lens.tireTemp", needsKey: TIRE_TEMPS_NEEDED },
+  { value: "tire_balance", labelKey: "map.lens.tireBalance", needsKey: TIRE_TEMPS_NEEDED },
 ];
 
 /** The lens the map starts on, and the one a link leaves unsaid. */
@@ -218,12 +214,15 @@ export function canDraw(
 /**
  * The reference series classified under one lens. Null when the lens has
  * nothing to colour by (see canDraw), so the caller falls back to inputs.
+ * The legend is worded by `t`: a caller that memoizes the result passes its
+ * own, so a language switch rebuilds it.
  */
 export function lensSeries(
   lens: MapLens,
   series: Samples & { dist: number[] },
   units: Units,
   gain: GainSource | null,
+  t: Translate = translate,
 ): LensSeries | null {
   if (!canDraw(lens, series, units, gain)) return null;
   const n = series.dist.length;
@@ -252,9 +251,9 @@ export function lensSeries(
       keys,
       palette: GAIN_COLORS,
       legend: [
-        { label: `${name} gains`, color: GAIN_COLORS[2] },
-        { label: `${name} loses`, color: GAIN_COLORS[0] },
-        { label: "even", color: GAIN_COLORS[1] },
+        { label: t("map.legend.gains", { lap: name }), color: GAIN_COLORS[2] },
+        { label: t("map.legend.loses", { lap: name }), color: GAIN_COLORS[0] },
+        { label: t("map.legend.even"), color: GAIN_COLORS[1] },
       ],
     };
   }
@@ -282,17 +281,17 @@ export function lensSeries(
       // Front average minus rear average, as the charts' F−R balance channel.
       keys[i] = tireBalanceClass((tt_fl[i] + tt_fr[i]) / 2 - (tt_rl[i] + tt_rr[i]) / 2);
     }
-    const even = TIRE_BALANCE_EVEN_C;
-    const strong = TIRE_BALANCE_STRONG_C;
+    const even = String(TIRE_BALANCE_EVEN_C);
+    const strong = String(TIRE_BALANCE_STRONG_C);
     return {
       keys,
       palette: TIRE_BALANCE_COLORS,
       legend: [
-        { label: `rears ≥ ${strong}`, color: TIRE_BALANCE_COLORS[0] },
-        { label: `rears ${even}–${strong}`, color: TIRE_BALANCE_COLORS[1] },
-        { label: "even", color: TIRE_BALANCE_COLORS[2] },
-        { label: `fronts ${even}–${strong}`, color: TIRE_BALANCE_COLORS[3] },
-        { label: `fronts ≥ ${strong} °C`, color: TIRE_BALANCE_COLORS[4] },
+        { label: t("map.legend.rearsStrong", { strong }), color: TIRE_BALANCE_COLORS[0] },
+        { label: t("map.legend.rearsRange", { even, strong }), color: TIRE_BALANCE_COLORS[1] },
+        { label: t("map.legend.even"), color: TIRE_BALANCE_COLORS[2] },
+        { label: t("map.legend.frontsRange", { even, strong }), color: TIRE_BALANCE_COLORS[3] },
+        { label: t("map.legend.frontsStrong", { strong }), color: TIRE_BALANCE_COLORS[4] },
       ],
     };
   }
@@ -304,9 +303,9 @@ export function lensSeries(
     keys,
     palette: INPUT_COLORS,
     legend: [
-      { label: "throttle", color: THROTTLE },
-      { label: "brake", color: BRAKE },
-      { label: "coast", color: COAST },
+      { label: t("map.legend.throttle"), color: THROTTLE },
+      { label: t("map.legend.brake"), color: BRAKE },
+      { label: t("map.legend.coast"), color: COAST },
     ],
   };
 }

@@ -7,6 +7,7 @@
 
 import { useEffect, useState, type CSSProperties } from "react";
 import { GridRenderer } from "@/components/GridRenderer";
+import { useT } from "@/i18n";
 import { api } from "@/lib/api";
 import { normalizeLayout, type LayoutConfig } from "@/lib/layout";
 import type { OverlayConfig, OverlayPage, OverlayRoute, WidgetId } from "@/lib/overlay";
@@ -29,9 +30,10 @@ function usePageClass(pageClass: string) {
 }
 
 function PlaceholderBadge() {
+  const t = useT();
   return (
     <div className="pointer-events-none fixed right-2 top-2 rounded border border-warn/40 bg-black/60 px-1.5 py-0.5 text-[9px] uppercase tracking-widest text-warn">
-      placeholder
+      {t("overlay.placeholder")}
     </div>
   );
 }
@@ -52,20 +54,21 @@ function ServerOverlay({
   layoutRef: string;
   demoOverride: boolean;
 }) {
+  const t = useT();
   const [layout, setLayout] = useState<LayoutConfig | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [notFound, setNotFound] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     setLayout(null);
-    setError(null);
+    setNotFound(false);
     api.layouts
       .get(layoutRef)
       .then((l) => {
         if (!cancelled) setLayout(normalizeLayout(l.config));
       })
       .catch(() => {
-        if (!cancelled) setError(`Layout "${layoutRef}" not found`);
+        if (!cancelled) setNotFound(true);
       });
     return () => {
       cancelled = true;
@@ -76,10 +79,10 @@ function ServerOverlay({
   const { frame, laps, placeholder } = useLiveFrame(demo);
   usePageClass(pageBodyClass(layout?.page ?? "transparent"));
 
-  if (error) {
+  if (notFound) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-ink-dim">
-        {error} — save it in the Admin builder first.
+        {t("overlay.notFound", { name: layoutRef })}
       </div>
     );
   }
@@ -87,7 +90,7 @@ function ServerOverlay({
   if (!frame) {
     return layout.page === "dark" ? (
       <div className="flex h-full items-center justify-center text-sm text-ink-dim">
-        Waiting for telemetry…
+        {t("overlay.waiting")}
       </div>
     ) : null;
   }
@@ -103,6 +106,7 @@ function ServerOverlay({
 // --- legacy URL-param overlays ----------------------------------------------
 
 function LegacyOverlay({ config }: { config: OverlayConfig }) {
+  const t = useT();
   const { frame, laps, placeholder } = useLiveFrame(config.demo);
   const gridPage = config.layout === "grid";
   usePageClass(pageBodyClass(config.page));
@@ -110,7 +114,7 @@ function LegacyOverlay({ config }: { config: OverlayConfig }) {
   if (!frame) {
     return gridPage ? (
       <div className="flex h-full items-center justify-center text-sm text-ink-dim">
-        Waiting for telemetry…
+        {t("overlay.waiting")}
       </div>
     ) : null;
   }

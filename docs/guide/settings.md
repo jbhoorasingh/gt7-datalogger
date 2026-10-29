@@ -29,6 +29,13 @@ The status bar's telemetry pill (*Receiving* / *No telemetry* / *Offline*) is a 
 to **Settings › Connection** from any page, and the **Settings** tab carries a dot when
 something there needs attention — dropped telemetry frames, or a sync error.
 
+The status bar's **language menu** — a globe and the language's code (EN, ES, PT, JA)
+— lists English, Español, Português (Brasil), 日本語 and *Auto*, which follows the
+browser. It belongs to this browser, not the installation, like the km/h · mph toggle
+beside it. Every view and the Race Engineer's callouts follow it,
+except **Settings › Advanced**, which shows setting names and descriptions as the
+server words them, in English.
+
 ## Connection
 
 - **Telemetry source** — switch between **PlayStation** (UDP capture) and **Simulated**
@@ -195,6 +202,9 @@ suppressed by a cooldown" from "nobody is listening".
 
 **Send test callout** pushes a callout to every connected browser, which proves the
 whole path end to end without driving.
+
+There is no language setting here: each device words and speaks the callouts in its
+own language ([Race Engineer › Language](race-engineer.md#language)).
 
 Full details: [Race Engineer](race-engineer.md).
 

@@ -1,5 +1,7 @@
 // Shared API/WebSocket types. Sample columns mirror backend SAMPLE_COLUMNS.
 
+import { t, type MessageKey } from "@/i18n";
+
 export interface LiveFrame {
   on_track: boolean;
   paused: boolean;
@@ -118,18 +120,30 @@ export const EXCLUDE_REASONS = [
 ] as const;
 export type ExcludeReason = (typeof EXCLUDE_REASONS)[number];
 
+const EXCLUDE_REASON_LABELS: Record<ExcludeReason, MessageKey> = {
+  "off-track": "lapStatus.reason.offTrack",
+  contact: "lapStatus.reason.contact",
+  restart: "lapStatus.reason.restart",
+  dirty: "lapStatus.reason.dirty",
+  "pit-out": "lapStatus.reason.pitOut",
+  "race-start": "lapStatus.reason.raceStart",
+};
+
 export function excludeReasonLabel(reason: ExcludeReason | "" | undefined): string {
-  return reason === "race-start" ? "race start" : (reason ?? "");
+  return reason ? t(EXCLUDE_REASON_LABELS[reason]) : "";
+}
+
+/** "excluded · contact", or "excluded" when no reason was given. */
+export function excludedLabel(reason: ExcludeReason | "" | undefined): string {
+  const why = excludeReasonLabel(reason);
+  return why ? t("lapStatus.excludedBecause", { reason: why }) : t("lapStatus.excluded");
 }
 
 /** Why a lap does not count toward bests, in a word or two; null if it does. */
 export function notCountingLabel(lap: LapSummary): string | null {
   if (lap.counts_for_best !== false) return null;
-  if (lap.best_override === false) {
-    const reason = excludeReasonLabel(lap.exclude_reason);
-    return reason ? `excluded · ${reason}` : "excluded";
-  }
-  return "partial";
+  if (lap.best_override === false) return excludedLabel(lap.exclude_reason);
+  return t("lapStatus.partial");
 }
 
 // Driver-aids bitmask stored per tick in the "aids" sample column and sent in
@@ -250,6 +264,13 @@ export interface OfficialMatch {
 export interface OfficialSuggestion extends OfficialMatch {
   confidence: number;
   why: string;
+  // `why` as data, for wording it in the interface language; absent from a
+  // suggestion an older server stored.
+  match?: {
+    name: "exact" | "close";
+    length: "agrees" | "disagrees" | null;
+    measured_m: number | null;
+  };
 }
 
 // A circuit's persisted survey bundle, as listed by /api/track-bundles.
@@ -712,6 +733,9 @@ export interface CoachingFinding {
   type: string;
   text: string;
   corner: number | null;
+  // Absent from a server older than the translations (#85).
+  message_key?: string;
+  message_args?: Record<string, unknown>;
 }
 
 export interface CoachingLapNotes {

@@ -3,36 +3,103 @@
 // dashboard's settings drawer, so it has to work in a narrow column.
 
 import { useEffect, useState } from "react";
-import { CALLOUT_CATALOG } from "@/lib/calloutCatalog";
-import { onVoicesChanged } from "@/lib/speech";
+import { useLanguage, useT } from "@/i18n";
+import { LANGUAGES, languageName, speechTag, type Language } from "@/i18n/languages";
+import { calloutExample, CALLOUT_CATALOG } from "@/lib/calloutCatalog";
+import { onVoicesChanged, voicesFor } from "@/lib/speech";
 import {
   CALLOUT_CATEGORIES,
   VERBOSITY_CATEGORIES,
   type CalloutCategory,
   type Verbosity,
 } from "@/lib/types";
-import { clientId, useEngineer } from "@/store/engineer";
+import {
+  clientId,
+  spokenLanguage,
+  useCalloutWording,
+  useEngineer,
+  type CalloutLanguage,
+} from "@/store/engineer";
 import { useTelemetry } from "@/store/telemetry";
 
-const VERBOSITY_HINT: Record<Verbosity, string> = {
-  minimal: "critical warnings, fuel shortage, pit window, final lap",
-  race: "lap times, personal bests, positions, fuel and race progress",
-  coach: "everything, plus repeated lockups, wheelspin and corner feedback",
-};
+const VERBOSITIES: Verbosity[] = ["minimal", "race", "coach"];
 
-const CATEGORY_HINT: Record<CalloutCategory, string> = {
-  system: "status messages",
-  lap: "lap times",
-  pace: "personal bests",
-  race: "final lap, halfway",
-  position: "position changes",
-  fuel: "fuel range",
-  strategy: "pit window, fuel shortage",
-  engine: "temperatures, oil pressure",
-  tires: "tire temperature and balance",
-  chassis: "ride height, kerbs",
-  coaching: "lockups, wheelspin, corner losses",
-};
+export interface VoiceGroup {
+  kind: "local" | "network";
+  voices: SpeechSynthesisVoice[];
+}
+
+/**
+ * The voices worth offering for callouts in `language`: that language's, or
+ * English's when the device has none (that is what will speak instead) —
+ * on-device first, in their own group. A network-backed voice accepts
+ * speak() and can then never start, which surfaces only as "no response from
+ * the speech engine"; grouping is how the two are told apart. `value` is the
+ * stored choice when it is on offer, else the default.
+ */
+export function voiceOptions(
+  voices: SpeechSynthesisVoice[],
+  language: Language,
+  voiceURI: string,
+): { groups: VoiceGroup[]; value: string } {
+  const own = voicesFor(voices, speechTag(language));
+  const pool = own.length ? own : voicesFor(voices, speechTag("en"));
+  const offered = pool.length ? pool : voices;
+  const groups = (["local", "network"] as const)
+    .map((kind) => ({ kind, voices: offered.filter((v) => v.localService === (kind === "local")) }))
+    .filter((g) => g.voices.length > 0);
+  const value = offered.some((v) => v.voiceURI === voiceURI) ? voiceURI : "";
+  return { groups, value };
+}
+
+/** Which language callouts are said in: the interface's, or another. */
+export function CalloutLanguageRow({ compact = false }: { compact?: boolean }) {
+  const t = useT();
+  const ui = useLanguage();
+  const choice = useEngineer((s) => s.calloutLanguage);
+  const setChoice = useEngineer((s) => s.setCalloutLanguage);
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-[11px] text-ink-dim">{t("engineer.calloutLanguage")}</span>
+      <select
+        className={`w-full rounded-[5px] border border-edge bg-panel-2 px-2.5 py-2 text-ink-soft focus:border-accent focus:outline-none ${
+          compact ? "text-xs" : "text-[12.5px]"
+        }`}
+        value={choice}
+        onChange={(e) => setChoice(e.target.value as CalloutLanguage)}
+      >
+        <option value="ui">{t("engineer.calloutLanguageUi", { language: languageName(ui) })}</option>
+        {LANGUAGES.map((l) => (
+          <option key={l.code} value={l.code}>
+            {l.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+/**
+ * Said when this device has no voice for the callout language: speech falls
+ * back to English (captions stay translated) rather than handing Japanese
+ * text to an English voice.
+ */
+export function VoiceLanguageNotice({
+  voices,
+  language,
+}: {
+  voices: SpeechSynthesisVoice[];
+  language: Language;
+}) {
+  const t = useT();
+  if (language === "en" || voices.length === 0) return null;
+  if (voicesFor(voices, speechTag(language)).length > 0) return null;
+  return (
+    <p className="rounded-md border border-warn/40 bg-warn/10 p-2 text-[11px] text-warn">
+      {t("engineer.noVoiceForLanguage", { language: languageName(language) })}
+    </p>
+  );
+}
 
 export function RaceEngineerPanel({
   compact = false,
@@ -42,17 +109,20 @@ export function RaceEngineerPanel({
   /** /engineer renders the same rows in its own rail card instead. */
   hideStatus?: boolean;
 }) {
+  const t = useT();
+  const ui = useLanguage();
+  const word = useCalloutWording();
   const s = useEngineer();
-  const wsConnected = useTelemetry((st) => st.wsConnected);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
 
   useEffect(() => onVoicesChanged(setVoices), []);
 
   const isSpeaker = s.activeClientId !== "" && s.activeClientId === clientId();
-  const otherSpeaker = s.activeClientId !== "" && !isSpeaker;
   // The server's own verbosity/category setting is a ceiling: it decides what
   // is ever sent, and this browser can only narrow it further.
   const serverCategories = s.serverStatus?.categories ?? null;
+  const language = spokenLanguage(s.calloutLanguage, ui);
+  const options = voiceOptions(voices, language, s.voiceURI);
 
   return (
     <div className={`flex flex-col gap-3.5 ${compact ? "text-xs" : "text-[13px]"} p-3.5`}>
@@ -64,7 +134,7 @@ export function RaceEngineerPanel({
             }`}
             onClick={() => void s.enableVoice()}
           >
-            Enable Race Engineer
+            {t("engineer.enable")}
           </button>
         ) : (
           <button
@@ -73,7 +143,7 @@ export function RaceEngineerPanel({
             }`}
             onClick={() => s.setEnabled(false)}
           >
-            Disable voice
+            {t("engineer.disable")}
           </button>
         )}
         <button
@@ -81,125 +151,71 @@ export function RaceEngineerPanel({
           disabled={!s.supported}
           onClick={() => s.testVoice()}
         >
-          Test voice
+          {t("engineer.testVoice")}
         </button>
         {s.enabled && s.audioReady && !isSpeaker && (
           <button className="btn" onClick={() => s.claimSpeaker()}>
-            Use this device for voice output
+            {t("engineer.useThisDevice")}
           </button>
         )}
         {isSpeaker && (
           <button className="btn" onClick={() => s.releaseSpeaker()}>
-            Stop speaking here
+            {t("engineer.stopHere")}
           </button>
         )}
       </div>
 
       {!hideStatus && (
-      <div className="grid grid-cols-2 gap-x-4 gap-y-1 font-tabular text-[11px]">
-        <Row k="Voice preference" v={s.enabled ? "enabled" : "off"} ok={s.enabled} />
-        <Row
-          k="Browser audio"
-          v={
-            !s.supported
-              ? "unsupported"
-              : s.speechError
-                ? `${s.failedCount} failed`
-                : s.spokenCount > 0
-                  ? "speaking"
-                  : s.audioReady
-                    ? "armed"
-                    : "needs a click"
-          }
-          ok={s.supported && (s.spokenCount > 0 || s.audioReady) && !s.speechError}
-        />
-        <Row
-          k="Active speaker"
-          v={isSpeaker ? "this device" : otherSpeaker ? "another device" : "none"}
-          ok={isSpeaker}
-        />
-        <Row k="Connection" v={wsConnected ? "connected" : "offline"} ok={wsConnected} />
-        <Row
-          k="Server callouts"
-          v={
-            s.serverStatus == null
-              ? "unknown"
-              : !s.serverStatus.enabled
-                ? "disabled"
-                : s.serverStatus.active
-                  ? "running"
-                  : "idle"
-          }
-          ok={s.serverStatus?.active ?? false}
-        />
-        <Row k="Queued" v={String(s.queue.length)} />
-        {s.verbosity === "coach" && (
-          <Row
-            k="Coaching"
-            v={s.serverStatus?.coaching_ready ? "ready" : "needs a few laps"}
-            ok={s.serverStatus?.coaching_ready ?? false}
-          />
-        )}
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1 font-tabular text-[11px]">
+          <StatusRows />
         </div>
       )}
 
       {s.speechError && (
         <p className="rounded-md border border-brake/40 bg-brake/10 p-2 text-[11px] text-brake">
-          Speech failed: {s.speechError}. Callouts are still shown on screen.
+          {t("engineer.speechFailed", { reason: s.speechError })}
         </p>
       )}
       {!s.supported && (
         <p className="rounded-md border border-warn/40 bg-warn/10 p-2 text-[11px] text-warn">
-          This browser has no speech synthesis. Callouts still appear as
-          on-screen captions.
+          {t("engineer.unsupported")}
         </p>
       )}
       {s.supported && voices.length === 0 && (
         <p className="rounded-md border border-warn/40 bg-warn/10 p-2 text-[11px] text-warn">
-          No speech voices found. Browsers load the list a moment after the page,
-          so this may clear on its own — but if it does not, the browser has no
-          voices to speak with (Chrome on Linux needs a speech engine such as
-          speech-dispatcher installed).
+          {t("engineer.noVoices")}
         </p>
       )}
 
+      <CalloutLanguageRow compact />
+      <VoiceLanguageNotice voices={voices} language={language} />
+
       <label className="block">
-        <span className="mb-1.5 block text-[11px] text-ink-dim">Voice</span>
+        <span className="mb-1.5 block text-[11px] text-ink-dim">{t("engineer.voice")}</span>
         <select
           className="w-full rounded-[5px] border border-edge bg-transparent px-3 py-2 text-xs text-ink-soft focus:border-accent focus:outline-none"
-          value={s.voiceURI}
-          onChange={(e) => {
-            const voice = voices.find((v) => v.voiceURI === e.target.value);
-            s.setVoice(e.target.value, voice?.lang ?? s.lang);
-          }}
+          value={options.value}
+          onChange={(e) => s.setVoice(e.target.value)}
         >
-          <option value="">Browser default (on-device voice)</option>
-          {/* On-device voices first and in their own group: a network-backed
-              voice accepts speak() and can then never start, which surfaces
-              only as "no response from the speech engine". The flat list gave
-              no way to tell the two apart. */}
-          {(["local", "network"] as const).map((kind) => {
-            const group = voices.filter((v) => v.localService === (kind === "local"));
-            if (!group.length) return null;
-            return (
-              <optgroup
-                key={kind}
-                label={kind === "local" ? "On-device (recommended)" : "Network — may not start"}
-              >
-                {group.map((v) => (
-                  <option key={v.voiceURI} value={v.voiceURI}>
-                    {v.name} ({v.lang})
-                  </option>
-                ))}
-              </optgroup>
-            );
-          })}
+          <option value="">{t("engineer.voiceDefault")}</option>
+          {options.groups.map((group) => (
+            <optgroup
+              key={group.kind}
+              label={group.kind === "local" ? t("engineer.voiceLocal") : t("engineer.voiceNetwork")}
+            >
+              {group.voices.map((v) => (
+                <option key={v.voiceURI} value={v.voiceURI}>
+                  {v.name} ({v.lang})
+                </option>
+              ))}
+            </optgroup>
+          ))}
         </select>
       </label>
 
       <div className="grid grid-cols-3 gap-2">
         <Slider
-          label="Volume"
+          label={t("engineer.volume")}
           value={s.volume}
           min={0}
           max={1}
@@ -207,7 +223,7 @@ export function RaceEngineerPanel({
           onChange={(volume) => s.setAudio({ volume })}
         />
         <Slider
-          label="Rate"
+          label={t("engineer.rate")}
           value={s.rate}
           min={0.6}
           max={1.6}
@@ -215,7 +231,7 @@ export function RaceEngineerPanel({
           onChange={(rate) => s.setAudio({ rate })}
         />
         <Slider
-          label="Pitch"
+          label={t("engineer.pitch")}
           value={s.pitch}
           min={0.6}
           max={1.6}
@@ -225,12 +241,12 @@ export function RaceEngineerPanel({
       </div>
 
       <div>
-        <span className="mb-1 block text-[11px] text-ink-dim">How much to say</span>
+        <span className="mb-1 block text-[11px] text-ink-dim">{t("engineer.howMuch")}</span>
         <div className="flex gap-1">
-          {(Object.keys(VERBOSITY_CATEGORIES) as Verbosity[]).map((mode) => (
+          {VERBOSITIES.map((mode) => (
             <button
               key={mode}
-              title={VERBOSITY_HINT[mode]}
+              title={t(`verbosity.${mode}.short`)}
               className={`flex-1 rounded-md border px-2 py-1 text-xs capitalize ${
                 s.verbosity === mode
                   ? "border-accent/60 bg-accent/10 text-ink"
@@ -238,15 +254,15 @@ export function RaceEngineerPanel({
               }`}
               onClick={() => s.setVerbosity(mode)}
             >
-              {mode}
+              {t(`verbosity.${mode}`)}
             </button>
           ))}
         </div>
-        <p className="mt-1 text-[10px] text-ink-dim">{VERBOSITY_HINT[s.verbosity]}</p>
+        <p className="mt-1 text-[10px] text-ink-dim">{t(`verbosity.${s.verbosity}.short`)}</p>
       </div>
 
       <div>
-        <span className="mb-1.5 block text-[11px] text-ink-dim">Categories</span>
+        <span className="mb-1.5 block text-[11px] text-ink-dim">{t("engineer.categories")}</span>
         <div className={`grid gap-x-3 gap-y-1 ${compact ? "grid-cols-2" : "grid-cols-2 sm:grid-cols-3"}`}>
           {CALLOUT_CATEGORIES.map((category) => {
             const inMode = VERBOSITY_CATEGORIES[s.verbosity].includes(category);
@@ -257,12 +273,7 @@ export function RaceEngineerPanel({
                 className={`flex cursor-pointer items-baseline gap-1.5 text-xs ${
                   inMode && onServer ? "" : "opacity-40"
                 }`}
-                title={
-                  !onServer
-                    ? "the server never produces this category — raise its maximum "
-                      + "verbosity in Settings › Race Engineer"
-                    : CATEGORY_HINT[category]
-                }
+                title={!onServer ? t("engineer.category.raiseCeiling") : t(`category.${category}.hint`)}
               >
                 <input
                   type="checkbox"
@@ -270,12 +281,12 @@ export function RaceEngineerPanel({
                   checked={s.categories.includes(category)}
                   onChange={(e) => s.toggleCategory(category, e.target.checked)}
                 />
-                <span className="capitalize">{category}</span>
+                <span className="capitalize">{t(`category.${category}`)}</span>
               </label>
             );
           })}
         </div>
-        <CalloutReference verbosity={s.verbosity} serverCategories={serverCategories} />
+        <CalloutReference verbosity={s.verbosity} serverCategories={serverCategories} language={language} />
       </div>
 
       <div className="space-y-1">
@@ -286,7 +297,7 @@ export function RaceEngineerPanel({
             checked={s.captions}
             onChange={(e) => s.setCaptions(e.target.checked)}
           />
-          <span>Show callout captions on screen</span>
+          <span>{t("engineer.showCaptions")}</span>
         </label>
         <label className="flex cursor-pointer items-baseline gap-2 text-xs">
           <input
@@ -295,16 +306,16 @@ export function RaceEngineerPanel({
             checked={s.muteWhenHidden}
             onChange={(e) => s.setMuteWhenHidden(e.target.checked)}
           />
-          <span>Stay quiet while this tab is hidden</span>
+          <span>{t("engineer.stayQuietHidden")}</span>
         </label>
       </div>
 
       {s.lastSpoken && (
         <div className="rounded-md border border-edge bg-panel-2 p-2">
           <div className="text-[10px] uppercase tracking-widest text-ink-dim">
-            Last spoken
+            {t("engineer.lastSpoken")}
           </div>
-          <div className="text-xs">{s.lastSpoken.text}</div>
+          <div className="text-xs">{word(s.lastSpoken)}</div>
         </div>
       )}
     </div>
@@ -318,14 +329,17 @@ export function RaceEngineerPanel({
 export function CalloutReference({
   verbosity,
   serverCategories,
+  language,
 }: {
   verbosity: Verbosity;
   serverCategories: CalloutCategory[] | null;
+  language: Language;
 }) {
+  const t = useT();
   return (
     <details className="mt-2 rounded-md border border-edge bg-panel-2">
       <summary className="cursor-pointer px-2 py-1 text-[11px] text-ink-dim hover:text-ink">
-        What each category says
+        {t("engineer.reference.title")}
       </summary>
       <div className="space-y-2 px-2 pb-2">
         {CALLOUT_CATEGORIES.map((category) => {
@@ -335,25 +349,24 @@ export function CalloutReference({
           return (
             <div key={category} className={inMode && onServer ? "" : "opacity-50"}>
               <div className="flex items-baseline gap-1.5">
-                <span className="text-[11px] font-semibold capitalize">{category}</span>
+                <span className="text-[11px] font-semibold capitalize">{t(`category.${category}`)}</span>
                 {!inMode && (
                   <span className="text-[10px] text-ink-dim">
-                    — off at {verbosity} verbosity
+                    {t("engineer.reference.offAt", { verbosity: t(`verbosity.${verbosity}`) })}
                   </span>
                 )}
                 {inMode && !onServer && (
-                  <span className="text-[10px] text-warn">
-                    — the server never produces this: raise its maximum verbosity
-                    in Settings › Race Engineer
-                  </span>
+                  <span className="text-[10px] text-warn">{t("engineer.reference.notSent")}</span>
                 )}
               </div>
-              <div className="text-[10px] text-ink-dim">{info.summary}</div>
+              <div className="text-[10px] text-ink-dim">{t(`category.${category}.summary`)}</div>
               <ul className="mt-0.5 space-y-0.5">
                 {info.callouts.map((callout) => (
                   <li key={callout.event} className="text-[10px] leading-snug">
-                    <span className="text-ink">&ldquo;{callout.example}&rdquo;</span>
-                    <span className="text-ink-dim"> — {callout.when}</span>
+                    <span className="text-ink">
+                      {t("engineer.quoted", { text: calloutExample(callout, language) })}
+                    </span>
+                    <span className="text-ink-dim"> — {t(`callout.${callout.event}.when`)}</span>
                   </li>
                 ))}
               </ul>
@@ -410,58 +423,82 @@ function Slider({
   );
 }
 
-// The same status rows the panel shows inline, for hosts that give them
-// their own card (see /engineer).
-export function RaceEngineerStatus() {
+/** The status rows, shared by the panel and the standalone card. */
+function StatusRows() {
+  const t = useT();
   const s = useEngineer();
   const wsConnected = useTelemetry((st) => st.wsConnected);
   const isSpeaker = s.activeClientId !== "" && s.activeClientId === clientId();
   const otherSpeaker = s.activeClientId !== "" && !isSpeaker;
   return (
-    <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 font-tabular text-[11.5px]">
-      <Row k="Voice preference" v={s.enabled ? "enabled" : "off"} ok={s.enabled} />
+    <>
       <Row
-        k="Browser audio"
+        k={t("engineer.status.preference")}
+        v={s.enabled ? t("engineer.status.enabled") : t("engineer.status.off")}
+        ok={s.enabled}
+      />
+      <Row
+        k={t("engineer.check.audio")}
         v={
           !s.supported
-            ? "unsupported"
+            ? t("engineer.check.unsupported")
             : s.speechError
-              ? `${s.failedCount} failed`
+              ? t("engineer.check.failed", { n: s.failedCount })
               : s.spokenCount > 0
-                ? "speaking"
+                ? t("engineer.check.speaking")
                 : s.audioReady
-                  ? "armed"
-                  : "needs a click"
+                  ? t("engineer.check.armed")
+                  : t("engineer.status.needsClick")
         }
         ok={s.supported && (s.spokenCount > 0 || s.audioReady) && !s.speechError}
       />
       <Row
-        k="Active speaker"
-        v={isSpeaker ? "this device" : otherSpeaker ? "another device" : "none"}
+        k={t("engineer.status.activeSpeaker")}
+        v={
+          isSpeaker
+            ? t("engineer.check.thisDevice")
+            : otherSpeaker
+              ? t("engineer.check.anotherDevice")
+              : t("engineer.check.none")
+        }
         ok={isSpeaker}
       />
-      <Row k="Connection" v={wsConnected ? "connected" : "offline"} ok={wsConnected} />
       <Row
-        k="Server callouts"
+        k={t("engineer.status.connection")}
+        v={wsConnected ? t("engineer.check.connected") : t("engineer.check.offline")}
+        ok={wsConnected}
+      />
+      <Row
+        k={t("engineer.status.serverCallouts")}
         v={
           s.serverStatus == null
-            ? "unknown"
+            ? t("engineer.check.unknown")
             : !s.serverStatus.enabled
-              ? "disabled"
+              ? t("engineer.status.disabled")
               : s.serverStatus.active
-                ? "running"
-                : "idle"
+                ? t("engineer.status.running")
+                : t("engineer.check.idle")
         }
         ok={s.serverStatus?.active ?? false}
       />
-      <Row k="Queued" v={String(s.queue.length)} />
+      <Row k={t("engineer.status.queued")} v={String(s.queue.length)} />
       {s.verbosity === "coach" && (
         <Row
-          k="Coaching"
-          v={s.serverStatus?.coaching_ready ? "ready" : "needs a few laps"}
+          k={t("engineer.status.coaching")}
+          v={s.serverStatus?.coaching_ready ? t("engineer.status.ready") : t("engineer.status.needsLaps")}
           ok={s.serverStatus?.coaching_ready ?? false}
         />
       )}
+    </>
+  );
+}
+
+// The same status rows the panel shows inline, for hosts that give them
+// their own card (see /engineer).
+export function RaceEngineerStatus() {
+  return (
+    <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 font-tabular text-[11.5px]">
+      <StatusRows />
     </div>
   );
 }

@@ -5,10 +5,12 @@
 // car's lock, and a wrong guess would draw a wheel that stops turning while
 // the driver's hands keep going.
 
+import { useT } from "@/i18n";
 import type { WidgetRenderProps } from "@/lib/widgetMeta";
 import { Caption } from "./shared";
 
 export function SteeringWidget({ frame, variant }: WidgetRenderProps) {
+  const t = useT();
   const rad = frame.steer_rad;
   const deg = rad != null ? (rad * 180) / Math.PI : null;
   return (
@@ -17,7 +19,11 @@ export function SteeringWidget({ frame, variant }: WidgetRenderProps) {
         viewBox="0 0 100 100"
         className="w-16"
         role="img"
-        aria-label={deg != null ? `Steering ${Math.round(deg)} degrees` : "Steering unknown"}
+        aria-label={
+          deg != null
+            ? t("widget.steering.aria", { deg: String(Math.round(deg)) })
+            : t("widget.steering.ariaUnknown")
+        }
       >
         <g
           transform={`rotate(${deg ?? 0} 50 50)`}
@@ -44,7 +50,9 @@ export function SteeringWidget({ frame, variant }: WidgetRenderProps) {
         </g>
       </svg>
       {variant !== "plain" && (
-        <Caption>{deg != null ? `${deg > 0 ? "+" : ""}${deg.toFixed(0)}°` : "steering –"}</Caption>
+        <Caption>
+          {deg != null ? `${deg > 0 ? "+" : ""}${deg.toFixed(0)}°` : t("widget.steering.unknown")}
+        </Caption>
       )}
     </div>
   );

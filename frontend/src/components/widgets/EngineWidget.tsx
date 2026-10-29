@@ -1,3 +1,4 @@
+import { useT } from "@/i18n";
 import { THRESHOLDS } from "@/lib/alerts";
 import type { WidgetRenderProps } from "@/lib/widgetMeta";
 import { Caption } from "./shared";
@@ -16,6 +17,7 @@ function Row({ label, value, className }: { label: string; value: string; classN
 }
 
 export function EngineWidget({ frame, variant }: WidgetRenderProps) {
+  const t = useT();
   const lowOilP =
     frame.oil_pressure >= 0 &&
     frame.oil_pressure < THRESHOLDS.oilPressureMin &&
@@ -23,26 +25,26 @@ export function EngineWidget({ frame, variant }: WidgetRenderProps) {
   return (
     <div className="flex flex-col justify-center gap-0.5 text-xs leading-4">
       <Row
-        label="WATER"
+        label={t("widget.engine.water")}
         value={`${Math.round(frame.water_temp)}°`}
         className={tempClass(frame.water_temp, THRESHOLDS.waterWarn, THRESHOLDS.waterCritical)}
       />
       <Row
-        label="OIL"
+        label={t("widget.engine.oil")}
         value={`${Math.round(frame.oil_temp)}°`}
         className={tempClass(frame.oil_temp, THRESHOLDS.oilTempWarn, THRESHOLDS.oilTempCritical)}
       />
       {variant === "detailed" && (
         <>
           <Row
-            label="OIL P"
+            label={t("widget.engine.oilPressure")}
             value={frame.oil_pressure < 0 ? "–" : `${frame.oil_pressure.toFixed(1)} bar`}
             className={lowOilP ? "text-brake" : ""}
           />
-          <Row label="BOOST" value={`${frame.boost.toFixed(2)} bar`} />
+          <Row label={t("widget.engine.boost")} value={`${frame.boost.toFixed(2)} bar`} />
         </>
       )}
-      <Caption>engine</Caption>
+      <Caption>{t("widget.engine.caption")}</Caption>
     </div>
   );
 }

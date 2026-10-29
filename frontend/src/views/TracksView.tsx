@@ -22,8 +22,10 @@ import { CornerEditor } from "@/components/tracks/CornerEditor";
 import { ConfirmDialog, LargeDialog, PromptDialog } from "@/components/ui/Dialog";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Tip } from "@/components/ui/Tooltip";
+import { currentLanguage, rich, useT, type MessageKey, type Translate } from "@/i18n";
 import { api } from "@/lib/api";
 import { getAdminToken, type SharedBundles } from "@/lib/api";
+import { formatInt } from "@/lib/format";
 import { openSettings } from "@/lib/router";
 import type {
   OfficialSuggestion,
@@ -49,32 +51,57 @@ function bytes(n: number): string {
 function when(iso: string): string {
   if (!iso) return "—";
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString();
+  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString(currentLanguage());
 }
 
-// "5 wk ago" — dense enough for a table sub-line; the exact time is one
+// "5w ago" — dense enough for a table sub-line; the exact time is one
 // hover away wherever it matters.
-function ago(iso: string): string {
-  const t = new Date(iso).getTime();
-  if (!iso || Number.isNaN(t)) return "—";
-  const s = Math.max(0, (Date.now() - t) / 1000);
-  if (s < 60) return "just now";
-  if (s < 3600) return `${Math.round(s / 60)} min ago`;
-  if (s < 86400) return `${Math.round(s / 3600)} h ago`;
-  if (s < 86400 * 14) return `${Math.round(s / 86400)} d ago`;
-  if (s < 86400 * 60) return `${Math.round(s / 86400 / 7)} wk ago`;
-  if (s < 86400 * 365) return `${Math.round(s / 86400 / 30)} mo ago`;
-  return `${Math.round(s / 86400 / 365)} y ago`;
+function ago(iso: string, t: Translate): string {
+  const ms = new Date(iso).getTime();
+  if (!iso || Number.isNaN(ms)) return "—";
+  const s = Math.max(0, (Date.now() - ms) / 1000);
+  if (s < 60) return t("tracks.justNow");
+  const rtf = new Intl.RelativeTimeFormat(currentLanguage(), { style: "narrow" });
+  if (s < 3600) return rtf.format(-Math.round(s / 60), "minute");
+  if (s < 86400) return rtf.format(-Math.round(s / 3600), "hour");
+  if (s < 86400 * 14) return rtf.format(-Math.round(s / 86400), "day");
+  if (s < 86400 * 60) return rtf.format(-Math.round(s / 86400 / 7), "week");
+  if (s < 86400 * 365) return rtf.format(-Math.round(s / 86400 / 30), "month");
+  return rtf.format(-Math.round(s / 86400 / 365), "year");
 }
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+// "a, b, c" the way the interface language lists things.
+const list = (items: string[]) =>
+  new Intl.ListFormat(currentLanguage(), { type: "conjunction", style: "narrow" }).format(items);
 
 // --- Readiness ---------------------------------------------------------------
 
 // The four steps from "a name" to "coaching works", in the order they unlock
 // each other. A step is either done or it is the thing to do next.
-const STEP_NAMES = ["identifies sessions", "surveyed", "official layout", "corners labelled"];
-const STEP_NEXT = ["identify", "survey it", "confirm layout", "label corners"];
+const STEP_NAME_KEYS: MessageKey[] = [
+  "tracks.step.identify",
+  "tracks.step.survey",
+  "tracks.step.official",
+  "tracks.step.corners",
+];
+const STEP_NEXT_KEYS: MessageKey[] = [
+  "tracks.next.identify",
+  "tracks.next.survey",
+  "tracks.next.official",
+  "tracks.next.corners",
+];
+
+// Why a layout was suggested, worded from the server's reasoning; its English
+// `why` from a server that sends no reasoning.
+function suggestionWhy(t: Translate, s: OfficialSuggestion): string {
+  if (!s.match) return s.why;
+  const name = t(s.match.name === "exact" ? "tracks.why.nameExact" : "tracks.why.nameClose");
+  if (s.match.length == null || s.match.measured_m == null) return name;
+  return t(s.match.length === "agrees" ? "tracks.why.lengthAgrees" : "tracks.why.lengthDisagrees", {
+    name,
+    length: formatInt(s.match.measured_m),
+  });
+}
 
 function turnsOf(row: TrackOverviewRow): number | null {
   return row.official?.turns || null;
@@ -93,12 +120,12 @@ function steps(row: TrackOverviewRow): boolean[] {
   ];
 }
 
-function readiness(row: TrackOverviewRow): { ready: boolean; label: string; cls: string } {
+function readiness(row: TrackOverviewRow): { ready: boolean; labelKey: MessageKey; cls: string } {
   const miss = steps(row).findIndex((x) => !x);
-  if (miss < 0) return { ready: true, label: "Ready", cls: "text-throttle" };
+  if (miss < 0) return { ready: true, labelKey: "tracks.ready", cls: "text-throttle" };
   return {
     ready: false,
-    label: `Next: ${STEP_NEXT[miss]}`,
+    labelKey: STEP_NEXT_KEYS[miss],
     // An unsurveyed circuit is a gap, not a fault — nothing is broken yet.
     cls: miss === 1 ? "text-ink-faint" : "text-warn",
   };
@@ -122,14 +149,14 @@ function matches(row: TrackOverviewRow, filter: Filter): boolean {
 
 // Why a circuit identifies itself (or doesn't). The same words the auto-ID
 // chip carried before the revamp.
-function identifyWhy(row: TrackOverviewRow): string {
+function identifyWhyKey(row: TrackOverviewRow): MessageKey {
   return row.provenance === "user"
-    ? "You named this circuit, so sessions here identify themselves — and your name outranks any shipped signature"
+    ? "tracks.identify.user"
     : row.provenance === "seed"
-      ? "Identified by a signature that shipped with the app, not one you made. Naming it yourself from a lap in Sessions replaces it."
+      ? "tracks.identify.seed"
       : row.bundle != null
-        ? "Sessions here identify themselves by matching the surveyed road — no signature needed"
-        : "Neither a geometry signature nor a survey — sessions here will NOT be identified. Name it from a lap in Sessions, or survey it.";
+        ? "tracks.identify.bundle"
+        : "tracks.identify.none";
 }
 
 // --- Sync --------------------------------------------------------------------
@@ -142,6 +169,7 @@ function inWords(seconds: number): string {
 
 function syncInfo(
   sync: TrackSyncStatus,
+  t: Translate,
 ): { label: string; short: string; title: string; cls: string } | null {
   const due = sync.due_in_s != null && sync.due_in_s > 0 ? inWords(sync.due_in_s) : "";
   let cls = "border border-dashed border-edge text-ink-faint";
@@ -150,47 +178,51 @@ function syncInfo(
   let title: string;
   switch (sync.status) {
     case "unconfirmed":
-      label = short = "not synced — confirm layout";
-      title =
-        "Only bundles with a confirmed official layout are sent: the sync service files uploads by layout, and an unconfirmed one cannot be filed. Confirm the suggestion below to queue it.";
+      label = short = t("tracks.sync.unconfirmed");
+      title = t("tracks.sync.unconfirmedTitle");
       break;
     case "imported":
-      label = short = "not synced — nothing of yours";
-      title =
-        "Every metre in this bundle was pulled or imported from elsewhere. Only evidence this installation recorded is uploaded — the service files each installation under one account — so there is nothing to send until you survey the circuit here.";
+      label = short = t("tracks.sync.imported");
+      title = t("tracks.sync.importedTitle");
       break;
     case "queued":
-      label = short = due ? `sync in ${due}` : "sync queued";
-      title =
-        "Changed since the last upload. It goes once it has been left alone for ten minutes — a running survey keeps resetting that clock — or at once from Settings › Sync › Sync now.";
+      label = short = due ? t("tracks.sync.dueIn", { due }) : t("tracks.sync.queued");
+      title = t("tracks.sync.queuedTitle");
       break;
     case "uploading":
       cls = "bg-accent/14 text-accent";
-      label = short = "syncing…";
-      title = "Uploading now";
+      label = short = t("tracks.sync.uploading");
+      title = t("tracks.sync.uploadingTitle");
       break;
-    case "synced":
+    case "synced": {
       cls = "bg-throttle/14 text-throttle";
-      label = `synced ${when(sync.uploaded_at ?? "")}`;
-      short = "synced";
+      label = t("tracks.sync.syncedAt", { when: when(sync.uploaded_at ?? "") });
+      short = t("tracks.sync.synced");
       if (sync.remote_status && sync.remote_status !== "pending") {
         label += ` · ${sync.remote_status}`;
         short += ` · ${sync.remote_status}`;
       }
-      title =
-        `Accepted by the sync service${sync.upload_id ? ` as upload ${sync.upload_id}` : ""}` +
-        ` — ${sync.remote_status === "pending" || !sync.remote_status ? "waiting for the next merge run" : sync.remote_status}`;
+      const state =
+        sync.remote_status === "pending" || !sync.remote_status
+          ? t("tracks.sync.waitingMerge")
+          : sync.remote_status;
+      title = sync.upload_id
+        ? t("tracks.sync.acceptedAs", { id: sync.upload_id, state })
+        : t("tracks.sync.accepted", { state });
       break;
+    }
     case "rejected":
       cls = "bg-brake/14 text-brake";
-      label = short = "sync rejected";
-      title = `${sync.error || "refused by the server"} — not retried until the bundle changes`;
+      label = short = t("tracks.sync.rejected");
+      title = t("tracks.sync.rejectedTitle", { error: sync.error || t("tracks.sync.refused") });
       break;
-    case "error":
+    case "error": {
       cls = "bg-warn/14 text-warn";
-      label = short = "sync error";
-      title = `${sync.error || "upload failed"}${due ? ` — retrying in ${due}` : ""}`;
+      label = short = t("tracks.sync.error");
+      const error = sync.error || t("tracks.sync.uploadFailed");
+      title = due ? t("tracks.sync.retrying", { error, due }) : error;
       break;
+    }
     default:
       return null;
   }
@@ -198,10 +230,11 @@ function syncInfo(
 }
 
 function SyncChip({ sync, compact = false }: { sync: TrackSyncStatus; compact?: boolean }) {
-  const info = syncInfo(sync);
+  const t = useT();
+  const info = syncInfo(sync, t);
   if (!info) return null;
   return (
-    <Tip content={compact ? `${info.label}. ${info.title}` : info.title}>
+    <Tip content={compact ? t("tracks.sync.compactTip", { label: info.label, title: info.title }) : info.title}>
       <span className={`whitespace-nowrap rounded-[9px] px-2 py-px text-[10px] ${info.cls}`}>
         {compact ? info.short : info.label}
       </span>
@@ -232,13 +265,14 @@ function CoverageBar({ label, pct }: { label: string; pct: number }) {
 }
 
 function ReadyPips({ row }: { row: TrackOverviewRow }) {
+  const t = useT();
   const st = steps(row);
   const r = readiness(row);
   return (
     <Tip
       content={
         <span className="whitespace-pre-line">
-          {st.map((x, i) => `${x ? "✓" : "✗"} ${STEP_NAMES[i]}`).join("\n")}
+          {st.map((x, i) => `${x ? "✓" : "✗"} ${t(STEP_NAME_KEYS[i])}`).join("\n")}
         </span>
       }
     >
@@ -251,7 +285,7 @@ function ReadyPips({ row }: { row: TrackOverviewRow }) {
             />
           ))}
         </span>
-        <span className={`mt-[3px] text-[10.5px] ${r.cls}`}>{r.label}</span>
+        <span className={`mt-[3px] text-[10.5px] ${r.cls}`}>{t(r.labelKey)}</span>
       </span>
     </Tip>
   );
@@ -390,6 +424,7 @@ const CHECK_ICON = {
 } as const;
 
 export function TracksView() {
+  const t = useT();
   const [data, setData] = useState<TrackOverview | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -456,13 +491,13 @@ export function TracksView() {
     setBusy(true);
     try {
       const r = await api.identifySessions();
-      const breakdown = Object.entries(r.tracks)
-        .map(([track, n]) => `${n}× ${track}`)
-        .join(", ");
+      const breakdown = list(Object.entries(r.tracks).map(([track, n]) => `${n}× ${track}`));
       if (r.identified === 0) {
-        toast(`No surveyed circuit matched any of the ${r.checked} unlabelled sessions`);
+        toast(t("tracks.identify.noMatch", { count: r.checked }));
       } else {
-        toastSuccess(`Named ${r.identified} of ${r.checked} sessions — ${breakdown}`);
+        toastSuccess(
+          t("tracks.identify.named", { identified: r.identified, count: r.checked, breakdown }),
+        );
       }
       refresh();
     } catch (e) {
@@ -479,17 +514,21 @@ export function TracksView() {
     try {
       doc = JSON.parse(await file.text());
     } catch {
-      toastError(`${file.name} is not JSON`);
+      toastError(t("tracks.import.notJson", { name: file.name }));
       return;
     }
-    await run("Bundle merged", async () => {
+    await run(t("tracks.toast.bundleMerged"), async () => {
       const result = await api.bundles.import(doc, target);
       toastSuccess(
-        `${result.track}: +${result.added_points} m of border ` +
-          `(${result.points} total, ${result.sources} source${result.sources === 1 ? "" : "s"})`,
+        t("tracks.toast.borderAdded", {
+          track: result.track,
+          added: formatInt(result.added_points),
+          points: formatInt(result.points),
+          count: result.sources,
+        }),
       );
       if (result.corners_kept) {
-        toastSuccess("Kept your own corner labels — the imported ones were dropped");
+        toastSuccess(t("tracks.toast.keptCornersImported"));
       }
     });
   };
@@ -502,8 +541,9 @@ export function TracksView() {
       const result = await api.bundles.pullAllShared();
       const fresh = result.pulled.filter((p) => p.added_points > 0).length;
       toastSuccess(
-        `Pulled ${result.pulled.length} circuit${result.pulled.length === 1 ? "" : "s"}` +
-          (fresh < result.pulled.length ? ` (${fresh} with anything new)` : ""),
+        fresh < result.pulled.length
+          ? t("tracks.toast.pulledFresh", { count: result.pulled.length, fresh })
+          : t("tracks.toast.pulled", { count: result.pulled.length }),
       );
       for (const f of result.failed) toastError(`${f.track}: ${f.error}`);
       refresh();
@@ -515,23 +555,28 @@ export function TracksView() {
   };
 
   const onPullShared = async (slug: string) => {
-    await run("Bundle pulled", async () => {
+    await run(t("tracks.toast.bundlePulled"), async () => {
       const result = await api.bundles.pullShared(slug);
       toastSuccess(
-        `${result.track}: +${result.added_points} m of border ` +
-          `(${result.points} total, ${result.sources} source${result.sources === 1 ? "" : "s"})`,
+        t("tracks.toast.borderAdded", {
+          track: result.track,
+          added: formatInt(result.added_points),
+          points: formatInt(result.points),
+          count: result.sources,
+        }),
       );
       if (result.corners_kept) {
-        toastSuccess("Kept your own corner labels — the pulled ones were dropped");
+        toastSuccess(t("tracks.toast.keptCornersPulled"));
       }
       if (result.corrections) {
         const c = result.corrections;
         const parts = [
-          c.areas > 0 && `${c.areas} area${c.areas === 1 ? "" : "s"} kept off the map`,
-          c.drawn > 0 && `${c.drawn} m drawn in`,
-          c.smooth_borders != null && `smoothing ${c.smooth_borders ? "on" : "off"}`,
-        ].filter(Boolean);
-        toastSuccess(`Applied the repo's corrections: ${parts.join(", ")}`);
+          c.areas > 0 && t("tracks.corrections.areas", { count: c.areas }),
+          c.drawn > 0 && t("tracks.corrections.drawn", { m: formatInt(c.drawn) }),
+          c.smooth_borders != null &&
+            t(c.smooth_borders ? "tracks.corrections.smoothingOn" : "tracks.corrections.smoothingOff"),
+        ].filter((p): p is string => Boolean(p));
+        toastSuccess(t("tracks.toast.corrections", { parts: list(parts) }));
       }
     });
   };
@@ -543,19 +588,20 @@ export function TracksView() {
     setBusy(true);
     try {
       const r = await api.bundles.rejudge(row.slug);
-      const laps = `${r.laps} lap${r.laps === 1 ? "" : "s"}`;
-      const verdicts = `${r.changed} verdict${r.changed === 1 ? "" : "s"}`;
+      const laps = t("count.laps", { count: r.laps });
       if (r.laps === 0) {
-        toast(`No laps recorded on ${row.name}`);
+        toast(t("tracks.rejudge.noLaps", { name: row.name }));
       } else if (!r.judged) {
         toast(
-          `${row.name} has no usable survey — ` +
-            (r.changed ? `${verdicts} set back to unknown` : `${laps} left unknown`),
+          r.changed
+            ? t("tracks.rejudge.noSurveyReset", { name: row.name, count: r.changed })
+            : t("tracks.rejudge.noSurveyLeft", { name: row.name, count: r.laps }),
         );
       } else {
         toastSuccess(
-          `Re-checked ${laps} on ${row.name} — ` +
-            (r.changed ? `${verdicts} changed` : "every verdict stands"),
+          r.changed
+            ? t("tracks.rejudge.changed", { laps, name: row.name, count: r.changed })
+            : t("tracks.rejudge.stands", { laps, name: row.name }),
         );
       }
     } catch (e) {
@@ -568,18 +614,18 @@ export function TracksView() {
   // Uploading only lands the file; the run still gets merged the normal way —
   // by assigning it to a circuit, exactly as an orphaned local run would be.
   const onUploadLog = async (file: File) => {
-    await run("Log uploaded", async () => {
+    await run(t("tracks.toast.logUploaded"), async () => {
       const r = await api.survey.uploadLog(file);
-      toastSuccess(
-        `${r.name}: ${r.marks.toLocaleString()} marks · ` +
-          `${r.transitions.toLocaleString()} transitions` +
-          (r.track ? ` · ${r.track}` : " · unassigned"),
-      );
+      const counts = t("tracks.logCounts", {
+        marks: formatInt(r.marks),
+        transitions: formatInt(r.transitions),
+      });
+      toastSuccess(`${r.name}: ${counts} · ${r.track || t("tracks.unassigned")}`);
     });
   };
 
   const onConfirmLayout = (row: TrackOverviewRow) =>
-    void run("Layout confirmed", () => {
+    void run(t("tracks.toast.layoutConfirmed"), () => {
       const s = row.suggestion!;
       // The suggestion's reasoning is for the human reading it; what gets
       // stored is the match itself.
@@ -599,19 +645,19 @@ export function TracksView() {
   // list and the checklist, on every device, rather than hiding one row in
   // one browser while the server kept offering the same guess.
   const rejectAction = (row: TrackOverviewRow, s: OfficialSuggestion): Action => ({
-    label: "Not this",
+    label: t("tracks.reject.label"),
     disabled: busy,
-    title: `Rule out ${s.official_name} for this circuit. The next-best layout is suggested instead, if any is close enough.`,
+    title: t("tracks.reject.title", { name: s.official_name }),
     onClick: () =>
-      void run("Suggestion ruled out", () => api.rejectSuggestion(row.name, s.official_id)),
+      void run(t("tracks.toast.suggestionRuledOut"), () =>
+        api.rejectSuggestion(row.name, s.official_id),
+      ),
   });
 
   const confirmAction = (row: TrackOverviewRow): Action => ({
-    label: "Confirm",
+    label: t("common.confirm"),
     disabled: busy || !row.bundle,
-    title: row.bundle
-      ? "Confirm the match — nothing is inferred silently, because GT7 broadcasts no track identifier"
-      : "Needs a survey bundle to record the match in",
+    title: row.bundle ? t("tracks.confirm.title") : t("tracks.confirm.needsBundle"),
     onClick: () => onConfirmLayout(row),
   });
 
@@ -651,10 +697,12 @@ export function TracksView() {
     todos.push({
       key: "sync",
       dot: "bg-brake",
-      track: "Track sync",
-      what: "not reaching the server",
-      why: `${data.sync_tracks.error || "unknown error"}. Uploads are retried with backoff; check Settings › Sync.`,
-      primary: { label: "Open Settings › Sync", onClick: () => openSettings("sync") },
+      track: t("tracks.todo.trackSync"),
+      what: t("tracks.todo.syncWhat"),
+      why: t("tracks.todo.syncWhy", {
+        error: data.sync_tracks.error || t("tracks.todo.unknownError"),
+      }),
+      primary: { label: t("tracks.todo.openSync"), onClick: () => openSettings("sync") },
     });
   }
   for (const row of rows) {
@@ -664,13 +712,16 @@ export function TracksView() {
       key: `confirm:${row.slug}`,
       dot: "bg-warn",
       track: row.name,
-      what: "confirm the layout",
-      why:
-        `Looks like ${s.official_name} — ${s.turns} turns, ${s.length_m.toLocaleString()} m — ${s.why}.` +
-        (row.bundle ? "" : " Survey it first: the match is recorded in its bundle."),
+      what: t("tracks.todo.confirmWhat"),
+      why: t(row.bundle ? "tracks.todo.confirmWhy" : "tracks.todo.confirmWhyNoBundle", {
+        name: s.official_name,
+        turns: t("tracks.turns", { count: s.turns }),
+        length: formatInt(s.length_m),
+        why: suggestionWhy(t, s),
+      }),
       primary: row.bundle
         ? confirmAction(row)
-        : { label: "Survey this track", href: SURVEY_HREF },
+        : { label: t("tracks.surveyThis"), href: SURVEY_HREF },
       secondary: rejectAction(row, s),
     });
   }
@@ -678,19 +729,24 @@ export function TracksView() {
     todos.push({
       key: `orphan:${log.name}`,
       dot: "bg-warn",
-      track: `Survey run ${when(log.started_at)}`,
-      what: "went nowhere",
+      track: t("tracks.todo.surveyRun", { when: when(log.started_at) }),
+      what: t("tracks.todo.orphanWhat"),
       why: (
-        <Tip content="A survey with no circuit label saves no bundle at all — these runs exist only as their logs. The log is a complete record, so assigning one now merges it exactly as if the circuit had been named while driving.">
+        <Tip content={t("tracks.todo.orphanTip")}>
           <span>
-            {log.marks.toLocaleString()} marks · {log.transitions.toLocaleString()} transitions ·{" "}
-            {bytes(log.bytes)} · saved as a log only, no circuit named.
+            {t("tracks.todo.orphanWhy", {
+              counts: t("tracks.logCounts", {
+                marks: formatInt(log.marks),
+                transitions: formatInt(log.transitions),
+              }),
+              size: bytes(log.bytes),
+            })}
           </span>
         </Tip>
       ),
-      primary: { label: "Assign to a track…", disabled: busy, onClick: () => setAssigning(log) },
+      primary: { label: t("tracks.assign"), disabled: busy, onClick: () => setAssigning(log) },
       secondary: {
-        label: "Download",
+        label: t("common.download"),
         href: api.survey.logDownloadUrl(log.name),
         download: log.name,
       },
@@ -703,10 +759,10 @@ export function TracksView() {
       key: `coverage:${row.slug}`,
       dot: "bg-warn",
       track: row.name,
-      what: `road coverage ${cov.road_pct}%`,
-      why: `${plural(row.bundle!.runs, "run")} so far. Drive the full lap in survey mode to fill in the missing road.`,
-      primary: { label: "Survey again", href: SURVEY_HREF },
-      secondary: { label: "Details", onClick: () => setSelected(row.slug) },
+      what: t("tracks.todo.coverageWhat", { pct: String(cov.road_pct) }),
+      why: t("tracks.todo.coverageWhy", { count: row.bundle!.runs }),
+      primary: { label: t("tracks.surveyAgain"), href: SURVEY_HREF },
+      secondary: { label: t("tracks.details"), onClick: () => setSelected(row.slug) },
     });
   }
   const unlabelled = rows.filter((r) => r.bundle != null && r.bundle.corners === 0);
@@ -715,13 +771,17 @@ export function TracksView() {
     todos.push({
       key: "corners",
       dot: "bg-ink-faint",
-      track: unlabelled.length === 1 ? first.name : plural(unlabelled.length, "circuit"),
-      what: unlabelled.length === 1 ? "has no corners labelled" : "have no corners labelled",
+      track:
+        unlabelled.length === 1
+          ? first.name
+          : t("tracks.circuits", { count: unlabelled.length }),
+      what: t("tracks.todo.noCorners", { count: unlabelled.length }),
       why:
-        (unlabelled.length === 1 ? "" : `${unlabelled.map((r) => r.name).join(", ")} — `) +
-        "corner reports and braking callouts stay empty until they are.",
+        unlabelled.length === 1
+          ? t("tracks.todo.cornersWhy")
+          : t("tracks.todo.cornersWhyMany", { names: list(unlabelled.map((r) => r.name)) }),
       primary: {
-        label: unlabelled.length === 1 ? "Label corners" : "Label next",
+        label: unlabelled.length === 1 ? t("tracks.labelCorners") : t("tracks.todo.labelNext"),
         onClick: () => setEditing(first),
       },
     });
@@ -735,79 +795,97 @@ export function TracksView() {
     checks.push({
       key: "identify",
       tone: current.named || b ? "ok" : "warn",
-      label: "Identifies sessions",
-      detail: identifyWhy(current),
+      label: t("tracks.check.identify"),
+      detail: t(identifyWhyKey(current)),
     });
     if (b) {
       checks.push({
         key: "survey",
         tone: "ok",
-        label: "Survey",
-        detail:
-          `${b.points.toLocaleString()} m of border from ${plural(b.runs, "run")}` +
-          (b.sources > 1 ? ` · ${b.sources} sources` : "") +
-          ` · updated ${when(b.updated_at)}`,
+        label: t("tracks.label.survey"),
+        detail: [
+          t("tracks.check.surveyBorder", { points: formatInt(b.points), count: b.runs }),
+          b.sources > 1 && t("tracks.sources", { count: b.sources }),
+          t("tracks.updatedAt", { when: when(b.updated_at) }),
+        ]
+          .filter(Boolean)
+          .join(" · "),
         // Border metres, NOT lap length — one record per metre per side.
-        tip: "Metres of border evidence — one record per metre per side, so a lap's worth of track is roughly twice its length",
+        tip: t("tracks.check.surveyTip"),
       });
       const cov = b.coverage;
       if (cov) {
         const closed = cov.L.closed && cov.R.closed;
-        const pcts = `L ${cov.L.pct}% · R ${cov.R.pct}% · road ${cov.road_pct}%`;
+        const pcts = t("tracks.check.pcts", {
+          l: String(cov.L.pct),
+          r: String(cov.R.pct),
+          road: String(cov.road_pct),
+        });
         checks.push({
           key: "borders",
           tone: closed ? "ok" : "warn",
-          label: "Borders",
-          detail: closed
-            ? `${pcts} · both loops closed.`
-            : `${pcts} — ${cov.road_pct < 50 ? "most of the road is missing." : "small gaps; loops not closed."}`,
-          tip: "How much of each border the evidence establishes, measured against the compiled boundary — gaps count against it, and ✓closed means both borders form complete loops",
+          label: t("tracks.check.borders"),
+          detail: t(
+            closed
+              ? "tracks.check.bordersClosed"
+              : cov.road_pct < 50
+                ? "tracks.check.bordersMissing"
+                : "tracks.check.bordersGaps",
+            { pcts },
+          ),
+          tip: t("tracks.coverageTip"),
           action:
-            cov.road_pct < 50 ? { label: "Survey again", href: SURVEY_HREF } : undefined,
+            cov.road_pct < 50 ? { label: t("tracks.surveyAgain"), href: SURVEY_HREF } : undefined,
         });
       } else {
         checks.push({
           key: "borders",
           tone: "todo",
-          label: "Borders",
-          detail: "Not compiled yet — coverage appears once the bundle compiles.",
+          label: t("tracks.check.borders"),
+          detail: t("tracks.check.notCompiled"),
         });
       }
       checks.push(
         b.elevation_pct >= 50
-          ? { key: "elev", tone: "ok", label: "Elevation", detail: `${b.elevation_pct}% captured.` }
+          ? {
+              key: "elev",
+              tone: "ok",
+              label: t("tracks.check.elevation"),
+              detail: t("tracks.check.elevationCaptured", { pct: String(b.elevation_pct) }),
+            }
           : {
               key: "elev",
               tone: "warn",
-              label: "Elevation",
-              detail: `${b.elevation_pct}% captured. Recorded before elevation capture — one more lap on it fills it in.`,
-              tip: "Elevation only fills in by RE-DRIVING a metre: bundles started before elevation capture sit near 0 % until their ground is driven again",
-              action: { label: "Drive a lap", href: SURVEY_HREF },
+              label: t("tracks.check.elevation"),
+              detail: t("tracks.check.elevationOld", { pct: String(b.elevation_pct) }),
+              tip: t("tracks.check.elevationTip"),
+              action: { label: t("tracks.check.driveLap"), href: SURVEY_HREF },
             },
       );
       checks.push({
         key: "finish",
         tone: b.finish_crossings > 0 ? "ok" : "warn",
-        label: "Finish line",
+        label: t("tracks.check.finish"),
         detail:
           b.finish_crossings > 0
-            ? "Located from lap crossings."
-            : "Not located yet — needs repeat crossings to be confident.",
-        tip: "Start/finish line located from lap rollovers; needs repeat crossings to be confident",
+            ? t("tracks.check.finishLocated")
+            : t("tracks.check.finishMissing"),
+        tip: t("tracks.check.finishTip"),
       });
       const done = turns ? b.corners >= turns : b.corners > 0;
       checks.push({
         key: "corners",
         tone: done ? "ok" : "todo",
-        label: "Corners",
+        label: t("tracks.label.corners"),
         detail: turns
-          ? done
-            ? `${b.corners} of ${turns} labelled — coaching and corner reports work.`
-            : `${b.corners} of ${turns} labelled. Needed for corner reports and braking callouts.`
-          : `${plural(b.corners, "corner")} labelled.`,
+          ? t(done ? "tracks.check.cornersDone" : "tracks.check.cornersPartial", {
+              corners: String(b.corners),
+              turns: String(turns),
+            })
+          : t("tracks.check.cornersLabelled", { count: b.corners }),
         action: {
-          label: done ? "Edit corners" : "Label corners",
-          title: "Label this circuit's corners",
+          label: done ? t("tracks.check.editCorners") : t("tracks.labelCorners"),
+          title: t("tracks.check.labelCornersTitle"),
           onClick: () => setEditing(current),
         },
       });
@@ -815,50 +893,60 @@ export function TracksView() {
       checks.push({
         key: "survey",
         tone: "todo",
-        label: "Survey",
-        detail: "Nothing surveyed here yet — the map, coverage and sync all need one.",
-        action: { label: "Survey this track", href: SURVEY_HREF },
+        label: t("tracks.label.survey"),
+        detail: t("tracks.check.notSurveyed"),
+        action: { label: t("tracks.surveyThis"), href: SURVEY_HREF },
       });
     }
     const o = current.official;
     const s = current.suggestion;
     const ruledOut = current.suggestion_rejected;
-    const ruledOutNote = ruledOut
-      ? ` ${plural(ruledOut, "other layout")} ruled out.`
-      : "";
     checks.push(
       o
         ? {
             key: "official",
             tone: "ok",
-            label: "Official layout",
-            detail: `Confirmed as ${o.official_name} · ${o.turns} turns · ${o.length_m.toLocaleString()} m.`,
+            label: t("tracks.check.official"),
+            detail: t("tracks.check.officialConfirmed", {
+              name: o.official_name,
+              turns: t("tracks.turns", { count: o.turns }),
+              length: formatInt(o.length_m),
+            }),
           }
         : s
           ? {
               key: "official",
               tone: "warn",
-              label: "Official layout",
-              detail: `Looks like ${s.official_name} · ${s.turns} turns · ${s.length_m.toLocaleString()} m — ${s.why}.${ruledOutNote}`,
+              label: t("tracks.check.official"),
+              detail: t(
+                ruledOut ? "tracks.check.officialLooksLikeRuledOut" : "tracks.check.officialLooksLike",
+                {
+                  name: s.official_name,
+                  turns: t("tracks.turns", { count: s.turns }),
+                  length: formatInt(s.length_m),
+                  why: suggestionWhy(t, s),
+                  ...(ruledOut ? { count: ruledOut } : {}),
+                },
+              ),
               action: confirmAction(current),
               secondary: rejectAction(current, s),
             }
           : {
               key: "official",
               tone: "todo",
-              label: "Official layout",
+              label: t("tracks.check.official"),
               detail: ruledOut
-                ? `No suggestion left: ${plural(ruledOut, "layout")} ruled out, and nothing else in the catalog is close enough.`
-                : "Not matched to an official GT7 layout — GT7 broadcasts no track id, so this is a human decision.",
+                ? t("tracks.check.noSuggestionLeft", { count: ruledOut })
+                : t("tracks.check.notMatched"),
               // The way back from a mis-click, or from a circuit renamed so
               // the ruled-out guess now fits after all.
               action: ruledOut
                 ? {
-                    label: "Suggest again",
+                    label: t("tracks.check.suggestAgain"),
                     disabled: busy,
-                    title: "Forget every layout ruled out for this circuit",
+                    title: t("tracks.check.suggestAgainTitle"),
                     onClick: () =>
-                      void run("Suggestions restored", () =>
+                      void run(t("tracks.toast.suggestionsRestored"), () =>
                         api.clearRejectedSuggestions(current.name),
                       ),
                   }
@@ -869,36 +957,40 @@ export function TracksView() {
       checks.push({
         key: "corners",
         tone: "todo",
-        label: "Corners",
-        detail: "Placed on the map once surveyed.",
+        label: t("tracks.label.corners"),
+        detail: t("tracks.check.cornersLater"),
       });
     }
     const sectorBoundaries = b?.sectors ?? 0;
     checks.push({
       key: "sectors",
       tone: sectorBoundaries > 0 ? "ok" : "todo",
-      label: "Sectors",
+      label: t("tracks.label.sectors"),
       detail:
         sectorBoundaries > 0
-          ? `${sectorBoundaries + 1} sectors configured · ${sectorBoundaries} ${sectorBoundaries === 1 ? "boundary" : "boundaries"} saved.`
+          ? t("tracks.check.sectorsConfigured", {
+              sectors: t("count.sectors", { count: sectorBoundaries + 1 }),
+              count: sectorBoundaries,
+            })
           : b
-            ? "Not configured. Add sector boundaries for timing and voice callouts."
-            : "Not configured. Survey this track before adding sector boundaries.",
+            ? t("tracks.check.sectorsNone")
+            : t("tracks.check.sectorsNeedSurvey"),
       action: b
         ? {
-            label: sectorBoundaries > 0 ? "Edit sectors" : "Configure sectors",
-            title: "Configure this circuit's sector boundaries",
+            label:
+              sectorBoundaries > 0 ? t("tracks.check.editSectors") : t("tracks.check.configureSectors"),
+            title: t("tracks.check.configureSectorsTitle"),
             onClick: () => setEditing(current),
           }
         : undefined,
     });
-    const info = b && syncActive && current.sync ? syncInfo(current.sync) : null;
+    const info = b && syncActive && current.sync ? syncInfo(current.sync, t) : null;
     if (info && current.sync) {
       const st = current.sync.status;
       checks.push({
         key: "sync",
         tone: st === "synced" ? "ok" : st === "rejected" || st === "error" ? "warn" : "todo",
-        label: "Sync",
+        label: t("tracks.label.sync"),
         detail: (
           <span className="flex flex-col items-start gap-1">
             <SyncChip sync={current.sync} />
@@ -908,9 +1000,10 @@ export function TracksView() {
         action:
           st === "queued" || st === "error"
             ? {
-                label: "Sync now",
+                label: t("sync.push.tracks"),
                 disabled: busy,
-                onClick: () => void run("Track sync started", () => api.admin.syncPush("tracks")),
+                onClick: () =>
+                  void run(t("tracks.toast.syncStarted"), () => api.admin.syncPush("tracks")),
               }
             : undefined,
       });
@@ -925,13 +1018,19 @@ export function TracksView() {
   };
 
   const officialLine = (row: TrackOverviewRow) => {
-    const sessions = row.sessions ? plural(row.sessions, "session") : "no sessions";
+    const sessions = row.sessions
+      ? t("count.sessions", { count: row.sessions })
+      : t("tracks.noSessions");
     if (row.official) {
-      return `Official GT7 layout · ${row.official.turns} turns · ${row.official.length_m.toLocaleString()} m · ${sessions}`;
+      return t("tracks.official.line", {
+        turns: t("tracks.turns", { count: row.official.turns }),
+        length: formatInt(row.official.length_m),
+        sessions,
+      });
     }
     return row.bundle
-      ? `No official layout confirmed · ${sessions}`
-      : `${sessions} · not surveyed`;
+      ? t("tracks.official.none", { sessions })
+      : t("tracks.official.notSurveyed", { sessions });
   };
 
   const subLine = (row: TrackOverviewRow) => {
@@ -939,69 +1038,73 @@ export function TracksView() {
     if (b) {
       const len = row.official?.length_m ?? row.length_m;
       return [
-        row.official && `${row.official.turns} turns`,
-        len != null && `${Math.round(len).toLocaleString()} m`,
-        `updated ${ago(b.updated_at)}`,
+        row.official && t("tracks.turns", { count: row.official.turns }),
+        len != null && `${formatInt(len)} m`,
+        t("tracks.updatedAt", { when: ago(b.updated_at, t) }),
       ]
         .filter(Boolean)
         .join(" · ");
     }
-    if (row.provenance === "seed") return "named by shipped signature";
-    if (row.provenance === "user") return "named by you from a lap";
+    if (row.provenance === "seed") return t("tracks.namedBySeed");
+    if (row.provenance === "user") return t("tracks.namedByUser");
     return "";
   };
 
   return (
     <div className="mx-auto flex max-w-[1400px] flex-col gap-3">
       <div className="flex flex-wrap items-baseline gap-3">
-        <h2 className="text-[17px] font-medium">Tracks</h2>
+        <h2 className="text-[17px] font-medium">{t("nav.tracks")}</h2>
         {data && (
           <span className="font-tabular text-[11.5px] text-ink-faint">
-            {plural(rows.length, "circuit")} · {bundleCount} surveyed · {readyCount} fully ready
+            {t("tracks.summary", {
+              circuits: t("tracks.circuits", { count: rows.length }),
+              surveyed: bundleCount,
+              ready: readyCount,
+            })}
           </span>
         )}
         <div className="ml-auto flex items-center gap-2">
-          <Tip content="Match every unlabelled session against the surveyed circuits and name the ones that were driven on them. New sessions do this by themselves.">
+          <Tip content={t("tracks.identifyTip")}>
             <span className="inline-flex">
               <button
                 className="btn btn-primary px-3 py-[5px] text-[11.5px]"
                 disabled={busy || bundleCount === 0}
                 onClick={onIdentify}
               >
-                Identify sessions
+                {t("tracks.identifySessions")}
               </button>
             </span>
           </Tip>
           <Menu
-            label="Import"
+            label={t("common.import")}
             disabled={busy}
             items={[
               {
-                label: "Import bundle…",
-                hint: "A track bundle JSON from another installation, merged by circuit name.",
+                label: t("tracks.menu.importBundle"),
+                hint: t("tracks.menu.importBundleHint"),
                 onSelect: () => {
                   importTarget.current = undefined;
                   fileInput.current?.click();
                 },
               },
               {
-                label: "Upload survey log…",
-                hint: "Land a survey run's raw JSONL from another installation. It appears in the log list — assign it to a circuit to merge its evidence.",
+                label: t("tracks.menu.uploadLog"),
+                hint: t("tracks.menu.uploadLogHint"),
                 onSelect: () => logInput.current?.click(),
               },
               {
-                label: "Pull from shared",
+                label: t("tracks.menu.pullShared"),
                 hint: shared?.configured
-                  ? "Contributed bundles from the configured shared repo."
+                  ? t("tracks.menu.pullSharedHint")
                   : sharedError
-                    ? "The shared repo could not be read."
-                    : "No shared repo is configured.",
+                    ? t("tracks.menu.sharedUnreadable")
+                    : t("tracks.menu.noShared"),
                 disabled: !shared?.configured && !sharedError,
                 onSelect: () => setSharedOpen(true),
               },
               {
-                label: "Pull all from shared",
-                hint: "Every circuit the shared repo offers, merged like single pulls. Safe to repeat — only what changed is added.",
+                label: t("tracks.menu.pullAll"),
+                hint: t("tracks.menu.pullAllHint"),
                 disabled: !shared?.configured || busy,
                 onSelect: () => void onPullAllShared(),
               },
@@ -1037,17 +1140,16 @@ export function TracksView() {
       {data && (
         <div className="panel">
           <div className="flex items-baseline gap-2 px-4 py-2.5">
-            <span className="section-header text-warn!">Needs you</span>
+            <span className="section-header text-warn!">{t("tracks.needs.title")}</span>
             {todos.length > 0 && (
               <span className="text-[10.5px] text-ink-faint">
-                {todos.length} {todos.length === 1 ? "thing blocks" : "things block"} auto-ID,
-                sync or coaching
+                {t("tracks.needs.count", { count: todos.length })}
               </span>
             )}
           </div>
           <div className="rule" />
           {todos.length === 0 ? (
-            <div className="px-4 py-3 text-xs text-throttle">Nothing waiting on you.</div>
+            <div className="px-4 py-3 text-xs text-throttle">{t("tracks.needs.none")}</div>
           ) : (
             todos.map((td) => (
               <div
@@ -1077,56 +1179,58 @@ export function TracksView() {
           <div className="flex flex-wrap items-center gap-2.5 px-4 py-2">
             <SegmentedControl<Filter>
               size="sm"
-              ariaLabel="Filter circuits"
+              ariaLabel={t("tracks.filter.aria")}
               value={filter}
               onValueChange={setFilter}
               options={[
-                { value: "all", label: `All ${counts.all}` },
-                { value: "attention", label: `Needs work ${counts.attention}` },
-                { value: "ready", label: `Ready ${counts.ready}` },
-                { value: "unsurveyed", label: `Not surveyed ${counts.unsurveyed}` },
+                { value: "all", label: t("tracks.filter.all", { n: counts.all }) },
+                { value: "attention", label: t("tracks.filter.attention", { n: counts.attention }) },
+                { value: "ready", label: t("tracks.filter.ready", { n: counts.ready }) },
+                { value: "unsurveyed", label: t("tracks.filter.unsurveyed", { n: counts.unsurveyed }) },
               ]}
             />
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Find a circuit"
-              aria-label="Find a circuit"
+              placeholder={t("tracks.find")}
+              aria-label={t("tracks.find")}
               className="ml-auto w-[180px] rounded-md border border-edge bg-panel-2 px-2.5 py-1 text-xs text-ink placeholder:text-ink-ghost"
             />
           </div>
           <div className="rule" />
-          {!data && !error && <div className="p-6 text-center text-xs text-ink-dim">Loading…</div>}
+          {!data && !error && (
+            <div className="p-6 text-center text-xs text-ink-dim">{t("common.loading")}</div>
+          )}
           {data && rows.length === 0 && (
             <div className="p-8 text-center text-sm text-ink-dim">
-              Nothing yet. Name a track from a lap in Sessions, or run a survey.
+              {t("tracks.empty")}
               {shared?.configured && (
                 <div className="mt-3">
                   <button className="btn btn-primary" disabled={busy} onClick={() => void onPullAllShared()}>
-                    Pull all circuits from the shared repo
+                    {t("tracks.pullAllCircuits")}
                   </button>
                 </div>
               )}
             </div>
           )}
           {rows.length > 0 && visible.length === 0 && (
-            <div className="p-6 text-center text-xs text-ink-dim">No circuit matches.</div>
+            <div className="p-6 text-center text-xs text-ink-dim">{t("tracks.noMatch")}</div>
           )}
           {visible.length > 0 && (
             <div className="overflow-x-auto">
               <table className="w-full border-collapse font-tabular text-xs">
                 <thead>
                   <tr className="text-left text-[11px] text-ink-faint">
-                    <th className="px-4 py-2 font-normal">Circuit</th>
-                    <th className="px-2 py-2 font-normal">Ready</th>
+                    <th className="px-4 py-2 font-normal">{t("tracks.col.circuit")}</th>
+                    <th className="px-2 py-2 font-normal">{t("tracks.ready")}</th>
                     <th className="px-2 py-2 font-normal">
-                      <Tip content="How much of each border the evidence establishes, measured against the compiled boundary — gaps count against it, and ✓closed means both borders form complete loops">
-                        <span>Coverage L · R · road</span>
+                      <Tip content={t("tracks.coverageTip")}>
+                        <span>{t("tracks.col.coverage")}</span>
                       </Tip>
                     </th>
-                    <th className="px-2 py-2 font-normal">Corners</th>
-                    <th className="px-2 py-2 font-normal">Sessions</th>
-                    {syncActive && <th className="px-4 py-2 font-normal">Sync</th>}
+                    <th className="px-2 py-2 font-normal">{t("tracks.label.corners")}</th>
+                    <th className="px-2 py-2 font-normal">{t("nav.sessions")}</th>
+                    {syncActive && <th className="px-4 py-2 font-normal">{t("tracks.label.sync")}</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -1161,13 +1265,13 @@ export function TracksView() {
                         <td className="whitespace-nowrap px-2 py-[9px]">
                           {b?.coverage ? (
                             <span className="inline-flex items-center gap-2">
-                              <CoverageBar label="L" pct={b.coverage.L.pct} />
-                              <CoverageBar label="R" pct={b.coverage.R.pct} />
-                              <CoverageBar label="road" pct={b.coverage.road_pct} />
+                              <CoverageBar label={t("tracks.coverage.left")} pct={b.coverage.L.pct} />
+                              <CoverageBar label={t("tracks.coverage.right")} pct={b.coverage.R.pct} />
+                              <CoverageBar label={t("tracks.coverage.road")} pct={b.coverage.road_pct} />
                             </span>
                           ) : (
                             <span className="text-[11px] text-ink-ghost">
-                              {b ? "not compiled" : "not surveyed"}
+                              {b ? t("tracks.notCompiled") : t("tracks.notSurveyed")}
                             </span>
                           )}
                         </td>
@@ -1249,14 +1353,13 @@ export function TracksView() {
                 href={current.bundle ? api.bundles.downloadUrl(current.slug) : undefined}
                 download={`${current.slug}.json`}
               >
-                Export bundle
+                {t("tracks.exportBundle")}
               </a>
               <ActionButton
                 action={{
-                  label: "Merge into…",
+                  label: t("tracks.mergeInto"),
                   disabled: !current.bundle || busy,
-                  title:
-                    "Merge another bundle of this circuit into it — a friend's, or your own from another machine",
+                  title: t("tracks.mergeIntoTitle"),
                   onClick: () => {
                     importTarget.current = current.name;
                     fileInput.current?.click();
@@ -1265,21 +1368,18 @@ export function TracksView() {
               />
               <ActionButton
                 action={{
-                  label: "Rename…",
+                  label: t("tracks.renameAction"),
                   disabled: !current.bundle || busy,
-                  title:
-                    "Rename — and if the new name is another bundle, merge into it. Two spellings of one circuit are one circuit.",
+                  title: t("tracks.renameTitle"),
                   onClick: () => setRenaming(current),
                 }}
               />
               <ActionButton
                 action={{
-                  label: "Re-check laps",
+                  label: t("tracks.recheck"),
                   disabled: busy || current.sessions === 0,
                   title:
-                    current.sessions > 0
-                      ? "Judge every lap driven here against the survey as it is now. This happens by itself after a survey stops or a bundle is merged, renamed or deleted; forcing it also says how many verdicts changed."
-                      : "No sessions recorded here — nothing to re-check",
+                    current.sessions > 0 ? t("tracks.recheckTitle") : t("tracks.recheckNone"),
                   onClick: () => void onRejudge(current),
                 }}
               />
@@ -1289,7 +1389,7 @@ export function TracksView() {
                   disabled={busy}
                   onClick={() => setDeleting(current)}
                 >
-                  Delete bundle…
+                  {t("tracks.deleteBundle")}
                 </button>
               )}
             </div>
@@ -1300,13 +1400,9 @@ export function TracksView() {
       {(data?.logs.length ?? 0) > 0 && (
         <details className="panel px-4 py-3">
           <summary className="section-header cursor-pointer">
-            Survey logs ({data!.logs.length})
+            {t("tracks.logs.title", { n: data!.logs.length })}
           </summary>
-          <p className="mt-1.5 text-[10.5px] text-ink-faint">
-            Every run's raw JSONL — the complete, transportable record. Download one to
-            move the run to another installation; it merges there by being assigned to a
-            circuit, exactly like a local run.
-          </p>
+          <p className="mt-1.5 text-[10.5px] text-ink-faint">{t("tracks.logs.blurb")}</p>
           <ul className="mt-2 space-y-1.5">
             {data!.logs.map((log) => (
               <li
@@ -1315,19 +1411,23 @@ export function TracksView() {
               >
                 <span className="font-tabular">{log.name}</span>
                 <span className="text-ink-dim">
-                  {log.track || "unassigned"} · {log.marks.toLocaleString()} marks ·{" "}
-                  {log.transitions.toLocaleString()} transitions · {bytes(log.bytes)}
+                  {log.track || t("tracks.unassigned")} ·{" "}
+                  {t("tracks.logCounts", {
+                    marks: formatInt(log.marks),
+                    transitions: formatInt(log.transitions),
+                  })}{" "}
+                  · {bytes(log.bytes)}
                 </span>
                 <a
                   className="btn ml-auto"
                   href={api.survey.logDownloadUrl(log.name)}
                   download={log.name}
                 >
-                  Download
+                  {t("common.download")}
                 </a>
                 {log.orphaned && (
                   <button className="btn" disabled={busy} onClick={() => setAssigning(log)}>
-                    Assign to a track…
+                    {t("tracks.assign")}
                   </button>
                 )}
               </li>
@@ -1338,23 +1438,20 @@ export function TracksView() {
 
       {data && (
         <p className="px-1 text-xs text-ink-dim">
-          {data.catalog_configs} official configurations known ·{" "}
+          {t("tracks.footer.configs", { count: data.catalog_configs })} ·{" "}
           {data.seeded_signatures > 0 && (
-            <>
-              {data.seeded_signatures} shipped signatures waiting for a circuit to be
-              driven, listed here only once one has been ·{" "}
-            </>
+            <>{t("tracks.footer.seeded", { count: data.seeded_signatures })} · </>
           )}
-          this installation is{" "}
-          <span className="font-tabular">{data.source}</span>, the id stamped on every vote
-          it casts so merged bundles can tell whose evidence is whose.
-          {!getAdminToken() && " Actions may need an admin token (Settings › Access)."}
+          {rich(t("tracks.footer.installation"), {
+            source: <span className="font-tabular">{data.source}</span>,
+          })}
+          {!getAdminToken() && ` ${t("tracks.footer.adminToken")}`}
         </p>
       )}
 
       <LargeDialog
         open={sharedOpen}
-        title="Shared bundles"
+        title={t("tracks.shared.title")}
         size="medium"
         onClose={() => setSharedOpen(false)}
       >
@@ -1362,25 +1459,21 @@ export function TracksView() {
           {shared?.configured && shared.bundles.length > 0 && (
             <div className="mb-2 flex items-center justify-between gap-2">
               <span className="text-xs text-ink-dim">
-                {shared.bundles.length} circuit{shared.bundles.length === 1 ? "" : "s"} on offer
+                {t("tracks.shared.onOffer", { count: shared.bundles.length })}
               </span>
               <button className="btn btn-primary" disabled={busy} onClick={() => void onPullAllShared()}>
-                Pull all
+                {t("tracks.shared.pullAll")}
               </button>
             </div>
           )}
-          <p className="text-[11px] text-ink-faint">
-            Contributed track bundles offered by the configured shared repo. Pulling one
-            merges it through the same validation and voting path as an imported file, so
-            evidence accumulates and your own corner labels are never overwritten.
-          </p>
+          <p className="text-[11px] text-ink-faint">{t("tracks.shared.blurb")}</p>
           {sharedError && (
             <div className="mt-2 text-xs text-brake">
-              The shared repo could not be read: {sharedError}
+              {t("tracks.shared.readError", { error: sharedError })}
             </div>
           )}
           {shared?.configured && shared.bundles.length === 0 && (
-            <div className="mt-2 text-xs text-ink-dim">The repo lists no bundles yet.</div>
+            <div className="mt-2 text-xs text-ink-dim">{t("tracks.shared.empty")}</div>
           )}
           <ul className="mt-2 space-y-1.5">
             {shared?.bundles.map((entry) => {
@@ -1392,30 +1485,31 @@ export function TracksView() {
                 >
                   <span className="font-semibold">{entry.track}</span>
                   <span className="font-tabular text-ink-dim">
-                    {entry.points != null && `${entry.points.toLocaleString()} m of border`}
-                    {entry.runs != null && ` · ${entry.runs} run${entry.runs === 1 ? "" : "s"}`}
-                    {entry.updated_at && ` · updated ${when(entry.updated_at)}`}
+                    {entry.points != null &&
+                      t("tracks.borderMetres", { points: formatInt(entry.points) })}
+                    {entry.runs != null && ` · ${t("tracks.runs", { count: entry.runs })}`}
+                    {entry.updated_at &&
+                      ` · ${t("tracks.updatedAt", { when: when(entry.updated_at) })}`}
                   </span>
                   {entry.corrections && (
-                    <Tip content="The repo keeps a corrections file for this circuit — areas kept off the map, borders drawn in. A pull brings it along and the map here is compiled the way the repo's is.">
+                    <Tip content={t("tracks.shared.correctionsTip")}>
                       <span className="rounded-[9px] bg-accent/14 px-2 py-px text-[10px] text-accent">
-                        corrected
+                        {t("tracks.shared.corrected")}
                       </span>
                     </Tip>
                   )}
                   <span className="text-ink-dim">
+                    ·{" "}
                     {local
-                      ? `· you have ${local.points.toLocaleString()} m locally`
-                      : "· not surveyed here"}
+                      ? t("tracks.shared.local", { points: formatInt(local.points) })
+                      : t("tracks.shared.notHere")}
                   </span>
                   <ActionButton
                     className="ml-auto"
                     action={{
-                      label: local ? "Pull & merge" : "Pull",
+                      label: local ? t("tracks.shared.pullMerge") : t("tracks.shared.pull"),
                       disabled: busy,
-                      title: local
-                        ? "Merge the shared evidence into your bundle — both sides' observations survive"
-                        : "Fetch this circuit's bundle and start from everyone else's survey work",
+                      title: local ? t("tracks.shared.pullMergeTitle") : t("tracks.shared.pullTitle"),
                       onClick: () => void onPullShared(entry.slug),
                     }}
                   />
@@ -1428,46 +1522,46 @@ export function TracksView() {
 
       <ConfirmDialog
         open={deleting != null}
-        title={`Delete the bundle for ${deleting?.name ?? ""}?`}
-        body="Every border point, finish crossing and corner label for this circuit is removed. The survey JSONL logs are untouched, so a run can be rebuilt from one."
-        confirmLabel="Delete"
+        title={t("tracks.delete.title", { name: deleting?.name ?? "" })}
+        body={t("tracks.delete.body")}
+        confirmLabel={t("common.delete")}
         danger
         onCancel={() => setDeleting(null)}
         onConfirm={() => {
           const row = deleting;
           setDeleting(null);
-          if (row) void run("Bundle deleted", () => api.bundles.remove(row.slug));
+          if (row) void run(t("tracks.toast.bundleDeleted"), () => api.bundles.remove(row.slug));
         }}
       />
 
       <PromptDialog
         open={renaming != null}
-        title={`Rename ${renaming?.name ?? ""}`}
-        label="Renaming onto an existing bundle merges the two — which is the fix for one circuit living under two near-miss spellings."
-        placeholder="track name"
-        submitLabel="Rename"
+        title={t("tracks.rename.title", { name: renaming?.name ?? "" })}
+        label={t("tracks.rename.label")}
+        placeholder={t("tracks.trackNamePlaceholder")}
+        submitLabel={t("common.rename")}
         initialValue={renaming?.name ?? ""}
         suggestions={knownNames}
         onCancel={() => setRenaming(null)}
         onSubmit={(name) => {
           const row = renaming;
           setRenaming(null);
-          if (row) void run("Renamed", () => api.bundles.rename(row.slug, name));
+          if (row) void run(t("tracks.toast.renamed"), () => api.bundles.rename(row.slug, name));
         }}
       />
 
       <PromptDialog
         open={assigning != null}
-        title="Assign this run to a track"
-        label="The log is replayed through the normal merge path, so the result is the same as having named the circuit while driving."
-        placeholder="track name"
-        submitLabel="Assign"
+        title={t("tracks.assign.title")}
+        label={t("tracks.assign.label")}
+        placeholder={t("tracks.trackNamePlaceholder")}
+        submitLabel={t("tracks.assign.submit")}
         suggestions={knownNames}
         onCancel={() => setAssigning(null)}
         onSubmit={(name) => {
           const log = assigning;
           setAssigning(null);
-          if (log) void run("Run recovered", () => api.survey.assignLog(log.name, name));
+          if (log) void run(t("tracks.toast.runRecovered"), () => api.survey.assignLog(log.name, name));
         }}
       />
     </div>

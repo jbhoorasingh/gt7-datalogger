@@ -5,6 +5,7 @@
 
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { NoTelemetryPage } from "@/components/errors";
+import { rich, useT, type MessageKey, type Translate } from "@/i18n";
 import { lastVsPrevBest, liveDelta } from "@/components/widgets/shared";
 import { computeAlerts, THRESHOLDS, type DashAlert } from "@/lib/alerts";
 import { FASTEST_COLOR } from "@/lib/colors";
@@ -12,6 +13,7 @@ import { countingLaps, lapConsistency } from "@/lib/consistency";
 import { useEngineerStatus } from "@/lib/engineerStatus";
 import {
   formatDelta,
+  formatInt,
   formatLapTime,
   formatTimeOfDay,
   speedUnit,
@@ -60,6 +62,7 @@ function useTelemetrySilent(): boolean {
 }
 
 function Dashboard({ frame }: { frame: LiveFrame }) {
+  const t = useT();
   const units = useSettings((s) => s.units);
   const recentLaps = useTelemetry((s) => s.recentLaps);
   const sessionId = useTelemetry((s) => s.status?.session_id ?? null) ?? recentLaps[0]?.session_id;
@@ -85,7 +88,7 @@ function Dashboard({ frame }: { frame: LiveFrame }) {
       {/* Context strip */}
       <div className="flex flex-wrap items-center gap-3.5">
         <div className="flex flex-wrap items-baseline gap-2.5 font-tabular">
-          <span className="text-[15px] font-medium">{frame.car_name || "Unknown car"}</span>
+          <span className="text-[15px] font-medium">{frame.car_name || t("live.unknownCar")}</span>
           {frame.track_name && (
             <span className="whitespace-nowrap rounded-[9px] border border-accent/38 bg-accent/22 px-2.5 py-px text-[11px] font-medium text-accent-200">
               {frame.track_name}
@@ -93,17 +96,20 @@ function Dashboard({ frame }: { frame: LiveFrame }) {
           )}
           <span className="text-[11px] text-ink-faint">
             {[
-              sessionId != null && `session #${sessionId}`,
+              sessionId != null && t("live.session", { id: String(sessionId) }),
               finished
-                ? "finished"
-                : `lap ${frame.current_lap}${frame.total_laps > 0 ? `/${frame.total_laps}` : ""}`,
-              frame.total_positions > 0 && `P${frame.position}/${frame.total_positions}`,
-              frame.tod_ms >= 0 && `in-game ${formatTimeOfDay(frame.tod_ms)}`,
+                ? t("live.finished")
+                : frame.total_laps > 0
+                  ? t("live.lapOf", { lap: frame.current_lap, total: frame.total_laps })
+                  : t("engineer.lapN", { n: frame.current_lap }),
+              frame.total_positions > 0 &&
+                t("live.position", { position: frame.position, total: frame.total_positions }),
+              frame.tod_ms >= 0 && t("live.inGame", { time: formatTimeOfDay(frame.tod_ms) }),
             ]
               .filter(Boolean)
               .join(" · ")}
-            {frame.paused && <span className="text-warn"> · paused</span>}
-            {!frame.on_track && !frame.paused && <span> · not on track</span>}
+            {frame.paused && <span className="text-warn"> · {t("live.paused")}</span>}
+            {!frame.on_track && !frame.paused && <span> · {t("live.notOnTrack")}</span>}
           </span>
         </div>
         {/* The two second-screen routes, reachable from the view you look at
@@ -112,7 +118,7 @@ function Dashboard({ frame }: { frame: LiveFrame }) {
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <EngineerChip />
           <a className="btn no-underline" href="#/dash">
-            Driver dash ↗
+            {t("live.driverDash")}
           </a>
         </div>
       </div>
@@ -142,11 +148,17 @@ function Dashboard({ frame }: { frame: LiveFrame }) {
             <TimingCard frame={frame} />
             <div className="panel flex flex-col gap-2 px-4 py-3.5">
               <div className="flex items-baseline gap-3">
-                <Label>Inputs · last 8 s</Label>
+                <Label>{t("live.inputs.title")}</Label>
                 <span className="ml-auto font-tabular text-[10.5px] text-ink-faint">
-                  throttle <span className="text-throttle">{Math.round(frame.throttle)}%</span>
-                  {" · "}brake <span className="text-brake">{Math.round(frame.brake)}%</span>
-                  {frame.boost > -0.9 && ` · boost ${frame.boost.toFixed(2)} bar`}
+                  {rich(t("live.inputs.throttle"), {
+                    value: <span className="text-throttle">{Math.round(frame.throttle)}%</span>,
+                  })}
+                  {" · "}
+                  {rich(t("live.inputs.brake"), {
+                    value: <span className="text-brake">{Math.round(frame.brake)}%</span>,
+                  })}
+                  {frame.boost > -0.9 &&
+                    ` · ${t("live.inputs.boost", { value: frame.boost.toFixed(2) })}`}
                 </span>
               </div>
               <InputTrace />
@@ -170,28 +182,29 @@ function Dashboard({ frame }: { frame: LiveFrame }) {
 // Race Engineer link-chip: whether the server's callouts are going anywhere,
 // read from its own status broadcast (Live never speaks itself).
 const EngineerChip = memo(function EngineerChip() {
+  const t = useT();
   const status = useEngineerStatus((s) => s.status);
   const [me] = useState(clientId);
 
   let dot = "bg-ink-faint";
-  let state = "status unknown";
+  let state = t("live.engineer.unknown");
   if (status && !status.enabled) {
     dot = "bg-ink-ghost";
-    state = "callouts off";
+    state = t("live.engineer.off");
   } else if (status?.active_client_id) {
     const speaker = status.clients.find((c) => c.client_id === status.active_client_id);
     const where =
       status.active_client_id === me
-        ? "this browser"
+        ? t("live.engineer.thisBrowser")
         : speaker?.page === "dash"
-          ? "a Driver dash"
+          ? t("live.engineer.dash")
           : speaker?.page === "engineer"
-            ? "an Engineer page"
-            : "another device";
+            ? t("live.engineer.engineerPage")
+            : t("live.engineer.another");
     dot = "bg-throttle animate-pulse-dot";
-    state = `speaking on ${where} · ${status.verbosity}`;
+    state = t("live.engineer.speaking", { where, verbosity: t(`verbosity.${status.verbosity}`) });
   } else if (status) {
-    state = "voice off";
+    state = t("live.engineer.voiceOff");
   }
 
   return (
@@ -200,32 +213,37 @@ const EngineerChip = memo(function EngineerChip() {
       className="panel flex items-center gap-2 px-2.5 py-1 text-ink no-underline transition-shadow hover:shadow-[0_0_0_1px_var(--color-edge-bright)]"
     >
       <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
-      <span className="text-[11.5px]">Race Engineer</span>
+      <span className="text-[11.5px]">{t("engineer.title")}</span>
       <span className="text-[10.5px] text-ink-faint">{state}</span>
-      <span className="text-[10.5px] text-accent">open ↗</span>
+      <span className="text-[10.5px] text-accent">{t("live.engineer.open")}</span>
     </a>
   );
 });
 
-const ALERT_KICKER: Record<string, string> = {
-  fuel: "Fuel",
-  pit: "Pit window",
-  water: "Water temp",
-  "oil-temp": "Oil temp",
-  "oil-pressure": "Oil pressure",
-  tires: "Tires",
+const ALERT_KICKER_KEY: Record<string, MessageKey> = {
+  fuel: "common.fuel",
+  pit: "live.alert.pit",
+  water: "live.alert.water",
+  "oil-temp": "live.alert.oilTemp",
+  "oil-pressure": "live.alert.oilPressure",
+  tires: "common.tires",
 };
 
 // computeAlerts speaks in dash-banner shorthand; here there is room for the
 // sentence behind the fuel and pit alerts.
-function alertText(alert: DashAlert, proj: StrategyProjection | null): string {
+function alertText(alert: DashAlert, proj: StrategyProjection | null, t: Translate): string {
   if (proj && (alert.id === "fuel" || alert.id === "pit")) {
-    return `Fuel for ${proj.lapsToEmpty.toFixed(1)} laps — box before lap ${proj.pitBeforeLap} at ${proj.avgFuelPerLap.toFixed(2)} L/lap.`;
+    return t("live.alert.fuelPlan", {
+      laps: proj.lapsToEmpty.toFixed(1),
+      lap: proj.pitBeforeLap,
+      perLap: proj.avgFuelPerLap.toFixed(2),
+    });
   }
   return alert.message;
 }
 
 function AlertStrip({ alerts, proj }: { alerts: DashAlert[]; proj: StrategyProjection | null }) {
+  const t = useT();
   // Sorted by severity, so the first alert sets the ring.
   const critical = alerts[0].severity === "critical";
   // Fuel and pit describe the same projection; say it once.
@@ -245,9 +263,9 @@ function AlertStrip({ alerts, proj }: { alerts: DashAlert[]; proj: StrategyProje
               a.severity === "critical" ? "text-brake" : "text-warn"
             }`}
           >
-            {ALERT_KICKER[a.id] ?? a.id}
+            {a.id in ALERT_KICKER_KEY ? t(ALERT_KICKER_KEY[a.id]) : a.id}
           </span>
-          <span className="font-tabular text-[12.5px]">{alertText(a, proj)}</span>
+          <span className="font-tabular text-[12.5px]">{alertText(a, proj, t)}</span>
         </div>
       ))}
     </div>
@@ -261,6 +279,7 @@ const LEDS = 24;
 const LED_START = 0.45;
 
 function ShiftLights({ frame }: { frame: LiveFrame }) {
+  const t = useT();
   const shift = Math.max(1, frame.rpm_alert);
   const onLimiter = ((frame.aids ?? 0) & AIDS_REV_LIMITER) !== 0;
   const flash = frame.rpm >= shift || onLimiter;
@@ -283,11 +302,11 @@ function ShiftLights({ frame }: { frame: LiveFrame }) {
       </div>
       <div className="mt-1.5 flex justify-between font-tabular text-[10.5px] text-ink-faint">
         <span>
-          <span className="text-ink-soft">{frame.rpm.toLocaleString()}</span> rpm
+          <span className="text-ink-soft">{formatInt(frame.rpm)}</span> rpm
         </span>
         <span>
-          {onLimiter && <span className="text-brake">limiter · </span>}
-          shift {frame.rpm_alert.toLocaleString()}
+          {onLimiter && <span className="text-brake">{t("live.shift.limiter")} · </span>}
+          {t("live.shift.at", { rpm: formatInt(frame.rpm_alert) })}
         </span>
       </div>
     </div>
@@ -295,6 +314,7 @@ function ShiftLights({ frame }: { frame: LiveFrame }) {
 }
 
 function GearCard({ frame }: { frame: LiveFrame }) {
+  const t = useT();
   const suggest =
     frame.suggested_gear !== 15 && frame.suggested_gear !== frame.gear ? frame.suggested_gear : null;
   const braking = frame.brake > 5;
@@ -308,7 +328,7 @@ function GearCard({ frame }: { frame: LiveFrame }) {
           suggest != null && braking ? "text-warn" : "text-ink-faint"
         }`}
       >
-        gear{suggest != null ? ` → ${suggest}` : ""}
+        {suggest != null ? t("live.gearSuggest", { gear: suggest }) : t("live.gear")}
       </span>
     </div>
   );
@@ -320,20 +340,21 @@ function deltaColor(ms: number | null): string {
 }
 
 function DeltaCard({ frame, bestLap }: { frame: LiveFrame; bestLap: LapSummary | null }) {
+  const t = useT();
   const delta = liveDelta(frame);
   const ms = delta?.ms ?? null;
   const frac = ms == null ? 0 : Math.min(1000, Math.abs(ms)) / 2000;
   const refMs = frame.session_best_ms > 0 ? frame.session_best_ms : bestLap?.time_ms;
   const refLabel =
     bestLap && bestLap.time_ms === refMs
-      ? `L${bestLap.number} ${formatLapTime(refMs)}`
+      ? `${t("live.lapN", { n: bestLap.number })} ${formatLapTime(refMs)}`
       : refMs
         ? formatLapTime(refMs)
-        : "no best yet";
+        : t("live.delta.noBest");
   return (
     <div className="panel flex flex-col justify-center gap-3 px-5 py-[22px]">
       <div className="flex items-baseline justify-between gap-2">
-        <Label>{delta && !delta.live ? "Δ best · last lap" : "Δ to best"}</Label>
+        <Label>{delta && !delta.live ? t("live.delta.lastLap") : t("live.delta.toBest")}</Label>
         <span className="whitespace-nowrap font-tabular text-[10.5px] text-ink-faint">
           {refLabel}
         </span>
@@ -371,6 +392,7 @@ function lapDeltaClass(ms: number): string {
 }
 
 function TimingCard({ frame }: { frame: LiveFrame }) {
+  const t = useT();
   const lastDelta = lastVsPrevBest(frame);
   const predicted =
     frame.delta_ms != null && frame.session_best_ms > 0
@@ -378,12 +400,12 @@ function TimingCard({ frame }: { frame: LiveFrame }) {
       : null;
   return (
     <div className="panel flex flex-col gap-2.5 px-4 py-3.5">
-      <Label>Current lap</Label>
+      <Label>{t("live.timing.currentLap")}</Label>
       <span className="font-tabular text-4xl font-semibold leading-none">
         {formatLapTime(frame.lap_elapsed_ms)}
       </span>
       <div className="flex flex-col gap-[3px] font-tabular text-[11.5px]">
-        <Row k="Last">
+        <Row k={t("live.timing.last")}>
           {formatLapTime(frame.last_lap_ms)}
           {lastDelta != null && (
             <span
@@ -394,10 +416,10 @@ function TimingCard({ frame }: { frame: LiveFrame }) {
             </span>
           )}
         </Row>
-        <Row k="Best">
+        <Row k={t("common.best")}>
           <span style={{ color: FASTEST_COLOR }}>{formatLapTime(frame.best_lap_ms)}</span>
         </Row>
-        <Row k="Predicted">
+        <Row k={t("live.timing.predicted")}>
           <span className={predicted == null ? "text-ink-ghost" : deltaColor(frame.delta_ms)}>
             {formatLapTime(predicted)}
           </span>
@@ -490,12 +512,13 @@ const InputTrace = memo(function InputTrace() {
 });
 
 function FuelCard({ frame, proj }: { frame: LiveFrame; proj: StrategyProjection | null }) {
+  const t = useT();
   const fuelPct = (frame.fuel_level / Math.max(1, frame.fuel_capacity)) * 100;
   const low = proj != null ? proj.lapsToEmpty < THRESHOLDS.fuelLapsWarn : fuelPct < 15;
   return (
     <div className="panel px-4 py-3.5">
       <div className="flex items-baseline justify-between gap-2">
-        <Label>Fuel &amp; strategy</Label>
+        <Label>{t("live.fuel.title")}</Label>
         <span className="font-tabular text-[10.5px] text-ink-faint">
           {frame.fuel_level.toFixed(1)} / {frame.fuel_capacity.toFixed(0)} L
         </span>
@@ -504,7 +527,9 @@ function FuelCard({ frame, proj }: { frame: LiveFrame; proj: StrategyProjection 
         <span className="font-tabular text-[26px] font-semibold">
           {proj != null ? proj.lapsToEmpty.toFixed(1) : `${fuelPct.toFixed(0)}%`}
         </span>
-        <span className="text-[11px] text-ink-dim">{proj != null ? "laps of fuel" : "fuel"}</span>
+        <span className="text-[11px] text-ink-dim">
+          {proj != null ? t("live.fuel.lapsOfFuel") : t("live.fuel.level")}
+        </span>
       </div>
       <div className="mt-2 h-1.5 overflow-hidden rounded-[3px] bg-panel-2">
         <div
@@ -514,20 +539,22 @@ function FuelCard({ frame, proj }: { frame: LiveFrame; proj: StrategyProjection 
       </div>
       {proj == null ? (
         <div className="mt-2 text-[11px] text-ink-faint">
-          Complete a lap that burns fuel to project the strategy.
+          {t("live.fuel.needLap")}
         </div>
       ) : (
         <div className="mt-2 flex flex-col gap-[3px] font-tabular text-[11px]">
-          <Row k="Pit before lap">{proj.pitBeforeLap}</Row>
-          <Row k="Avg / lap">{proj.avgFuelPerLap.toFixed(2)} L</Row>
+          <Row k={t("live.fuel.pitBefore")}>{proj.pitBeforeLap}</Row>
+          <Row k={t("live.fuel.avgPerLap")}>{proj.avgFuelPerLap.toFixed(2)} L</Row>
           {frame.total_laps > 0 &&
             (() => {
               const needed = (frame.total_laps - frame.current_lap + 1) * proj.avgFuelPerLap;
               const enough = needed <= frame.fuel_level;
               return (
-                <Row k="To finish">
+                <Row k={t("live.fuel.toFinish")}>
                   <span className={enough ? "text-throttle" : "text-brake"}>
-                    {enough ? "fuel OK" : `${(needed - frame.fuel_level).toFixed(1)} L short`}
+                    {enough
+                      ? t("live.fuel.ok")
+                      : t("live.fuel.short", { litres: (needed - frame.fuel_level).toFixed(1) })}
                   </span>
                 </Row>
               );
@@ -539,30 +566,32 @@ function FuelCard({ frame, proj }: { frame: LiveFrame; proj: StrategyProjection 
 }
 
 function TiresCard({ frame }: { frame: LiveFrame }) {
+  const t = useT();
   const [fl, fr, rl, rr] = frame.tire_temps;
   const balance = (fl + fr) / 2 - (rl + rr) / 2;
   return (
     <div className="panel px-4 py-3.5">
       <div className="flex items-baseline justify-between gap-2">
-        <Label>Tires °C</Label>
+        <Label>{t("live.tires.title")}</Label>
         <span className="font-tabular text-[10.5px] text-ink-faint">
-          F/R {balance >= 0 ? "+" : "−"}
+          {t("common.frontRear")} {balance >= 0 ? "+" : "−"}
           {Math.abs(balance).toFixed(1)} °C
         </span>
       </div>
       <div className="mt-2 grid grid-cols-2 gap-[5px]">
-        {(["FL", "FR", "RL", "RR"] as const).map((pos, i) => (
-          <TireTemp key={pos} label={pos} temp={frame.tire_temps[i]} />
+        {(["fl", "fr", "rl", "rr"] as const).map((pos, i) => (
+          <TireTemp key={pos} label={t(`common.wheel.${pos}`)} temp={frame.tire_temps[i]} />
         ))}
       </div>
       {frame.tire_slip > 1.1 && (
-        <div className="mt-1.5 text-[10.5px] font-semibold text-warn">TIRE SPIN</div>
+        <div className="mt-1.5 text-[10.5px] font-semibold text-warn">{t("live.tires.spin")}</div>
       )}
     </div>
   );
 }
 
 function CarCard({ frame }: { frame: LiveFrame }) {
+  const t = useT();
   const aids = frame.aids ?? 0;
   const water =
     frame.water_temp > THRESHOLDS.waterCritical
@@ -578,12 +607,12 @@ function CarCard({ frame }: { frame: LiveFrame }) {
         : "";
   return (
     <div className="panel px-4 py-3.5">
-      <Label>Car</Label>
+      <Label>{t("common.car")}</Label>
       <div className="mt-2 flex flex-col gap-1 font-tabular text-[11.5px]">
-        <Row k="Water">
+        <Row k={t("live.car.water")}>
           <span className={water}>{frame.water_temp.toFixed(0)} °C</span>
         </Row>
-        <Row k="Oil">
+        <Row k={t("live.car.oil")}>
           <span className={oil}>{frame.oil_temp.toFixed(0)} °C</span>
           {frame.oil_pressure >= 0 && ` · ${frame.oil_pressure.toFixed(1)} bar`}
         </Row>
@@ -594,11 +623,11 @@ function CarCard({ frame }: { frame: LiveFrame }) {
           [
             ["TCS", AIDS_TCS],
             ["ASM", AIDS_ASM],
-            ["HB", AIDS_HANDBRAKE],
+            [t("live.car.handbrake"), AIDS_HANDBRAKE],
           ] as const
         ).map(([label, bit]) => (
           <span
-            key={label}
+            key={bit}
             className={`rounded-[3px] px-1.5 py-px text-[8.5px] font-bold ${
               aids & bit ? "bg-warn text-surface" : "border border-edge text-ink-ghost"
             }`}
@@ -624,13 +653,14 @@ function LapsRail({
   bestLap: LapSummary | null;
   sessionId: number | undefined;
 }) {
+  const t = useT();
   const spread = useMemo(() => lapConsistency(laps), [laps]);
   return (
     <aside className="panel flex flex-col">
       <div className="flex items-baseline gap-2 px-4 pb-2 pt-3">
-        <Label>Laps</Label>
+        <Label>{t("live.laps.title")}</Label>
         <span className="font-tabular text-[10.5px] text-ink-faint">
-          {laps.length} done
+          {t("live.laps.done", { count: laps.length })}
           {spread && ` · σ ± ${(spread.stdMs / 1000).toFixed(2)} s`}
         </span>
         {sessionId != null && (
@@ -638,21 +668,21 @@ function LapsRail({
             onClick={() => openInAnalysis({ session: sessionId })}
             className="ml-auto text-[10.5px] text-accent hover:underline"
           >
-            Analyze session
+            {t("live.laps.analyze")}
           </button>
         )}
       </div>
       <div className="grid grid-cols-[44px_1fr_64px] gap-2 px-4 pb-1.5 font-tabular text-[10px] text-ink-ghost">
-        <span>Lap</span>
-        <span>Time</span>
-        <span className="text-right">Δ best</span>
+        <span>{t("common.lap")}</span>
+        <span>{t("common.time")}</span>
+        <span className="text-right">{t("live.laps.deltaBest")}</span>
       </div>
       <div className="flex max-h-[640px] flex-col gap-[3px] overflow-y-auto px-3 pb-3">
         {frame.on_track && (
           <div className="grid grid-cols-[44px_1fr_64px] items-center gap-2 rounded-[5px] px-2 py-1.5 font-tabular text-xs shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-accent)_40%,transparent)]">
             <span className="flex items-center gap-1.5 text-accent-300">
               <span className="h-1.5 w-1.5 animate-pulse-dot rounded-full bg-accent" />
-              {`L${frame.current_lap}`}
+              {t("live.lapN", { n: frame.current_lap })}
             </span>
             <span>{formatLapTime(frame.lap_elapsed_ms)}</span>
             <span className={`text-right ${deltaColor(frame.delta_ms)}`}>
@@ -663,7 +693,7 @@ function LapsRail({
         <CompletedLaps laps={laps} bestLap={bestLap} />
         {laps.length === 0 && (
           <div className="px-2 py-1.5 text-[11.5px] text-ink-faint">
-            Completed laps appear here.
+            {t("live.laps.empty")}
           </div>
         )}
       </div>
@@ -690,16 +720,18 @@ const CompletedLaps = memo(function CompletedLaps({
 });
 
 function LapRow({ lap, bestLap }: { lap: LapSummary; bestLap: LapSummary | null }) {
+  const t = useT();
   const isBest = lap.id === bestLap?.id;
   const excluded = notCountingLabel(lap);
   const d = bestLap ? lap.time_ms - bestLap.time_ms : null;
+  const label = t("live.lapN", { n: lap.number });
   return (
     <button
       onClick={() => openInAnalysis({ session: lap.session_id, laps: [lap.id] })}
-      title={`Open L${lap.number} in Analysis${excluded ? ` · ${excluded}` : ""}`}
+      title={`${t("live.laps.open", { lap: label })}${excluded ? ` · ${excluded}` : ""}`}
       className="grid grid-cols-[44px_1fr_64px] items-center gap-2 rounded-[5px] bg-panel-2 px-2 py-1.5 text-left font-tabular text-xs transition-colors hover:bg-edge"
     >
-      <span className="text-ink-faint">L{lap.number}</span>
+      <span className="text-ink-faint">{label}</span>
       <span style={isBest ? { color: FASTEST_COLOR } : undefined}>
         {formatLapTime(lap.time_ms)}
         {isBest && (
@@ -707,7 +739,7 @@ function LapRow({ lap, bestLap }: { lap: LapSummary; bestLap: LapSummary | null 
             className="ml-1.5 rounded-[7px] border px-[5px] text-[9.5px]"
             style={{ borderColor: `color-mix(in srgb, ${FASTEST_COLOR} 50%, transparent)` }}
           >
-            PB
+            {t("live.laps.pb")}
           </span>
         )}
       </span>
@@ -716,7 +748,7 @@ function LapRow({ lap, bestLap }: { lap: LapSummary; bestLap: LapSummary | null 
         <span className="text-right text-ink-ghost">—</span>
       ) : isBest ? (
         <span className="text-right" style={{ color: FASTEST_COLOR }}>
-          best
+          {t("live.laps.best")}
         </span>
       ) : (
         <span className={`text-right ${lapDeltaClass(d)}`}>{formatDelta(d)}</span>

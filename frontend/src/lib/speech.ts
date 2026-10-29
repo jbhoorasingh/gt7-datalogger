@@ -77,6 +77,17 @@ export function onVoicesChanged(cb: (voices: SpeechSynthesisVoice[]) => void): (
   return () => window.speechSynthesis.removeEventListener("voiceschanged", handler);
 }
 
+/** "pt" for "pt-BR" and "pt_BR" (Android reports underscores). */
+function langBase(tag: string): string {
+  return tag.replace("_", "-").split("-")[0].toLowerCase();
+}
+
+/** Voices that speak `lang`'s language, in any region. */
+export function voicesFor<V extends Pick<SpeechSynthesisVoice, "lang">>(voices: V[], lang: string): V[] {
+  const base = langBase(lang);
+  return voices.filter((v) => langBase(v.lang) === base);
+}
+
 /**
  * Preferred voice, then same language, then the browser's English default,
  * then whatever exists. Never assume a voice name is installed.
@@ -88,8 +99,10 @@ export function pickVoice(
   if (voices.length === 0) return null;
   // An explicit choice is honoured even if it is network-backed: it is the
   // user's, and the failure path below reports clearly when it never starts.
+  // But only for its own language — a Spanish callout read by the English
+  // voice picked before the language changed is not what anyone chose.
   const exact = voices.find((v) => v.voiceURI === opts.voiceURI);
-  if (exact) return exact;
+  if (exact && langBase(exact.lang) === langBase(opts.lang || "en")) return exact;
   // Otherwise prefer ON-DEVICE voices at every tier. Chrome mixes local
   // system voices with network-backed Google ones in a single flat list
   // (~200 entries on macOS), and a network voice ACCEPTS speak() and can
@@ -97,12 +110,11 @@ export function pickVoice(
   // "no response from the speech engine". Local voices start immediately
   // and work offline, which is what live race callouts need anyway.
   const lang = opts.lang || "en";
-  const base = lang.split("-")[0];
   const preferLocal = (list: SpeechSynthesisVoice[]) =>
     list.find((v) => v.localService) ?? list[0];
-  const sameLang = voices.filter((v) => v.lang === lang);
+  const sameLang = voices.filter((v) => v.lang.replace("_", "-") === lang);
   if (sameLang.length) return preferLocal(sameLang);
-  const samePrefix = voices.filter((v) => v.lang.startsWith(base));
+  const samePrefix = voicesFor(voices, lang);
   if (samePrefix.length) return preferLocal(samePrefix);
   const english = voices.filter((v) => v.lang.startsWith("en"));
   if (english.length) return preferLocal(english);
@@ -130,6 +142,11 @@ export interface QueueHooks {
   /** Optional extra gate, e.g. "mute while the tab is hidden". */
   muted?: () => boolean;
   options: () => SpeechOptions;
+  /**
+   * What to actually say for a callout and in which language (BCP 47) —
+   * the device's translation of it. Without this, the server's English.
+   */
+  word?: (callout: VoiceCallout) => { text: string; lang: string };
   onAck: (calloutId: string, status: CalloutAckStatus, reason?: string) => void;
   onSpeaking: (callout: VoiceCallout | null) => void;
   onQueue: (queue: QueuedCallout[]) => void;
@@ -277,8 +294,10 @@ export class VoiceQueue {
       return;
     }
 
-    const opts = this.hooks.options();
-    const utterance = new SpeechSynthesisUtterance(item.callout.text);
+    const base = this.hooks.options();
+    const said = this.hooks.word?.(item.callout) ?? { text: item.callout.text, lang: base.lang };
+    const opts = { ...base, lang: said.lang };
+    const utterance = new SpeechSynthesisUtterance(said.text);
     const voice = pickVoice(getVoices(), opts);
     if (voice) {
       utterance.voice = voice;
@@ -316,7 +335,7 @@ export class VoiceQueue {
           cancelIfSpeaking();
           finish("speech_error", "the voice stopped part-way through");
         },
-        SPEAKING_TIMEOUT_MS + item.callout.text.length * WATCHDOG_PER_CHAR_MS,
+        SPEAKING_TIMEOUT_MS + said.text.length * WATCHDOG_PER_CHAR_MS,
       );
       this.hooks.onSpeechStarted?.();
     };
@@ -346,7 +365,7 @@ export class VoiceQueue {
     const armWatchdog = (retried: boolean) => {
       this.watchdog = window.setTimeout(() => {
         cancelIfSpeaking();
-        const local = retried ? null : localFallbackVoice(voice);
+        const local = retried ? null : localFallbackVoice(voice, opts.lang);
         if (local) {
           this.hooks.onSpeechFailure?.(
             `${voice?.name ?? "the chosen voice"} never started — trying ${local.name}`,
@@ -368,13 +387,14 @@ export class VoiceQueue {
 /** An on-device voice to retry with, or null if `voice` already was one. */
 function localFallbackVoice(
   voice: SpeechSynthesisVoice | null,
+  wanted: string,
 ): SpeechSynthesisVoice | null {
   if (voice?.localService) return null;
   const voices = getVoices();
-  const lang = voice?.lang ?? "en";
+  const lang = voice?.lang ?? wanted;
   return (
     voices.find((v) => v.localService && v.lang === lang)
-    ?? voices.find((v) => v.localService && v.lang.startsWith(lang.split("-")[0]))
+    ?? voicesFor(voices, lang).find((v) => v.localService)
     ?? voices.find((v) => v.localService && v.lang.startsWith("en"))
     ?? voices.find((v) => v.localService)
     ?? null
@@ -517,7 +537,7 @@ export function speakTest(text: string, opts: SpeechOptions, hooks: SpeakHooks =
   const arm = (retried: boolean) => {
     timer = window.setTimeout(() => {
       if (settled) return;
-      const local = retried ? null : localFallbackVoice(attempted);
+      const local = retried ? null : localFallbackVoice(attempted, opts.lang);
       if (local) {
         cancelIfSpeaking();
         attempted = local;

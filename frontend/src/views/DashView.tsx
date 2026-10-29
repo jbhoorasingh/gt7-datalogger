@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { CalloutPill } from "@/components/CalloutPill";
 import { GridRenderer } from "@/components/GridRenderer";
 import { Select } from "@/components/ui/Select";
+import { rich, useT, type MessageKey } from "@/i18n";
 import { computeAlerts } from "@/lib/alerts";
 import { api } from "@/lib/api";
 import { dashSearch, withoutAlertsRow, type DashParams } from "@/lib/dash";
@@ -17,7 +18,7 @@ import { projectStrategy } from "@/lib/strategy";
 import { useLiveFrame } from "@/lib/useLiveFrame";
 import { useNow } from "@/lib/useNow";
 import { useVoiceClient } from "@/lib/useVoiceClient";
-import { clientId, useEngineer } from "@/store/engineer";
+import { clientId, useCalloutWording, useEngineer } from "@/store/engineer";
 
 // The bar steps back while driving and comes back on any touch.
 const BAR_FADE_MS = 5000;
@@ -26,6 +27,7 @@ const BAR_FADE_MS = 5000;
 type Choice = { preset: string; layout?: undefined } | { layout: string; preset?: undefined };
 
 export function DashView({ params }: { params: DashParams }) {
+  const t = useT();
   // The dashboard is the primary driver-facing surface, so it is one of the
   // two pages allowed to speak (see lib/useVoiceClient).
   useVoiceClient("dash");
@@ -42,7 +44,8 @@ export function DashView({ params }: { params: DashParams }) {
   );
   const [saved, setSaved] = useState<LayoutSummary[]>([]);
   const [serverLayout, setServerLayout] = useState<LayoutConfig | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // The ?layout= the server could not find, if any.
+  const [missing, setMissing] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -59,7 +62,7 @@ export function DashView({ params }: { params: DashParams }) {
 
   useEffect(() => {
     setServerLayout(null);
-    setError(null);
+    setMissing(null);
     if (!choice.layout) return;
     let cancelled = false;
     api.layouts
@@ -68,7 +71,7 @@ export function DashView({ params }: { params: DashParams }) {
         if (!cancelled) setServerLayout(normalizeLayout(l.config));
       })
       .catch(() => {
-        if (!cancelled) setError(`Layout "${choice.layout}" not found`);
+        if (!cancelled) setMissing(choice.layout ?? null);
       });
     return () => {
       cancelled = true;
@@ -156,8 +159,8 @@ export function DashView({ params }: { params: DashParams }) {
           </span>
           <span className="ml-auto text-[11px] text-ink-faint">
             {[
-              alerts.length > 1 ? `+${alerts.length - 1} more` : "",
-              strategy ? `fuel for ${strategy.lapsToEmpty.toFixed(1)} laps` : "",
+              alerts.length > 1 ? t("dash.moreAlerts", { n: alerts.length - 1 }) : "",
+              strategy ? t("dash.fuelFor", { laps: strategy.lapsToEmpty.toFixed(1) }) : "",
             ]
               .filter(Boolean)
               .join(" · ")}
@@ -174,15 +177,15 @@ export function DashView({ params }: { params: DashParams }) {
           choose(cycle[(cycleIndex + 1) % cycle.length]);
         }}
       >
-        {error ? (
+        {missing != null ? (
           <div className="flex h-full items-center justify-center text-sm text-ink-dim">
-            {error} — save it in Overlays first.
+            {t("dash.layoutMissing", { name: missing })}
           </div>
         ) : !resolved ? null : !frame ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-ink-dim">
-            <div>Waiting for telemetry…</div>
+            <div>{t("dash.waiting")}</div>
             <div className="text-xs">
-              add <code className="text-ink">?demo=1</code> to preview with placeholder data
+              {rich(t("dash.demoHint"), { code: <code className="text-ink">?demo=1</code> })}
             </div>
           </div>
         ) : (
@@ -270,6 +273,12 @@ function useWakeLock() {
   return { supported, held, acquire, release };
 }
 
+const STATUS_KEY: Record<"live" | "placeholder" | "waiting", MessageKey> = {
+  live: "dash.status.live",
+  placeholder: "dash.status.placeholder",
+  waiting: "dash.status.waiting",
+};
+
 const BAR_CONTROL =
   "flex h-9 items-center gap-2 rounded-md border px-3 text-xs transition-colors";
 
@@ -290,6 +299,7 @@ function TopBar({
   savedValue: string;
   onChoose: (c: Choice) => void;
 }) {
+  const t = useT();
   const s = useEngineer();
   const wake = useWakeLock();
   const state = voiceState({ ...s, clientId: clientId() });
@@ -297,12 +307,14 @@ function TopBar({
   const title = frame ? [frame.car_name, frame.track_name].filter(Boolean).join(" · ") : "";
   const meta = frame
     ? [
-        frame.current_lap > 0 ? `lap ${frame.current_lap}` : "",
-        frame.total_positions > 0 ? `P${frame.position}/${frame.total_positions}` : "",
+        frame.current_lap > 0 ? t("engineer.lapN", { n: frame.current_lap }) : "",
+        frame.total_positions > 0
+          ? t("live.position", { position: frame.position, total: frame.total_positions })
+          : "",
       ]
         .filter(Boolean)
         .join(" · ")
-    : "no telemetry";
+    : t("engineer.noTelemetry");
 
   // The saved layout named in ?layout= may be missing from the list (renamed,
   // or not a dash layout); show it anyway so the control says what is on.
@@ -319,7 +331,7 @@ function TopBar({
     >
       <span className="flex min-w-0 items-center gap-1.5">
         <span
-          title={status}
+          title={t(STATUS_KEY[status])}
           className={`h-[7px] w-[7px] shrink-0 rounded-full ${
             status === "live" ? "bg-throttle" : status === "placeholder" ? "bg-warn" : "bg-brake"
           }`}
@@ -331,7 +343,7 @@ function TopBar({
       <div
         className="ml-auto inline-flex overflow-hidden rounded-md border border-edge"
         role="radiogroup"
-        aria-label="Dash layout"
+        aria-label={t("dash.layoutGroup")}
       >
         {Object.entries(DASH_PRESETS).map(([key, p]) => (
           <button
@@ -345,14 +357,14 @@ function TopBar({
             }`}
             onClick={() => onChoose({ preset: key })}
           >
-            {p.label}
+            {t(p.labelKey)}
           </button>
         ))}
         {savedOptions.length > 0 ? (
           <Select
             variant="segment"
-            ariaLabel="My layouts"
-            placeholder="My layouts"
+            ariaLabel={t("dash.myLayouts")}
+            placeholder={t("dash.myLayouts")}
             className="h-9 px-3.5 text-xs"
             value={choice.layout ? savedValue : ""}
             onValueChange={(layout) => onChoose({ layout })}
@@ -362,9 +374,9 @@ function TopBar({
           <button
             disabled
             className="h-9 px-3.5 text-xs text-ink-ghost"
-            title="No saved dash layouts yet — build one in Overlays as a Driver dash"
+            title={t("dash.noSavedLayouts")}
           >
-            My layouts ▾
+            {t("dash.myLayouts")} ▾
           </button>
         )}
       </div>
@@ -373,28 +385,28 @@ function TopBar({
         <a
           href="/engineer"
           className={`${BAR_CONTROL} border-throttle/50 text-throttle hover:border-throttle`}
-          title="Race Engineer settings"
+          title={t("dash.voice.settings")}
         >
           <span className="h-1.5 w-1.5 animate-pulse-dot rounded-full bg-throttle" />
-          Voice · speaking here
+          {t("dash.voice.speaking")}
         </a>
       ) : state === "other" ? (
         <a
           href="/engineer"
           className={`${BAR_CONTROL} border-warn/50 text-warn hover:border-warn`}
-          title="Another device has the voice — take it over from the Race Engineer page"
+          title={t("dash.voice.otherTitle")}
         >
           <span className="h-1.5 w-1.5 rounded-full bg-warn" />
-          Voice · another device
+          {t("dash.voice.other")}
         </a>
       ) : state === "error" ? (
         <a
           href="/engineer"
           className={`${BAR_CONTROL} border-brake/50 text-brake hover:border-brake`}
-          title={s.speechError ?? "This browser can't speak"}
+          title={s.speechError ?? t("dash.voice.cannotSpeak")}
         >
           <span className="h-1.5 w-1.5 rounded-full bg-brake" />
-          Voice · not working
+          {t("dash.voice.error")}
         </a>
       ) : (
         <button
@@ -407,7 +419,7 @@ function TopBar({
           }}
         >
           <span className="h-1.5 w-1.5 rounded-full bg-accent" />
-          Turn on voice
+          {t("engineer.turnOn")}
         </button>
       )}
 
@@ -421,20 +433,20 @@ function TopBar({
         aria-pressed={wake.held}
         title={
           !wake.supported
-            ? "This browser can only keep the screen on over HTTPS or localhost"
+            ? t("dash.wake.unsupported")
             : wake.held
-              ? "Screen stays on — tap to let it sleep"
-              : "Keep the screen on"
+              ? t("dash.wake.held")
+              : t("dash.wake.keepOn")
         }
         onClick={() => (wake.held ? wake.release() : void wake.acquire())}
       >
         {wake.held && <span className="h-1.5 w-1.5 rounded-full bg-accent" />}
-        Awake
+        {t("dash.wake.label")}
       </button>
       <button
         className={`${BAR_CONTROL} border-edge text-ink-muted hover:border-edge-bright hover:text-ink disabled:opacity-45`}
-        aria-label="Full screen"
-        title="Full screen"
+        aria-label={t("dash.fullScreen")}
+        title={t("dash.fullScreen")}
         disabled={!document.fullscreenEnabled}
         onClick={() => {
           if (document.fullscreenElement) void document.exitFullscreen();
@@ -449,7 +461,7 @@ function TopBar({
         href="/#/live"
         className={`${BAR_CONTROL} border-edge text-ink-muted hover:border-edge-bright hover:text-ink`}
       >
-        Exit
+        {t("dash.exit")}
       </a>
     </div>
   );
@@ -459,6 +471,8 @@ function TopBar({
 // feed rather than from what was spoken, so it is also the fallback when this
 // device can't (or doesn't) speak.
 function CaptionStrip() {
+  const t = useT();
+  const word = useCalloutWording();
   const captions = useEngineer((s) => s.captions);
   const latest = useEngineer((s) => s.history[0] ?? null);
   const receipt = useEngineer((s) => (latest ? s.receipts[latest.id] : undefined));
@@ -475,13 +489,16 @@ function CaptionStrip() {
       {latest ? (
         <>
           <CalloutPill category={latest.category} />
-          <span className="min-w-0 truncate text-[17px]">“{latest.text}”</span>
+          <span className="min-w-0 truncate text-[17px]">
+            {t("engineer.quoted", { text: word(latest) })}
+          </span>
         </>
       ) : (
-        <span className="text-[13px] text-ink-faint">The engineer’s callouts show here.</span>
+        <span className="text-[13px] text-ink-faint">{t("dash.captionEmpty")}</span>
       )}
       <span className="ml-auto shrink-0 text-[11px] text-ink-faint">
-        Race Engineer{receipt ? ` · ${formatAge(now - receipt.receivedAt)}` : ""}
+        {t("engineer.title")}
+        {receipt ? ` · ${formatAge(now - receipt.receivedAt, t)}` : ""}
       </span>
     </div>
   );

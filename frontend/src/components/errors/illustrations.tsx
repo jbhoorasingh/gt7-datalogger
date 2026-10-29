@@ -1,6 +1,8 @@
 // Right-hand illustrations for the error pages. Decorative only (aria-hidden);
 // the text column carries everything the page has to say.
 
+import { useT } from "@/i18n";
+
 // Flag swatches, per marshal flag.
 export const FLAGS = {
   chequered: "repeating-conic-gradient(var(--color-ink-soft) 0 25%, #07080a 0 50%) 0 0 / 10px 10px",
@@ -81,6 +83,7 @@ export function BlackFlagArt() {
 
 /** 1c: the red race-control field — "Return to pits". */
 export function RedFlagArt() {
+  const t = useT();
   return (
     <div
       aria-hidden
@@ -92,13 +95,13 @@ export function RedFlagArt() {
     >
       <div className="animate-sweep absolute inset-0 bg-[radial-gradient(circle_at_70%_30%,oklch(0.6_0.2_25),transparent_60%)]" />
       <div className="relative flex justify-between text-[11px] uppercase tracking-[0.14em]">
-        <span>Race control</span>
-        <span className="animate-blink">● Live</span>
+        <span>{t("error.art.raceControl")}</span>
+        <span className="animate-blink">● {t("error.art.live")}</span>
       </div>
       <div className="relative flex flex-col gap-1.5">
-        <span className="text-[11px] uppercase tracking-[0.14em]">All cars</span>
-        <span className="text-[40px] font-medium tracking-[-0.01em]">Return to pits</span>
-        <span className="text-[13px]">Session suspended · saved laps are safe</span>
+        <span className="text-[11px] uppercase tracking-[0.14em]">{t("error.art.allCars")}</span>
+        <span className="text-[40px] font-medium tracking-[-0.01em]">{t("error.art.returnToPits")}</span>
+        <span className="text-[13px]">{t("error.art.suspended")}</span>
       </div>
     </div>
   );

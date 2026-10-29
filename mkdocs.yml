@@ -81,6 +81,7 @@ nav:
       - Track identification: internals/track-identification.md
       - Fuel & race strategy: internals/fuel-strategy.md
       - Race Engineer callouts: internals/race-engineer.md
+      - Translations: internals/translations.md
       - Surface survey spike: internals/surface-survey.md
   - Reference:
       - REST & WebSocket API: reference/api.md

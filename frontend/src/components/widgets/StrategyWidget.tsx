@@ -1,9 +1,11 @@
+import { useT } from "@/i18n";
 import { THRESHOLDS } from "@/lib/alerts";
 import { projectStrategy } from "@/lib/strategy";
 import type { WidgetRenderProps } from "@/lib/widgetMeta";
 import { Caption } from "./shared";
 
 export function StrategyWidget({ frame, laps, variant }: WidgetRenderProps) {
+  const t = useT();
   const proj = projectStrategy(frame, laps);
 
   if (variant === "pit-window") {
@@ -15,12 +17,12 @@ export function StrategyWidget({ frame, laps, variant }: WidgetRenderProps) {
             proj == null ? "text-ink-dim" : urgent ? "text-warn" : ""
           }`}
         >
-          {proj == null ? "–" : `L${proj.pitBeforeLap}`}
+          {proj == null ? "–" : t("widget.strategy.lap", { lap: String(proj.pitBeforeLap) })}
         </div>
-        <Caption>pit before</Caption>
+        <Caption>{t("widget.strategy.pitBefore")}</Caption>
         {proj != null && (
           <div className="mt-0.5 text-[10px] text-ink-dim">
-            fuel {proj.lapsToEmpty.toFixed(1)} laps
+            {t("widget.strategy.fuelLaps", { laps: proj.lapsToEmpty.toFixed(1) })}
           </div>
         )}
       </div>
@@ -30,11 +32,11 @@ export function StrategyWidget({ frame, laps, variant }: WidgetRenderProps) {
   return (
     <div className="flex flex-col justify-center text-xs leading-5">
       {proj == null ? (
-        <span className="text-ink-dim">fuel: need a lap</span>
+        <span className="text-ink-dim">{t("widget.strategy.needLap")}</span>
       ) : (
         <>
           <div>
-            <span className="text-ink-dim">FUEL </span>
+            <span className="text-ink-dim">{t("widget.strategy.fuel")} </span>
             <span
               className={
                 proj.lapsToEmpty < THRESHOLDS.fuelLapsCritical
@@ -44,11 +46,11 @@ export function StrategyWidget({ frame, laps, variant }: WidgetRenderProps) {
                     : ""
               }
             >
-              {proj.lapsToEmpty.toFixed(1)} laps
+              {t("widget.strategy.laps", { laps: proj.lapsToEmpty.toFixed(1) })}
             </span>
           </div>
           <div>
-            <span className="text-ink-dim">PIT ≤ L</span>
+            <span className="text-ink-dim">{t("widget.strategy.pitBy")}</span>
             {proj.pitBeforeLap}
           </div>
         </>

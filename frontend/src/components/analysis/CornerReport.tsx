@@ -16,6 +16,7 @@
 
 import { useMemo } from "react";
 import { Tip } from "@/components/ui/Tooltip";
+import { type MessageKey, useT } from "@/i18n";
 import { cornerRange } from "@/lib/cornerZoom";
 import { speedUnit, speedValue, type Units } from "@/lib/format";
 import { brakeDeltaText } from "@/lib/mapLayers";
@@ -32,9 +33,9 @@ export interface ReportLap {
 /** Row order: the circuit's (T1, T2 …) or the biggest loss first. */
 export type ReportSort = "track" | "lost";
 
-export const REPORT_SORT_OPTIONS: { value: ReportSort; label: string }[] = [
-  { value: "track", label: "Track order" },
-  { value: "lost", label: "Time lost" },
+export const REPORT_SORT_OPTIONS: { value: ReportSort; labelKey: MessageKey }[] = [
+  { value: "track", labelKey: "cornerReport.sort.track" },
+  { value: "lost", labelKey: "cornerReport.sort.lost" },
 ];
 
 // A brake point this close to the reference's is the same brake point: the
@@ -87,6 +88,7 @@ export function CornerReport({
   onHoverCorner?: (n: number | null) => void;
   sort?: ReportSort;
 }) {
+  const t = useT();
   const ref = laps.find((l) => l.isRef) ?? null;
   const candidates = laps.filter((l) => !l.isRef && l.report.length > 0);
   // With no comparison lap the card still reads as the reference's own
@@ -162,7 +164,7 @@ export function CornerReport({
       return (
         <td
           className={`px-2 py-1 text-right ${Math.abs(delta) < BRAKE_NOISE_M ? "text-ink-dim" : ""}`}
-          title={`Braked ${brakeDeltaText(delta)}`}
+          title={t("cornerReport.braked", { delta: brakeDeltaText(delta, t) })}
         >
           {fmtSigned(delta)}
         </td>
@@ -172,15 +174,15 @@ export function CornerReport({
     // not is the finding.
     const mine = row.brake_off != null;
     const theirs = refRow?.brake_off != null;
-    const text = mine === theirs ? "–" : mine ? "ref flat" : "no brake";
+    const text = mine === theirs ? "–" : mine ? t("cornerReport.refFlat") : t("cornerReport.noBrake");
     const title =
       mine === theirs
         ? mine
-          ? "The brake was already on when the lap began, so where it went on is not in this lap"
-          : "Neither lap braked for this corner"
+          ? t("cornerReport.brakeAlreadyOn")
+          : t("cornerReport.neitherBraked")
         : mine
-          ? "This lap braked here; the reference did not"
-          : "The reference braked here; this lap did not";
+          ? t("cornerReport.onlyThisBraked")
+          : t("cornerReport.onlyRefBraked");
     return (
       <td className="px-2 py-1 text-right text-ink-dim" title={title}>
         {text}
@@ -223,63 +225,63 @@ export function CornerReport({
         >
           <thead>
             <tr className="text-[10px] uppercase text-ink-dim">
-              <th className="px-2 py-1 text-left font-normal">Corner</th>
+              <th className="px-2 py-1 text-left font-normal">{t("common.corner")}</th>
               {hasBraking && comparing && (
                 <th className="px-2 py-1 text-right font-normal">
-                  <Tip content="Where the brake went on against the reference lap, in metres along the track. Negative = earlier, positive = later (deeper). Under 5 m is the same brake point.">
-                    <span>Brake Δ m</span>
+                  <Tip content={t("cornerReport.col.brakeDelta.tip")}>
+                    <span>{t("cornerReport.col.brakeDelta")}</span>
                   </Tip>
                 </th>
               )}
               {hasBraking && (
                 <>
                   <th className="px-2 py-1 text-right font-normal">
-                    <Tip content="The most brake pedal the corner's braking zone saw, in percent.">
-                      <span>Peak %</span>
+                    <Tip content={t("cornerReport.col.peak.tip")}>
+                      <span>{t("cornerReport.col.peak")}</span>
                     </Tip>
                   </th>
                   <th className="px-2 py-1 text-right font-normal">
-                    <Tip content="Metres from the brake going on to its release.">
-                      <span>Zone m</span>
+                    <Tip content={t("cornerReport.col.zone.tip")}>
+                      <span>{t("cornerReport.col.zone")}</span>
                     </Tip>
                   </th>
                 </>
               )}
-              <th className="px-2 py-1 text-right font-normal">Entry</th>
-              <th className="px-2 py-1 text-right font-normal">Min</th>
-              <th className="px-2 py-1 text-right font-normal">Exit</th>
+              <th className="px-2 py-1 text-right font-normal">{t("cornerReport.col.entry")}</th>
+              <th className="px-2 py-1 text-right font-normal">{t("cornerReport.col.min")}</th>
+              <th className="px-2 py-1 text-right font-normal">{t("cornerReport.col.exit")}</th>
               {hasSlip && (
                 <>
                   <th className="px-2 py-1 text-right font-normal">
-                    <Tip content="The most the car was rotated into the corner: degrees between where the nose pointed and where the car was going. More than the reference is more rotation — towards oversteer; less, or negative, is the nose pushing wide.">
-                      <span>Slip pk °</span>
+                    <Tip content={t("cornerReport.col.slipPeak.tip")}>
+                      <span>{t("cornerReport.col.slipPeak")}</span>
                     </Tip>
                   </th>
                   <th className="px-2 py-1 text-right font-normal">
-                    <Tip content="The same angle averaged from the corner's entry to its exit.">
-                      <span>Slip avg °</span>
+                    <Tip content={t("cornerReport.col.slipMean.tip")}>
+                      <span>{t("cornerReport.col.slipMean")}</span>
                     </Tip>
                   </th>
                 </>
               )}
               {hasYaw && (
                 <th className="px-2 py-1 text-right font-normal">
-                  <Tip content="How much the car rotated through the corner against how much its front wheels asked for (speed × wheel angle ÷ wheelbase). Under 1 is understeer, over 1 oversteer; compare it lap against lap after a setup change.">
-                    <span>Yaw ÷ wheels</span>
+                  <Tip content={t("cornerReport.col.yaw.tip")}>
+                    <span>{t("cornerReport.col.yaw")}</span>
                   </Tip>
                 </th>
               )}
               {hasLock && (
                 <th className="px-2 py-1 text-right font-normal">
-                  <Tip content="Metres of the corner the steering spent past full lock: the input kept rising and the front wheels could not turn further.">
-                    <span>Lock m</span>
+                  <Tip content={t("cornerReport.col.lock.tip")}>
+                    <span>{t("cornerReport.col.lock")}</span>
                   </Tip>
                 </th>
               )}
-              <th className="px-2 py-1 text-right font-normal">Time</th>
+              <th className="px-2 py-1 text-right font-normal">{t("common.time")}</th>
               {hasDelta && (
                 <th className="px-2 py-1 text-right font-normal">
-                  <Tip content="Time through this corner vs the reference lap. Positive = lost here.">
+                  <Tip content={t("cornerReport.col.delta.tip")}>
                     <span>Δ s</span>
                   </Tip>
                 </th>
@@ -295,13 +297,13 @@ export function CornerReport({
                 className={`border-t border-edge/40 ${
                   corner && onZoom ? "cursor-pointer hover:bg-panel-2" : ""
                 }`}
-                title={corner && onZoom ? "Zoom the charts and map to this corner" : undefined}
+                title={corner && onZoom ? t("cornerReport.zoomRow") : undefined}
               >
                 <td className="max-w-40 truncate px-2 py-1 text-left">
                   T{row.n}
                   {corner && (
                     <span className="ml-1 text-[10px] text-ink-dim">
-                      {corner.direction}
+                      {t(corner.direction === "L" ? "map.dir.l" : "map.dir.r")}
                       {corner.name ? ` · ${corner.name}` : ""}
                     </span>
                   )}
@@ -344,7 +346,7 @@ export function CornerReport({
                   className="px-2 py-1 text-left text-[10px] uppercase text-ink-dim"
                   colSpan={columnCount - 1}
                 >
-                  In corners vs ref
+                  {t("cornerReport.total")}
                 </td>
                 <td
                   className={`px-2 py-1 text-right ${totalLost > 0 ? "text-brake" : "text-throttle"}`}
@@ -357,10 +359,10 @@ export function CornerReport({
         </table>
       </div>
       <div className="px-2 pb-1 pt-0.5 text-[10px] text-ink-dim">
-        Speeds in {speedUnit(units)}
-        {comparing && ", small figures = ref"}
-        {hasDelta && sort === "lost" ? " · biggest loss first" : " · in track order"}
-        {hasBraking && onHoverCorner && " · hover a row to mark the brake points on the map"}
+        {t("cornerReport.speedsIn", { unit: speedUnit(units) })}
+        {comparing && t("cornerReport.smallRef")}
+        {hasDelta && sort === "lost" ? t("cornerReport.lossFirst") : t("cornerReport.trackOrder")}
+        {hasBraking && onHoverCorner && t("cornerReport.hoverHint")}
       </div>
     </div>
   );

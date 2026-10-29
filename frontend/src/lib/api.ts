@@ -1,3 +1,4 @@
+import { t } from "@/i18n";
 import type { LayoutConfig, LayoutSummary } from "./layout";
 import type {
   AdminSettings,
@@ -159,9 +160,7 @@ export class ApiError extends Error {
 async function fail(url: string, resp: Response): Promise<never> {
   if (resp.status === 401 || resp.status === 403) {
     throw new ApiError(
-      resp.status === 401
-        ? "admin token required — set it in Settings › Access"
-        : "admin token rejected — check it in Settings › Access",
+      resp.status === 401 ? t("error.api.tokenRequired") : t("error.api.tokenRejected"),
       resp.status,
     );
   }

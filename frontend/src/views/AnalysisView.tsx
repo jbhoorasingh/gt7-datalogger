@@ -36,6 +36,7 @@ import { LargeDialog } from "@/components/ui/Dialog";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Select } from "@/components/ui/Select";
 import { Tip } from "@/components/ui/Tooltip";
+import { useT, type MessageKey } from "@/i18n";
 import { openingSession, quickestCounting, resolveReference, resolveSelected } from "@/lib/analysisSelection";
 import { api } from "@/lib/api";
 import {
@@ -52,7 +53,7 @@ import { gearHighCount } from "@/lib/gearChoice";
 import { brakeMarkers, hasAid, type MapLayerKey } from "@/lib/mapLayers";
 import { canDraw, LENS_OPTIONS, lensRuns, lensSeries, type MapLens } from "@/lib/mapLens";
 import { hasTrend } from "@/lib/stint";
-import { formatLapTime, formatSpeed, speedUnit, speedValue, formatTime } from "@/lib/format";
+import { formatInt, formatLapTime, formatSpeed, speedUnit, speedValue, formatTime } from "@/lib/format";
 import {
   openInAnalysis,
   reflectAnalysisSelection,
@@ -67,6 +68,7 @@ import {
   type CompareResult,
   type Corner,
   type DeviationResult,
+  type EventType,
   type LapSummary,
   type Sector,
   type SectorTimes as SectorTimesData,
@@ -95,6 +97,14 @@ const CORNER_COLUMNS = [
 // the lap carries the per-tick surface column (packet C recordings).
 const MAP_COLUMNS = ["surface"];
 
+// How the tuning panel counts each event type the server reports.
+const EVENT_COUNT: Record<EventType, MessageKey> = {
+  lockup: "analysis.event.lockup",
+  wheelspin: "analysis.event.wheelspin",
+  bottoming: "analysis.event.bottoming",
+  kerb: "analysis.event.kerb",
+};
+
 // The g-g diagram is always shown when the recording has an accelerometer, so
 // its columns ride along regardless of the chart picker (#16).
 const GG_COLUMNS = ["acc_lat", "acc_long"];
@@ -120,6 +130,7 @@ const PLAYBACK_COLUMNS = [
 let lensAppliedFrom: AnalysisRequest | null = null;
 
 export function AnalysisView({ request }: { request: AnalysisRequest }) {
+  const t = useT();
   const units = useSettings((s) => s.units);
   const splitView = useSettings((s) => s.splitView);
   const setSplitView = useSettings((s) => s.setSplitView);
@@ -178,7 +189,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
   const [compare, setCompare] = useState<CompareResult | null>(null);
   const [deviation, setDeviation] = useState<DeviationResult | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<MessageKey | null>(null);
   const [channelKeys, setChannelKeys] = useState<string[]>(
     () => request.channels?.filter((k) => k in CHANNEL_BY_KEY) ?? loadChannelKeys(),
   );
@@ -264,7 +275,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
     api.sessions().then((s) => {
       setSessions(s);
       setSessionId((cur) => openingSession(cur, s));
-    }).catch(() => setError("Could not load sessions"));
+    }).catch(() => setError("analysis.error.sessions"));
   }, [lapEpoch]);
 
   // Load laps for the chosen session.
@@ -305,7 +316,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
         return same ? cur : next;
       });
       setRefLap((cur) => resolveReference(cur, rule));
-    }).catch(() => live && setError("Could not load laps"));
+    }).catch(() => live && setError("analysis.error.laps"));
     return () => {
       live = false;
     };
@@ -420,7 +431,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
         setCompare(c);
         setError(null);
       })
-      .catch(() => setError("Comparison failed"))
+      .catch(() => setError("analysis.error.compare"))
       .finally(() => setLoading(false));
   }, [selected, refLap, requestColumns]);
 
@@ -581,21 +592,25 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
 
   const lapLabels = useMemo(() => {
     const labels: Record<string, string> = {};
+    const withRef = (lap: LapSummary, label: string) =>
+      lap.id === refLap ? t("analysis.lap.withRef", { label }) : label;
     for (const lap of laps) {
-      labels[String(lap.id)] = `L${lap.number} · ${formatLapTime(lap.time_ms)}${
-        lap.id === refLap ? " (ref)" : ""
-      }`;
+      labels[String(lap.id)] = withRef(
+        lap,
+        `${t("analysis.lap.short", { lap: String(lap.number) })} · ${formatLapTime(lap.time_ms)}`,
+      );
     }
     // Guests carry their session in the label: two "L2"s from different
     // stints must stay tellable apart everywhere the label shows up (charts,
     // map, corner panels).
     for (const lap of guests) {
-      labels[String(lap.id)] = `S${lap.session_id}·L${lap.number} · ${formatLapTime(lap.time_ms)}${
-        lap.id === refLap ? " (ref)" : ""
-      }`;
+      labels[String(lap.id)] = withRef(
+        lap,
+        `${t("analysis.lap.guest", { session: String(lap.session_id), lap: String(lap.number) })} · ${formatLapTime(lap.time_ms)}`,
+      );
     }
     return labels;
-  }, [laps, guests, refLap]);
+  }, [laps, guests, refLap, t]);
 
   const refEntry = compare?.laps[String(refLap)];
   // Split view needs a map to sit beside; on a narrow screen it is off, as
@@ -718,10 +733,10 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
       id,
       entry: compare.laps[id],
       color: lapColors[id] ?? lapColor(Number(id)),
-      label: lapLabels[id] ?? `Lap ${id}`,
+      label: lapLabels[id] ?? t("analysis.lap.fallback", { id }),
       isRef: id === String(refLap),
     }));
-  }, [compare, lapLabels, refLap, lapColors]);
+  }, [compare, lapLabels, refLap, lapColors, t]);
 
   // Which map layers have anything to show for this selection. A switch for
   // a layer the laps cannot fill (a recording from before the channel
@@ -762,13 +777,13 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
     return Object.keys(compare.laps)
       .map((id) => ({
         id,
-        label: lapLabels[id] ?? `Lap ${id}`,
+        label: lapLabels[id] ?? t("analysis.lap.fallback", { id }),
         color: lapColors[id] ?? lapColor(Number(id)),
         isRef: id === String(refLap),
         report: compare.laps[id].corner_report ?? [],
       }))
       .filter((l) => l.report.length > 0);
-  }, [compare, lapLabels, refLap, lapColors]);
+  }, [compare, lapLabels, refLap, lapColors, t]);
 
   // The reference lap's length: the lap strip's, the fallback sectors'
   // denominator and the zoom's far end. The reference's, not the longest
@@ -854,10 +869,10 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
   const lensData = useMemo(() => {
     if (!refEntry) return null;
     return (
-      lensSeries(lensShown, refEntry.series, units, gainSource) ??
-      lensSeries("inputs", refEntry.series, units, null)
+      lensSeries(lensShown, refEntry.series, units, gainSource, t) ??
+      lensSeries("inputs", refEntry.series, units, null, t)
     );
-  }, [refEntry, lensShown, units, gainSource]);
+  }, [refEntry, lensShown, units, gainSource, t]);
   const stripRuns = useMemo(
     () => (lensData && refEntry ? lensRuns(lensData, refEntry.series.dist) : []),
     [lensData, refEntry],
@@ -872,10 +887,14 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
     if (refLap == null) return null;
     const lap = focusLap ?? mapLaps.find((l) => l.isRef);
     if (!lap) {
-      return { id: refLap, label: lapLabels[String(refLap)] ?? `Lap ${refLap}`, series: null };
+      return {
+        id: refLap,
+        label: lapLabels[String(refLap)] ?? t("analysis.lap.fallback", { id: String(refLap) }),
+        series: null,
+      };
     }
     return { id: Number(lap.id), label: lap.label, series: lap.entry.series };
-  }, [refLap, focusLap, mapLaps, lapLabels]);
+  }, [refLap, focusLap, mapLaps, lapLabels, t]);
   const gearingRef = useMemo<GearingLap | null>(() => {
     const ref = focusLap ? mapLaps.find((l) => l.isRef) : undefined;
     return ref ? { id: Number(ref.id), label: ref.label, series: ref.entry.series } : null;
@@ -883,15 +902,14 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
 
   // What the strips and the charts' header say the window is.
   const zoomLabel = currentCorner
-    ? `T${currentCorner.n} · ${currentCorner.direction === "L" ? "left" : "right"} · ${Math.round(
-        speedValue(currentCorner.min_speed, units),
-      )} ${speedUnit(units)} min`
+    ? t(currentCorner.direction === "L" ? "analysis.zoom.cornerLeft" : "analysis.zoom.cornerRight", {
+        n: String(currentCorner.n),
+        speed: `${Math.round(speedValue(currentCorner.min_speed, units))} ${speedUnit(units)}`,
+      })
     : shownZoom
-      ? "Custom stretch"
-      : "Full lap";
-  const zoomText = `${Math.round(shownZoom?.[0] ?? 0).toLocaleString()}–${Math.round(
-    shownZoom?.[1] ?? refLength,
-  ).toLocaleString()} m`;
+      ? t("analysis.zoom.custom")
+      : t("analysis.zoom.fullLap");
+  const zoomText = `${formatInt(shownZoom?.[0] ?? 0)}–${formatInt(shownZoom?.[1] ?? refLength)} m`;
 
   // [ and ] step through the corners, Esc comes back to the full lap — an
   // open menu takes Esc first, and a field being typed in takes every key.
@@ -939,8 +957,8 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
   }, [hoverCorner, refCorners, zoomRange, reportLaps, reportFocusId, mapLaps]);
   // The key for the header: the lens's own, then the marker layers drawn.
   const mapKey = useMemo(
-    () => layerKey(mapLaps, mapLayers, shownZoom, mapLayers.brakes ? brakeMarks : []),
-    [mapLaps, mapLayers, shownZoom, brakeMarks],
+    () => layerKey(mapLaps, mapLayers, shownZoom, mapLayers.brakes ? brakeMarks : [], t),
+    [mapLaps, mapLayers, shownZoom, brakeMarks, t],
   );
 
   // Same laps, shaped for the Corner Detail widget (cursor-synced with the
@@ -949,12 +967,12 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
     if (!compare) return [];
     return Object.keys(compare.laps).map((id) => ({
       id,
-      label: lapLabels[id] ?? `Lap ${id}`,
+      label: lapLabels[id] ?? t("analysis.lap.fallback", { id }),
       color: lapColors[id] ?? lapColor(Number(id)),
       isRef: id === String(refLap),
       series: compare.laps[id].series,
     }));
-  }, [compare, lapLabels, refLap, lapColors]);
+  }, [compare, lapLabels, refLap, lapColors, t]);
 
   // A long session lists a chip per lap, which on a 300-lap stint wrapped to
   // dozens of rows and pushed the map off the screen. Collapsed, the row shows
@@ -975,8 +993,8 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
     if (error) {
       return (
         <div className="flex h-64 flex-col items-center justify-center gap-1 text-ink-dim">
-          <div className="text-lg text-brake">{error}</div>
-          <div className="text-sm">Check that the server is running, then reload.</div>
+          <div className="text-lg text-brake">{t(error)}</div>
+          <div className="text-sm">{t("analysis.error.checkServer")}</div>
         </div>
       );
     }
@@ -993,8 +1011,8 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
   if (sessions.length === 0) {
     return (
       <div className="flex h-64 flex-col items-center justify-center gap-1 text-ink-dim">
-        <div className="text-lg">No sessions yet</div>
-        <div className="text-sm">Drive some laps first — they'll show up here for comparison.</div>
+        <div className="text-lg">{t("analysis.empty.noSessions")}</div>
+        <div className="text-sm">{t("analysis.empty.noSessionsHint")}</div>
       </div>
     );
   }
@@ -1003,7 +1021,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
     const active = selected.includes(lap.id);
     const isRef = lap.id === refLap;
     return (
-      <Tip key={lap.id} content="Click to toggle, double-click to set as reference">
+      <Tip key={lap.id} content={t("analysis.chip.tip")}>
         <button
           onClick={() => {
             manualSelection.current = true;
@@ -1040,7 +1058,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
       {/* 1 — toolbar: session, laps, channels, reference */}
       <div className="flex flex-wrap items-center gap-2">
         <Select
-          ariaLabel="Session"
+          ariaLabel={t("common.session")}
           value={String(sessionId ?? "")}
           onValueChange={(v) => {
             leaveSession();
@@ -1055,7 +1073,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
             // as a formatting glitch.
             label: `#${s.id}${s.track_name ? ` · ${s.track_name}` : ""} · ${
               s.car_name
-            } · ${s.lap_count} laps`,
+            } · ${t("count.laps", { count: s.lap_count })}`,
           }))}
           // Capped at the toolbar's width: a long circuit and car name
           // truncates instead of pushing the page sideways on a phone.
@@ -1071,11 +1089,16 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
             showAllLaps ? "max-h-32 overflow-y-auto sm:pr-1" : ""
           }`}
         >
-          {visibleLaps.map((lap) => lapChip(lap, `L${lap.number} ${formatLapTime(lap.time_ms)}`))}
+          {visibleLaps.map((lap) =>
+            lapChip(lap, `${t("analysis.lap.short", { lap: String(lap.number) })} ${formatLapTime(lap.time_ms)}`),
+          )}
           {/* Guest laps from other sessions (#26), after the session's own —
               same toggle/reference behavior, session-qualified label. */}
           {guests.map((lap) =>
-            lapChip(lap, `S${lap.session_id}·L${lap.number} ${formatLapTime(lap.time_ms)}`),
+            lapChip(
+              lap,
+              `${t("analysis.lap.guest", { session: String(lap.session_id), lap: String(lap.number) })} ${formatLapTime(lap.time_ms)}`,
+            ),
           )}
         </div>
 
@@ -1084,16 +1107,16 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
             className="shrink-0 rounded border border-dashed border-edge px-2.5 py-1 text-[11.5px] text-ink-dim transition-colors hover:border-accent hover:text-accent"
             onClick={() => setShowAllLaps((open) => !open)}
           >
-            {showAllLaps ? "show fewer" : `+${hiddenLaps} more`}
+            {showAllLaps ? t("analysis.chips.fewer") : t("analysis.chips.more", { n: hiddenLaps })}
           </button>
         )}
         {bestTrack && (
-          <Tip content="Add a lap from another session at this circuit to the comparison">
+          <Tip content={t("analysis.addLap.tip")}>
             <button
               className="shrink-0 rounded border border-dashed border-edge px-2.5 py-1 text-[11.5px] text-ink-dim transition-colors hover:border-accent hover:text-accent"
               onClick={() => setAddOpen(true)}
             >
-              + Add lap…
+              {t("analysis.addLap.button")}
             </button>
           </Tip>
         )}
@@ -1104,10 +1127,10 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
           onChange={setChannelKeys}
           onHelp={() => setGuide("channels")}
         />
-        <Tip content="What each chart channel and feature of this view shows">
+        <Tip content={t("analysis.guide.tip")}>
           <button
             onClick={() => setGuide("features")}
-            aria-label="Open the Analysis guide"
+            aria-label={t("analysis.guide.open")}
             className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full border border-edge text-[11.5px] text-ink-dim transition-colors hover:border-accent hover:text-accent"
           >
             ?
@@ -1116,9 +1139,9 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
 
         {refLap != null && (
           <div className="ml-auto flex items-center gap-1.5 text-[11.5px] text-ink-dim">
-            <span>ref</span>
+            <span>{t("analysis.ref.label")}</span>
             <Select
-              ariaLabel="Reference lap"
+              ariaLabel={t("analysis.ref.aria")}
               value={String(refLap)}
               onValueChange={(v) => {
                 manualSelection.current = true;
@@ -1127,13 +1150,16 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
               options={[
                 ...laps.map((lap) => ({
                   value: String(lap.id),
-                  label: `L${lap.number} · ${formatLapTime(lap.time_ms)}`,
+                  label: `${t("analysis.lap.short", { lap: String(lap.number) })} · ${formatLapTime(lap.time_ms)}`,
                 })),
                 // Guests are eligible references too — comparing today's
                 // laps against another day's benchmark is the point (#26).
                 ...guests.map((lap) => ({
                   value: String(lap.id),
-                  label: `S${lap.session_id}·L${lap.number} · ${formatLapTime(lap.time_ms)}`,
+                  label: `${t("analysis.lap.guest", {
+                    session: String(lap.session_id),
+                    lap: String(lap.number),
+                  })} · ${formatLapTime(lap.time_ms)}`,
                 })),
               ]}
               variant="bare"
@@ -1143,18 +1169,18 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
         )}
       </div>
 
-      {error && <div className="rounded-md bg-brake/10 p-2 text-sm text-brake">{error}</div>}
+      {error && <div className="rounded-md bg-brake/10 p-2 text-sm text-brake">{t(error)}</div>}
       {loading && !compare && <div className="skeleton h-[380px]" />}
       {sessionEmpty && (
         <div
           role="status"
           className="flex h-64 flex-col items-center justify-center gap-1 rounded-panel border border-edge px-4 text-center text-ink-dim"
         >
-          <div className="text-lg">No completed laps in this session yet</div>
+          <div className="text-lg">{t("analysis.empty.noLaps")}</div>
           <div className="text-sm">
             {recordingSessionId === sessionId
-              ? "It is being recorded now — each lap appears here as soon as it is finished."
-              : "Nothing in it was recorded as a lap, so there is nothing to chart."}
+              ? t("analysis.empty.recording")
+              : t("analysis.empty.nothingRecorded")}
           </div>
         </div>
       )}
@@ -1172,22 +1198,22 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
           >
             <div className="flex flex-wrap items-center gap-3.5 px-4 py-2.5">
               <span className="section-header">
-                Race line{bestTrack ? ` — ${bestTrack}` : ""}
+                {bestTrack ? t("analysis.map.titleTrack", { track: bestTrack }) : t("analysis.map.title")}
               </span>
-              <Tip content="How the reference line and the lap strip are coloured, remembered on this device and carried in the link: by pedal (throttle, brake, coast), by speed, by where the compared lap gains and loses time against the reference, by the hottest tire (cold, working, hot), or by which axle's tires run hotter">
+              <Tip content={t("analysis.map.lensTip")}>
                 {/* Five lenses are wider than a phone's map panel: there the
                     control scrolls sideways rather than being cut off. */}
                 <span className="inline-flex max-w-full overflow-x-auto">
                   <SegmentedControl
-                    ariaLabel="Map colouring"
+                    ariaLabel={t("analysis.map.lensAria")}
                     size="sm"
                     value={lensShown}
                     onValueChange={setMapLens}
                     options={LENS_OPTIONS.map((o) => ({
                       value: o.value,
-                      label: o.label,
+                      label: t(o.labelKey),
                       disabled: !lensAvailable[o.value],
-                      title: lensAvailable[o.value] ? undefined : o.needs,
+                      title: lensAvailable[o.value] || !o.needsKey ? undefined : t(o.needsKey),
                     }))}
                   />
                 </span>
@@ -1217,24 +1243,24 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
               <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
                 {/* Only meaningful with something to sync against. */}
                 {mapLaps.length > 1 && (
-                  <Tip content="Where the other laps' cars are drawn: where each was after the same lap time as the reference (time — the gap, as distance on track), or level with the reference car (position — where the charts compare them)">
+                  <Tip content={t("analysis.map.syncTip")}>
                     <span className="mr-1 inline-flex items-center gap-1.5 text-[10.5px] text-ink-faint">
-                      sync
+                      {t("analysis.map.sync")}
                       <SegmentedControl
-                        ariaLabel="Race line sync"
+                        ariaLabel={t("analysis.map.syncAria")}
                         size="sm"
                         value={mapSync}
                         onValueChange={setMapSync}
                         options={[
-                          { value: "time", label: "Time" },
-                          { value: "position", label: "Position" },
+                          { value: "time", label: t("analysis.map.syncTime") },
+                          { value: "position", label: t("analysis.map.syncPosition") },
                         ]}
                       />
                     </span>
                   </Tip>
                 )}
                 <LayersMenu layers={mapLayers} available={availableLayers} onToggle={setMapLayer} />
-                <Tip content="Four charts of your choosing beside the map instead of below it, on a screen wide enough for both. The full chart stack stays below">
+                <Tip content={t("analysis.map.splitTip")}>
                   <button
                     onClick={() => setSplitView(!splitView)}
                     aria-pressed={splitView}
@@ -1244,10 +1270,10 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
                         : "border-edge text-ink-dim hover:border-accent hover:text-accent"
                     }`}
                   >
-                    Split
+                    {t("analysis.map.split")}
                   </button>
                 </Tip>
-                <Tip content="While playback runs, zoom the map in and pan with the car instead of framing the whole circuit">
+                <Tip content={t("analysis.map.followTip")}>
                   <button
                     onClick={() => setMapFollow(!mapFollow)}
                     aria-pressed={mapFollow}
@@ -1257,13 +1283,13 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
                         : "border-edge text-ink-dim hover:border-accent hover:text-accent"
                     }`}
                   >
-                    Follow
+                    {t("analysis.map.follow")}
                   </button>
                 </Tip>
-                <Tip content="Open the map full screen">
+                <Tip content={t("analysis.map.fullScreenTip")}>
                   <button
                     onClick={() => setMapMaximized(true)}
-                    aria-label="Maximize the race line map"
+                    aria-label={t("analysis.map.maximize")}
                     className="rounded border border-edge px-[7px] py-0.5 text-[11px] text-ink-dim transition-colors hover:border-edge-bright hover:text-ink"
                   >
                     ⤢
@@ -1317,18 +1343,18 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
         {split && (
           <div className="panel hidden min-w-0 lg:block">
             <div className="flex flex-wrap items-center gap-2 px-4 py-2.5">
-              <span className="section-header">Beside the map</span>
+              <span className="section-header">{t("analysis.split.title")}</span>
               <span className="ml-auto flex min-w-0 flex-wrap justify-end gap-1.5">
                 {splitChannels.map((key, index) => (
                   <Select
                     key={index}
-                    ariaLabel={`Chart ${index + 1} beside the map`}
+                    ariaLabel={t("analysis.split.chartAria", { n: index + 1 })}
                     value={key}
                     onValueChange={(value) => setSplitChannel(index, value)}
                     // No channel twice: each option is free or this chart's own.
                     options={CHANNELS.filter(
                       (channel) => channel.key === key || !splitChannels.includes(channel.key),
-                    ).map((channel) => ({ value: channel.key, label: channel.title }))}
+                    ).map((channel) => ({ value: channel.key, label: t(channel.titleKey) }))}
                     className="max-w-[11rem] px-2 py-0.5 text-[11px]"
                   />
                 ))}
@@ -1373,7 +1399,9 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
             {refEntry && (
               <div className="sticky top-0 z-[5] -mx-4 mb-1 rounded-t-panel border-b border-hairline bg-panel px-4 pb-0.5 pt-2">
                 <div className="flex flex-wrap items-baseline gap-2.5 text-[11px]">
-                  <span className="section-header">Channels · {channelKeys.length}</span>
+                  <span className="section-header">
+                    {t("analysis.channelsCount", { n: channelKeys.length })}
+                  </span>
                   <span className="text-ink-soft">{zoomLabel}</span>
                   <span className="font-tabular text-ink-faint">{zoomText}</span>
                   {shownZoom && (
@@ -1381,7 +1409,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
                       onClick={() => setZoomRange(null)}
                       className="rounded border border-edge px-2 text-[10.5px] text-ink-dim transition-colors hover:border-accent hover:text-accent"
                     >
-                      Full lap
+                      {t("analysis.zoom.fullLap")}
                     </button>
                   )}
                   <span className="ml-auto flex flex-wrap gap-3 font-tabular text-[10.5px] text-ink-dim">
@@ -1429,7 +1457,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
           data for flows into the same card rack, three-up on a wide screen. */}
       <div className="grid grid-cols-[repeat(auto-fit,minmax(300px,1fr))] gap-3">
         {cornerLaps.length > 0 && (
-          <Panel title="Corner detail — cursor synced">
+          <Panel title={t("analysis.panel.cornerDetail")}>
             <CornerDetail
               laps={cornerLaps}
               cursorDist={cursorDist}
@@ -1438,41 +1466,46 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
           </Panel>
         )}
         {refSummary && (
-          <Panel title="Tuning — reference lap">
+          <Panel title={t("analysis.panel.tuning")}>
             <div className="grid grid-cols-[auto_1fr_auto_1fr] gap-x-3.5 gap-y-1.5 px-3.5 py-3 font-tabular text-[11.5px]">
-              <Info k="Max speed" v={formatSpeed(refSummary.max_speed, units)} />
-              <Info k="Min height" v={`${refSummary.min_body_height.toFixed(0)} mm`} />
-              <Info k="Full throttle" v={`${refSummary.full_throttle_pct.toFixed(1)}%`} />
-              <Info k="Full brake" v={`${refSummary.full_brake_pct.toFixed(1)}%`} />
-              <Info k="Coasting" v={`${refSummary.coasting_pct.toFixed(1)}%`} />
-              <Info k="Tire spin" v={`${refSummary.tire_spin_pct.toFixed(1)}%`} />
-              <Info k="Fuel used" v={`${refSummary.fuel_consumed.toFixed(2)} L`} />
-              <Info k="Car" v={refSummary.car_name ?? "–"} />
-              {bestCategory && <Info k="Category" v={bestCategory} />}
+              <Info k={t("analysis.tuning.maxSpeed")} v={formatSpeed(refSummary.max_speed, units)} />
+              <Info k={t("analysis.tuning.minHeight")} v={`${refSummary.min_body_height.toFixed(0)} mm`} />
+              <Info k={t("analysis.tuning.fullThrottle")} v={`${refSummary.full_throttle_pct.toFixed(1)}%`} />
+              <Info k={t("analysis.tuning.fullBrake")} v={`${refSummary.full_brake_pct.toFixed(1)}%`} />
+              <Info k={t("analysis.tuning.coasting")} v={`${refSummary.coasting_pct.toFixed(1)}%`} />
+              <Info k={t("analysis.tuning.tireSpin")} v={`${refSummary.tire_spin_pct.toFixed(1)}%`} />
+              <Info k={t("analysis.tuning.fuelUsed")} v={`${refSummary.fuel_consumed.toFixed(2)} L`} />
+              <Info k={t("common.car")} v={refSummary.car_name ?? "–"} />
+              {bestCategory && <Info k={t("analysis.tuning.category")} v={bestCategory} />}
               {refSummary.tcs_active_pct != null && (
-                <Info k="TCS active" v={`${refSummary.tcs_active_pct.toFixed(1)}%`} />
+                <Info k={t("analysis.tuning.tcs")} v={`${refSummary.tcs_active_pct.toFixed(1)}%`} />
               )}
               {refSummary.asm_active_pct != null && (
-                <Info k="ASM active" v={`${refSummary.asm_active_pct.toFixed(1)}%`} />
+                <Info k={t("analysis.tuning.asm")} v={`${refSummary.asm_active_pct.toFixed(1)}%`} />
               )}
               {(refSummary.max_water_temp ?? 0) > 0 && (
-                <Info k="Max water" v={`${refSummary.max_water_temp!.toFixed(0)}°C`} />
+                <Info k={t("analysis.tuning.maxWater")} v={`${refSummary.max_water_temp!.toFixed(0)}°C`} />
               )}
               {(refSummary.max_oil_temp ?? 0) > 0 && (
-                <Info k="Max oil" v={`${refSummary.max_oil_temp!.toFixed(0)}°C`} />
+                <Info k={t("analysis.tuning.maxOil")} v={`${refSummary.max_oil_temp!.toFixed(0)}°C`} />
               )}
               {(refSummary.min_oil_pressure ?? -1) >= 0 && (
-                <Info k="Min oil press." v={`${refSummary.min_oil_pressure!.toFixed(1)} bar`} />
+                <Info k={t("analysis.tuning.minOilPress")} v={`${refSummary.min_oil_pressure!.toFixed(1)} bar`} />
               )}
               {gearChoice.judged > 0 && (
-                <Info k="Corners a gear high" v={`${gearChoice.high} of ${gearChoice.judged}`} />
+                <Info
+                  k={t("analysis.tuning.gearHigh")}
+                  v={t("analysis.tuning.gearHighValue", { high: gearChoice.high, judged: gearChoice.judged })}
+                />
               )}
               {refSummary.event_counts && Object.keys(refSummary.event_counts).length > 0 && (
                 <Info
-                  k="Events"
+                  k={t("analysis.tuning.events")}
                   span
                   v={Object.entries(refSummary.event_counts)
-                    .map(([type, n]) => `${n} ${type}`)
+                    .map(([type, n]) =>
+                      type in EVENT_COUNT ? t(EVENT_COUNT[type as EventType], { count: n }) : `${n} ${type}`,
+                    )
                     .join(" · ")}
                 />
               )}
@@ -1512,12 +1545,12 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
           </Panel>
         )}
         {refLap != null && (
-          <Panel title="Fuel strategy">
+          <Panel title={t("analysis.panel.fuel")}>
             <FuelMapPanel lapId={refLap} />
           </Panel>
         )}
         {ggLaps.length > 0 && (
-          <Panel title="Traction circle — g-g">
+          <Panel title={t("analysis.panel.gg")}>
             <GGDiagram
               laps={ggLaps}
               accel={compare!.accel}
@@ -1526,7 +1559,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
           </Panel>
         )}
         {gearingLap && (
-          <Panel title={`Gearing — ${gearingLap.label}`}>
+          <Panel title={t("analysis.panel.gearing", { lap: gearingLap.label })}>
             <GearingPanel
               lap={gearingLap}
               reference={gearingRef}
@@ -1536,12 +1569,12 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
           </Panel>
         )}
         {deviation && deviation.dist.length > 0 && (
-          <Panel title={`Consistency — best ${deviation.lap_ids.length} laps`}>
+          <Panel title={t("analysis.panel.consistency", { count: deviation.lap_ids.length })}>
             <DeviationChart data={deviation} units={units} zoomRange={zoomRange} />
           </Panel>
         )}
         {laps.length > 1 && (
-          <Panel title="Lap times — this session">
+          <Panel title={t("analysis.panel.lapTimes")}>
             <LapTimeChart
               laps={laps}
               selected={selected}
@@ -1556,7 +1589,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
           </Panel>
         )}
         {coaching && coaching.laps.length > 0 && (
-          <Panel title="Race engineer — post-lap notes">
+          <Panel title={t("analysis.panel.coaching")}>
             <CoachingPanel
               notes={coaching.laps}
               selected={selected}
@@ -1567,7 +1600,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
           </Panel>
         )}
         {sectorTimes && sectorTimes.laps.some((lap) => lap.splits_ms != null) && (
-          <Panel title="Sector times" meta={sectorNote(sectorTimes)}>
+          <Panel title={t("analysis.panel.sectors")} meta={sectorNote(sectorTimes)}>
             <SectorTimes
               data={sectorTimes}
               lapColors={lapColors}
@@ -1577,7 +1610,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
           </Panel>
         )}
         {sectorTimes && sectorTimes.laps.some((lap) => lap.splits_ms != null) && (
-          <Panel title="Sector comparison" meta={sectorNote(sectorTimes)}>
+          <Panel title={t("analysis.panel.sectorComparison")} meta={sectorNote(sectorTimes)}>
             <SectorComparison
               data={sectorTimes}
               refLapId={refLap}
@@ -1589,7 +1622,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
       {/* A stint is read along its length, so the trend gets the full width
           as well: thirty laps in a 300px cell are thirty dots in a row. */}
       {stintTrend && hasTrend(stintTrend.laps) && (
-        <Panel title="Stint trend — lap time and tyre temperature">
+        <Panel title={t("analysis.panel.stint")}>
           <StintTrendChart
             trend={stintTrend}
             selected={selected}
@@ -1608,16 +1641,16 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
           than a 300px grid cell. */}
       {reportLaps.length > 0 && refCorners.length > 0 && (
         <Panel
-          title="Corner report card"
+          title={t("analysis.panel.cornerReport")}
           actions={
             <span className="inline-flex items-center gap-1.5 text-[10.5px] text-ink-faint">
-              sort
+              {t("analysis.report.sort")}
               <SegmentedControl
-                ariaLabel="Sort corners"
+                ariaLabel={t("analysis.report.sortAria")}
                 size="sm"
                 value={reportSort}
                 onValueChange={setReportSort}
-                options={REPORT_SORT_OPTIONS}
+                options={REPORT_SORT_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }))}
               />
             </span>
           }
@@ -1645,7 +1678,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
 
       <LargeDialog
         open={addOpen}
-        title={`Add a lap from another session — ${bestTrack}`}
+        title={t("analysis.add.title", { track: bestTrack })}
         onClose={() => setAddOpen(false)}
       >
         <div className="h-full overflow-y-auto p-3">
@@ -1658,7 +1691,7 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
           )}
           {addChoices != null && addChoices.length === 0 && (
             <div className="p-8 text-center text-sm text-ink-dim">
-              No laps from other sessions at this circuit yet.
+              {t("analysis.add.empty")}
             </div>
           )}
           {addChoices != null && addChoices.length > 0 && (
@@ -1680,7 +1713,11 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
                     }`}
                   >
                     <span className="shrink-0 font-tabular">
-                      S#{lap.session_id} · L{lap.number} · {formatLapTime(lap.time_ms)}
+                      {t("analysis.lap.sessionLap", {
+                        session: String(lap.session_id),
+                        lap: String(lap.number),
+                      })}{" "}
+                      · {formatLapTime(lap.time_ms)}
                     </span>
                     <span className="min-w-0 truncate text-ink-dim">
                       · {lap.car_name ?? "–"} · {formatTime(lap.finished_at ?? "")}
@@ -1688,9 +1725,9 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
                     {lap.salvaged && (
                       <span
                         className="ml-auto shrink-0 text-ink-dim"
-                        title="Salvaged from a stream that ended at the line (replay ending) — the time is GT7's own"
+                        title={t("analysis.add.salvagedTip")}
                       >
-                        ⟲ salvaged
+                        {t("analysis.add.salvaged")}
                       </span>
                     )}
                     {lap.counts_for_best === false && (
@@ -1698,14 +1735,14 @@ export function AnalysisView({ request }: { request: AnalysisRequest }) {
                         className={`shrink-0 text-warn ${lap.salvaged ? "" : "ml-auto"}`}
                         title={
                           lap.best_override === false
-                            ? "Excluded from bests by hand"
-                            : "Partial lap (a pit out-lap, or a race's lap 1 from the grid) — its time is not a lap time"
+                            ? t("analysis.add.excludedTip")
+                            : t("analysis.add.partialTip")
                         }
                       >
                         {notCountingLabel(lap)}
                       </span>
                     )}
-                    {added && <span className="ml-auto shrink-0">already selected</span>}
+                    {added && <span className="ml-auto shrink-0">{t("analysis.add.already")}</span>}
                   </button>
                 );
               })}
@@ -1740,13 +1777,14 @@ function CategoryBestRow({
    *  null when the lap is already in the comparison. */
   onCompare: (() => void) | null;
 }) {
+  const t = useT();
   const gap = refTimeMs - best.time_ms;
   const isBest = refNotCounting == null && gap <= 0;
   return (
     <div className="border-t border-edge px-3 py-2 text-xs">
       <div className="mb-1 flex items-baseline gap-2">
         <span className="text-ink-dim">
-          {best.car_category} best at {best.track_name}
+          {t("analysis.best.title", { category: best.car_category, track: best.track_name })}
         </span>
         <span className="ml-auto font-tabular text-accent">{formatLapTime(best.time_ms)}</span>
       </div>
@@ -1754,23 +1792,23 @@ function CategoryBestRow({
         <span className="truncate">{best.car_name}</span>
         <span className="ml-auto shrink-0 font-tabular">
           {refNotCounting != null ? (
-            <span title="This reference lap does not count toward bests, so its time is not compared">
-              {refNotCounting} — no comparison
+            <span title={t("analysis.best.noCompareTip")}>
+              {t("analysis.best.noCompare", { status: refNotCounting })}
             </span>
           ) : isBest ? (
-            <span className="text-throttle">this lap is the best</span>
+            <span className="text-throttle">{t("analysis.best.isBest")}</span>
           ) : (
             <span className="text-brake">+{(gap / 1000).toFixed(3)}</span>
           )}
         </span>
         {onCompare && (
           <button className="shrink-0 text-ink-dim hover:text-accent" onClick={onCompare}>
-            compare
+            {t("analysis.best.compare")}
           </button>
         )}
         {!isBest && (
           <button className="shrink-0 text-ink-dim hover:text-accent" onClick={onOpen}>
-            open
+            {t("analysis.best.open")}
           </button>
         )}
       </div>

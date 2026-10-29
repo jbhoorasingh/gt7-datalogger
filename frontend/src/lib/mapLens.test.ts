@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { t } from "@/i18n";
 import { CHANNEL_BY_KEY } from "./channels";
 import {
   canDraw,
@@ -236,7 +237,7 @@ describe("lens availability", () => {
 
   it("says why, for every lens the control can grey out", () => {
     for (const o of LENS_OPTIONS) {
-      if (o.value !== "inputs") expect(o.needs?.trim(), o.value).toBeTruthy();
+      if (o.value !== "inputs") expect(o.needsKey && t(o.needsKey).trim(), o.value).toBeTruthy();
     }
   });
 });

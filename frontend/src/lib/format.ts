@@ -1,3 +1,5 @@
+import { currentLanguage, t } from "@/i18n";
+
 export type Units = "metric" | "imperial";
 
 export function formatLapTime(ms: number | null | undefined): string {
@@ -19,7 +21,7 @@ export function formatDuration(ms: number): string {
   const h = Math.floor(ms / 3_600_000);
   const m = Math.floor((ms % 3_600_000) / 60000);
   const s = Math.floor((ms % 60000) / 1000);
-  return h > 0 ? `${h}h ${m}m` : `${m}m ${s}s`;
+  return h > 0 ? t("time.hoursMinutes", { h, m }) : t("time.minutesSeconds", { m, s });
 }
 
 export function speedValue(kmh: number, units: Units): number {
@@ -45,7 +47,7 @@ export function formatTimeOfDay(todMs: number | null | undefined): string {
 export function formatTime(iso: string): string {
   if (!iso) return "–";
   const d = new Date(iso);
-  return isNaN(d.getTime()) ? iso : d.toLocaleString();
+  return isNaN(d.getTime()) ? iso : d.toLocaleString(currentLanguage());
 }
 
 // Short-form timestamp for dense table rows: "8/21 1:09 AM". Full precision
@@ -54,7 +56,13 @@ export function formatTimeShort(iso: string): string {
   if (!iso) return "–";
   const d = new Date(iso);
   if (isNaN(d.getTime())) return iso;
-  const date = d.toLocaleDateString(undefined, { month: "numeric", day: "numeric" });
-  const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  const date = d.toLocaleDateString(currentLanguage(), { month: "numeric", day: "numeric" });
+  const time = d.toLocaleTimeString(currentLanguage(), { hour: "numeric", minute: "2-digit" });
   return `${date} ${time}`;
+}
+
+// A whole number grouped the way the interface language writes it
+// (12,345 / 12.345). Telemetry readouts with decimals keep toFixed().
+export function formatInt(n: number): string {
+  return Math.round(n).toLocaleString(currentLanguage());
 }

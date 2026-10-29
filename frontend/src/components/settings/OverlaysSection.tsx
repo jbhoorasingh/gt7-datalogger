@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import { t as translate, useT, withLanguage } from "@/i18n";
 import { api, ApiError } from "@/lib/api";
 import { migrateOverlayConfig, normalizeLayout, type LayoutConfig, type LayoutSummary } from "@/lib/layout";
 import { DEFAULT_CONFIG, type OverlayConfig } from "@/lib/overlay";
@@ -11,7 +12,7 @@ export function layoutPath(l: LayoutSummary): string {
 
 function canvas(l: LayoutSummary): string {
   const s = l.config.size;
-  return s ? `${s.width}×${s.height}` : "fills screen";
+  return s ? `${s.width}×${s.height}` : translate("settings.overlays.fills");
 }
 
 // Same reading as the builder's own Import: v2 files as they are, v1 exports
@@ -36,6 +37,7 @@ export function OverlaysSection({
   layouts: LayoutSummary[] | null;
   reload: () => void;
 }) {
+  const t = useT();
   const fileInput = useRef<HTMLInputElement>(null);
 
   // An exported file carries no name or kind: it becomes an overlay named
@@ -43,37 +45,38 @@ export function OverlaysSection({
   async function importFile(file: File) {
     const config = parseLayoutFile(await file.text());
     if (!config) {
-      toast("Import failed — not a valid layout file", "error");
+      toast(t("settings.overlays.invalid"), "error");
       return;
     }
-    const base = file.name.replace(/\.json$/i, "").replace(/^gt7-layout-/, "") || "Imported layout";
+    const base =
+      file.name.replace(/\.json$/i, "").replace(/^gt7-layout-/, "") || t("settings.overlays.importedName");
     for (let n = 1; n <= 20; n++) {
       const name = n === 1 ? base : `${base} (${n})`;
       try {
         await api.layouts.create(name, "overlay", config);
-        toast(`Imported "${name}"`, "success");
+        toast(t("settings.overlays.imported", { name }), "success");
         reload();
         return;
       } catch (e) {
         if (e instanceof ApiError && e.status === 409) continue;
-        toast(e instanceof Error ? e.message : "Import failed", "error");
+        toast(e instanceof Error ? e.message : t("settings.overlays.importFailed"), "error");
         return;
       }
     }
-    toast("Import failed — too many layouts with that name", "error");
+    toast(t("settings.overlays.tooMany"), "error");
   }
 
   return (
     <SectionPanel
-      title="Overlays & dashboards"
-      description="Saved layouts. Edit one and every OBS source using its URL updates."
+      title={t("settings.section.overlays")}
+      description={t("settings.overlays.desc")}
       actions={
         <>
           <a className="btn btn-primary no-underline" href="#/overlays">
-            Open builder
+            {t("settings.overlays.openBuilder")}
           </a>
           <button className="btn" onClick={() => fileInput.current?.click()}>
-            Import JSON…
+            {t("settings.overlays.import")}
           </button>
           <input
             ref={fileInput}
@@ -90,20 +93,18 @@ export function OverlaysSection({
       }
     >
       {layouts === null ? (
-        <div className="px-[18px] py-3.5 text-sm text-ink-dim">Loading…</div>
+        <div className="px-[18px] py-3.5 text-sm text-ink-dim">{t("common.loading")}</div>
       ) : layouts.length === 0 ? (
-        <div className="px-[18px] py-3.5 text-xs text-ink-dim">
-          No saved layouts yet. Build one in the Overlays tab, or import a layout file.
-        </div>
+        <div className="px-[18px] py-3.5 text-xs text-ink-dim">{t("settings.overlays.none")}</div>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full border-collapse font-tabular text-xs">
             <thead>
               <tr className="text-left text-[11px] text-ink-faint">
-                <th className="px-[18px] py-2 font-normal">Layout</th>
-                <th className="p-2 font-normal">Kind</th>
-                <th className="p-2 font-normal">Canvas</th>
-                <th className="p-2 font-normal">Widgets</th>
+                <th className="px-[18px] py-2 font-normal">{t("settings.overlays.layout")}</th>
+                <th className="p-2 font-normal">{t("settings.overlays.kind")}</th>
+                <th className="p-2 font-normal">{t("settings.overlays.canvas")}</th>
+                <th className="p-2 font-normal">{t("settings.overlays.widgets")}</th>
                 <th className="p-2 font-normal">URL</th>
                 <th className="px-[18px] py-2" />
               </tr>
@@ -114,7 +115,9 @@ export function OverlaysSection({
                 return (
                   <tr key={l.id} className="rule-row">
                     <td className="px-[18px] py-[9px]">{l.name}</td>
-                    <td className="px-2 py-[9px] text-ink-dim">{l.kind === "dash" ? "dashboard" : "overlay"}</td>
+                    <td className="px-2 py-[9px] text-ink-dim">
+                      {l.kind === "dash" ? t("settings.overlays.dashboard") : t("settings.overlays.overlay")}
+                    </td>
                     <td className="px-2 py-[9px] text-ink-dim">{canvas(l)}</td>
                     <td className="px-2 py-[9px] text-ink-dim">{l.config.cells.length}</td>
                     <td className="whitespace-nowrap px-2 py-[9px] text-accent-300">{path}</td>
@@ -124,15 +127,15 @@ export function OverlaysSection({
                           className="btn"
                           onClick={() =>
                             navigator.clipboard
-                              .writeText(`${window.location.origin}${path}`)
-                              .then(() => toast("URL copied", "success"))
-                              .catch(() => toast("Copy failed — select the URL manually", "error"))
+                              .writeText(withLanguage(`${window.location.origin}${path}`))
+                              .then(() => toast(t("settings.overlays.copied"), "success"))
+                              .catch(() => toast(t("settings.overlays.copyFailed"), "error"))
                           }
                         >
-                          Copy URL
+                          {t("settings.overlays.copy")}
                         </button>
                         <a className="btn no-underline" href={`#/overlays?layout=${l.id}`}>
-                          Edit
+                          {t("settings.overlays.edit")}
                         </a>
                       </div>
                     </td>

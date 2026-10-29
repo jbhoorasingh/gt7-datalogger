@@ -11,7 +11,14 @@ http://<host>:8000/dash                      # built-in Race engineer preset
 http://<host>:8000/dash?preset=endurance     # built-in Endurance preset
 http://<host>:8000/dash?layout=my-dash       # a layout you saved in the builder
 http://<host>:8000/dash?demo=1               # placeholder data for a dry run
+http://<host>:8000/dash?lang=es              # in Spanish (pt-BR, ja, en), whatever the tablet's language
 ```
+
+The dash has no language menu of its own: it shows the language this browser picked in
+the main app's status bar, or the one `lang=` names, which also works with the
+parameters above (`/dash?layout=my-dash&lang=ja`). The callouts can still speak another
+one — **Callout language** in the Race Engineer drawer
+([Language](race-engineer.md#language)).
 
 ![Driver dashboard — Race engineer preset](../screenshots/dash.png)
 

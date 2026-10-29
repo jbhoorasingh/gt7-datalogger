@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Toggle } from "@/components/ui/Toggle";
+import { currentLanguage, useT, type Translate } from "@/i18n";
 import { docsUrl } from "@/lib/analysisGuide";
 import { api } from "@/lib/api";
 import type { RestoreItem, RestoreReport, RestoreUpload } from "@/lib/types";
@@ -18,12 +19,18 @@ import {
   settingValue,
 } from "./restore";
 
-const UPLOAD = "Upload backup";
-const RESTORE = "Restore";
-
 function madeOn(iso: string): string {
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString(undefined, { dateStyle: "medium" });
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString(currentLanguage(), { dateStyle: "medium" });
+}
+
+/** Which app version made the backup, and when, as far as its manifest says. */
+function made(t: Translate, up: RestoreUpload): string {
+  const version = up.app_version;
+  const date = madeOn(up.created_at);
+  if (version && date) return t("settings.data.madeByOn", { version, date });
+  if (version) return t("settings.data.madeBy", { version });
+  return date ? t("settings.data.madeOn", { date }) : "";
 }
 
 // Settings › Data › Restore (#161): upload a backup, tick the parts to put
@@ -34,6 +41,9 @@ export function RestoreRow({
   run,
   onRestored,
 }: Pick<SectionProps, "busy" | "run"> & { onRestored: () => void }) {
+  const t = useT();
+  const UPLOAD = t("settings.data.restoreUpload");
+  const RESTORE = t("settings.data.restore");
   const [upload, setUpload] = useState<RestoreUpload | null>(null);
   const [selected, setSelected] = useState<ReadonlySet<RestoreItem>>(new Set());
   const [machine, setMachine] = useState<ReadonlySet<string>>(new Set());
@@ -80,7 +90,7 @@ export function RestoreRow({
         show(up);
         return up;
       },
-      (up) => `${(up as RestoreUpload).name}: pick the parts to restore`,
+      (up) => t("settings.data.restorePick", { name: (up as RestoreUpload).name }),
     );
   }
 
@@ -116,17 +126,17 @@ export function RestoreRow({
 
   return (
     <SettingRow
-      label="Restore"
+      label={RESTORE}
       help={
         <>
-          Put a backup back: upload the file, then tick what to restore.{" "}
+          {t("settings.data.restoreHelp")}{" "}
           <a
             className="text-accent hover:underline"
             href={docsUrl("guide/settings/#putting-it-back")}
             target="_blank"
             rel="noreferrer"
           >
-            What each part does
+            {t("settings.data.restoreParts")}
           </a>
         </>
       }
@@ -137,7 +147,7 @@ export function RestoreRow({
           type="file"
           accept=".zip,application/zip"
           className="hidden"
-          aria-label="Backup file to restore"
+          aria-label={t("settings.data.restoreFile")}
           onChange={(e) => {
             pick(e.target.files?.[0]);
             e.target.value = "";
@@ -146,7 +156,7 @@ export function RestoreRow({
         {!upload && (
           <div>
             <button className="btn" disabled={locked} onClick={() => fileInput.current?.click()}>
-              {busy === UPLOAD ? "Uploading…" : "Choose backup…"}
+              {busy === UPLOAD ? t("settings.data.uploading") : t("settings.data.chooseBackup")}
             </button>
           </div>
         )}
@@ -154,9 +164,7 @@ export function RestoreRow({
         {upload && (
           <>
             <div className="font-tabular text-[11px] text-ink-dim">
-              {upload.name} · {mb(upload.bytes)}
-              {upload.app_version && ` · made by ${upload.app_version}`}
-              {madeOn(upload.created_at) && ` on ${madeOn(upload.created_at)}`}
+              {[upload.name, mb(upload.bytes), made(t, upload)].filter(Boolean).join(" · ")}
             </div>
             {heldParts(upload).map((p) => {
               const can = restorable(p.id, upload);
@@ -171,11 +179,11 @@ export function RestoreRow({
                       checked={on}
                       disabled={!can || locked}
                       onCheckedChange={(v) => toggle(setSelected, p.id, v)}
-                      ariaLabel={`Restore ${p.label}`}
+                      ariaLabel={t("settings.data.restorePart", { part: t(p.label) })}
                     />
                   </span>
                   <div className="min-w-0">
-                    <div className={`text-[12.5px] ${can ? "" : "text-ink-faint"}`}>{p.label}</div>
+                    <div className={`text-[12.5px] ${can ? "" : "text-ink-faint"}`}>{t(p.label)}</div>
                     <div className="font-tabular text-[11px] text-ink-faint">{restoreDetail(p.id, upload)}</div>
                     {refused && <div className="mt-0.5 text-[11px] text-warn">{refused}</div>}
                     {warning && <div className="mt-0.5 text-[11px] text-warn">{warning}</div>}
@@ -187,7 +195,7 @@ export function RestoreRow({
                               checked={machine.has(s.key)}
                               disabled={locked}
                               onCheckedChange={(v) => toggle(setMachine, s.key, v)}
-                              ariaLabel={`Restore ${s.label}`}
+                              ariaLabel={t("settings.data.restorePart", { part: s.label })}
                             />
                             <span className="text-[11px] text-ink-dim">
                               {s.label}: <span className="font-tabular">{settingValue(s)}</span>
@@ -207,13 +215,13 @@ export function RestoreRow({
                 onClick={apply}
               >
                 {busy === RESTORE
-                  ? "Restoring…"
+                  ? t("settings.data.restoring")
                   : confirming
-                    ? `Replace ${upload.here.sessions.toLocaleString()} sessions and restore`
-                    : "Restore"}
+                    ? t("settings.data.replaceAndRestore", { count: upload.here.sessions })
+                    : RESTORE}
               </button>
               <button className="btn" disabled={locked} onClick={confirming ? () => setConfirming(false) : forget}>
-                {confirming ? "Cancel" : "Forget this file"}
+                {confirming ? t("common.cancel") : t("settings.data.forget")}
               </button>
             </div>
           </>

@@ -1,3 +1,4 @@
+import { useT } from "@/i18n";
 import { FASTEST_COLOR } from "@/lib/colors";
 import { formatLapTime } from "@/lib/format";
 import { sectorComparison } from "@/lib/sectorComparison";
@@ -23,13 +24,13 @@ export function SectorComparison({
   data: SectorTimesData;
   refLapId: number | null;
 }) {
+  const t = useT();
   const comparison = sectorComparison(data, refLapId);
 
   if (!comparison) {
     return (
       <div className="px-3 py-5 text-xs text-ink-dim">
-        Select a reference lap from this session to compare its sectors
-        with the session's best.
+        {t("sectorComparison.empty")}
       </div>
     );
   }
@@ -51,7 +52,7 @@ export function SectorComparison({
           <thead>
             <tr className="text-[10px] uppercase text-ink-dim">
               <th className="whitespace-nowrap px-2 py-2 text-left font-normal">
-                Lap
+                {t("common.lap")}
               </th>
               {sectors.map((sector) => (
                 <th
@@ -63,7 +64,7 @@ export function SectorComparison({
                 </th>
               ))}
               <th className="px-2 py-2 text-right font-normal">
-                Lap time
+                {t("sectorComparison.lapTime")}
               </th>
             </tr>
           </thead>
@@ -71,7 +72,7 @@ export function SectorComparison({
           <tbody>
             <tr className="border-t border-edge/40 text-ink">
               <th className="whitespace-nowrap px-2 py-2 text-left font-normal">
-                Reference L{referenceLapNumber}
+                {t("sectorComparison.reference", { n: String(referenceLapNumber) })}
               </th>
               {sectors.map((sector) => (
                 <td key={sector.n} className="px-1.5 py-2 text-right">
@@ -87,7 +88,7 @@ export function SectorComparison({
 
             <tr className="border-t border-edge/40">
               <th className="px-2 py-2 text-left font-normal text-ink-soft">
-                Session best sectors
+                {t("sectorComparison.bestSectors")}
               </th>
               {sectors.map((sector) => (
                 <td
@@ -109,7 +110,7 @@ export function SectorComparison({
 
             <tr className="border-y border-edge/40 bg-white/[0.025]">
               <th className="px-2 py-2 text-left font-semibold text-ink">
-                Delta
+                {t("common.delta")}
               </th>
               {sectors.map((sector) => (
                 <td
@@ -136,7 +137,7 @@ export function SectorComparison({
       <div className="mx-2 mt-4 grid grid-cols-2 gap-3 border-t border-edge pt-4">
         <div className="min-w-0">
           <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-dim">
-            Theoretical best
+            {t("sectorComparison.theoreticalBest")}
           </div>
           <div
             className="mt-1 whitespace-nowrap font-tabular text-xl font-bold tracking-tight sm:text-2xl"
@@ -150,7 +151,7 @@ export function SectorComparison({
 
         <div className="min-w-0 border-l border-edge pl-3 text-right">
           <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-dim">
-            Vs reference
+            {t("sectorComparison.vsReference")}
           </div>
           <div
             className={`mt-1 whitespace-nowrap font-tabular text-xl font-bold tracking-tight sm:text-2xl ${deltaColor(theoreticalDeltaMs)}`}
@@ -164,8 +165,7 @@ export function SectorComparison({
 
       {data.source === "thirds" && (
         <div className="mx-2 mt-3 text-[10px] text-ink-faint">
-          Estimated using thirds of the lap; circuit sector boundaries
-          are not configured.
+          {t("sectorComparison.thirds")}
         </div>
       )}
     </div>

@@ -249,6 +249,7 @@ class RaceEngineerManager:
         )
 
         phrases = []
+        level = False
 
         if self.sector_voice_content in ("time", "both"):
             sector_time = spoken_sector_duration(
@@ -286,11 +287,19 @@ class RaceEngineerManager:
                 event_type="sector_time",
                 text=text,
                 message_key="sector.time",
+                # Everything the wording above depends on, so a translation
+                # can say the same thing: which halves were spoken, to what
+                # precision, and whether the delta rounded to level.
                 message_args={
                     "lap": lap,
                     "sector": crossing.sector,
                     "time_ms": crossing.time_ms,
                     "delta_ms": delta_ms,
+                    "content": self.sector_voice_content,
+                    "comparison": self.sector_voice_comparison,
+                    "places": self.sector_voice_decimals,
+                    "rounding": self.sector_voice_rounding,
+                    "level": level,
                 },
                 dedupe_key=(
                     f"sector_time:{self.ctx.session_seq}:"
@@ -767,11 +776,24 @@ class RaceEngineerManager:
 
     def _lap_announcement_text(self, request: CalloutRequest) -> str:
         """Use sector precision for lap announcements only when opted in."""
+        return self._lap_announcement(request)[0]
+
+    def _lap_announcement(
+        self, request: CalloutRequest
+    ) -> tuple[str, dict[str, Any]]:
+        """The lap announcement's text and the arguments it was worded from.
+
+        With sector voice on, the lap time is spoken to the sector precision,
+        which can also drop a gap the detector kept (a truncated 0.08 s is
+        "zero point zero"). The arguments follow the text, so a translation
+        says what the English says: `places`/`rounding` name the precision,
+        and a gap left unspoken is None.
+        """
         if (
             not self.sector_voice_enabled
             or request.event_type not in ("lap_time", "personal_best")
         ):
-            return request.text
+            return request.text, request.message_args
 
         from app.race_engineer.detectors.lap import MIN_GAP_MS
         from app.race_engineer.formatter import (
@@ -783,10 +805,11 @@ class RaceEngineerManager:
         time_ms = args.get("time_ms")
 
         if not isinstance(time_ms, (int, float)) or time_ms <= 0:
-            return request.text
+            return request.text, args
 
         places = self.sector_voice_decimals
         rounding = self.sector_voice_rounding
+        worded: dict[str, Any] = {**args, "places": places, "rounding": rounding}
 
         spoken_time = spoken_precise_lap_time(int(time_ms), places, rounding)
 
@@ -803,8 +826,10 @@ class RaceEngineerManager:
             if isinstance(gain, (int, float)) and gain >= min_gap_ms:
                 spoken_gain = spoken_precise_gap(gain, places, rounding)
                 text += f" {spoken_gain.capitalize()} faster."
+            else:
+                worded["gain_ms"] = None
 
-            return text
+            return text, worded
 
         text = f"Lap time, {spoken_time}."
         delta = args.get("delta_ms")
@@ -813,8 +838,10 @@ class RaceEngineerManager:
             spoken_delta = spoken_precise_gap(delta, places, rounding)
             direction = "slower" if delta > 0 else "faster"
             text += f" {spoken_delta.capitalize()} {direction}."
+        else:
+            worded["delta_ms"] = None
 
-        return text
+        return text, worded
 
     def _emit(self, request: CalloutRequest) -> VoiceCallout | None:
         spec = SPECS.get(request.event_type)
@@ -846,10 +873,11 @@ class RaceEngineerManager:
 
         self._seq += 1
         created = int(time.time() * 1000)
+        text, message_args = self._lap_announcement(request)
         callout = VoiceCallout(
             id=f"{request.event_type}-{self.ctx.session_seq}-{self._seq}",
             event_type=request.event_type,
-            text=self._lap_announcement_text(request),
+            text=text,
             category=spec.category,
             priority=spec.priority,
             created_at_ms=created,
@@ -858,7 +886,7 @@ class RaceEngineerManager:
             interrupt=spec.interrupt,
             dedupe_key=key,
             message_key=request.message_key,
-            message_args=request.message_args,
+            message_args=message_args,
             metadata=request.metadata,
         )
         self.stats["emitted"] += 1

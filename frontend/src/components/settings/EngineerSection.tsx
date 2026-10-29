@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Toggle } from "@/components/ui/Toggle";
+import { useT } from "@/i18n";
 import { api } from "@/lib/api";
 import {
   CALLOUT_CATEGORIES,
@@ -11,13 +12,8 @@ import {
 } from "@/lib/types";
 import { SectionPanel, SettingRow, TONE_TEXT, type SectionProps, type Tone } from "./parts";
 
-const VERBOSITY_DESC: Record<Verbosity, string> = {
-  minimal: "Only what needs action: critical warnings, fuel shortage, pit window, final lap.",
-  race: "Adds lap times, personal bests, positions, fuel and race progress.",
-  coach: "Adds repeated lockups, wheelspin and corner feedback — chatty.",
-};
-
 export function EngineerSection({ draft, edit, busy, run }: SectionProps) {
+  const t = useT();
   const [diag, setDiag] = useState<RaceEngineerDiagnostics | null>(null);
 
   useEffect(() => {
@@ -40,42 +36,51 @@ export function EngineerSection({ draft, edit, busy, run }: SectionProps) {
   }
 
   const speaker = diag
-    ? diag.clients.find((c) => c.is_active_speaker)?.page ?? (diag.active_client_id ? "elsewhere" : "none")
+    ? diag.clients.find((c) => c.is_active_speaker)?.page ??
+      (diag.active_client_id ? t("settings.engineer.elsewhere") : t("engineer.check.none"))
     : "—";
   const failures = diag?.acks.speech_error ?? 0;
   const stats: { k: string; v: string; tone: Tone }[] = diag
     ? [
         {
-          k: "Detection",
-          v: diag.active ? "running" : diag.enabled ? "idle" : "disabled",
+          k: t("settings.engineer.detection"),
+          v: diag.active
+            ? t("engineer.status.running")
+            : diag.enabled
+              ? t("engineer.check.idle")
+              : t("engineer.status.disabled"),
           tone: diag.active ? "good" : "faint",
         },
-        { k: "Speaking on", v: speaker, tone: "ink" },
-        { k: "Emitted", v: String(diag.stats.emitted ?? 0), tone: "ink" },
-        { k: "Speech failures", v: String(failures), tone: failures ? "bad" : "ink" },
+        { k: t("settings.engineer.speakingOn"), v: speaker, tone: "ink" },
+        { k: t("settings.engineer.emitted"), v: String(diag.stats.emitted ?? 0), tone: "ink" },
+        { k: t("settings.engineer.failures"), v: String(failures), tone: failures ? "bad" : "ink" },
       ]
     : [];
 
   return (
     <SectionPanel
-      title="Race Engineer"
+      title={t("engineer.title")}
       description={
         <>
-          Voice callouts, spoken in the browser on{" "}
+          {t("settings.engineer.descBefore")}
           <a className="text-accent hover:underline" href="/dash" target="_blank" rel="noreferrer">
             /dash
-          </a>{" "}
-          or{" "}
+          </a>
+          {t("settings.engineer.descOr")}
           <a className="text-accent hover:underline" href="/engineer" target="_blank" rel="noreferrer">
             /engineer
-          </a>{" "}
-          — never on the server, so no audio hardware is needed on a Pi or in Docker.
+          </a>
+          {t("settings.engineer.descAfter")}
         </>
       }
       actions={
         <label className="flex items-center gap-2.5 text-xs text-ink-dim">
-          Callouts on
-          <Toggle ariaLabel="Callouts on" checked={on} onCheckedChange={(v) => edit({ race_engineer: v })} />
+          {t("settings.engineer.calloutsOn")}
+          <Toggle
+            ariaLabel={t("settings.engineer.calloutsOn")}
+            checked={on}
+            onCheckedChange={(v) => edit({ race_engineer: v })}
+          />
         </label>
       }
     >
@@ -85,71 +90,64 @@ export function EngineerSection({ draft, edit, busy, run }: SectionProps) {
             {s.k} <span className={TONE_TEXT[s.tone]}>{s.v}</span>
           </span>
         ))}
-        {!diag && <span className="text-[11px] text-ink-faint">Loading diagnostics…</span>}
+        {!diag && <span className="text-[11px] text-ink-faint">{t("settings.engineer.loadingDiag")}</span>}
         <button
           className="btn ml-auto"
           disabled={busy !== null}
           onClick={() =>
             void run(
-              "Test callout",
+              t("settings.engineer.testCallout"),
               () => api.admin.testCallout("Race engineer test callout."),
-              () => "Test callout sent to connected browsers",
+              () => t("settings.engineer.testSent"),
             )
           }
         >
-          Send test callout
+          {t("settings.engineer.sendTest")}
         </button>
       </div>
       {diag?.last_ack_reason && failures > 0 && (
         <div className="bg-brake/10 px-[18px] py-2 text-xs text-brake">
-          Speech failing: {diag.last_ack_reason} — the browser is receiving callouts but cannot play them.
+          {t("settings.engineer.speechFailing", { reason: diag.last_ack_reason })}
         </div>
       )}
       <div className="rule" />
 
-      <SettingRow label="Maximum verbosity" help="A ceiling — each browser can choose less, never more.">
+      <SettingRow label={t("settings.engineer.maxVerbosity")} help={t("settings.engineer.maxVerbosityHelp")}>
         <div className="flex flex-col items-start gap-1.5">
           <SegmentedControl
-            ariaLabel="Maximum verbosity"
+            ariaLabel={t("settings.engineer.maxVerbosity")}
             value={draft.race_engineer_verbosity}
             disabled={!on}
             onValueChange={(v: Verbosity) => edit({ race_engineer_verbosity: v })}
-            options={[
-              { value: "minimal", label: "Minimal" },
-              { value: "race", label: "Race" },
-              { value: "coach", label: "Coach" },
-            ]}
+            options={(["minimal", "race", "coach"] as const).map((v) => ({
+              value: v,
+              label: <span className="capitalize">{t(`verbosity.${v}`)}</span>,
+            }))}
           />
-          <span className="text-[11px] text-ink-dim">{VERBOSITY_DESC[draft.race_engineer_verbosity]}</span>
+          <span className="text-[11px] text-ink-dim">
+            {t(`verbosity.${draft.race_engineer_verbosity}.server`)}
+          </span>
         </div>
       </SettingRow>
 
       <div className="rule" />
       <div className="px-[18px] py-3">
-        <div className="text-xs font-semibold text-ink">
-          Sector Voice Announcements
-        </div>
-        <p className="mt-1 text-[11px] text-ink-dim">
-          Announce sector timing against the active reference lap.
-          Sector callouts require authored boundaries. Precision and rounding also apply to completed laps when Sector Voice is on.
-        </p>
+        <div className="text-xs font-semibold text-ink">{t("settings.engineer.sectorTitle")}</div>
+        <p className="mt-1 text-[11px] text-ink-dim">{t("settings.engineer.sectorDesc")}</p>
       </div>
 
-      <SettingRow
-        label="Sector announcements"
-        help="Enable sector callouts and configurable lap voice precision. Turning this off restores the original completed-lap announcements."
-      >
+      <SettingRow label={t("settings.engineer.sectorToggle")} help={t("settings.engineer.sectorToggleHelp")}>
         <Toggle
-          ariaLabel="Sector voice announcements"
+          ariaLabel={t("settings.label.race_engineer_sector_voice_enabled")}
           checked={draft.race_engineer_sector_voice_enabled}
           disabled={!on}
           onCheckedChange={(v) => edit({ race_engineer_sector_voice_enabled: v })}
         />
       </SettingRow>
 
-      <SettingRow label="Decimal precision" help="Decimal places spoken for sector times, completed laps, personal bests and timing differences.">
+      <SettingRow label={t("settings.engineer.decimals")} help={t("settings.engineer.decimalsHelp")}>
         <SegmentedControl
-          ariaLabel="Sector voice decimal precision"
+          ariaLabel={t("settings.label.race_engineer_sector_voice_decimals")}
           value={String(draft.race_engineer_sector_voice_decimals)}
           disabled={!on || !draft.race_engineer_sector_voice_enabled}
           onValueChange={(v) =>
@@ -163,71 +161,68 @@ export function EngineerSection({ draft, edit, busy, run }: SectionProps) {
         />
       </SettingRow>
 
-      <SettingRow label="Rounding" help="Round or truncate spoken sector timings, completed-lap times and their differences.">
+      <SettingRow label={t("settings.engineer.rounding")} help={t("settings.engineer.roundingHelp")}>
         <SegmentedControl
-          ariaLabel="Sector voice rounding"
+          ariaLabel={t("settings.label.race_engineer_sector_voice_rounding")}
           value={draft.race_engineer_sector_voice_rounding}
           disabled={!on || !draft.race_engineer_sector_voice_enabled}
           onValueChange={(v: "round" | "truncate") =>
             edit({ race_engineer_sector_voice_rounding: v })
           }
           options={[
-            { value: "round", label: "Round" },
-            { value: "truncate", label: "Truncate" },
+            { value: "round", label: t("settings.engineer.round") },
+            { value: "truncate", label: t("settings.engineer.truncate") },
           ]}
         />
       </SettingRow>
 
-      <SettingRow label="Announcement content" help="What the Race Engineer says at each sector.">
+      <SettingRow label={t("settings.engineer.content")} help={t("settings.engineer.contentHelp")}>
         <SegmentedControl
-          ariaLabel="Sector voice announcement content"
+          ariaLabel={t("settings.label.race_engineer_sector_voice_content")}
           value={draft.race_engineer_sector_voice_content}
           disabled={!on || !draft.race_engineer_sector_voice_enabled}
           onValueChange={(v: "delta" | "time" | "both") =>
             edit({ race_engineer_sector_voice_content: v })
           }
           options={[
-            { value: "delta", label: "Delta" },
-            { value: "time", label: "Time" },
-            { value: "both", label: "Both" },
+            { value: "delta", label: t("settings.engineer.delta") },
+            { value: "time", label: t("settings.engineer.time") },
+            { value: "both", label: t("settings.engineer.both") },
           ]}
         />
       </SettingRow>
 
-      <SettingRow
-        label="Comparison mode"
-        help="Compare each sector individually or cumulative progress through the lap."
-      >
+      <SettingRow label={t("settings.engineer.comparison")} help={t("settings.engineer.comparisonHelp")}>
         <SegmentedControl
-          ariaLabel="Sector voice comparison mode"
+          ariaLabel={t("settings.label.race_engineer_sector_voice_comparison")}
           value={draft.race_engineer_sector_voice_comparison}
           disabled={!on || !draft.race_engineer_sector_voice_enabled}
           onValueChange={(v: "individual" | "cumulative") =>
             edit({ race_engineer_sector_voice_comparison: v })
           }
           options={[
-            { value: "individual", label: "Individual" },
-            { value: "cumulative", label: "Cumulative" },
+            { value: "individual", label: t("settings.engineer.individual") },
+            { value: "cumulative", label: t("settings.engineer.cumulative") },
           ]}
         />
       </SettingRow>
 
-      <SettingRow label="Spoken units" help="For braking points and speeds inside callouts.">
+      <SettingRow label={t("settings.label.race_engineer_units")} help={t("settings.engineer.unitsHelp")}>
         <SegmentedControl
-          ariaLabel="Spoken units"
+          ariaLabel={t("settings.label.race_engineer_units")}
           value={draft.race_engineer_units}
           disabled={!on}
           onValueChange={(u: SpokenUnits) => edit({ race_engineer_units: u })}
           options={[
-            { value: "metric", label: "Metres · km/h" },
-            { value: "imperial", label: "Feet · mph" },
+            { value: "metric", label: t("settings.engineer.metric") },
+            { value: "imperial", label: t("settings.engineer.imperial") },
           ]}
         />
       </SettingRow>
 
       <SettingRow
-        label="Categories"
-        help={`What the server may say. ${cats.length} of ${CALLOUT_CATEGORIES.length} on.`}
+        label={t("engineer.categories")}
+        help={t("settings.engineer.categoriesHelp", { on: cats.length, total: CALLOUT_CATEGORIES.length })}
         last
       >
         <div className="flex flex-wrap gap-1.5">
@@ -245,7 +240,7 @@ export function EngineerSection({ draft, edit, busy, run }: SectionProps) {
                     : "border-edge text-ink-faint hover:text-ink"
                 }`}
               >
-                {c}
+                {t(`category.${c}`)}
               </button>
             );
           })}
@@ -256,19 +251,23 @@ export function EngineerSection({ draft, edit, busy, run }: SectionProps) {
         <>
           <div className="rule" />
           <details className="px-[18px] py-3 text-[11px] text-ink-dim">
-            <summary className="cursor-pointer text-ink-faint">More diagnostics</summary>
+            <summary className="cursor-pointer text-ink-faint">{t("settings.engineer.moreDiag")}</summary>
             <div className="mt-2 grid max-w-[560px] grid-cols-[1fr_auto] gap-x-6 gap-y-1 font-tabular">
-              <DiagRow k="Voice-capable clients" v={diag.clients.length} />
-              <DiagRow k="Suppressed (cooldown)" v={diag.stats.suppressed_cooldown ?? 0} />
-              <DiagRow k="Suppressed (duplicate)" v={diag.stats.suppressed_duplicate ?? 0} />
-              <DiagRow k="Suppressed (category)" v={diag.stats.suppressed_category ?? 0} />
-              <DiagRow k="Spoken acks" v={diag.acks.spoken ?? 0} cls={diag.acks.spoken ? "text-throttle" : undefined} />
-              <DiagRow k="Corners on reference lap" v={diag.corners} />
-              <DiagRow k="Laps in fuel model" v={diag.lap_history} />
+              <DiagRow k={t("settings.engineer.diag.clients")} v={diag.clients.length} />
+              <DiagRow k={t("settings.engineer.diag.cooldown")} v={diag.stats.suppressed_cooldown ?? 0} />
+              <DiagRow k={t("settings.engineer.diag.duplicate")} v={diag.stats.suppressed_duplicate ?? 0} />
+              <DiagRow k={t("settings.engineer.diag.category")} v={diag.stats.suppressed_category ?? 0} />
+              <DiagRow
+                k={t("settings.engineer.diag.spoken")}
+                v={diag.acks.spoken ?? 0}
+                cls={diag.acks.spoken ? "text-throttle" : undefined}
+              />
+              <DiagRow k={t("settings.engineer.diag.corners")} v={diag.corners} />
+              <DiagRow k={t("settings.engineer.diag.fuelLaps")} v={diag.lap_history} />
             </div>
             {diag.last_callout && (
               <div className="mt-2 rounded-md border border-edge bg-panel-2 p-2 text-xs text-ink">
-                <span className="section-header">Last emitted </span>
+                <span className="section-header">{t("settings.engineer.lastEmitted")} </span>
                 {diag.last_callout.text}
               </div>
             )}

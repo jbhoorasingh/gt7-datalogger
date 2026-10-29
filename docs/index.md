@@ -20,7 +20,9 @@ GT7 streams encrypted telemetry over UDP at 60 Hz while you drive. GT7 Datalogge
    overlay builder.
 
 Everything runs in a single container (or natively on hardware as small as a Raspberry
-Pi Zero) and is viewed from any browser on your network.
+Pi Zero) and is viewed from any browser on your network — in English, Spanish,
+Brazilian Portuguese or Japanese, which each browser picks for itself, voice callouts
+included ([Language](guide/race-engineer.md#language)).
 
 ## Quick start
 

@@ -17,8 +17,9 @@ import type * as echarts from "echarts";
 import type { EChartsOption, SeriesOption } from "echarts";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CHART_COLORS, EChart } from "@/components/EChart";
+import { useT, type Translate } from "@/i18n";
 import { api } from "@/lib/api";
-import { speedUnit, speedValue, type Units } from "@/lib/format";
+import { formatInt, speedUnit, speedValue, type Units } from "@/lib/format";
 import {
   gearColor,
   gearScale,
@@ -105,16 +106,12 @@ function useLapGearing(lapId: number | null, cache: GearingCache): LapGearing | 
 // What the speeds and lines rest on, in a few words. Until the comparison
 // arrives there are no samples to fit, so the table shows GT7's top speed or
 // nothing, and the caption says so rather than calling the fit failed.
-function caption(scale: GearScale | null, haveSamples: boolean): string {
-  if (scale?.source === "fit") return "Lines fitted to this lap's samples.";
+function caption(scale: GearScale | null, haveSamples: boolean, t: Translate): string {
+  if (scale?.source === "fit") return t("gearing.caption.fit");
   if (!haveSamples) {
-    return scale
-      ? "Speeds from GT7's top speed until the lap's samples load."
-      : "Speeds appear once the lap's samples load.";
+    return scale ? t("gearing.caption.topSpeedPending") : t("gearing.caption.pending");
   }
-  return scale
-    ? "Lines from GT7's top speed: this lap's samples gave no consistent fit."
-    : "No lines: no consistent fit, and no top speed recorded for this lap.";
+  return scale ? t("gearing.caption.topSpeed") : t("gearing.caption.none");
 }
 
 export function GearingPanel({
@@ -129,6 +126,7 @@ export function GearingPanel({
   units: Units;
   cursorDist: number | null;
 }) {
+  const t = useT();
   const [cache] = useState<GearingCache>(() => new Map());
   const gearing = useLapGearing(lap.id, cache);
   const refGearing = useLapGearing(reference?.id ?? null, cache);
@@ -153,9 +151,7 @@ export function GearingPanel({
   if (gearing === undefined) return <div className="skeleton m-3 h-16" />;
   if (gearing === null || gearing.ratios.length === 0) {
     return (
-      <div className="p-3 text-xs text-ink-dim">
-        No gearing data for this lap (recorded before Tier 1).
-      </div>
+      <div className="p-3 text-xs text-ink-dim">{t("gearing.noData")}</div>
     );
   }
 
@@ -166,9 +162,9 @@ export function GearingPanel({
         <table className="w-full font-tabular text-xs">
           <thead>
             <tr className="text-left text-ink-dim">
-              <th className="pb-1 font-normal">Gear</th>
-              <th className="pb-1 font-normal">Ratio</th>
-              <th className="pb-1 text-right font-normal">est. @ redline</th>
+              <th className="pb-1 font-normal">{t("common.gear")}</th>
+              <th className="pb-1 font-normal">{t("gearing.ratio")}</th>
+              <th className="pb-1 text-right font-normal">{t("gearing.atRedline")}</th>
             </tr>
           </thead>
           <tbody>
@@ -194,10 +190,12 @@ export function GearingPanel({
         <div className="mt-2 flex justify-between font-tabular text-[11px] text-ink-dim">
           {plausibleTopSpeed(gearing) && (
             <span>
-              Top speed (tune) {Math.round(speedValue(gearing.top_speed, units))} {speedUnit(units)}
+              {t("gearing.topSpeed", {
+                speed: `${Math.round(speedValue(gearing.top_speed, units))} ${speedUnit(units)}`,
+              })}
             </span>
           )}
-          <span className="ml-auto">Redline {Math.round(gearing.rpm_alert).toLocaleString()} rpm</span>
+          <span className="ml-auto">{t("gearing.redline", { rpm: formatInt(gearing.rpm_alert) })}</span>
         </div>
       </div>
       {lap.series && (
@@ -211,11 +209,13 @@ export function GearingPanel({
         />
       )}
       <div className="px-3.5 pb-2.5 text-[10px] leading-relaxed text-ink-faint">
-        {caption(scale, lap.series != null)}
+        {caption(scale, lap.series != null, t)}
         {ghost && (
           <>
             {" "}
-            {ghost.scale ? "Grey and dashed" : "Grey"}: {ghost.label}, another gearbox.
+            {ghost.scale
+              ? t("gearing.ghostDashed", { lap: ghost.label })
+              : t("gearing.ghost", { lap: ghost.label })}
           </>
         )}
       </div>
@@ -238,6 +238,7 @@ function Sawtooth({
   units: Units;
   cursorDist: number | null;
 }) {
+  const t = useT();
   const chartRef = useRef<echarts.ECharts | null>(null);
 
   const option = useMemo<EChartsOption>(() => {
@@ -340,7 +341,7 @@ function Sawtooth({
             position: "insideStartTop",
             color: CHART_COLORS.brake,
             fontSize: 9,
-            formatter: "redline",
+            formatter: t("gearing.redlineMark"),
           },
           lineStyle: { color: CHART_COLORS.brake, type: "dashed", width: 1 },
           data: [{ yAxis: gearing.rpm_alert }],
@@ -395,12 +396,12 @@ function Sawtooth({
         formatter: (params) => {
           const item = Array.isArray(params) ? params[0] : params;
           const [speed, rpm, gear] = item.value as number[];
-          return `<b>Gear ${gear}</b><br/>${Math.round(speed)} ${unit} · ${Math.round(rpm).toLocaleString()} rpm`;
+          return `<b>${t("gearing.tipGear", { gear: String(gear) })}</b><br/>${Math.round(speed)} ${unit} · ${formatInt(rpm)} rpm`;
         },
       },
       series: out,
     };
-  }, [series, gearing, scale, ghost, units]);
+  }, [series, gearing, scale, ghost, units, t]);
 
   // The cursor dot merges in by series id, as on the traction circle, and
   // again after every new option, which starts it empty. Its ring takes the

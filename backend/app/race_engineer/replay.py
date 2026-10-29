@@ -53,7 +53,9 @@ def coaching_notes(
 
     `laps` are the session's lap rows in any order; replay runs them
     chronologically. Returns one entry per lap that has findings:
-    `{lap_id, number, findings: [{type, text, corner}]}`.
+    `{lap_id, number, findings: [{type, text, corner, message_key,
+    message_args}]}` — the key and arguments a browser words the note from in
+    another language, as it does the spoken callout.
     """
     ctx = EngineerContext(units=units, session_seq=1, span_confirmed=True)
     detector = CoachingDetector()
@@ -90,6 +92,8 @@ def coaching_notes(
                 # Which corner the note is about, when it names one — the UI
                 # uses it to zoom the charts and map there.
                 "corner": request.metadata.get("corner"),
+                "message_key": request.message_key,
+                "message_args": request.message_args,
             })
         if findings:
             out.append({"lap_id": row["id"], "number": record.number, "findings": findings})

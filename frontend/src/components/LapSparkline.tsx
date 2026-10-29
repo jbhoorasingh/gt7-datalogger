@@ -8,6 +8,7 @@
 
 import { useEffect, useState } from "react";
 import { Tip } from "@/components/ui/Tooltip";
+import { useT } from "@/i18n";
 import { api } from "@/lib/api";
 import { consistencyBand, formatSpread, lapConsistency } from "@/lib/consistency";
 import { formatLapTime } from "@/lib/format";
@@ -18,6 +19,7 @@ const BAND_CLASS = { tight: "text-throttle", steady: "text-ink-dim", loose: "tex
 const cache = new Map<string, LapSummary[]>();
 
 export function LapSparkline({ sessionId, lapCount }: { sessionId: number; lapCount: number }) {
+  const t = useT();
   const key = `${sessionId}:${lapCount}`;
   const [laps, setLaps] = useState<LapSummary[] | null>(cache.get(key) ?? null);
 
@@ -62,7 +64,7 @@ export function LapSparkline({ sessionId, lapCount }: { sessionId: number; lapCo
         viewBox={`0 0 ${W} ${H}`}
         aria-hidden="true"
       >
-        <title>Lap times (lower is faster)</title>
+        <title>{t("live.sparkline.title")}</title>
         <polyline
           points={points}
           fill="none"
@@ -75,7 +77,12 @@ export function LapSparkline({ sessionId, lapCount }: { sessionId: number; lapCo
       </svg>
       {consistency && (
         <Tip
-          content={`Consistency: lap times vary by ${formatSpread(consistency.stdMs)} — ${consistency.pct.toFixed(2)}% of the ${formatLapTime(consistency.medianMs)} median — over the ${consistency.laps} laps that count toward bests`}
+          content={t("live.sparkline.consistency", {
+            spread: formatSpread(consistency.stdMs),
+            pct: consistency.pct.toFixed(2),
+            median: formatLapTime(consistency.medianMs),
+            count: consistency.laps,
+          })}
         >
           <span
             className={`pl-[3px] font-tabular text-[10px] leading-tight ${BAND_CLASS[consistencyBand(consistency.pct)]}`}

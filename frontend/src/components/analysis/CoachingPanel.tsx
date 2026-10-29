@@ -1,9 +1,11 @@
 // Post-lap coaching notes (#23): the race engineer's findings as text — the
-// exact wording voice would have used, replayed server-side from the stored
+// exact wording voice would have used (in the interface language), replayed server-side from the stored
 // session so they exist for people who never enable voice. Grouped per lap,
 // newest first; a finding that names a corner zooms the charts and map to it
 // on click, using the same corner-window convention as everything else.
 
+import { useLanguage, useT } from "@/i18n";
+import { wordCallout } from "@/i18n/callouts";
 import { cornerRange } from "@/lib/cornerZoom";
 import type { CoachingLapNotes, Corner } from "@/lib/types";
 
@@ -30,6 +32,8 @@ export function CoachingPanel({
   corners: Corner[];
   onZoom?: (range: [number, number]) => void;
 }) {
+  const t = useT();
+  const language = useLanguage();
   if (notes.length === 0) return null;
   // Newest lap first — the engineer's most recent observation is the one a
   // driver stepping out of the car wants on top.
@@ -48,7 +52,7 @@ export function CoachingPanel({
                   style={{ backgroundColor: lapColors[String(lap.lap_id)] }}
                 />
               )}
-              Lap {lap.number}
+              {t("lapChart.lapN", { n: String(lap.number) })}
             </div>
             <ul className="space-y-1">
               {lap.findings.map((f, i) => {
@@ -59,13 +63,13 @@ export function CoachingPanel({
                   <li
                     key={`${f.type}-${i}`}
                     onClick={zoomable ? () => onZoom(cornerRange(corner)) : undefined}
-                    title={zoomable ? "Zoom the charts and map to this corner" : undefined}
+                    title={zoomable ? t("coachingPanel.zoom") : undefined}
                     className={`rounded-md border border-edge/60 px-2 py-1 text-xs leading-snug ${
                       zoomable ? "cursor-pointer hover:border-edge-bright hover:bg-panel-2" : ""
                     }`}
                   >
                     <span className="mr-1.5">{ICONS[f.type] ?? "💬"}</span>
-                    {f.text}
+                    {wordCallout(f, language).text}
                   </li>
                 );
               })}
@@ -74,8 +78,7 @@ export function CoachingPanel({
         );
       })}
       <div className="text-[10px] text-ink-dim">
-        Replayed from this session's laps — the same findings the voice engineer
-        makes, whether or not voice was on.
+        {t("coachingPanel.note")}
       </div>
     </div>
   );

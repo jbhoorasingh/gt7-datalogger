@@ -4,13 +4,16 @@
 // than from what was actually spoken.
 
 import { useEffect, useState } from "react";
+import { useT } from "@/i18n";
 import type { VoiceCallout } from "@/lib/types";
-import { useEngineer } from "@/store/engineer";
+import { useCalloutWording, useEngineer } from "@/store/engineer";
 
 // Long enough to read at a glance, short enough not to sit over the track map.
 const VISIBLE_MS = 6000;
 
 export function CalloutBanner() {
+  const t = useT();
+  const word = useCalloutWording();
   const captions = useEngineer((s) => s.captions);
   const latest = useEngineer((s) => s.history[0] ?? null);
   const [shown, setShown] = useState<VoiceCallout | null>(null);
@@ -34,9 +37,9 @@ export function CalloutBanner() {
         }`}
       >
         <span className="mr-2 text-[10px] uppercase tracking-widest text-ink-dim">
-          {shown.category}
+          {t(`category.${shown.category}`)}
         </span>
-        {shown.text}
+        {word(shown)}
       </div>
     </div>
   );

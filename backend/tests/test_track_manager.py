@@ -478,6 +478,8 @@ def test_a_disagreeing_lap_length_kills_a_name_match() -> None:
     catalog = track_catalog.load(str(Settings().tracks_json))
     configs = track_catalog.configurations(catalog)
     good = track_catalog.suggest("Autopolis International Racing Course", configs, 4674)
+    assert good is not None
+    assert good["match"] == {"name": "exact", "length": "agrees", "measured_m": 4674}
     assert good is not None and good["confidence"] >= 1.0
     wrong = track_catalog.suggest("Autopolis International Racing Course", configs, 1200)
     assert wrong is None or wrong["confidence"] < good["confidence"]

@@ -15,6 +15,7 @@ import type { EChartsOption, SeriesOption } from "echarts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EChart } from "@/components/EChart";
 import { ConfirmDialog } from "@/components/ui/Dialog";
+import { rich, useT, type MessageKey } from "@/i18n";
 import { api } from "@/lib/api";
 import {
   borderCoverage,
@@ -36,18 +37,18 @@ import { toast } from "@/store/toasts";
 
 const CHAR_TO_CODE: Record<string, number> = { T: 1, C: 2, D: 3, G: 4, S: 5, s: 6 };
 
-const CODE_META: Record<number, { label: string; color: string }> = {
-  0: { label: "no data", color: "#3a414c" },
-  1: { label: "tarmac", color: "#6b7280" },
-  2: { label: "kerb", color: "#eab308" },
-  3: { label: "dirt", color: "#b45309" },
-  4: { label: "grass", color: "#22c55e" },
-  5: { label: "sand", color: "#f59e0b" },
-  6: { label: "snow", color: "#e5e7eb" },
-  7: { label: "unknown", color: "#ef4444" },
+const CODE_META: Record<number, { labelKey: MessageKey; color: string }> = {
+  0: { labelKey: "survey.surface.noData", color: "#3a414c" },
+  1: { labelKey: "survey.surface.tarmac", color: "#6b7280" },
+  2: { labelKey: "survey.surface.kerb", color: "#eab308" },
+  3: { labelKey: "survey.surface.dirt", color: "#b45309" },
+  4: { labelKey: "survey.surface.grass", color: "#22c55e" },
+  5: { labelKey: "survey.surface.sand", color: "#f59e0b" },
+  6: { labelKey: "survey.surface.snow", color: "#e5e7eb" },
+  7: { labelKey: "common.unknown", color: "#ef4444" },
 };
 
-function charMeta(ch: string): { label: string; color: string } {
+function charMeta(ch: string): { labelKey: MessageKey; color: string } {
   return CODE_META[CHAR_TO_CODE[ch] ?? 7];
 }
 
@@ -73,43 +74,41 @@ function tickClass(e: SurveyEdge): number {
 
 const MARK_KINDS = ["edge", "runoff", "wall"] as const;
 
+const MARK_LABEL: Record<(typeof MARK_KINDS)[number], MessageKey> = {
+  edge: "survey.kind.edge",
+  runoff: "survey.kind.runoff",
+  wall: "survey.kind.wall",
+};
+
 // All three tags mark the SAME thing — the edge of the racing surface,
 // where the surface chars cannot see it. They differ only in what lies
 // beyond, which is what lap-validity judging needs to know: running wide
 // onto pavement is not running wide into gravel.
-const MARK_HELP: Record<(typeof MARK_KINDS)[number], { what: string; when: string }> = {
-  edge: {
-    what: "Track edge, with nothing notable beyond it.",
-    when: "The default: a painted line or kerb edge the surface chars cannot see because there is tarmac either side.",
-  },
-  runoff: {
-    what: "Track edge, with paved run-off beyond it.",
-    when: "Same boundary as 'edge' — the tag records that going wide here puts you on pavement, not grass. Mark the edge itself, not the far side of the run-off.",
-  },
-  wall: {
-    what: "Track edge, with a wall, barrier or fence beyond it.",
-    when: "Use where there is no off-surface to run onto at all.",
-  },
+const MARK_HELP: Record<(typeof MARK_KINDS)[number], { whatKey: MessageKey; whenKey: MessageKey }> = {
+  edge: { whatKey: "survey.markHelp.edge.what", whenKey: "survey.markHelp.edge.when" },
+  runoff: { whatKey: "survey.markHelp.runoff.what", whenKey: "survey.markHelp.runoff.when" },
+  wall: { whatKey: "survey.markHelp.wall.what", whenKey: "survey.markHelp.wall.when" },
 };
 
 // Why no cornering sample has landed yet. The old edge-ride estimator could
 // sit at "assumed" for an entire session without ever saying what it was
 // waiting for; naming the gate that rejected the most ticks turns a silent
 // stall into something the driver can act on.
-const WIDTH_STALL: Record<string, string> = {
-  straight: "no corner yet — needs sustained steering",
-  on_pedals: "always on throttle or brakes — needs a coasting corner",
-  slip: "wheels slipping — needs a corner with grip",
-  slow: "too slow",
-  implausible: "readings out of range",
+const WIDTH_STALL: Record<string, MessageKey> = {
+  straight: "survey.stall.straight",
+  on_pedals: "survey.stall.onPedals",
+  slip: "survey.stall.slip",
+  slow: "survey.stall.slow",
+  implausible: "survey.stall.implausible",
 };
 
 function WidthStall({ rejects }: { rejects: SurveyStatus["yaw_rejects"] }) {
+  const t = useT();
   const entries = Object.entries(rejects) as [string, number][];
   if (!entries.length) return null;
   const [why] = entries.sort((a, b) => b[1] - a[1])[0];
   const hint = WIDTH_STALL[why];
-  return hint ? <> · {hint}</> : null;
+  return hint ? <> · {t(hint)}</> : null;
 }
 
 // The same transition can arrive twice — once in a status poll's `recent`
@@ -127,6 +126,7 @@ function mergeTransitions(
 }
 
 export function SurveyView() {
+  const t = useT();
   const wsConnected = useTelemetry((s) => s.wsConnected);
   const connStatus = useTelemetry((s) => s.status);
   const [status, setStatus] = useState<SurveyStatus | null>(null);
@@ -296,9 +296,9 @@ export function SurveyView() {
     setBusy(true);
     try {
       setStatus(await api.survey.setTrack(name));
-      toast(`Survey assigned to "${name}"`, "success");
+      toast(t("survey.toast.assigned", { name }), "success");
     } catch {
-      toast("Could not assign the track", "error");
+      toast(t("survey.toast.assignFailed"), "error");
     } finally {
       setBusy(false);
     }
@@ -308,7 +308,7 @@ export function SurveyView() {
     try {
       setStatus(await api.survey.mark(side, kind));
     } catch (e) {
-      toast(e instanceof Error ? e.message : "Could not set marking", "error");
+      toast(e instanceof Error ? e.message : t("survey.toast.markFailed"), "error");
     }
   }
 
@@ -324,16 +324,18 @@ export function SurveyView() {
       applyStatus(st); // the edges epoch moved: the map refetches the shorter list
       void api.trackBundles().then(setBundles).catch(() => {});
       if (discarded.votes === 0) {
-        toast(scope === "lap" ? "Nothing surveyed this lap yet" : "Nothing surveyed yet", "info");
+        toast(t(scope === "lap" ? "survey.toast.nothingLap" : "survey.toast.nothingRun"), "info");
       } else {
-        const what = scope === "lap" ? `Lap ${discarded.lap ?? "?"}` : "This run";
+        const counts = { records: discarded.records, votes: discarded.votes };
         toast(
-          `${what} discarded — ${discarded.records} border points dropped, ${discarded.votes} votes retracted`,
+          scope === "lap"
+            ? t("survey.toast.lapDiscarded", { lap: String(discarded.lap ?? "?"), ...counts })
+            : t("survey.toast.runDiscarded", counts),
           "success",
         );
       }
     } catch (e) {
-      toast(e instanceof Error ? e.message : "Could not discard", "error");
+      toast(e instanceof Error ? e.message : t("survey.toast.discardFailed"), "error");
     } finally {
       setBusy(false);
     }
@@ -375,7 +377,7 @@ export function SurveyView() {
   async function start() {
     const width = Number(trackWidth);
     if (!Number.isFinite(width) || width <= 0.5 || width >= 3) {
-      toast("Track width must be between 0.5 and 3 m", "error");
+      toast(t("survey.toast.widthRange"), "error");
       return;
     }
     setBusy(true);
@@ -391,9 +393,9 @@ export function SurveyView() {
       setEdges([]);
       edgesLen.current = 0;
       applyStatus(st); // new started_at resets transitions + refetches
-      toast("Survey started — go touch some kerbs", "success");
+      toast(t("survey.toast.started"), "success");
     } catch (e) {
-      toast(e instanceof Error ? e.message : "Could not start survey", "error");
+      toast(e instanceof Error ? e.message : t("survey.toast.startFailed"), "error");
     } finally {
       setBusy(false);
     }
@@ -404,9 +406,9 @@ export function SurveyView() {
     try {
       applyStatus(await api.survey.stop());
       void api.trackBundles().then(setBundles).catch(() => {});
-      toast("Survey stopped — JSONL log saved on the server", "success");
+      toast(t("survey.toast.stopped"), "success");
     } catch (e) {
-      toast(e instanceof Error ? e.message : "Could not stop survey", "error");
+      toast(e instanceof Error ? e.message : t("survey.toast.stopFailed"), "error");
     } finally {
       setBusy(false);
     }
@@ -681,7 +683,7 @@ export function SurveyView() {
         label: {
           show: true,
           position: side === "L" ? "top" : "bottom",
-          formatter: `gap ~${Math.round(data?.largestGapM ?? 0)} m`,
+          formatter: t("survey.map.gap", { m: String(Math.round(data?.largestGapM ?? 0)) }),
           color,
           fontSize: 10,
           fontWeight: "bold",
@@ -757,7 +759,7 @@ export function SurveyView() {
       tooltip: { show: false },
       series,
     };
-  }, [mapTransitions, trailPlot, edges, finish, coverage, arrows, extents]);
+  }, [mapTransitions, trailPlot, edges, finish, coverage, arrows, extents, t]);
 
   const wheels = surfaceWheelCodes(wheelValue);
   const unknown = Object.keys(status?.unknown_chars ?? {});
@@ -770,20 +772,20 @@ export function SurveyView() {
   return (
     <div className="mx-auto flex max-w-[1200px] flex-col gap-3">
       <div className="flex flex-wrap items-center gap-3">
-        <h2 className="text-[17px] font-medium">Surface survey</h2>
+        <h2 className="text-[17px] font-medium">{t("survey.title")}</h2>
         <div className="ml-auto flex flex-wrap items-center gap-2 text-[11.5px] text-ink-dim">
           <label className="flex items-center gap-1.5 text-[11.5px] text-ink-dim">
-            track
+            {t("survey.track.label")}
             <input
               list="survey-tracks"
               value={track}
-              placeholder="unidentified"
+              placeholder={t("survey.track.placeholder")}
               onChange={(e) => {
                 setTrack(e.target.value);
                 setTrackTouched(true);
               }}
               className="w-40 rounded border border-edge bg-transparent px-3 py-1 text-[11.5px] text-ink-soft"
-              title="Which circuit these samples describe — defaults to the session's identified track"
+              title={t("survey.track.title")}
             />
             <datalist id="survey-tracks">
               {knownTracks.map((name) => (
@@ -800,19 +802,19 @@ export function SurveyView() {
                 onClick={assignTrack}
                 title={
                   status?.track
-                    ? `Currently "${status.track}" — reassigning flushes this run's evidence to it first`
-                    : "Attach everything this run has gathered to this circuit"
+                    ? t("survey.track.reassignTitle", { track: status.track })
+                    : t("survey.track.assignTitle")
                 }
               >
-                {status?.track ? "Reassign" : "Assign"}
+                {status?.track ? t("survey.track.reassign") : t("survey.track.assign")}
               </button>
             )}
           </label>
           <label
             className="flex items-center gap-1.5 text-[11.5px] text-ink-dim"
-            title="Starting assumption for the car's axle track width — replaced automatically once enough 4-wheel edge crossings have measured the real value"
+            title={t("survey.width.title")}
           >
-            width
+            {t("survey.width.label")}
             <input
               type="number"
               step="0.05"
@@ -831,7 +833,7 @@ export function SurveyView() {
               onClick={stop}
               disabled={busy}
             >
-              Stop survey
+              {t("survey.stop")}
             </button>
           ) : (
             <button
@@ -839,16 +841,16 @@ export function SurveyView() {
               onClick={start}
               disabled={busy || !wsConnected}
             >
-              Start survey
+              {t("survey.start")}
             </button>
           )}
           <a
             className={`btn px-3 py-[5px] text-[11.5px] ${status?.log_path ? "" : "pointer-events-none opacity-45"}`}
             href={api.survey.exportUrl}
             download
-            title="Full transition log (positions, velocity, raw rotation floats, contact points)"
+            title={t("survey.download.title")}
           >
-            Download JSONL
+            {t("survey.download")}
           </a>
         </div>
       </div>
@@ -857,84 +859,100 @@ export function SurveyView() {
           line of context, and the track field autocompletes from it. */}
       {!active && bundles.length > 0 && (
         <div className="text-[11px] text-ink-faint">
-          {bundles.length} circuit{bundles.length === 1 ? "" : "s"} already mapped ·{" "}
-          <a className="text-accent underline underline-offset-[3px]" href="#/tracks">
-            manage them in Tracks
-          </a>
+          {rich(t("survey.mapped", { count: bundles.length }), {
+            link: (
+              <a className="text-accent underline underline-offset-[3px]" href="#/tracks">
+                {t("survey.mappedLink")}
+              </a>
+            ),
+          })}
         </div>
       )}
 
       {active && status != null && (
         <div className="text-[11px] leading-[1.7] text-ink-faint">
-          Surveying{" "}
-          <span className="text-ink-soft">{status.track || "unidentified track"}</span>
-          {status.session_id != null && <> · session #{status.session_id}</>}
+          {rich(t("survey.active.surveying"), {
+            track: (
+              <span className="text-ink-soft">
+                {status.track || t("survey.active.unidentifiedTrack")}
+              </span>
+            ),
+          })}
+          {status.session_id != null && (
+            <> · {t("survey.active.session", { id: String(status.session_id) })}</>
+          )}
           {status.bundle != null && (
             <>
               {" "}
               ·{" "}
               <span
                 className="text-accent"
-                title="Track knowledge persists per circuit — every run resumes from and improves the bundle"
+                title={t("survey.active.bundleTitle")}
               >
-                resumed from bundle ({status.bundle.points} pts, {status.bundle.runs}{" "}
-                {status.bundle.runs === 1 ? "run" : "runs"})
+                {t("survey.active.resumed", {
+                  points: status.bundle.points,
+                  count: status.bundle.runs,
+                })}
               </span>
             </>
           )}{" "}
-          · width
-          in use{" "}
-          <span className="font-tabular text-ink-soft">
-            {status.width_in_use_m.toFixed(2)} m
-          </span>{" "}
+          ·{" "}
+          {rich(t("survey.active.widthInUse"), {
+            width: (
+              <span className="font-tabular text-ink-soft">
+                {status.width_in_use_m.toFixed(2)} m
+              </span>
+            ),
+          })}{" "}
           {status.width_source === "cornering" ? (
             <span className="text-throttle">
-              (measured from {status.yaw_samples} cornering samples)
+              {t("survey.active.width.cornering", { samples: status.yaw_samples })}
             </span>
           ) : status.width_source === "car-memory" ? (
             <span className="text-throttle">
-              (measured for this car on an earlier run
-              {status.yaw_samples > 0 &&
-                ` — re-checking: ${status.yaw_samples}/${status.yaw_needed}`}
-              )
+              {status.yaw_samples > 0
+                ? t("survey.active.width.carMemoryRecheck", {
+                    samples: status.yaw_samples,
+                    needed: status.yaw_needed,
+                  })
+                : t("survey.active.width.carMemory")}
             </span>
           ) : status.width_source === "edge-ride" ? (
             <span className="text-throttle">
-              (measured from {status.width_samples} edge crossings)
+              {t("survey.active.width.edgeRide", { samples: status.width_samples })}
             </span>
           ) : (
-            <>
-              (assumed — measuring from cornering: {status.yaw_samples}/
-              {status.yaw_needed}
-              {status.yaw_samples === 0 && <WidthStall rejects={status.yaw_rejects} />})
-            </>
+            rich(
+              t("survey.active.width.assumed", {
+                samples: status.yaw_samples,
+                needed: status.yaw_needed,
+              }),
+              {
+                stall: status.yaw_samples === 0 && <WidthStall rejects={status.yaw_rejects} />,
+              },
+            )
           )}{" "}
-          · lap recording continues alongside — laps saved during the run keep
-          their per-tick surface column
+          · {t("survey.active.lapRecording")}
         </div>
       )}
 
       {active && status != null && status.no_surface_packets > 0 && (
         <div className="rounded-lg border border-brake/50 bg-brake/10 px-3 py-2 text-sm text-brake">
-          Packets carry no surface data — the console isn't answering on packet
-          format C. Check Settings › Connection (game v1.68+ required).
+          {t("survey.warn.noSurface")}
         </div>
       )}
       {Object.keys(status?.unknown_flag_bits ?? {}).length > 0 && (
         <div className="rounded-lg border border-warn/50 bg-warn/10 px-3 py-2 text-sm text-warn">
-          Undocumented packet flag bit(s) active:{" "}
-          {Object.entries(status?.unknown_flag_bits ?? {})
-            .map(([bit, n]) => `bit ${bit} (×${n})`)
-            .join(", ")}{" "}
-          — GT7 has no known track-limits field, so note what you were doing
-          when these flipped (the JSONL records carry the raw flags).
+          {t("survey.warn.flagBits", {
+            bits: Object.entries(status?.unknown_flag_bits ?? {})
+              .map(([bit, n]) => t("survey.warn.flagBit", { bit, n: String(n) }))
+              .join(", "),
+          })}
         </div>
       )}
       {unknown.length > 0 && (
         <div className="rounded-lg border border-brake/50 bg-brake/10 px-3 py-2 text-sm text-brake">
-          NEW surface chars seen: {unknown.map((c) => `'${c}'`).join(", ")} — not in
-          the known mapping (T/C/D/G/S/s). Note where they occurred and add them to
-          backend/app/processing/surface.py.
+          {t("survey.warn.unknownChars", { chars: unknown.map((c) => `'${c}'`).join(", ") })}
         </div>
       )}
 
@@ -947,17 +965,20 @@ export function SurveyView() {
           }
         >
           <div className="flex flex-shrink-0 flex-wrap items-center gap-2.5 px-3.5 py-2.5 text-[10.5px] text-ink-faint">
-            <span className="section-header">The track so far</span>
-            <span>scroll to zoom · drag to pan · arrows = travel direction</span>
+            <span className="section-header">{t("survey.map.title")}</span>
+            <span>{t("survey.map.help")}</span>
             <span className="ml-auto font-tabular">
-              {status?.edge_points ?? 0} edge points · {status?.transitions ?? 0}{" "}
-              transitions · {status?.packets ?? 0} packets
+              {t("survey.map.stats", {
+                edges: status?.edge_points ?? 0,
+                transitions: status?.transitions ?? 0,
+                packets: status?.packets ?? 0,
+              })}
             </span>
             <button
               className="rounded border border-edge px-2.5 py-0.5 text-[10.5px] text-ink-muted transition-colors hover:border-accent hover:text-accent"
               onClick={() => chartRef.current?.dispatchAction({ type: "restore" })}
             >
-              reset view
+              {t("survey.map.resetView")}
             </button>
             {/* Full screen turns the card into the whole viewport — this is
                 the view you prop a phone up with while driving. */}
@@ -965,7 +986,7 @@ export function SurveyView() {
               className="rounded border border-edge px-2.5 py-0.5 text-[10.5px] text-ink-muted transition-colors hover:border-accent hover:text-accent"
               onClick={() => setFsMap((f) => !f)}
             >
-              {fsMap ? "exit full screen" : "full screen"}
+              {fsMap ? t("survey.map.exitFullScreen") : t("survey.map.fullScreen")}
             </button>
           </div>
           <div className="rule" />
@@ -988,52 +1009,52 @@ export function SurveyView() {
           <div className="flex flex-shrink-0 flex-wrap gap-3 px-3.5 pb-2 text-[10px] text-ink-dim">
             <span>
               <i className="mr-1 inline-block h-0.5 w-4 bg-edge align-middle" />
-              driven
+              {t("survey.legend.driven")}
             </span>
-            <span className="text-ink-dim">▸ travel direction</span>
-            <span title="Which track border a contact belongs to, relative to travel direction — follow the arrows">
+            <span className="text-ink-dim">{t("survey.legend.direction")}</span>
+            <span title={t("survey.legend.borderTitle")}>
               <i
                 className="mr-1 inline-block h-0.5 w-4 align-middle"
                 style={{ backgroundColor: LEFT_BORDER_COLOR }}
               />
-              left border
+              {t("survey.legend.leftBorder")}
             </span>
             <span>
               <i
                 className="mr-1 inline-block h-0.5 w-4 align-middle"
                 style={{ backgroundColor: RIGHT_BORDER_COLOR }}
               />
-              right border
+              {t("survey.legend.rightBorder")}
             </span>
-            <span title="Unmapped stretch of that border, offset toward its side — drive it to close the loop">
+            <span title={t("survey.legend.gapTitle")}>
               <i className="mr-1 inline-block w-4 border-t-2 border-dashed border-ink-dim align-middle" />
-              gap
+              {t("survey.legend.gap")}
             </span>
             <span>
               <i
                 className="mr-1 inline-block h-0.5 w-4 align-middle"
                 style={{ backgroundColor: RUNOFF_COLOR }}
               />
-              run-off edge
+              {t(MARK_LABEL.runoff)}
             </span>
             <span>
               <i
                 className="mr-1 inline-block h-0.5 w-4 align-middle"
                 style={{ backgroundColor: WALL_COLOR }}
               />
-              wall
+              {t(MARK_LABEL.wall)}
             </span>
-            <span title="Filled where the left border has the right border surveyed across from it">
+            <span title={t("survey.legend.roadTitle")}>
               <i
                 className="mr-1 inline-block h-2.5 w-4 align-middle"
                 style={{ backgroundColor: ROAD_FILL }}
               />
-              road
+              {t("survey.legend.road")}
             </span>
             {finish != null && (
-              <span title="From lap rollovers; dashed until repeat crossings agree">
+              <span title={t("survey.legend.finishTitle")}>
                 <i className="mr-1 inline-block h-0.5 w-4 bg-[#e5e7eb] align-middle" />
-                finish line
+                {t("survey.legend.finish")}
               </span>
             )}
             {Object.entries(CODE_META)
@@ -1044,7 +1065,7 @@ export function SurveyView() {
                     className="mr-1 inline-block h-2 w-2 rounded-full"
                     style={{ backgroundColor: meta.color }}
                   />
-                  {meta.label}
+                  {t(meta.labelKey)}
                 </span>
               ))}
           </div>
@@ -1055,9 +1076,9 @@ export function SurveyView() {
             <div className="flex flex-wrap items-center gap-2.5">
           <span
             className="text-[11px] text-ink-faint"
-            title="Where surface data is silent — walls, paved run-off — declare the boundary you are driving along and the survey records it from your wheel line"
+            title={t("survey.mark.title")}
           >
-            Mark boundary
+            {t("survey.mark.label")}
           </span>
           {/* 44px minimum targets: these are pressed on a phone or tablet
               propped beside the wheel, mid-lap. */}
@@ -1072,11 +1093,17 @@ export function SurveyView() {
                 }`}
                 onClick={() => setMark(side, status.mark_kind)}
               >
-                {side === null ? "off" : side === "L" ? "left" : "right"}
+                {t(
+                  side === null
+                    ? "survey.mark.side.off"
+                    : side === "L"
+                      ? "survey.mark.side.left"
+                      : "survey.mark.side.right",
+                )}
               </button>
             ))}
           </div>
-          <span className="text-[11px] text-ink-faint">as</span>
+          <span className="text-[11px] text-ink-faint">{t("survey.mark.as")}</span>
           <div className="flex gap-2">
             {MARK_KINDS.map((kind) => (
               <button
@@ -1088,15 +1115,15 @@ export function SurveyView() {
                 }`}
                 onClick={() => setMark(status.mark_side, kind)}
               >
-                {kind === "runoff" ? "run-off edge" : kind}
+                {t(MARK_LABEL[kind])}
               </button>
             ))}
           </div>
           {status.mark_side != null && (
             <span className="text-[11.5px] font-semibold text-warn">
-              MARKING {status.mark_side === "L" ? "left" : "right"}{" "}
-              {status.mark_kind === "runoff" ? "run-off edge" : status.mark_kind} — drive
-              along the boundary
+              {t(status.mark_side === "L" ? "survey.mark.activeLeft" : "survey.mark.activeRight", {
+                kind: t(MARK_LABEL[status.mark_kind]),
+              })}
             </span>
           )}
           <div className="ml-auto flex flex-wrap gap-2">
@@ -1104,9 +1131,9 @@ export function SurveyView() {
               className="min-h-[44px] rounded-lg border border-warn/50 bg-warn/10 px-3.5 text-[12.5px] font-semibold text-warn transition-colors hover:bg-warn/25 disabled:opacity-50"
               onClick={() => discard("lap")}
               disabled={busy}
-              title="Throw away what this lap has surveyed so far — after a spin across the gravel, or a boundary marked on the wrong side. Surveying carries on; the rest of the lap still counts."
+              title={t("survey.discard.lapTitle")}
             >
-              Discard lap
+              {t("survey.discard.lap")}
               {status.lap_votes > 0 && (
                 <span className="ml-1.5 font-tabular text-[11px] opacity-80">
                   {status.lap_votes}
@@ -1117,36 +1144,37 @@ export function SurveyView() {
               className="min-h-[44px] rounded-lg border border-edge px-3.5 text-[12.5px] font-semibold text-ink-dim transition-colors hover:text-ink disabled:opacity-50"
               onClick={() => setConfirmDiscardRun(true)}
               disabled={busy}
-              title="Throw away everything this run has surveyed, including what was already saved to the bundle. Other runs' evidence stays."
+              title={t("survey.discard.runTitle")}
             >
-              Discard run…
+              {t("survey.discard.run")}
             </button>
             <button
               className="min-h-[44px] rounded-lg border border-brake/50 bg-brake/10 px-5 text-[12.5px] font-semibold text-brake transition-colors hover:bg-brake/25"
               onClick={stop}
               disabled={busy}
             >
-              End survey
+              {t("survey.end")}
             </button>
           </div>
             </div>
           {status.discards.length > 0 && (
             <div className="text-[10.5px] text-ink-faint">
-              Discarded this run:{" "}
-              {status.discards
-                .map((d) =>
-                  d.scope === "run"
-                    ? `the run so far (${d.records} points)`
-                    : `lap ${d.lap ?? "?"} (${d.records} points)`,
-                )
-                .join(", ")}
+              {t("survey.discards.label", {
+                list: status.discards
+                  .map((d) =>
+                    d.scope === "run"
+                      ? t("survey.discards.run", { points: d.records })
+                      : t("survey.discards.lap", { lap: String(d.lap ?? "?"), points: d.records }),
+                  )
+                  .join(", "),
+              })}
             </div>
           )}
           <ConfirmDialog
             open={confirmDiscardRun}
-            title="Discard this run?"
-            body={`Everything this run has surveyed — ${status.run_votes} votes on border metres, including what the autosave already wrote to the bundle — is thrown away. Other runs' evidence on the same metres stays. The survey keeps running.`}
-            confirmLabel="Discard run"
+            title={t("survey.discard.confirmTitle")}
+            body={t("survey.discard.confirmBody", { votes: status.run_votes })}
+            confirmLabel={t("survey.discard.confirm")}
             danger
             onConfirm={() => {
               setConfirmDiscardRun(false);
@@ -1159,18 +1187,15 @@ export function SurveyView() {
               tooltip: the choice is made while driving, and the run-off vs
               edge distinction is the one that actually gets mis-tagged. */}
             <div className="border-t border-divider pt-2 text-[10.5px] leading-relaxed text-ink-faint">
-              <span className="text-ink-soft">
-                {status.mark_kind === "runoff" ? "run-off edge" : status.mark_kind}
-              </span>{" "}
-              — {MARK_HELP[status.mark_kind as keyof typeof MARK_HELP]?.what}{" "}
-              {MARK_HELP[status.mark_kind as keyof typeof MARK_HELP]?.when}
+              <span className="text-ink-soft">{t(MARK_LABEL[status.mark_kind])}</span> —{" "}
+              {t(MARK_HELP[status.mark_kind].whatKey)} {t(MARK_HELP[status.mark_kind].whenKey)}
             </div>
           </div>
           )}
 
           {!hasMap && (
             <div className="flex flex-1 items-center justify-center px-4 py-16 text-xs text-ink-ghost">
-              No survey running — start one, drive a lap and touch the edges
+              {t("survey.empty.map")}
             </div>
           )}
         </div>
@@ -1179,28 +1204,28 @@ export function SurveyView() {
           <div className="panel px-3.5 py-3">
             <div
               className="section-header"
-              title="How much of the driven loop has each border established — closed means the perimeter is complete and the largest gap says where to drive next"
+              title={t("survey.coverage.titleHint")}
             >
-              Track completeness
+              {t("survey.coverage.title")}
             </div>
             {coverage == null ? (
               <div className="mt-2 text-xs text-ink-muted">
-                Gathering data — drive a lap and touch the edges.
+                {t("survey.coverage.gathering")}
               </div>
             ) : (
               <div className="mt-2.5 flex flex-col gap-2 font-tabular text-[11px]">
                 {(
                   [
-                    ["Left border", coverage.left, LEFT_BORDER_COLOR],
-                    ["Right border", coverage.right, RIGHT_BORDER_COLOR],
+                    ["survey.coverage.left", coverage.left, LEFT_BORDER_COLOR],
+                    ["survey.coverage.right", coverage.right, RIGHT_BORDER_COLOR],
                   ] as const
                 ).map(([label, side, color]) => (
                   <div key={label} className="flex items-center gap-2">
                     <span
                       className="w-[70px] shrink-0 text-ink-faint"
-                      title="Left/right of the DIRECTION OF TRAVEL, not of the screen — follow the arrows on the map"
+                      title={t("survey.coverage.sideTitle")}
                     >
-                      {label}
+                      {t(label)}
                     </span>
                     <div className="h-1.5 flex-1 rounded-[3px] bg-panel-2">
                       <div
@@ -1213,27 +1238,27 @@ export function SurveyView() {
                     </div>
                     <span className="w-9 shrink-0 text-right">{side.pct.toFixed(0)}%</span>
                     {side.closed ? (
-                      <span className="w-28 shrink-0 text-throttle">closed ✓</span>
+                      <span className="w-28 shrink-0 text-throttle">{t("survey.coverage.closed")}</span>
                     ) : side.largestGapAt != null ? (
                       <button
                         className="w-28 shrink-0 text-left text-accent hover:underline"
-                        title="Zoom the map to this gap (it pulses)"
+                        title={t("survey.coverage.zoomTitle")}
                         onClick={() =>
                           side.largestGapAt &&
                           zoomTo(side.largestGapAt[0], side.largestGapAt[1])
                         }
                       >
-                        gap ~{Math.round(side.largestGapM)} m ⌖ zoom
+                        {t("survey.coverage.gapZoom", { m: String(Math.round(side.largestGapM)) })}
                       </button>
                     ) : (
                       <span className="w-28 shrink-0 text-ink-dim">
-                        gap ~{Math.round(side.largestGapM)} m
+                        {t("survey.map.gap", { m: String(Math.round(side.largestGapM)) })}
                       </span>
                     )}
                   </div>
                 ))}
                 <div className="flex items-center gap-2">
-                  <span className="w-20 shrink-0 text-ink-dim">Road</span>
+                  <span className="w-20 shrink-0 text-ink-dim">{t("survey.coverage.road")}</span>
                   <div className="h-1.5 flex-1 rounded bg-panel-2">
                     <div
                       className="h-full rounded bg-ink-dim"
@@ -1243,20 +1268,22 @@ export function SurveyView() {
                   <span className="w-9 shrink-0 text-right">
                     {coverage.roadPct.toFixed(0)}%
                   </span>
-                  <span className="w-28 shrink-0 text-ink-dim">both borders</span>
+                  <span className="w-28 shrink-0 text-ink-dim">{t("survey.coverage.bothBorders")}</span>
                 </div>
                 <div className="flex items-center gap-2 pt-0.5">
-                  <span className="w-20 shrink-0 text-ink-dim">Finish line</span>
+                  <span className="w-20 shrink-0 text-ink-dim">{t("survey.coverage.finish")}</span>
                   {finish == null ? (
-                    <span className="text-ink-dim">not yet — complete a lap</span>
+                    <span className="text-ink-dim">{t("survey.coverage.finishNone")}</span>
                   ) : finish.confident ? (
                     <span className="text-throttle">
-                      located ✓ ({finish.crossings} crossings, ±{finish.spread_m} m)
+                      {t("survey.coverage.finishLocated", {
+                        crossings: finish.crossings,
+                        spread: String(finish.spread_m),
+                      })}
                     </span>
                   ) : (
                     <span className="text-warn">
-                      provisional ({finish.crossings} crossing
-                      {finish.crossings === 1 ? "" : "s"}) — another lap confirms it
+                      {t("survey.coverage.finishProvisional", { count: finish.crossings })}
                     </span>
                   )}
                 </div>
@@ -1265,7 +1292,7 @@ export function SurveyView() {
           </div>
 
           <div className="panel px-3.5 py-3">
-            <div className="section-header">Live wheel surface</div>
+            <div className="section-header">{t("survey.wheels.title")}</div>
             <div className="mt-2 grid grid-cols-2 gap-1.5">
               {SURVEY_WHEELS.map((w, i) => {
                 const meta = CODE_META[wheels[i]] ?? CODE_META[7];
@@ -1275,9 +1302,11 @@ export function SurveyView() {
                     className="flex items-center justify-between rounded-[5px] px-2.5 py-2 text-[11px]"
                     style={{ backgroundColor: `${meta.color}22` }}
                   >
-                    <span className="text-ink-dim">{w}</span>
+                    <span className="text-ink-dim">
+                      {t(`common.wheel.${w.toLowerCase() as Lowercase<typeof w>}`)}
+                    </span>
                     <span className="font-medium" style={{ color: meta.color }}>
-                      {meta.label}
+                      {t(meta.labelKey)}
                     </span>
                   </div>
                 );
@@ -1286,17 +1315,19 @@ export function SurveyView() {
           </div>
 
           <div className="panel px-3.5 py-3">
-            <div className="section-header">Chars seen per wheel</div>
+            <div className="section-header">{t("survey.chars.title")}</div>
             {status == null || status.chars_seen.length === 0 ? (
               <div className="mt-2 text-xs text-ink-muted">
-                Nothing yet — start a survey and get on track.
+                {t("survey.chars.empty")}
               </div>
             ) : (
               <table className="w-full font-tabular text-xs">
                 <tbody>
                   {SURVEY_WHEELS.map((w) => (
                     <tr key={w} className="border-t border-edge/50 first:border-0">
-                      <td className="py-1 pr-2 text-ink-dim">{w}</td>
+                      <td className="py-1 pr-2 text-ink-dim">
+                        {t(`common.wheel.${w.toLowerCase() as Lowercase<typeof w>}`)}
+                      </td>
                       <td className="py-1">
                         {Object.entries(status.histogram[w] ?? {}).map(([ch, n]) => (
                           <span key={ch} className="mr-3">
@@ -1314,40 +1345,42 @@ export function SurveyView() {
 
           <div className="panel px-3.5 py-3">
             <div className="section-header">
-              Latest transitions{" "}
+              {t("survey.transitions.title")}{" "}
               <span className="font-normal normal-case tracking-normal text-ink-faint">
-                — newest first
+                {t("survey.transitions.newestFirst")}
               </span>
             </div>
             <div className="mt-2 max-h-[230px] overflow-y-auto">
               {transitions.length === 0 ? (
-                <div className="text-xs text-ink-muted">No transitions yet.</div>
+                <div className="text-xs text-ink-muted">{t("survey.transitions.empty")}</div>
               ) : (
                 <table className="w-full font-tabular text-xs">
                   <tbody>
-                    {[...transitions].reverse().slice(0, 100).map((t) => (
-                      <tr key={t.n} className="border-t border-edge/50 first:border-0">
-                        <td className="py-1 pr-2 text-ink-dim">#{t.n}</td>
-                        <td className="py-1 pr-2 text-ink-dim">L{t.lap}</td>
+                    {[...transitions].reverse().slice(0, 100).map((tr) => (
+                      <tr key={tr.n} className="border-t border-edge/50 first:border-0">
+                        <td className="py-1 pr-2 text-ink-dim">#{tr.n}</td>
+                        <td className="py-1 pr-2 text-ink-dim">
+                          {t("survey.transitions.lap", { lap: String(tr.lap) })}
+                        </td>
                         <td className="py-1 pr-2">
-                          {t.from.split("").map((ch, i) => (
+                          {tr.from.split("").map((ch, i) => (
                             <span key={i} style={{ color: charMeta(ch).color }}>{ch}</span>
                           ))}
                           <span className="text-ink-dim"> → </span>
-                          {t.to.split("").map((ch, i) => (
+                          {tr.to.split("").map((ch, i) => (
                             <span key={i} style={{ color: charMeta(ch).color }}>{ch}</span>
                           ))}
                         </td>
-                        <td className="py-1 pr-2 text-ink-dim">{t.changed.join(" ")}</td>
+                        <td className="py-1 pr-2 text-ink-dim">{tr.changed.join(" ")}</td>
                         <td
                           className="py-1 pr-2 text-ink-dim"
-                          title="Track border this contact belongs to (relative to travel direction) · manual marking active at the time"
+                          title={t("survey.transitions.borderTitle")}
                         >
-                          {t.border ?? "–"}
-                          {t.mark ? ` · ${t.mark}` : ""}
+                          {tr.border ?? "–"}
+                          {tr.mark ? ` · ${tr.mark}` : ""}
                         </td>
                         <td className="py-1 text-right text-ink-dim">
-                          {(t.speed_mps * 3.6).toFixed(0)} km/h
+                          {(tr.speed_mps * 3.6).toFixed(0)} km/h
                         </td>
                       </tr>
                     ))}
@@ -1365,14 +1398,11 @@ export function SurveyView() {
           onClick={() => setRawOpen((open) => !open)}
           aria-expanded={rawOpen}
         >
-          <span>
-            Raw packet inspector — every decoded field, live; changed values
-            highlight so anything reacting to what you do on track is easy to spot
-          </span>
+          <span>{t("survey.raw.toggle")}</span>
           <span>{rawOpen ? "▾" : "▸"}</span>
         </button>
         {rawOpen && packet == null && (
-          <div className="pt-2 text-sm text-ink-dim">Waiting for a packet…</div>
+          <div className="pt-2 text-sm text-ink-dim">{t("survey.raw.waiting")}</div>
         )}
         {rawOpen && packet != null && (
           <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 pt-2 font-tabular text-[11px] sm:grid-cols-3 lg:grid-cols-4">

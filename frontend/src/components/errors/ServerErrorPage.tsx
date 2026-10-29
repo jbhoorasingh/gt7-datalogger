@@ -2,6 +2,7 @@
 // at risk from one, and the page says so before anything else.
 
 import { useState } from "react";
+import { useT } from "@/i18n";
 import { openSettings } from "@/lib/router";
 import { ErrorPage } from "./ErrorPage";
 import { FLAGS, RedFlagArt } from "./illustrations";
@@ -15,17 +16,18 @@ export interface ServerErrorPageProps {
 }
 
 export function ServerErrorPage({ onRetry, request, status = 500 }: ServerErrorPageProps) {
+  const t = useT();
   // When it failed, fixed at first render: the line is for matching a log.
   const [at] = useState(() => new Date().toISOString().replace(/\.\d{3}Z$/, "Z"));
   return (
     <ErrorPage
       flag={FLAGS.red}
-      kicker="Red flag · session stopped"
+      kicker={t("error.server.kicker")}
       code={String(status)}
-      title="Red flag. Something broke on the server."
-      body="Every lap already saved is safe in the database. If recording was on, the lap in progress may not have been saved. The server log has the details."
-      primary={{ label: "Try again", onClick: onRetry ?? (() => window.location.reload()) }}
-      secondary={{ label: "Open logs", onClick: () => openSettings("logs") }}
+      title={t("error.server.title")}
+      body={t("error.server.body")}
+      primary={{ label: t("error.server.tryAgain"), onClick: onRetry ?? (() => window.location.reload()) }}
+      secondary={{ label: t("error.server.openLogs"), onClick: () => openSettings("logs") }}
       diag={[request, status, at].filter((part) => part != null).join(" · ")}
       art={<RedFlagArt />}
       wide="text"

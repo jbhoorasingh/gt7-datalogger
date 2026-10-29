@@ -65,7 +65,37 @@ even when this device is not the one speaking. It is intended for
 
 The Voice dropdown groups voices into **On-device (recommended)** and **Network — may
 not start**: a network-backed voice can accept a callout and then never start
-speaking.
+speaking. It lists the voices for the callout language only (see below).
+
+## Language
+
+Callouts can be spoken in English, Spanish, Brazilian Portuguese or Japanese. Like
+the voice and volume, the language belongs to the device, so a phone in Spanish and a
+laptop in English can share one logger.
+
+- The **language menu** in the status bar (and in the `/engineer` header) — the 🌐
+  globe with the language's code — sets the interface language. *Auto* follows the browser's own language and falls back to
+  English; a Portuguese (Portugal) browser gets Brazilian Portuguese, a Mexican one
+  Spanish.
+- **Callout language**, in the Voice panel on `/engineer` and in the dash's Race
+  Engineer drawer, is *Same as the interface* unless you pick another: an English
+  interface with Japanese callouts works.
+
+The captions, the callout feed, **Replay** and the examples under *What each category
+says* follow the callout language; changing it rewords callouts already in the feed.
+Outside English, numbers are left as digits for the voice to read — "*Tiempo de
+vuelta, un minuto 32,5*", "*ラップタイム、1分32秒5*" — since voices read their own
+language's numbers well.
+
+The device needs a voice for the language. macOS and iOS have voices for all four;
+Windows and Android may need one added in the system's language or speech settings
+(Chrome also lists network voices, which can fail to start). If the device has none,
+callouts are **spoken in English** while the captions stay in your language, and the
+Voice panel says so. Add a voice and reload the page.
+
+The server's settings (verbosity ceiling, spoken units, sector precision) are the same
+for every language. A callout from a newer server that this page cannot word is said
+in English rather than half-translated.
 
 ## What it says, and how much
 

@@ -3,6 +3,7 @@
 // edited value matches the server again drops out, so the pending bar only
 // ever counts real differences and one PUT carries exactly the diff.
 
+import { t as translate, type MessageKey, type Translate } from "@/i18n";
 import type { AdminSettingsPatch } from "@/lib/api";
 import type { AdminSettings } from "@/lib/types";
 
@@ -21,42 +22,43 @@ export type SectionId =
 
 export interface SectionDef {
   id: SectionId;
-  label: string;
+  label: MessageKey;
+  /** English search words; they match in every language, as setting names do. */
   keywords: string;
 }
 
-export const SECTION_GROUPS: { group: string; items: SectionDef[] }[] = [
+export const SECTION_GROUPS: { group: MessageKey; items: SectionDef[] }[] = [
   {
-    group: "Capture",
+    group: "settings.group.capture",
     items: [
-      { id: "connection", label: "Connection", keywords: "connection ip console packet format source simulated udp playstation" },
-      { id: "sync", label: "Sync", keywords: "sync token server cloud upload live spectate connection string" },
+      { id: "connection", label: "settings.section.connection", keywords: "connection ip console packet format source simulated udp playstation" },
+      { id: "sync", label: "settings.section.sync", keywords: "sync token server cloud upload live spectate connection string" },
     ],
   },
   {
-    group: "Race day",
+    group: "settings.group.raceDay",
     items: [
-      { id: "race-engineer", label: "Race Engineer", keywords: "voice callouts verbosity units engineer categories" },
-      { id: "notifications", label: "Notifications", keywords: "webhook discord notify events" },
+      { id: "race-engineer", label: "settings.section.raceEngineer", keywords: "voice callouts verbosity units engineer categories" },
+      { id: "notifications", label: "settings.section.notifications", keywords: "webhook discord notify events" },
     ],
   },
   {
-    group: "Streaming",
+    group: "settings.group.streaming",
     items: [
-      { id: "overlays", label: "Overlays & dashboards", keywords: "overlay obs dash layout builder widget import" },
-      { id: "phone", label: "Phone app", keywords: "phone mobile app qr code mdns bonjour discover network connect" },
+      { id: "overlays", label: "settings.section.overlays", keywords: "overlay obs dash layout builder widget import" },
+      { id: "phone", label: "settings.section.phone", keywords: "phone mobile app qr code mdns bonjour discover network connect" },
     ],
   },
   {
-    group: "System",
+    group: "settings.group.system",
     items: [
-      { id: "health", label: "Health", keywords: "diagnostics packets uptime errors restart car database dropped" },
-      { id: "logs", label: "Logs", keywords: "log level debug warning error" },
-      { id: "access", label: "Access", keywords: "admin token password api key" },
-      { id: "data", label: "Data", keywords: "delete compact vacuum export backup clear move restore surveys layouts" },
+      { id: "health", label: "settings.section.health", keywords: "diagnostics packets uptime errors restart car database dropped" },
+      { id: "logs", label: "settings.section.logs", keywords: "log level debug warning error" },
+      { id: "access", label: "settings.section.access", keywords: "admin token password api key" },
+      { id: "data", label: "settings.section.data", keywords: "delete compact vacuum export backup clear move restore surveys layouts" },
       {
         id: "advanced",
-        label: "Advanced",
+        label: "settings.section.advanced",
         keywords:
           "environment variables env config all settings default port cors rate hz scenario cars tracks signatures restart",
       },
@@ -81,36 +83,36 @@ export function resolveSection(section: string | null | undefined): SectionId {
 }
 
 /** The rail's groups with only the items matching `query` (label or keywords). */
-export function filterSections(query: string) {
+export function filterSections(query: string, t: Translate = translate) {
   const q = query.trim().toLowerCase();
   return SECTION_GROUPS.map((g) => ({
     group: g.group,
-    items: g.items.filter((i) => !q || `${i.label} ${i.keywords}`.toLowerCase().includes(q)),
+    items: g.items.filter((i) => !q || `${t(i.label)} ${i.keywords}`.toLowerCase().includes(q)),
   })).filter((g) => g.items.length > 0);
 }
 
 // Every setting the page buffers, with the words the pending bar uses.
 export const SETTING_LABELS = {
-  source: "Telemetry source",
-  ps_ip: "Console IP",
-  packet_format: "Packet format",
-  sync_enabled: "Sync",
-  sync_tracks: "Sync tracks",
-  sync_sessions: "Sync sessions",
-  sync_live: "Sync live",
-  race_engineer: "Race Engineer",
-  race_engineer_verbosity: "Verbosity",
-  race_engineer_units: "Spoken units",
-  race_engineer_sector_voice_enabled: "Sector voice announcements",
-  race_engineer_sector_voice_decimals: "Sector voice precision",
-  race_engineer_sector_voice_rounding: "Sector voice rounding",
-  race_engineer_sector_voice_content: "Sector announcement content",
-  race_engineer_sector_voice_comparison: "Sector comparison mode",
-  race_engineer_categories: "Callout categories",
-  webhook_url: "Webhook URL",
-  webhook_events: "Notification events",
-  log_level: "Server log level",
-} as const satisfies Partial<Record<keyof AdminSettings, string>>;
+  source: "settings.label.source",
+  ps_ip: "settings.label.ps_ip",
+  packet_format: "settings.label.packet_format",
+  sync_enabled: "settings.label.sync_enabled",
+  sync_tracks: "settings.label.sync_tracks",
+  sync_sessions: "settings.label.sync_sessions",
+  sync_live: "settings.label.sync_live",
+  race_engineer: "settings.label.race_engineer",
+  race_engineer_verbosity: "settings.label.race_engineer_verbosity",
+  race_engineer_units: "settings.label.race_engineer_units",
+  race_engineer_sector_voice_enabled: "settings.label.race_engineer_sector_voice_enabled",
+  race_engineer_sector_voice_decimals: "settings.label.race_engineer_sector_voice_decimals",
+  race_engineer_sector_voice_rounding: "settings.label.race_engineer_sector_voice_rounding",
+  race_engineer_sector_voice_content: "settings.label.race_engineer_sector_voice_content",
+  race_engineer_sector_voice_comparison: "settings.label.race_engineer_sector_voice_comparison",
+  race_engineer_categories: "settings.label.race_engineer_categories",
+  webhook_url: "settings.label.webhook_url",
+  webhook_events: "settings.label.webhook_events",
+  log_level: "settings.label.log_level",
+} as const satisfies Partial<Record<keyof AdminSettings, MessageKey>>;
 
 export type EditableKey = keyof typeof SETTING_LABELS;
 export type SettingsEdits = Partial<Pick<AdminSettings, EditableKey>>;

@@ -2,6 +2,7 @@
 // thresholds in the engine/tire widgets. Pure function of the live frame +
 // recent laps so it can run on every animation tick.
 
+import { t } from "@/i18n";
 import { projectStrategy } from "./strategy";
 import type { LapSummary, LiveFrame } from "./types";
 
@@ -43,13 +44,13 @@ export function computeAlerts(frame: LiveFrame, laps: LapSummary[]): DashAlert[]
       out.push({
         id: "fuel",
         severity: "critical",
-        message: `FUEL ${proj.lapsToEmpty.toFixed(1)} LAPS`,
+        message: t("alert.fuelCritical", { laps: proj.lapsToEmpty.toFixed(1) }),
       });
     } else if (proj.lapsToEmpty < THRESHOLDS.fuelLapsWarn) {
       out.push({
         id: "fuel",
         severity: "warn",
-        message: `FUEL ${proj.lapsToEmpty.toFixed(1)} laps`,
+        message: t("alert.fuelWarn", { laps: proj.lapsToEmpty.toFixed(1) }),
       });
     }
     // Only meaningful in lapped races where running dry before the end is
@@ -62,7 +63,7 @@ export function computeAlerts(frame: LiveFrame, laps: LapSummary[]): DashAlert[]
       out.push({
         id: "pit",
         severity: "info",
-        message: proj.pitBeforeLap <= frame.current_lap ? "PIT THIS LAP" : "PIT NEXT LAP",
+        message: t(proj.pitBeforeLap <= frame.current_lap ? "alert.pitThisLap" : "alert.pitNextLap"),
       });
     }
   }
@@ -71,13 +72,13 @@ export function computeAlerts(frame: LiveFrame, laps: LapSummary[]): DashAlert[]
     out.push({
       id: "water",
       severity: "critical",
-      message: `WATER ${Math.round(frame.water_temp)}°C`,
+      message: t("alert.waterCritical", { temp: Math.round(frame.water_temp) }),
     });
   } else if (frame.water_temp > THRESHOLDS.waterWarn) {
     out.push({
       id: "water",
       severity: "warn",
-      message: `Water ${Math.round(frame.water_temp)}°C`,
+      message: t("alert.waterWarn", { temp: Math.round(frame.water_temp) }),
     });
   }
 
@@ -85,13 +86,13 @@ export function computeAlerts(frame: LiveFrame, laps: LapSummary[]): DashAlert[]
     out.push({
       id: "oil-temp",
       severity: "critical",
-      message: `OIL ${Math.round(frame.oil_temp)}°C`,
+      message: t("alert.oilCritical", { temp: Math.round(frame.oil_temp) }),
     });
   } else if (frame.oil_temp > THRESHOLDS.oilTempWarn) {
     out.push({
       id: "oil-temp",
       severity: "warn",
-      message: `Oil ${Math.round(frame.oil_temp)}°C`,
+      message: t("alert.oilWarn", { temp: Math.round(frame.oil_temp) }),
     });
   }
 
@@ -99,7 +100,7 @@ export function computeAlerts(frame: LiveFrame, laps: LapSummary[]): DashAlert[]
     out.push({
       id: "oil-pressure",
       severity: "critical",
-      message: `OIL PRESSURE ${frame.oil_pressure.toFixed(1)} bar`,
+      message: t("alert.oilPressure", { pressure: frame.oil_pressure.toFixed(1) }),
     });
   }
 
@@ -108,7 +109,7 @@ export function computeAlerts(frame: LiveFrame, laps: LapSummary[]): DashAlert[]
     out.push({
       id: "tires",
       severity: "warn",
-      message: `Tires hot ${Math.round(hottest)}°C`,
+      message: t("alert.tiresHot", { temp: Math.round(hottest) }),
     });
   }
 

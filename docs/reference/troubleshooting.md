@@ -64,6 +64,21 @@ switched on (or the URL has `demo=1`). It switches back by itself when telemetry
 resumes; if it doesn't, see [no telemetry](#server-up-no-telemetry-amber-status-dot)
 above.
 
+## Callouts are in English although the page is in another language
+
+The device has no voice for that language, so the Race Engineer says the English and
+keeps the captions translated; the Voice panel on `/engineer` says so. macOS and iOS
+ship voices for all four languages. On Windows add one under **Settings › Time &
+language › Speech**, on Android in the text-to-speech settings, then reload the page.
+See [Race Engineer › Language](../guide/race-engineer.md#language).
+
+## The page, an overlay or the dash is in the wrong language
+
+The language belongs to each browser, not the logger: pick it from the 🌐 menu in
+the status bar, or choose *Auto* to follow the browser's own language. An OBS browser
+source has no menu — put `lang=es` (`pt-BR`, `ja`, `en`) on its URL; a URL copied from
+the overlay builder already carries the language of the page it came from.
+
 ## Overlay shows a black background in OBS
 
 Use a **Browser source** in OBS and make sure the overlay layout is set to the

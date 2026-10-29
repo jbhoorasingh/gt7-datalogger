@@ -2,6 +2,7 @@
 // rendered by GridRenderer; the builder can clone one into a server layout
 // for customization.
 
+import type { MessageKey } from "@/i18n";
 import type { LayoutConfig } from "./layout";
 
 const BASE = {
@@ -49,9 +50,9 @@ const ENDURANCE: LayoutConfig = {
   ],
 };
 
-export const DASH_PRESETS: Record<string, { label: string; layout: LayoutConfig }> = {
-  "race-engineer": { label: "Race engineer", layout: RACE_ENGINEER },
-  endurance: { label: "Endurance", layout: ENDURANCE },
+export const DASH_PRESETS: Record<string, { labelKey: MessageKey; layout: LayoutConfig }> = {
+  "race-engineer": { labelKey: "layout.preset.raceEngineer", layout: RACE_ENGINEER },
+  endurance: { labelKey: "layout.preset.endurance", layout: ENDURANCE },
 };
 
 export const DEFAULT_DASH_PRESET = "race-engineer";

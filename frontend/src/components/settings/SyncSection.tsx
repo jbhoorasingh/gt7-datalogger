@@ -8,18 +8,19 @@
 import { useState } from "react";
 import { ConfirmDialog } from "@/components/ui/Dialog";
 import { Toggle } from "@/components/ui/Toggle";
+import { t as translate, useT, type MessageKey } from "@/i18n";
 import { api } from "@/lib/api";
 import type { SyncStatus, SyncTypeStatus } from "@/lib/types";
 import { toast } from "@/store/toasts";
 import { Dot, INPUT_CLS, SectionPanel, type SectionProps } from "./parts";
 
-const SYNC_STATE_LABEL: Record<SyncTypeStatus["state"], string> = {
-  off: "off",
-  idle: "idle",
-  syncing: "syncing…",
-  connected: "connected",
-  error: "error",
-  unsupported: "not in this logger version",
+const SYNC_STATE_LABEL: Record<SyncTypeStatus["state"], MessageKey> = {
+  off: "sync.state.off",
+  idle: "sync.state.idle",
+  syncing: "sync.state.syncing",
+  connected: "sync.state.connected",
+  error: "sync.state.error",
+  unsupported: "sync.state.unsupported",
 };
 
 // Which settings key carries a type's toggle. Only types this build can
@@ -33,25 +34,25 @@ const SYNC_TOGGLE: Partial<Record<string, "sync_tracks" | "sync_sessions" | "syn
 // What the per-type "send it now" button is called: bundles skip the settle
 // window, laps skip the backoff. The live stream reconnects on its own the
 // moment the car is on track; a held one is released by the same button.
-const SYNC_PUSH_LABEL: Record<string, string> = {
-  tracks: "Sync now",
-  sessions: "Flush now",
-  live: "Reconnect",
+const SYNC_PUSH_LABEL: Record<string, MessageKey> = {
+  tracks: "sync.push.tracks",
+  sessions: "sync.push.sessions",
+  live: "sync.push.live",
 };
 
 // The hosted service: what a blank address means to the server
 // (app/sync/connection.py DEFAULT_URL).
 const HOSTED_URL = "https://sync.gt7-datalogger.com";
 
-const STEPS = [
-  { title: "Sign in at sync.gt7-datalogger.com", hint: "Profile → Tokens → Create token. It is shown once." },
-  { title: "Paste the token below", hint: "It is tested straight away." },
-  { title: "Choose what to send", hint: "Every data type starts off." },
+const STEPS: { title: MessageKey; hint: MessageKey }[] = [
+  { title: "sync.step1", hint: "sync.step1.hint" },
+  { title: "sync.step2", hint: "sync.step2.hint" },
+  { title: "sync.step3", hint: "sync.step3.hint" },
 ];
 
 function inWords(seconds: number): string {
-  if (seconds < 90) return `${seconds} s`;
-  return `${Math.round(seconds / 60)} min`;
+  if (seconds < 90) return translate("sync.seconds", { n: seconds });
+  return translate("sync.minutes", { n: Math.round(seconds / 60) });
 }
 
 function whenShort(iso: string | null | undefined): string {
@@ -65,9 +66,14 @@ function ago(iso: string | null | undefined): string {
   const t = new Date(iso).getTime();
   if (Number.isNaN(t)) return "";
   const s = Math.max(0, Math.round((Date.now() - t) / 1000));
-  if (s < 90) return `${s} s ago`;
-  if (s < 5400) return `${Math.round(s / 60)} min ago`;
+  if (s < 90) return translate("engineer.age.seconds", { n: s });
+  if (s < 5400) return translate("engineer.age.minutes", { n: Math.round(s / 60) });
   return whenShort(iso);
+}
+
+/** A data type's name in the interface language; an unknown one as the server says it. */
+function typeName(name: string): string {
+  return name === "tracks" || name === "sessions" || name === "live" ? translate(`sync.type.${name}`) : name;
 }
 
 export function syncQueued(status: SyncStatus | null): number {
@@ -91,6 +97,7 @@ export function SyncSection({
   reload: () => void;
   setBusy: (b: string | null) => void;
 }) {
+  const t = useT();
   const [token, setToken] = useState("");
   const [ownUrl, setOwnUrl] = useState("");
   const [ownToken, setOwnToken] = useState("");
@@ -102,20 +109,22 @@ export function SyncSection({
   const error = hasToken ? status?.capabilities_error ?? "" : "";
   const queued = syncQueued(status);
 
-  async function test(label = "Test connection") {
+  async function test(label = t("sync.test")) {
     setBusy(label);
     try {
       const st = await api.admin.syncTest();
       setStatus(st);
       const offered = Object.keys(st.capabilities?.types ?? {});
+      const server = st.capabilities?.server || st.url;
       toast(
-        `Connected to ${st.capabilities?.server || st.url}` +
-          (offered.length ? ` — accepts ${offered.join(", ")}` : " — accepts no data types"),
+        offered.length
+          ? t("sync.connectedAccepts", { server, types: offered.join(", ") })
+          : t("sync.connectedNone", { server }),
         "success",
       );
     } catch (e) {
       reload();
-      toast(e instanceof Error ? e.message : "Sync test failed", "error");
+      toast(e instanceof Error ? e.message : t("sync.testFailed"), "error");
     } finally {
       setBusy(null);
     }
@@ -129,10 +138,10 @@ export function SyncSection({
     const text = token.trim();
     if (!text) return;
     const patch = text.includes("?") ? { sync_url: text } : { sync_url: "", sync_token: text };
-    if (!(await applyNow(patch, "Sync token"))) return;
+    if (!(await applyNow(patch, t("sync.tokenLabel")))) return;
     setToken("");
     setReplacing(false);
-    await test("Sync token");
+    await test(t("sync.tokenLabel"));
   }
 
   // Your own server: its address (or a connection string carrying both),
@@ -142,34 +151,34 @@ export function SyncSection({
     if (!address) return;
     const text = ownToken.trim();
     const patch = text ? { sync_url: address, sync_token: text } : { sync_url: address };
-    const s = await applyNow(patch, "Sync server");
+    const s = await applyNow(patch, t("sync.serverLabel"));
     if (!s) return;
     setOwnUrl("");
     setOwnToken("");
     if (!s.sync_token_set) {
-      toast(`Sync server set to ${s.sync_url} — now add its token`, "success");
+      toast(t("sync.serverSet", { url: s.sync_url }), "success");
       reload();
       return;
     }
     setReplacing(false);
-    await test("Sync server");
+    await test(t("sync.serverLabel"));
   }
 
   async function push(name: string) {
-    const label = SYNC_PUSH_LABEL[name] ?? "Sync now";
+    const label = t(SYNC_PUSH_LABEL[name] ?? "sync.push.tracks");
     setBusy(label);
     try {
       setStatus(await api.admin.syncPush(name));
       toast(
         name === "tracks"
-          ? "Every eligible bundle queued"
+          ? t("sync.pushed.tracks")
           : name === "sessions"
-            ? "Queued laps sending now"
-            : "Live stream reconnecting on the next packet",
+            ? t("sync.pushed.sessions")
+            : t("sync.pushed.live"),
         "success",
       );
     } catch (e) {
-      toast(e instanceof Error ? e.message : "Sync push failed", "error");
+      toast(e instanceof Error ? e.message : t("sync.pushFailed"), "error");
     } finally {
       setBusy(null);
     }
@@ -180,13 +189,13 @@ export function SyncSection({
 
   return (
     <SectionPanel
-      title="Sync"
-      description="Contribute surveys, laps and a live position to a sync service. Off by default, per type."
+      title={t("settings.section.sync")}
+      description={t("sync.desc")}
       actions={
         <label className="flex items-center gap-2.5 text-xs text-ink-dim">
-          Sync enabled
+          {t("sync.enabled")}
           <Toggle
-            ariaLabel="Sync enabled"
+            ariaLabel={t("sync.enabled")}
             checked={draft.sync_enabled}
             disabled={!hasToken}
             onCheckedChange={(on) => edit({ sync_enabled: on })}
@@ -199,12 +208,12 @@ export function SyncSection({
           <div className="flex flex-wrap items-center gap-3 bg-brake/10 px-[18px] py-2.5">
             <span className="min-w-[220px] flex-1 text-xs text-brake">
               {error}
-              {status?.checked_at ? ` (checked ${ago(status.checked_at)})` : ""}.
-              {queued > 0 && ` ${queued} queued item${queued === 1 ? "" : "s"} will send once it is fixed.`}
+              {status?.checked_at ? ` ${t("sync.checkedParen", { ago: ago(status.checked_at) })}` : ""}.
+              {queued > 0 && ` ${t("sync.queuedWillSend", { count: queued })}`}
             </span>
             {!replacing && (
               <button className="btn btn-primary" onClick={() => setReplacing(true)}>
-                Paste a new token
+                {t("sync.pasteNew")}
               </button>
             )}
           </div>
@@ -224,24 +233,22 @@ export function SyncSection({
                 {i + 1}
               </span>
               <div>
-                <div className={`text-[13px] ${i === 1 ? "text-ink" : "text-ink-dim"}`}>{st.title}</div>
-                <div className="mt-0.5 text-[11px] text-ink-dim">{st.hint}</div>
+                <div className={`text-[13px] ${i === 1 ? "text-ink" : "text-ink-dim"}`}>{t(st.title)}</div>
+                <div className="mt-0.5 text-[11px] text-ink-dim">{t(st.hint)}</div>
               </div>
             </div>
           ))}
           <div className="flex gap-2 sm:pl-[34px]">
             <input
               type="password"
-              aria-label="Sync token"
+              aria-label={t("sync.tokenLabel")}
               autoComplete="off"
               value={token}
               onChange={(e) => setToken(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") void connectHosted();
               }}
-              placeholder={
-                hasToken ? `stored (${saved.sync_token_hint}) — paste a new one to replace it` : "gts_…"
-              }
+              placeholder={hasToken ? t("sync.storedPlaceholder", { hint: saved.sync_token_hint }) : "gts_…"}
               className={INPUT_CLS}
             />
             <button
@@ -249,38 +256,32 @@ export function SyncSection({
               disabled={busy !== null || !token.trim()}
               onClick={() => void connectHosted()}
             >
-              Connect
+              {t("sync.connect")}
             </button>
             {replacing && (
               <button className="btn shrink-0" onClick={() => setReplacing(false)}>
-                Cancel
+                {t("common.cancel")}
               </button>
             )}
           </div>
-          <span className="text-[11px] text-ink-faint sm:pl-[34px]">
-            Kept apart from the address, masked here, never in a URL and never in the logs.
-            Pulling shared track bundles needs none of this.
-          </span>
+          <span className="text-[11px] text-ink-faint sm:pl-[34px]">{t("sync.tokenNote")}</span>
           <details
             className="text-[11px] text-ink-dim sm:pl-[34px]"
             open={saved.sync_url !== "" && saved.sync_url !== HOSTED_URL ? true : undefined}
           >
-            <summary className="cursor-pointer text-ink-faint">Use your own server</summary>
+            <summary className="cursor-pointer text-ink-faint">{t("sync.own")}</summary>
             <div className="mt-2 flex flex-col gap-1.5">
               <p>
-                A server on your LAN, or anywhere other than the hosted service. A host name is
-                read as https; use <span className="font-tabular">http://</span> for a LAN server.
-                A connection string (<span className="font-tabular">gt7sync+http://host:port/?token=…</span>)
-                carries both, so the token field can stay empty.
+                {t("sync.ownHelp", { http: "http://", example: "gt7sync+http://host:port/?token=…" })}
                 {saved.sync_url && (
                   <>
                     {" "}
-                    Current address: <span className="font-tabular text-ink">{saved.sync_url}</span>.
+                    {t("sync.currentAddress")} <span className="font-tabular text-ink">{saved.sync_url}</span>.
                   </>
                 )}
               </p>
               <input
-                aria-label="Sync server address"
+                aria-label={t("sync.ownAddress")}
                 autoComplete="off"
                 value={ownUrl}
                 onChange={(e) => setOwnUrl(e.target.value)}
@@ -290,14 +291,14 @@ export function SyncSection({
               <div className="flex gap-2">
                 <input
                   type="password"
-                  aria-label="Sync server token"
+                  aria-label={t("sync.ownToken")}
                   autoComplete="off"
                   value={ownToken}
                   onChange={(e) => setOwnToken(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") void connectOwn();
                   }}
-                  placeholder="token (leave empty for a connection string)"
+                  placeholder={t("sync.ownTokenPlaceholder")}
                   className={INPUT_CLS}
                 />
                 <button
@@ -305,12 +306,10 @@ export function SyncSection({
                   disabled={busy !== null || !ownUrl.trim()}
                   onClick={() => void connectOwn()}
                 >
-                  Connect
+                  {t("sync.connect")}
                 </button>
               </div>
-              {saved.sync_url !== "" && saved.sync_url !== HOSTED_URL && (
-                <p>Connecting with the token field above switches back to the hosted service.</p>
-              )}
+              {saved.sync_url !== "" && saved.sync_url !== HOSTED_URL && <p>{t("sync.switchBack")}</p>}
             </div>
           </details>
         </div>
@@ -323,36 +322,38 @@ export function SyncSection({
             <Dot tone={error ? "bad" : caps ? "good" : "faint"} size={7} />
             <div className="min-w-[220px] flex-1">
               <div className="font-tabular text-[13px]">
-                {caps?.server || status?.url || saved.sync_url || "hosted service"}
+                {caps?.server || status?.url || saved.sync_url || t("settings.health.hosted")}
                 {caps?.version && <span className="text-ink-faint"> · v{caps.version}</span>}
               </div>
               <div className="font-tabular text-[11px] text-ink-dim">
-                token {saved.sync_token_hint}
+                {t("sync.tokenHint", { hint: saved.sync_token_hint })}
                 {caps ? (
                   <>
-                    {status?.checked_at && ` · checked ${ago(status.checked_at)}`} · accepts{" "}
-                    {Object.keys(caps.types).join(", ") || "no data types"}
+                    {status?.checked_at && ` · ${t("sync.checked", { ago: ago(status.checked_at) })}`} ·{" "}
+                    {Object.keys(caps.types).length
+                      ? t("sync.accepts", { types: Object.keys(caps.types).join(", ") })
+                      : t("sync.acceptsNone")}
                   </>
                 ) : (
-                  " · not checked yet — test the connection to see what the server accepts"
+                  ` · ${t("sync.notChecked")}`
                 )}
               </div>
             </div>
             <button className="btn" disabled={busy !== null} onClick={() => void test()}>
-              Test connection
+              {t("sync.test")}
             </button>
             <button className="btn" disabled={busy !== null} onClick={() => setForgetting(true)}>
-              Disconnect…
+              {t("sync.disconnectEllipsis")}
             </button>
           </div>
           <div className="rule" />
           <div className="flex flex-col gap-2 px-[18px] py-3.5">
-            <span className="text-xs text-ink-dim">What to send</span>
-            {types.map(([name, t]) => (
+            <span className="text-xs text-ink-dim">{t("sync.whatToSend")}</span>
+            {types.map(([name, type]) => (
               <SyncTypeRow
                 key={name}
                 name={name}
-                t={t}
+                type={type}
                 on={SYNC_TOGGLE[name] ? draft[SYNC_TOGGLE[name]!] : false}
                 master={draft.sync_enabled}
                 busy={busy}
@@ -364,21 +365,11 @@ export function SyncSection({
               />
             ))}
             {status && types.length === 0 && (
-              <div className="text-xs text-ink-dim">
-                No data types to send. Test the connection to ask the server what it accepts.
-              </div>
+              <div className="text-xs text-ink-dim">{t("sync.noTypes")}</div>
             )}
             <details className="mt-1 text-[11px] text-ink-dim">
-              <summary className="cursor-pointer text-ink-faint">How and when each type is sent</summary>
-              <p className="mt-1.5 max-w-[640px] leading-normal">
-                Nothing is sent for a type that is off. Tracks: a changed bundle uploads once it has
-                been left alone for ten minutes, so a running survey goes up once, after it stops and
-                the corner labelling that follows it. Sessions: each lap as soon as it is saved, the
-                session with its first lap; laps queue while the service is away. Live: one socket
-                while the car is on track, a few frames a second, never a backlog. Everything retries
-                with backoff and never blocks recording. A type the server switches off is turned off
-                here too, and says so.
-              </p>
+              <summary className="cursor-pointer text-ink-faint">{t("sync.howTitle")}</summary>
+              <p className="mt-1.5 max-w-[640px] leading-normal">{t("sync.how")}</p>
             </details>
           </div>
         </>
@@ -386,15 +377,15 @@ export function SyncSection({
 
       <ConfirmDialog
         open={forgetting}
-        title="Disconnect from the sync service?"
-        body="The stored token is forgotten and sync stops until a new token is saved. The token cannot be shown again — the service only reveals it once, when it is created."
-        confirmLabel="Disconnect"
+        title={t("sync.disconnectTitle")}
+        body={t("sync.disconnectBody")}
+        confirmLabel={t("sync.disconnect")}
         danger
         onConfirm={() => {
           setForgetting(false);
-          void applyNow({ sync_token: "" }, "Sync token").then((s) => {
+          void applyNow({ sync_token: "" }, t("sync.tokenLabel")).then((s) => {
             if (s) {
-              toast("Sync token forgotten", "success");
+              toast(t("sync.forgotten"), "success");
               reload();
             }
           });
@@ -407,7 +398,7 @@ export function SyncSection({
 
 function SyncTypeRow({
   name,
-  t,
+  type,
   on,
   master,
   busy,
@@ -415,40 +406,46 @@ function SyncTypeRow({
   push,
 }: {
   name: string;
-  t: SyncTypeStatus;
+  type: SyncTypeStatus;
   on: boolean;
   master: boolean;
   busy: string | null;
   onToggle: (on: boolean) => void;
   push: (name: string) => void | Promise<void>;
 }) {
+  const t = useT();
   const key = SYNC_TOGGLE[name];
-  const canToggle = master && !!key && t.supported && t.offered !== false;
+  const canToggle = master && !!key && type.supported && type.offered !== false;
   const pushLabel = SYNC_PUSH_LABEL[name];
   // A live stream is only held after a failure; otherwise it reconnects by itself.
-  const canPush = t.active && (name !== "live" || !!t.error);
+  const canPush = type.active && (name !== "live" || !!type.error);
   return (
     <div
       className={`grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-md px-3 py-2.5 shadow-[0_0_0_1px_var(--color-hairline)] ${
         master ? "" : "opacity-50"
       }`}
     >
-      <Toggle ariaLabel={`Sync ${name}`} checked={on} disabled={!canToggle} onCheckedChange={onToggle} />
+      <Toggle
+        ariaLabel={t("sync.typeToggle", { name: typeName(name) })}
+        checked={on}
+        disabled={!canToggle}
+        onCheckedChange={onToggle}
+      />
       <div className="min-w-0">
-        <div className="text-[13px] capitalize">{name}</div>
-        <div className="line-clamp-2 text-[11px] text-ink-dim" title={t.description}>
-          {t.description}
+        <div className="text-[13px] capitalize">{typeName(name)}</div>
+        <div className="line-clamp-2 text-[11px] text-ink-dim" title={type.description}>
+          {type.description}
         </div>
-        <SyncTypeMeta name={name} t={t} on={on} />
+        <SyncTypeMeta name={name} type={type} on={on} />
       </div>
       {pushLabel ? (
         <button
           className="btn"
           disabled={busy !== null || !canPush}
-          title={name === "live" && t.active && !t.error ? "The stream reconnects by itself while the car is on track" : undefined}
+          title={name === "live" && type.active && !type.error ? t("sync.liveReconnects") : undefined}
           onClick={() => void push(name)}
         >
-          {pushLabel}
+          {t(pushLabel)}
         </button>
       ) : (
         <span />
@@ -459,99 +456,112 @@ function SyncTypeRow({
 
 // The counters under a type, once it is active. Each type has its own idea
 // of "one upload": a bundle, a lap, a frame.
-function SyncTypeMeta({ name, t, on }: { name: string; t: SyncTypeStatus; on: boolean }) {
+function SyncTypeMeta({ name, type, on }: { name: string; type: SyncTypeStatus; on: boolean }) {
+  const t = useT();
   const line = "mt-[3px] flex flex-wrap gap-x-3 gap-y-0.5 font-tabular text-[11px]";
-  if (!t.supported) return <div className={`${line} text-ink-faint`}>{SYNC_STATE_LABEL.unsupported}</div>;
-  if (t.offered === false) return <div className={`${line} text-warn`}>the server does not accept this</div>;
-  if (!on) return <div className={`${line} text-ink-faint`}>off — nothing is sent</div>;
-  if (!t.active) {
+  if (!type.supported) return <div className={`${line} text-ink-faint`}>{t(SYNC_STATE_LABEL.unsupported)}</div>;
+  if (type.offered === false) return <div className={`${line} text-warn`}>{t("sync.meta.notAccepted")}</div>;
+  if (!on) return <div className={`${line} text-ink-faint`}>{t("sync.meta.off")}</div>;
+  if (!type.active) {
     return (
       <div className={`${line} text-ink-faint`}>
-        {t.offered === null ? "server not checked yet" : "waiting for sync to be applied"}
+        {type.offered === null ? t("sync.meta.notChecked") : t("sync.meta.waitingApply")}
       </div>
     );
   }
-  const due = t.due_in_s != null && t.due_in_s > 0 ? inWords(t.due_in_s) : "";
-  const { live, sessions } = t;
+  const due = type.due_in_s != null && type.due_in_s > 0 ? inWords(type.due_in_s) : "";
+  const { live, sessions } = type;
   return (
     <div className={`${line} text-ink-faint`}>
-      <span className={t.error ? "text-brake" : t.state === "syncing" ? "text-accent" : t.state === "connected" ? "text-throttle" : ""}>
-        {SYNC_STATE_LABEL[t.state]}
-        {t.error ? `: ${t.error}` : ""}
+      <span className={type.error ? "text-brake" : type.state === "syncing" ? "text-accent" : type.state === "connected" ? "text-throttle" : ""}>
+        {t(SYNC_STATE_LABEL[type.state])}
+        {type.error ? `: ${type.error}` : ""}
       </span>
       {name === "tracks" && (
         <>
-          {t.tracks?.synced != null && <span>{t.tracks.synced} synced</span>}
-          {(t.queued ?? 0) > 0 && <span className="text-accent">{t.queued} queued</span>}
-          {t.tracks?.rejected ? <span className="text-brake">{t.tracks.rejected} rejected</span> : null}
-          {t.tracks?.unconfirmed ? (
-            <span className="text-warn">{t.tracks.unconfirmed} waiting for a confirmed layout</span>
+          {type.tracks?.synced != null && <span>{t("sync.meta.synced", { n: type.tracks.synced })}</span>}
+          {(type.queued ?? 0) > 0 && <span className="text-accent">{t("settings.meta.queued", { n: type.queued ?? 0 })}</span>}
+          {type.tracks?.rejected ? (
+            <span className="text-brake">{t("sync.meta.rejected", { n: type.tracks.rejected })}</span>
           ) : null}
-          <span>{t.uploads ?? 0} uploaded since start</span>
-          {t.last_ok_at && <span>last {whenShort(t.last_ok_at)}</span>}
+          {type.tracks?.unconfirmed ? (
+            <span className="text-warn">{t("sync.meta.unconfirmed", { n: type.tracks.unconfirmed })}</span>
+          ) : null}
+          <span>{t("sync.meta.uploaded", { n: type.uploads ?? 0 })}</span>
+          {type.last_ok_at && <span>{t("sync.meta.last", { when: whenShort(type.last_ok_at) })}</span>}
         </>
       )}
       {name === "sessions" && sessions && (
         <>
-          <span>{t.uploads ?? 0} laps sent since start</span>
-          {(t.queued ?? 0) > 0 && (
+          <span>{t("sync.meta.lapsSent", { n: type.uploads ?? 0 })}</span>
+          {(type.queued ?? 0) > 0 && (
             <span className="text-accent">
-              {t.queued} queued{due ? ` · retry in ${due}` : ""}
+              {t("settings.meta.queued", { n: type.queued ?? 0 })}
+              {due ? ` · ${t("sync.meta.retryIn", { due })}` : ""}
             </span>
           )}
-          <span>{sessions.synced} sessions on server</span>
-          {sessions.laps_rejected ? <span className="text-brake">{sessions.laps_rejected} laps refused</span> : null}
+          <span>{t("sync.meta.sessionsOnServer", { n: sessions.synced })}</span>
+          {sessions.laps_rejected ? (
+            <span className="text-brake">{t("sync.meta.lapsRefused", { n: sessions.laps_rejected })}</span>
+          ) : null}
           {/* Lap analysis (#115): said only of a server that takes it. */}
           {sessions.analysis?.offered && sessions.analysis.synced > 0 && (
-            <span title="The lap analysis of a session is sent once its drive has ended">
-              {sessions.analysis.synced} lap analyses on server
+            <span title={t("sync.meta.analysisTitle")}>
+              {t("sync.meta.analyses", { n: sessions.analysis.synced })}
             </span>
           )}
           {sessions.analysis?.rejected ? (
-            <span className="text-brake">{sessions.analysis.rejected} lap analyses refused</span>
+            <span className="text-brake">{t("sync.meta.analysesRefused", { n: sessions.analysis.rejected })}</span>
           ) : null}
-          {sessions.closed ? <span className="text-warn">{sessions.closed} closed by the server</span> : null}
+          {sessions.closed ? (
+            <span className="text-warn">{t("sync.meta.closed", { n: sessions.closed })}</span>
+          ) : null}
           {sessions.current && (
             <span
               title={
                 sessions.current.remote_id
-                  ? `Session ${sessions.current.local_id} is ${sessions.current.remote_id} on the server`
-                  : "The session is announced with its first lap"
+                  ? t("sync.meta.remote", {
+                      local: String(sessions.current.local_id),
+                      remote: String(sessions.current.remote_id),
+                    })
+                  : t("sync.meta.announced")
               }
             >
-              this drive: {sessions.current.laps_synced} sent
-              {sessions.current.laps_queued ? `, ${sessions.current.laps_queued} waiting` : ""}
+              {t("sync.meta.thisDrive", { n: sessions.current.laps_synced })}
+              {sessions.current.laps_queued
+                ? `, ${t("sync.meta.waiting", { n: sessions.current.laps_queued })}`
+                : ""}
               {sessions.current.closed ? ` · ${sessions.current.closed}` : ""}
             </span>
           )}
-          {t.last_ok_at && <span>last lap {whenShort(t.last_ok_at)}</span>}
+          {type.last_ok_at && <span>{t("sync.meta.lastLap", { when: whenShort(type.last_ok_at) })}</span>}
         </>
       )}
       {name === "live" && live && (
         <>
           <span>
             {live.streaming
-              ? `streaming at ${live.hz} Hz`
+              ? t("sync.meta.streaming", { hz: live.hz })
               : live.connected
-                ? "connected, waiting for the car"
-                : t.error
+                ? t("sync.meta.waitingCar")
+                : type.error
                   ? due
-                    ? `retry in ${due}`
-                    : "not connected"
-                  : "opens when the car is on track"}
+                    ? t("sync.meta.retryIn", { due })
+                    : t("sync.meta.notConnected")
+                  : t("sync.meta.opens")}
           </span>
-          {live.connected && <span>{live.spectators} watching</span>}
-          <span>{live.frames} frames since start</span>
-          {live.recording && <span className="text-warn">recording</span>}
+          {live.connected && <span>{t("sync.meta.watching", { n: live.spectators })}</span>}
+          <span>{t("sync.meta.frames", { n: live.frames })}</span>
+          {live.recording && <span className="text-warn">{t("sync.meta.recording")}</span>}
           {live.spectate_url && (
             <a
               className="text-accent hover:underline"
               href={live.spectate_url}
               target="_blank"
               rel="noreferrer"
-              title="The service's spectate page for this stream. Whether others may watch is your account's setting in the portal."
+              title={t("sync.meta.spectateTitle")}
             >
-              spectate page
+              {t("sync.meta.spectate")}
             </a>
           )}
         </>

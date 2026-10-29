@@ -5,6 +5,7 @@
 // car was 25 s in. The times are typed as the game showed them, one per
 // sector; the last sector is whatever is left of the lap.
 
+import { t } from "@/i18n";
 import { positionAtTime } from "@/lib/playback";
 
 /** "25.123", "0:25.123", "1:02.5" or "25" as milliseconds; null when it
@@ -52,27 +53,31 @@ export type SplitResult =
 /** The boundary positions for the sector times of one lap, each time the
  *  length of that sector as the game shows it. */
 export function boundariesFromSplits(lap: SplitLap, sectorsMs: number[]): SplitResult {
-  if (sectorsMs.length === 0) return { ok: false, error: "Enter at least one sector time." };
+  if (sectorsMs.length === 0) return { ok: false, error: t("cornerEditor.splits.errNone") };
   if (lap.t.length < 2 || lap.pos_x.length < 2) {
-    return { ok: false, error: "This lap has no recorded path to place the boundaries on." };
+    return { ok: false, error: t("cornerEditor.splits.errNoPath") };
   }
-  if (!(lap.time_ms > 0)) return { ok: false, error: "This lap has no lap time." };
+  if (!(lap.time_ms > 0)) return { ok: false, error: t("cornerEditor.splits.errNoTime") };
   const boundaries: { x: number; z: number; at_ms: number }[] = [];
   let at = 0;
   for (const [i, ms] of sectorsMs.entries()) {
-    if (!(ms > 0)) return { ok: false, error: `S${i + 1} needs a time.` };
+    if (!(ms > 0)) return { ok: false, error: t("cornerEditor.splits.errSectorTime", { n: String(i + 1) }) };
     at += ms;
     if (at >= lap.time_ms) {
       return {
         ok: false,
-        error: `The sectors add up to ${formatClock(at)} at S${i + 1}, which is past the lap time of ${formatClock(lap.time_ms)}. The last sector is not typed — it is what is left.`,
+        error: t("cornerEditor.splits.errPast", {
+          at: formatClock(at),
+          n: String(i + 1),
+          lap: formatClock(lap.time_ms),
+        }),
       };
     }
     // The stored clock is anchored on the line, as the game's is: t = 0 is
     // the crossing and the first sample sits half a frame past it, so a
     // split is read exactly where it falls.
     const position = positionAtTime(lap, at / 1000);
-    if (!position) return { ok: false, error: `No position recorded ${formatClock(at)} into the lap.` };
+    if (!position) return { ok: false, error: t("cornerEditor.splits.errNoPosition", { at: formatClock(at) }) };
     boundaries.push({ x: Math.round(position[0] * 10) / 10, z: Math.round(position[1] * 10) / 10, at_ms: at });
   }
   return { ok: true, boundaries, remainder_ms: lap.time_ms - at };

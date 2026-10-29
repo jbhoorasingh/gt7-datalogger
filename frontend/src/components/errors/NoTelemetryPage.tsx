@@ -3,6 +3,7 @@
 // socket, re-run every 5 s, so the driver can see which link is missing.
 
 import { useEffect, useState } from "react";
+import { rich, useT, type Translate } from "@/i18n";
 import { ApiError, api } from "@/lib/api";
 import { openSettings } from "@/lib/router";
 import type { ConnectionStatus } from "@/lib/types";
@@ -25,6 +26,7 @@ interface Check {
 }
 
 export function NoTelemetryPage() {
+  const t = useT();
   const wsConnected = useTelemetry((s) => s.wsConnected);
   const status = useTelemetry((s) => s.status);
   const setStatus = useTelemetry((s) => s.setStatus);
@@ -54,7 +56,7 @@ export function NoTelemetryPage() {
     setSwitching(true);
     try {
       await api.admin.updateSettings({ source: "sim" });
-      toast("Switched to the simulated source", "success");
+      toast(t("error.noTelemetry.switched"), "success");
       api.status().then(setStatus).catch(() => {});
     } catch (e) {
       // Locked server: the switch lives in Settings, behind the token.
@@ -70,27 +72,29 @@ export function NoTelemetryPage() {
   };
 
   const packets = status?.packets_received ?? 0;
-  const target = status?.source === "sim" ? "simulator" : status?.console_ip || "broadcast";
+  const target =
+    status?.source === "sim" ? t("error.noTelemetry.simulator") : status?.console_ip || "broadcast";
   return (
     <ErrorPage
       flag={FLAGS.white}
-      kicker="White flag · slow car on track"
+      kicker={t("error.noTelemetry.kicker")}
       code="0 Hz"
-      title="The server is up, but the console is silent."
-      body="Live, Dash and the Race Engineer need telemetry from GT7. Point the logger at your PlayStation, or switch to the simulated source to try things out."
-      primary={{ label: "Set console IP", onClick: () => openSettings("connection") }}
+      title={t("error.noTelemetry.title")}
+      body={t("error.noTelemetry.body")}
+      primary={{ label: t("error.noTelemetry.setIp"), onClick: () => openSettings("connection") }}
       secondary={{
-        label: switching ? "Switching…" : "Use simulated source",
+        label: switching ? t("error.noTelemetry.switching") : t("error.noTelemetry.useSim"),
         onClick: () => void switchToSim(),
         disabled: switching || status?.source === "sim",
       }}
-      diag={`udp 0.0.0.0:${TELEMETRY_PORT} · ${packets.toLocaleString()} packets · heartbeat → ${target}`}
-      art={<ChecksPanel checks={buildChecks(serverUp, wsConnected, status)} />}
+      diag={`udp 0.0.0.0:${TELEMETRY_PORT} · ${t("error.noTelemetry.packets", { count: packets })} · heartbeat → ${target}`}
+      art={<ChecksPanel checks={buildChecks(t, serverUp, wsConnected, status)} />}
     />
   );
 }
 
 function buildChecks(
+  t: Translate,
   serverUp: boolean | null,
   wsConnected: boolean,
   status: ConnectionStatus | null,
@@ -103,44 +107,49 @@ function buildChecks(
     liveFrameRef.at > 0 ? Math.round((performance.now() - liveFrameRef.at) / 1000) : null;
   return [
     {
-      label: "Datalogger server",
+      label: t("error.noTelemetry.check.server"),
       ...(serverUp == null
-        ? { state: "wait", detail: "checking…" }
+        ? { state: "wait", detail: t("error.noTelemetry.check.checking") }
         : serverUp
-          ? { state: "ok", detail: "responding" }
-          : { state: "bad", detail: "not responding" }),
+          ? { state: "ok", detail: t("error.noTelemetry.check.responding") }
+          : { state: "bad", detail: t("error.noTelemetry.check.notResponding") }),
     },
     {
-      label: "Browser ↔ server",
+      label: t("error.noTelemetry.check.socket"),
       ...(wsConnected
-        ? { state: "ok", detail: "websocket open" }
-        : { state: "bad", detail: "websocket closed" }),
+        ? { state: "ok", detail: t("error.noTelemetry.check.socketOpen") }
+        : { state: "bad", detail: t("error.noTelemetry.check.socketClosed") }),
     },
     {
-      label: "Console discovery",
+      label: t("error.noTelemetry.check.discovery"),
       ...(sim
-        ? { state: "ok", detail: "simulated source" }
+        ? { state: "ok", detail: t("error.noTelemetry.check.simulated") }
         : flowing
           ? { state: "ok", detail: ip }
           : ip
-            ? { state: "bad", detail: `no reply from ${ip}` }
-            : { state: "bad", detail: "no console found on the LAN" }),
+            ? { state: "bad", detail: t("error.noTelemetry.check.noReply", { ip }) }
+            : { state: "bad", detail: t("error.noTelemetry.check.noConsole") }),
     },
     {
-      label: `Telemetry on ${TELEMETRY_PORT}/udp`,
+      label: t("error.noTelemetry.check.telemetry", { port: String(TELEMETRY_PORT) }),
       ...(flowing
-        ? { state: "ok", detail: `${packets.toLocaleString()} packets` }
+        ? { state: "ok", detail: t("error.noTelemetry.packets", { count: packets }) }
         : packets > 0
-          ? { state: "bad", detail: `${packets.toLocaleString()} packets · none lately` }
-          : { state: "bad", detail: "0 packets" }),
+          ? {
+              state: "bad",
+              detail: t("error.noTelemetry.check.noneLately", {
+                packets: t("error.noTelemetry.packets", { count: packets }),
+              }),
+            }
+          : { state: "bad", detail: t("error.noTelemetry.packets", { count: 0 }) }),
     },
     {
-      label: "GT7 in a session",
+      label: t("error.noTelemetry.check.inSession"),
       state: "wait",
       detail:
         lastFrameS != null
-          ? `last frame ${lastFrameS} s ago`
-          : "can’t tell until packets arrive",
+          ? t("error.noTelemetry.check.lastFrame", { s: lastFrameS })
+          : t("error.noTelemetry.check.cantTell"),
     },
   ];
 }
@@ -152,11 +161,12 @@ const DOT: Record<CheckState, string> = {
 };
 
 function ChecksPanel({ checks }: { checks: Check[] }) {
+  const t = useT();
   return (
     <div className="panel w-full max-w-[520px]">
       <div className="flex items-baseline gap-2 px-4 py-2.5">
-        <span className="section-header">Checks</span>
-        <span className="text-[10.5px] text-ink-faint">re-run every 5 s</span>
+        <span className="section-header">{t("error.noTelemetry.checks")}</span>
+        <span className="text-[10.5px] text-ink-faint">{t("error.noTelemetry.rerun")}</span>
       </div>
       <div className="rule" />
       {checks.map((c) => (
@@ -174,16 +184,18 @@ function ChecksPanel({ checks }: { checks: Check[] }) {
         </div>
       ))}
       <div className="px-4 py-3 text-[11px] leading-normal text-ink-dim">
-        Most often: the console’s IP changed after a router restart, or GT7 is still on the
-        title screen — telemetry only flows once you are on track or in a replay.{" "}
-        <a
-          className="text-accent hover:underline"
-          href={NO_TELEMETRY_DOCS_URL}
-          target="_blank"
-          rel="noreferrer"
-        >
-          More in the docs
-        </a>
+        {rich(t("error.noTelemetry.mostOften"), {
+          link: (
+            <a
+              className="text-accent hover:underline"
+              href={NO_TELEMETRY_DOCS_URL}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {t("error.noTelemetry.moreInDocs")}
+            </a>
+          ),
+        })}
       </div>
     </div>
   );

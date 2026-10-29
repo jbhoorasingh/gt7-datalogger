@@ -1,3 +1,4 @@
+import { useT } from "@/i18n";
 import { formatDelta } from "@/lib/format";
 import type { WidgetRenderProps } from "@/lib/widgetMeta";
 import { Caption, liveDelta } from "./shared";
@@ -6,8 +7,10 @@ import { Caption, liveDelta } from "./shared";
 const DELTA_BAR_MS = 2000;
 
 export function DeltaWidget({ frame, variant }: WidgetRenderProps) {
+  const t = useT();
   const delta = liveDelta(frame);
-  const caption = delta == null || delta.live ? "Δ best" : "Δ best (last lap)";
+  const caption =
+    delta == null || delta.live ? t("widget.delta.caption") : t("widget.delta.captionLastLap");
 
   if (variant === "bar") {
     const frac =

@@ -4,6 +4,7 @@
 import type { EChartsOption } from "echarts";
 import { useMemo } from "react";
 import { CHART_COLORS, EChart } from "@/components/EChart";
+import { useT } from "@/i18n";
 import { speedValue, type Units } from "@/lib/format";
 import type { DeviationResult } from "@/lib/types";
 
@@ -16,6 +17,7 @@ export function DeviationChart({
   units: Units;
   zoomRange?: [number, number] | null;
 }) {
+  const t = useT();
   const option = useMemo<EChartsOption>(() => {
     const median = data.median.map((v) => speedValue(v, units));
     const dev = data.deviation.map((v) => speedValue(v, units));
@@ -56,7 +58,7 @@ export function DeviationChart({
       },
       series: [
         {
-          name: "Median speed",
+          name: t("deviation.medianSpeed"),
           type: "line",
           data: data.dist.map((d, i) => [d, median[i]]),
           sampling: "lttb", // per-metre samples; draw to canvas width (#33)
@@ -65,7 +67,7 @@ export function DeviationChart({
           color: CHART_COLORS.series[0],
         },
         {
-          name: "Deviation",
+          name: t("deviation.deviation"),
           type: "line",
           yAxisIndex: 1,
           data: data.dist.map((d, i) => [d, dev[i]]),
@@ -77,7 +79,7 @@ export function DeviationChart({
         },
       ],
     };
-  }, [data, units, zoomRange]);
+  }, [data, units, zoomRange, t]);
 
   return <EChart option={option} className="h-44 w-full" notMerge={false} />;
 }

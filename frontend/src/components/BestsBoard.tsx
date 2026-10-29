@@ -7,11 +7,13 @@
 // filter shared by both boards.
 
 import { Tip } from "@/components/ui/Tooltip";
+import { useT } from "@/i18n";
 import { formatLapTime, formatTime, formatTimeShort } from "@/lib/format";
 import { openInAnalysis } from "@/lib/router";
 import { excludeReasonLabel, type PersonalBest } from "@/lib/types";
 
 export function BestsBoard({ bests }: { bests: PersonalBest[] | null }) {
+  const t = useT();
   if (bests == null) {
     return (
       <div className="flex flex-col gap-2.5">
@@ -25,9 +27,8 @@ export function BestsBoard({ bests }: { bests: PersonalBest[] | null }) {
   if (bests.length === 0) {
     return (
       <div className="panel p-8 text-center text-ink-dim">
-        <div className="mb-1 text-base text-ink">No bests yet</div>
-        Best laps appear once a circuit is identified — name the track on a
-        session, or drive on a surveyed circuit.
+        <div className="mb-1 text-base text-ink">{t("bests.empty.title")}</div>
+        {t("bests.empty.body")}
       </div>
     );
   }
@@ -54,6 +55,7 @@ export function BestsBoard({ bests }: { bests: PersonalBest[] | null }) {
 // best beneath it with its gap to that time — the "how far off is everything
 // else" answer, per car.
 function CircuitBests({ track, rows }: { track: string; rows: PersonalBest[] }) {
+  const t = useT();
   const fastest = rows[0].time_ms;
   return (
     <div className="panel">
@@ -82,27 +84,27 @@ function CircuitBests({ track, rows }: { track: string; rows: PersonalBest[] }) 
                 {row.salvaged && (
                   <span
                     className="text-ink-faint"
-                    title="Salvaged from a stream that ended at the line (replay ending) — if this was someone else's replay, exclude its session from bests in the Sessions view"
+                    title={t("bests.salvaged.title")}
                   >
-                    ⟲ salvaged
+                    {t("bests.salvaged")}
                   </span>
                 )}
                 <CleanHint row={row} />
                 <ExcludedHint row={row} />
                 <span className="text-ink-faint">
-                  of {row.lap_count} laps
+                  {t("bests.ofLaps", { count: row.lap_count })}
                   <span className="hidden sm:inline" title={formatTime(row.finished_at)}>
                     {" · "}
                     {formatTimeShort(row.finished_at)}
                   </span>
                 </span>
                 <span className={gap === 0 ? "text-fastest" : "text-ink-dim"}>
-                  {gap === 0 ? "best" : `+${(gap / 1000).toFixed(3)}`}
+                  {gap === 0 ? t("sessions.best") : `+${(gap / 1000).toFixed(3)}`}
                 </span>
                 <span className={gap === 0 ? "text-fastest" : "text-ink"}>
                   {formatLapTime(row.time_ms)}
                 </span>
-                <Tip content="Open this lap in the Analysis view">
+                <Tip content={t("bests.open.hint")}>
                   <button
                     className="text-[11px] text-accent transition-colors hover:text-accent-300"
                     onClick={() =>
@@ -113,7 +115,7 @@ function CircuitBests({ track, rows }: { track: string; rows: PersonalBest[] }) 
                       })
                     }
                   >
-                    open
+                    {t("bests.open")}
                   </button>
                 </Tip>
               </span>
@@ -130,6 +132,7 @@ function CircuitBests({ track, rows }: { track: string; rows: PersonalBest[] }) 
 // the tooltip. Silent when nothing quicker was excluded — a slower excluded
 // lap changes nothing on the board.
 function ExcludedHint({ row }: { row: PersonalBest }) {
+  const t = useT();
   const excluded = row.excluded_faster ?? [];
   if (excluded.length === 0) return null;
   const [first] = excluded;
@@ -137,17 +140,19 @@ function ExcludedHint({ row }: { row: PersonalBest }) {
     <Tip
       content={
         <div className="flex flex-col gap-0.5">
-          <span>Quicker laps excluded from bests (Sessions → lap table):</span>
+          <span>{t("bests.excludedFaster")}</span>
           {excluded.map((lap) => (
             <span key={lap.lap_id} className="font-tabular">
-              {formatLapTime(lap.time_ms)} — {excludeReasonLabel(lap.reason) || "no reason given"}
+              {formatLapTime(lap.time_ms)} —{" "}
+              {excludeReasonLabel(lap.reason) || t("bests.noReason")}
             </span>
           ))}
         </div>
       }
     >
       <span tabIndex={0} className="text-ink-faint">
-        ⊘ {formatLapTime(first.time_ms)} {excludeReasonLabel(first.reason) || "excluded"}
+        ⊘ {formatLapTime(first.time_ms)}{" "}
+        {excludeReasonLabel(first.reason) || t("lapStatus.excluded")}
         {excluded.length > 1 && ` +${excluded.length - 1}`}
       </span>
     </Tip>
@@ -159,13 +164,14 @@ function ExcludedHint({ row }: { row: PersonalBest }) {
 // surveyed-edge excursions get their own count — a lap can be "clean" by
 // GT7's surfaces yet have left the mapped road onto paved runoff.
 function CleanHint({ row }: { row: PersonalBest }) {
+  const t = useT();
   return (
     <span className={row.clean_lap === false ? "text-brake" : "text-ink-faint"}>
-      <span title="Track limits from surface flags (3+ wheels on grass/gravel/dirt) — dash when the lap was recorded without surface data">
-        {row.clean_lap == null ? "–" : row.clean_lap ? "clean" : "⚠"}
+      <span title={t("bests.clean.title")}>
+        {row.clean_lap == null ? "–" : row.clean_lap ? t("bests.clean") : "⚠"}
       </span>
       {row.off_survey_count > 0 && (
-        <span title="Excursions beyond the surveyed road edge — the car left the mapped road surface (paved runoff counts)">
+        <span title={t("bests.offSurvey.title")}>
           {` · ${row.off_survey_count} ⚠`}
         </span>
       )}

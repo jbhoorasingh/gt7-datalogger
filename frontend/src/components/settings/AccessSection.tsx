@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useT } from "@/i18n";
 import { getAdminToken, setAdminToken } from "@/lib/api";
 import { Dot, INPUT_CLS, SectionPanel, SettingRow } from "./parts";
 
@@ -17,7 +18,8 @@ export async function probeProtection(): Promise<Protection> {
 }
 
 /** The admin token in this browser. Saving reloads so every poll picks it up. */
-export function TokenField({ label = "Save", placeholder }: { label?: string; placeholder: string }) {
+export function TokenField({ label, placeholder }: { label?: string; placeholder: string }) {
+  const t = useT();
   const [token, setToken] = useState(getAdminToken());
   const save = () => {
     setAdminToken(token.trim());
@@ -27,7 +29,7 @@ export function TokenField({ label = "Save", placeholder }: { label?: string; pl
     <div className="flex gap-2">
       <input
         type="password"
-        aria-label="Admin token"
+        aria-label={t("settings.access.token")}
         autoComplete="off"
         value={token}
         onChange={(e) => setToken(e.target.value)}
@@ -38,48 +40,40 @@ export function TokenField({ label = "Save", placeholder }: { label?: string; pl
         className={INPUT_CLS}
       />
       <button className="btn shrink-0" disabled={token === getAdminToken()} onClick={save}>
-        {label}
+        {label ?? t("settings.access.save")}
       </button>
     </div>
   );
 }
 
 export function AccessSection({ protection, locked }: { protection: Protection; locked: string | null }) {
+  const t = useT();
   return (
-    <SectionPanel
-      title="Access"
-      description="Who may change settings. Live, overlay and dash pages never need a token."
-    >
+    <SectionPanel title={t("settings.section.access")} description={t("settings.access.desc")}>
       <SettingRow
-        label="Server protection"
-        help={
-          <>
-            Set by <span className="font-tabular">GT7_ADMIN_TOKEN</span> on the server.
-          </>
-        }
+        label={t("settings.access.protection")}
+        help={t("settings.access.protectionHelp", { env: "GT7_ADMIN_TOKEN" })}
       >
         {protection === "open" ? (
           <span className="flex items-center gap-1.5 text-xs text-warn">
             <Dot tone="warn" />
-            Open — anyone on your network can change settings
+            {t("settings.access.open")}
           </span>
         ) : protection === "protected" ? (
           <span className="flex items-center gap-1.5 text-xs text-throttle">
             <Dot tone="good" />
-            Protected — changes need the admin token
+            {t("settings.access.protected")}
           </span>
         ) : (
-          <span className="text-xs text-ink-faint">Unknown — the server did not answer.</span>
+          <span className="text-xs text-ink-faint">{t("settings.access.unknown")}</span>
         )}
       </SettingRow>
-      <SettingRow
-        label="Admin token in this browser"
-        help="Stored locally, sent as X-API-Key."
-        last
-      >
+      <SettingRow label={t("settings.access.browserToken")} help={t("settings.access.browserTokenHelp")} last>
         <div className="flex flex-col gap-1.5">
           <TokenField
-            placeholder={protection === "open" ? "not needed — server is open" : "the server's GT7_ADMIN_TOKEN"}
+            placeholder={
+              protection === "open" ? t("settings.access.notNeeded") : t("settings.locked.placeholder")
+            }
           />
           {locked && <span className="text-[11px] text-warn">{locked}</span>}
         </div>

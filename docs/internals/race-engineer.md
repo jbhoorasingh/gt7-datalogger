@@ -12,7 +12,8 @@ GT7 → backend detectors → callout event (WebSocket) → browser queue → sp
 
 The backend decides **what happened, whether it is reliable, what to say, how
 urgent it is and when it stops being worth saying**. The browser decides **whether
-this device speaks, which voice, how loud, and which categories the user wants**.
+this device speaks, in which language, which voice, how loud, and which categories
+the user wants**.
 
 Keeping detection server-side means every client behaves identically and a phone
 doesn't need the telemetry history to work out fuel range.
@@ -305,9 +306,11 @@ A claim is only accepted from the socket that registered that `client_id`, and o
 from a `dash` or `engineer` page. A reconnecting client with the previous id gets its
 claim back; no other device is ever promoted automatically.
 
-`message_key` and `message_args` ride along with the English `text` from day one, so
-localized wording can be produced in the browser later without changing the event
-model.
+`message_key` and `message_args` ride along with the English `text`; a browser in
+another language words the callout from them (see [Translations](translations.md)).
+The arguments describe the English sentence: a clause it leaves out is `null`, the
+sector-voice precision is in `places`/`rounding`, and `corner_name`/`units` are there
+where the sentence uses them.
 
 ## Browser side
 
@@ -332,9 +335,13 @@ cancels speech that was only slow. After three consecutive failures the queue st
 back to captions, because each attempt otherwise costs a watchdog timeout during
 which the messages behind it expire.
 
-Voice selection falls back in order: the stored `voiceURI`, another voice in the same
-language, the browser's English default, then anything installed. Nothing assumes a
-particular voice name exists.
+The queue asks the store for each callout's words and language at the moment it is
+spoken (`QueueHooks.word`): the translation in the callout language, or the server's
+English when this device has no voice for that language.
+
+Voice selection falls back in order: the stored `voiceURI` if it speaks the callout
+language, another voice in that language (any region), the browser's English
+default, then anything installed. Nothing assumes a particular voice name exists.
 
 `store/engineer.ts` owns the per-device preferences (localStorage key
 `gt7-race-engineer-settings-v1`) and the client id. Runtime state — the queue, what is

@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Select } from "@/components/ui/Select";
 import { Toggle } from "@/components/ui/Toggle";
+import { t as translate, useT, type MessageKey } from "@/i18n";
 import { api } from "@/lib/api";
 import type { ConfigDoc, ConfigSetting, ConfigValue } from "@/lib/types";
 import { toast } from "@/store/toasts";
@@ -23,17 +24,19 @@ import {
 } from "./advanced";
 import { INPUT_CLS, SectionPanel, SettingRow } from "./parts";
 
-const SOURCE_LABEL: Record<ConfigSetting["source"], string> = {
-  saved: "set here",
-  env: "from environment",
-  default: "default",
+// A setting's name, description and group come from the server's registry
+// and are shown as it words them (English); the chrome around them is not.
+const SOURCE_LABEL: Record<ConfigSetting["source"], MessageKey> = {
+  saved: "advanced.source.saved",
+  env: "advanced.source.env",
+  default: "advanced.source.default",
 };
 
 function formatDefault(row: ConfigSetting): string {
   const d = row.default;
   if (row.secret || d === null) return "";
-  if (Array.isArray(d)) return d.length ? d.join(", ") : "(none)";
-  if (d === "") return "(empty)";
+  if (Array.isArray(d)) return d.length ? d.join(", ") : translate("advanced.none");
+  if (d === "") return translate("advanced.empty");
   return String(d);
 }
 
@@ -46,6 +49,7 @@ function Control({
   value: ConfigValue | null;
   onChange: (v: ConfigValue) => void;
 }) {
+  const t = useT();
   const disabled = !row.editable;
   const id = `cfg-${row.key}`;
   // Number fields keep their own text, so "4." or "" can be typed on the way
@@ -119,7 +123,13 @@ function Control({
       spellCheck={false}
       disabled={disabled}
       value={typeof value === "string" ? value : ""}
-      placeholder={row.secret ? (row.is_set ? `set (${row.hint || "hidden"}) — type to replace` : "not set") : ""}
+      placeholder={
+        row.secret
+          ? row.is_set
+            ? t("advanced.secretSet", { hint: row.hint || t("advanced.hidden") })
+            : t("advanced.notSet")
+          : ""
+      }
       onChange={(e) => onChange(e.target.value)}
       className={`${INPUT_CLS} w-full disabled:opacity-60`}
     />
@@ -127,6 +137,7 @@ function Control({
 }
 
 export function AdvancedSection({ onApplied }: { onApplied: () => void }) {
+  const t = useT();
   const [doc, setDoc] = useState<ConfigDoc | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [edits, setEdits] = useState<ConfigEdits>(NO_EDITS);
@@ -139,8 +150,8 @@ export function AdvancedSection({ onApplied }: { onApplied: () => void }) {
         setDoc(d);
         setError(null);
       })
-      .catch((e) => setError(e instanceof Error ? e.message : "Could not load settings"));
-  }, []);
+      .catch((e) => setError(e instanceof Error ? e.message : t("settings.loadFailed")));
+  }, [t]);
   useEffect(load, [load]);
 
   const rows = useMemo(() => doc?.settings ?? [], [doc]);
@@ -153,10 +164,10 @@ export function AdvancedSection({ onApplied }: { onApplied: () => void }) {
       const next = await api.admin.updateConfig(edits);
       setDoc(next);
       setEdits(NO_EDITS);
-      toast("Settings applied", "success");
+      toast(t("settings.applied"), "success");
       onApplied();
     } catch (e) {
-      toast(e instanceof Error ? e.message : "Applying settings failed", "error");
+      toast(e instanceof Error ? e.message : t("settings.applyFailed"), "error");
     } finally {
       setApplying(false);
     }
@@ -164,16 +175,16 @@ export function AdvancedSection({ onApplied }: { onApplied: () => void }) {
 
   return (
     <SectionPanel
-      title="Advanced"
-      description="Every setting this server has, with its environment variable and default. A value set here overrides the environment until you reset it."
+      title={t("settings.section.advanced")}
+      description={t("advanced.desc")}
       actions={
         count > 0 && (
           <>
             <button className="btn" disabled={applying} onClick={() => setEdits(NO_EDITS)}>
-              Discard
+              {t("settings.pending.discard")}
             </button>
             <button className="btn btn-primary" disabled={applying} onClick={() => void apply()}>
-              Apply {count} change{count === 1 ? "" : "s"}
+              {t("advanced.apply", { count })}
             </button>
           </>
         )
@@ -182,7 +193,7 @@ export function AdvancedSection({ onApplied }: { onApplied: () => void }) {
       {error && <div className="px-[18px] py-3 text-[12px] text-brake">{error}</div>}
       {waiting.length > 0 && (
         <div className="px-[18px] py-2.5 text-[12px] text-warn">
-          Restart the server to use the new {waiting.map((r) => r.label).join(", ")}.
+          {t("advanced.restartToUse", { settings: waiting.map((r) => r.label).join(", ") })}
         </div>
       )}
       {doc?.groups.map((group) => {
@@ -215,20 +226,26 @@ export function AdvancedSection({ onApplied }: { onApplied: () => void }) {
                     />
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-tabular text-[10.5px] text-ink-faint">
                       <span className={changed ? "text-accent" : ""}>
-                        {resetting ? "will reset" : changed ? "changed" : SOURCE_LABEL[row.source]}
+                        {resetting
+                          ? t("advanced.willReset")
+                          : changed
+                            ? t("advanced.changed")
+                            : t(SOURCE_LABEL[row.source])}
                       </span>
-                      {def && (row.source !== "default" || changed) && <span>default {def}</span>}
-                      {row.apply === "restart" && <span>applies at next start</span>}
-                      {row.apply === "env" && <span>environment only</span>}
-                      {row.restart_pending && <span className="text-warn">restart pending</span>}
+                      {def && (row.source !== "default" || changed) && (
+                        <span>{t("advanced.defaultValue", { value: def })}</span>
+                      )}
+                      {row.apply === "restart" && <span>{t("advanced.nextStart")}</span>}
+                      {row.apply === "env" && <span>{t("advanced.envOnly")}</span>}
+                      {row.restart_pending && <span className="text-warn">{t("advanced.restartPending")}</span>}
                       {row.editable && row.source === "saved" && !resetting && (
                         <button
                           type="button"
                           className="text-ink-dim underline-offset-2 hover:text-ink hover:underline"
-                          title="Forget the value set here: the environment's value, or the default"
+                          title={t("advanced.resetTitle")}
                           onClick={() => setEdits((e) => resetKey(e, row.key))}
                         >
-                          Reset
+                          {t("advanced.reset")}
                         </button>
                       )}
                     </div>

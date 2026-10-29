@@ -5,6 +5,7 @@
 // numbers + hollow bars), so focus-vs-ref stays visible without switching.
 
 import { useMemo, useState } from "react";
+import { useT } from "@/i18n";
 import { THRESHOLDS } from "@/lib/alerts";
 import { TIRE_BALANCE_EVEN_C } from "@/lib/mapLens";
 import { nearestIndex } from "@/lib/playback";
@@ -44,6 +45,7 @@ export function CornerDetail({
   cursorDist: number | null;
   trackCorners?: TrackCorner[];
 }) {
+  const t = useT();
   const candidates = laps.filter((l) => !l.isRef);
   const [focusId, setFocusId] = useState<string | null>(null);
   const focus =
@@ -71,7 +73,7 @@ export function CornerDetail({
   if (!hasData) {
     return (
       <div className="p-3 text-xs text-ink-dim">
-        No per-corner data for this lap (recorded before Tier 1, or channels not loaded).
+        {t("cornerDetail.noData")}
       </div>
     );
   }
@@ -94,9 +96,9 @@ export function CornerDetail({
     const gSusPct = gSus != null && hi > lo ? Math.min(100, ((gSus - lo) / (hi - lo)) * 100) : null;
     const badge =
       slip != null && brake >= 20 && slip < 0.9
-        ? "LOCK"
+        ? "lock"
         : slip != null && throttle >= 40 && slip > 1.1
-          ? "SPIN"
+          ? "spin"
           : null;
     // Tint toward red/blue when hotter/cooler than the ref at the same spot
     const diff = temp != null && gTemp != null ? temp - gTemp : 0;
@@ -110,14 +112,14 @@ export function CornerDetail({
         style={{ backgroundColor: temp != null ? tempColor(temp) : "transparent" }}
       >
         <div className="flex items-start justify-between text-[9px] uppercase text-ink-dim">
-          {w}
+          {t(`common.wheel.${w}`)}
           {badge && (
             <span
               className={`rounded px-1 font-bold text-white ${
-                badge === "LOCK" ? "bg-brake" : "bg-warn"
+                badge === "lock" ? "bg-brake" : "bg-warn"
               }`}
             >
-              {badge}
+              {t(badge === "lock" ? "cornerDetail.lock" : "cornerDetail.spin")}
             </span>
           )}
         </div>
@@ -194,16 +196,14 @@ export function CornerDetail({
           <span
             className="mr-2 rounded border border-edge px-1 py-0.5 text-[10px] text-ink"
             title={
-              inCorner.authored
-                ? "Labelled by hand in this circuit's bundle — the same number every lap and every session"
-                : "Detected from this lap's curvature; the numbering can differ between laps"
+              inCorner.authored ? t("cornerDetail.authored") : t("cornerDetail.detected")
             }
           >
-            T{inCorner.n} {inCorner.direction}
+            T{inCorner.n} {t(inCorner.direction === "L" ? "map.dir.l" : "map.dir.r")}
             {inCorner.name ? ` · ${inCorner.name}` : ""}
           </span>
         )}
-        F/R balance{" "}
+        {t("cornerDetail.balance")}{" "}
         <span
           className={
             balance > TIRE_BALANCE_EVEN_C
@@ -213,12 +213,13 @@ export function CornerDetail({
                 : "text-ink"
           }
         >
-          {balance >= 0 ? "F +" : "R +"}
-          {Math.abs(balance).toFixed(1)} °C
+          {t(balance >= 0 ? "cornerDetail.frontHotter" : "cornerDetail.rearHotter", {
+            value: Math.abs(balance).toFixed(1),
+          })}
         </span>
-        {ghost && <span className="ml-2 text-[10px]">(small figures = ref)</span>}
+        {ghost && <span className="ml-2 text-[10px]">{t("cornerDetail.smallRef")}</span>}
         {cursorDist == null && (
-          <div className="mt-1 text-[10px]">Hover a chart to scrub through the lap.</div>
+          <div className="mt-1 text-[10px]">{t("cornerDetail.scrubHint")}</div>
         )}
       </div>
     </div>

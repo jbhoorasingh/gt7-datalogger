@@ -42,9 +42,10 @@ import type { EChartsOption, SeriesOption } from "echarts";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { CHART_COLORS, EChart } from "@/components/EChart";
 import { LargeDialog } from "@/components/ui/Dialog";
+import { type MessageKey, type Translate, useT } from "@/i18n";
 import type { ChannelDef } from "@/lib/channels";
 import { cornerRange, selectedCorner, stepCorner } from "@/lib/cornerZoom";
-import { speedUnit, speedValue, type Units } from "@/lib/format";
+import { formatInt, speedUnit, speedValue, type Units } from "@/lib/format";
 import type { SectorTiming } from "@/lib/sectorTiming";
 import { lineDragRange, wheelRange } from "@/lib/lapStrip";
 import {
@@ -52,7 +53,7 @@ import {
   brakeDeltaText,
   type BrakeMarker,
   DEFAULT_MAP_LAYERS,
-  EVENT_LABELS,
+  EVENT_LABEL_KEYS,
   eventMarkers,
   type MapLayers,
   severityText,
@@ -121,10 +122,16 @@ const EVENT_ORDER: EventType[] = ["lockup", "wheelspin", "bottoming", "kerb"];
 
 // Aid activity is a hollow ring around the line, so the colour of the sample
 // underneath stays readable through it.
-const AID_LAYERS = [
-  { key: "tcs", bit: AIDS_TCS, symbol: "circle", label: "TCS active", legend: "○" },
-  { key: "asm", bit: AIDS_ASM, symbol: "rect", label: "ASM active", legend: "□" },
-] as const;
+const AID_LAYERS: readonly {
+  key: "tcs" | "asm";
+  bit: number;
+  symbol: string;
+  labelKey: MessageKey;
+  legend: string;
+}[] = [
+  { key: "tcs", bit: AIDS_TCS, symbol: "circle", labelKey: "map.key.tcsActive", legend: "○" },
+  { key: "asm", bit: AIDS_ASM, symbol: "rect", labelKey: "map.key.asmActive", legend: "□" },
+];
 
 // Track either side of an event when a marker is clicked: enough to see the
 // approach that caused it.
@@ -322,13 +329,14 @@ export interface LegendGlyph {
 /**
  * The key for what the layers are drawing in the current window, for the
  * panel header. Lists what is actually on the map, not what is switched on:
- * a layer with nothing to draw adds no entry.
+ * a layer with nothing to draw adds no entry. Worded by the caller's `t`.
  */
 export function layerKey(
   laps: MapLap[],
   layers: MapLayers,
   zoomRange: [number, number] | null | undefined,
   brakeMarks: BrakeMarker[],
+  t: Translate,
 ): LegendGlyph[] {
   const ref = laps.find((lap) => lap.isRef);
   // The key lists what is drawn, and a hidden lap's markers are not.
@@ -337,14 +345,16 @@ export function layerKey(
   const inZoom = (d: number) => !zoomRange || (d >= zoomRange[0] && d <= zoomRange[1]);
   if (layers.peaks && ref) {
     const pv = ref.entry.peaks_valleys;
-    if (pv.peaks.some((p) => inZoom(p.dist))) out.push({ glyph: "▲", label: "peak", color: PEAK_COLOR });
+    if (pv.peaks.some((p) => inZoom(p.dist))) {
+      out.push({ glyph: "▲", label: t("map.key.peak"), color: PEAK_COLOR });
+    }
     if (pv.valleys.some((p) => inZoom(p.dist))) {
-      out.push({ glyph: "▼", label: "valley", color: VALLEY_COLOR });
+      out.push({ glyph: "▼", label: t("map.key.valley"), color: VALLEY_COLOR });
     }
   }
   if (layers.kerbs && ref?.entry.series.surface?.some((v) => v > 0)) {
-    out.push({ glyph: "●", label: "kerb", color: KERB_COLOR });
-    out.push({ glyph: "●", label: "off-track", color: LOOSE_COLOR });
+    out.push({ glyph: "●", label: t("map.key.kerb"), color: KERB_COLOR });
+    out.push({ glyph: "●", label: t("map.key.offTrack"), color: LOOSE_COLOR });
   }
   if (layers.events) {
     const types = new Set<EventType>();
@@ -355,8 +365,8 @@ export function layerKey(
       if (types.has(type)) {
         out.push({
           glyph: EVENT_GLYPHS[type].legend,
-          label: EVENT_LABELS[type].toLowerCase(),
-          title: "In the lap's colour · click a marker to zoom every panel to it",
+          label: t(EVENT_LABEL_KEYS[type]).toLowerCase(),
+          title: t("map.key.eventTitle"),
         });
       }
     }
@@ -366,22 +376,23 @@ export function layerKey(
     if (drawn.some((lap) => aidPoints(lap.entry.series, aid.bit, zoomRange).length > 0)) {
       out.push({
         glyph: aid.legend,
-        label: aid.label,
-        title: "A ring on every sample the aid was intervening, in the lap's colour",
+        label: t(aid.labelKey),
+        title: t("map.key.aidTitle"),
       });
     }
   }
   if (layers.brakes && brakeMarks.length > 0) {
     out.push({
       glyph: "pin",
-      label: "brake point",
-      title: "Where each lap's brake went on for this corner, in the lap's colour",
+      label: t("map.key.brakePoint"),
+      title: t("map.key.brakeTitle"),
     });
   }
   return out;
 }
 
 export function RaceLineMap(props: MapProps) {
+  const t = useT();
   const [ownMaximized, setOwnMaximized] = useState(false);
   const maximized = props.maximized ?? ownMaximized;
   const setMaximized = props.onMaximizedChange ?? setOwnMaximized;
@@ -396,7 +407,7 @@ export function RaceLineMap(props: MapProps) {
       ) : (
         <MapBody {...props} onMaximize={props.hero ? undefined : () => setMaximized(true)} />
       )}
-      <LargeDialog open={maximized} title="Race line" onClose={() => setMaximized(false)}>
+      <LargeDialog open={maximized} title={t("map.title")} onClose={() => setMaximized(false)}>
         <MapBody {...props} maximized />
       </LargeDialog>
     </>
@@ -427,6 +438,7 @@ function MapBody({
   animate = true,
   maximized = false,
 }: MapProps & { onMaximize?: () => void; maximized?: boolean }) {
+  const t = useT();
   const chartRef = useRef<echarts.ECharts | null>(null);
   // Equal axis spans only keep the geometry honest if the PLOTTING AREA is
   // square, which the rail's aspect-square box is and the maximized dialog —
@@ -948,7 +960,7 @@ function MapBody({
           type: "scatter",
           data: cornersInView.map((c) => {
             const [ux, uz] = outward.get(c.n) ?? [0, -1];
-            const parts = [`{k|min}`, `{r|${Math.round(speedValue(c.min_speed, units))}}`];
+            const parts = [`{k|${t("map.apexMin")}}`, `{r|${Math.round(speedValue(c.min_speed, units))}}`];
             others.forEach((lap, i) => {
               const row = lap.entry.corner_report?.find((r) => r.n === c.n);
               if (row) parts.push(`{c${i}|${Math.round(speedValue(row.min_speed, units))}}`);
@@ -1017,10 +1029,12 @@ function MapBody({
             symbolRotate: EVENT_GLYPHS[event.type].rotate,
             range: [Math.max(0, event.start_dist - EVENT_PAD_M), event.end_dist + EVENT_PAD_M],
             tip:
-              `<b>${EVENT_LABELS[event.type]}</b> · ${escapeHtml(lap.label)}<br/>` +
-              `${escapeHtml(wheelsText(event.wheels))}<br/>` +
-              `${escapeHtml(severityText(event))}<br/>` +
-              `<span style="color:${CHART_COLORS.label}">at ${event.start_dist.toFixed(0)} m · click to zoom</span>`,
+              `<b>${escapeHtml(t(EVENT_LABEL_KEYS[event.type]))}</b> · ${escapeHtml(lap.label)}<br/>` +
+              `${escapeHtml(wheelsText(event.wheels, t))}<br/>` +
+              `${escapeHtml(severityText(event, t))}<br/>` +
+              `<span style="color:${CHART_COLORS.label}">${escapeHtml(
+                t("map.event.atClick", { dist: event.start_dist.toFixed(0) }),
+              )}</span>`,
           })),
           symbolSize: maximized ? 14 : 11,
           itemStyle: { color: lap.color, borderColor: "#0d0f13", borderWidth: 1.2 },
@@ -1108,7 +1122,7 @@ function MapBody({
       },
       series,
     };
-  }, [laps, zoomRange, outline, borders, corners, current, maximized, ref, layers, colouring, outward, units]);
+  }, [laps, zoomRange, outline, borders, corners, current, maximized, ref, layers, colouring, outward, units, t]);
 
   // The camera: which window the axes show. The option never sets one (see
   // above), so this effect does, after every option change and every change
@@ -1206,22 +1220,24 @@ function MapBody({
         // keep their names apart.
         position: mark.isRef ? "bottom" : "top",
         distance: mark.isRef ? 4 : 2,
-        formatter: mark.isRef ? "ref" : mark.label.split(" ")[0],
+        formatter: mark.isRef ? t("map.refShort") : mark.label.split(" ")[0],
         color: "#e5e7eb",
         fontSize: maximized ? 11 : 10,
         textBorderColor: "#0d0f13",
         textBorderWidth: 2,
       },
       tip:
-        `<b>Brake point</b> · ${escapeHtml(mark.label)}<br/>` +
-        (mark.deltaM != null ? `${escapeHtml(brakeDeltaText(mark.deltaM))}<br/>` : "") +
-        `<span style="color:${CHART_COLORS.label}">at ${mark.dist.toFixed(0)} m</span>`,
+        `<b>${escapeHtml(t("map.brakePoint"))}</b> · ${escapeHtml(mark.label)}<br/>` +
+        (mark.deltaM != null ? `${escapeHtml(brakeDeltaText(mark.deltaM, t))}<br/>` : "") +
+        `<span style="color:${CHART_COLORS.label}">${escapeHtml(
+          t("map.atDist", { dist: mark.dist.toFixed(0) }),
+        )}</span>`,
     }));
     chart.setOption(
       { series: [{ id: "brake-marks", data }] },
       { notMerge: false, lazyUpdate: true },
     );
-  }, [shownMarks, option, maximized]);
+  }, [shownMarks, option, maximized, t]);
 
   // --- gestures on the line (hero only: the maximized view pans) ------------
 
@@ -1435,7 +1451,7 @@ function MapBody({
       const name = `S${sector.n}`;
 
       const dir = duration == null
-        ? "time unavailable"
+        ? t("map.callout.timeUnavailable")
         : `${timing?.approximate ? "~" : ""}${(() => {
             const rounded = Math.round(duration);
             const minutes = Math.floor(rounded / 60000);
@@ -1447,7 +1463,7 @@ function MapBody({
         return {
           name,
           dir,
-          note: focus ? "comparison unavailable" : "reference time",
+          note: focus ? t("map.callout.noComparison") : t("map.callout.referenceTime"),
         };
       }
 
@@ -1467,11 +1483,18 @@ function MapBody({
     }
 
     if (!current || !ref) return null;
-    const dir = current.direction === "L" ? "left" : "right";
+    const dir = t(current.direction === "L" ? "map.dir.left" : "map.dir.right");
     const refRow = ref.entry.corner_report?.find((r) => r.n === current.n);
     const row = focus?.entry.corner_report?.find((r) => r.n === current.n);
     if (!focus || !row || !refRow) {
-      return { name: `T${current.n}`, dir, note: `${Math.round(speedValue(current.min_speed, units))} ${speedUnit(units)} min` };
+      return {
+        name: `T${current.n}`,
+        dir,
+        note: t("map.minSpeed", {
+          speed: String(Math.round(speedValue(current.min_speed, units))),
+          unit: speedUnit(units),
+        }),
+      };
     }
     const lost = row.time_ms - refRow.time_ms;
     const delta = `${lost >= 0 ? "+" : "−"}${(Math.abs(lost) / 1000).toFixed(3)} s`;
@@ -1481,15 +1504,17 @@ function MapBody({
       bd == null
         ? null
         : Math.round(Math.abs(bd)) === 0
-          ? "brakes level with ref"
-          : `brakes ${Math.round(Math.abs(bd))} m ${bd < 0 ? "earlier" : "later"}`;
+          ? t("map.callout.brakesLevel")
+          : t(bd < 0 ? "map.callout.brakesEarlier" : "map.callout.brakesLater", {
+              m: String(Math.round(Math.abs(bd))),
+            });
     return { name: `T${current.n}`, dir, who: focus.label.split(" ")[0], delta, deltaColor, brake };
-  }, [current, ref, focus, hero, units, sectors, sectorTimings, zoomRange]);
+  }, [current, ref, focus, hero, units, sectors, sectorTimings, zoomRange, t]);
 
   const others = laps.filter((lap) => !lap.isRef && layers.others);
   const key = useMemo(
-    () => layerKey(laps, layers, zoomRange, shownMarks),
-    [laps, layers, zoomRange, shownMarks],
+    () => layerKey(laps, layers, zoomRange, shownMarks, t),
+    [laps, layers, zoomRange, shownMarks, t],
   );
 
   return (
@@ -1533,7 +1558,7 @@ function MapBody({
             ref={readoutRef}
             className="pointer-events-none absolute z-20 max-h-[calc(100%-16px)] max-w-[calc(100%-16px)] overflow-hidden rounded border border-edge bg-panel-2 px-2.5 py-1.5 text-[11px] text-ink shadow-lg shadow-black/40"
           >
-            <div className="mb-1 font-semibold font-tabular">{Math.round(readout.dist).toLocaleString()} m</div>
+            <div className="mb-1 font-semibold font-tabular">{formatInt(readout.dist)} m</div>
             <table className="border-collapse font-tabular">
               {readoutLaps.length > 1 && (
                 <thead>
@@ -1569,8 +1594,8 @@ function MapBody({
         {onMaximize && (
           <button
             onClick={onMaximize}
-            aria-label="Maximize the race line map"
-            title="Open the map full screen"
+            aria-label={t("map.maximize")}
+            title={t("map.maximizeTitle")}
             className="absolute right-2 top-2 rounded border border-edge bg-panel/80 px-1.5 py-0.5 text-xs text-ink-dim backdrop-blur transition-colors hover:border-edge-bright hover:text-ink"
           >
             ⤢
@@ -1580,7 +1605,7 @@ function MapBody({
           <button
             onPointerDown={(e) => e.stopPropagation()}
             onClick={() => onZoomChange?.(null)}
-            title="Back to the full lap"
+            title={t("map.locatorTitle")}
             className="absolute left-3 top-2.5 h-[104px] w-[150px] rounded-md border-0 p-0"
             style={{ background: "rgba(11,13,16,.78)", boxShadow: "0 0 0 1px var(--color-hairline)" }}
           >
@@ -1588,7 +1613,7 @@ function MapBody({
               <path d={locator.full} fill="none" stroke={INK_GHOST} strokeWidth={2} strokeLinejoin="round" />
               <path d={locator.part} fill="none" stroke={ACCENT} strokeWidth={3.5} strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-            <span className="absolute bottom-1 right-1.5 text-[9.5px] text-ink-faint">Esc · full lap</span>
+            <span className="absolute bottom-1 right-1.5 text-[9.5px] text-ink-faint">{t("map.locatorHint")}</span>
           </button>
         )}
         {callout && (
@@ -1602,7 +1627,7 @@ function MapBody({
               <>
                 <span className="text-ink-faint">·</span>
                 {callout.name.startsWith("T") && (
-                  <span className="text-ink-dim">{callout.who} here</span>
+                  <span className="text-ink-dim">{t("map.callout.here", { lap: callout.who ?? "" })}</span>
                 )}
                 <span className={callout.deltaColor}>{callout.delta}</span>
                 {callout.brake && (
@@ -1623,7 +1648,7 @@ function MapBody({
         )}
         {gestures && (
           <span className="pointer-events-none absolute bottom-2.5 right-3.5 text-[10px] text-ink-faint">
-            drag along the line to zoom · ⌘/ctrl + scroll · double-click resets
+            {t("map.gestureHint")}
           </span>
         )}
       </div>
@@ -1643,9 +1668,9 @@ function MapBody({
             </span>
           ))}
           {(lens?.legend ?? [
-            { label: "throttle", color: INPUT_COLORS[2] },
-            { label: "brake", color: INPUT_COLORS[0] },
-            { label: "coast", color: INPUT_COLORS[1] },
+            { label: t("map.legend.throttle"), color: INPUT_COLORS[2] },
+            { label: t("map.legend.brake"), color: INPUT_COLORS[0] },
+            { label: t("map.legend.coast"), color: INPUT_COLORS[1] },
           ]).map((entry) => (
             <span key={entry.label} className="flex items-center gap-1.5">
               <i className="inline-block h-0.5 w-3.5" style={{ backgroundColor: entry.color }} />
@@ -1660,37 +1685,35 @@ function MapBody({
               {entry.label}
             </span>
           ))}
-          {corners.length > 0 && layers.numbers && <span>corner numbers — click to zoom</span>}
+          {corners.length > 0 && layers.numbers && <span>{t("map.key.cornerNumbers")}</span>}
           {hasOutline && layers.road && (
-            <span title={`Surveyed over ${outline!.runs} run${outline!.runs === 1 ? "" : "s"}`}>
+            <span title={t("map.key.surveyedRuns", { count: outline!.runs })}>
               <i
                 className="mr-1 inline-block h-2 w-2 rounded-sm"
                 style={{ backgroundColor: ROAD_FILL, outline: `1px solid ${BORDER_COLOR}` }}
               />
-              surveyed road
+              {t("map.key.surveyedRoad")}
             </span>
           )}
           {(outline?.walls.length ?? 0) > 0 && layers.road && (
             <span>
               <i className="mr-1 inline-block h-2 w-2 rounded-sm" style={{ backgroundColor: WALL_COLOR }} />
-              wall
+              {t("map.key.wall")}
             </span>
           )}
           {(outline?.gaps?.length ?? 0) > 0 && layers.road && (
-            <span title="Boundary the survey has not driven yet">
+            <span title={t("map.key.gapTitle")}>
               <i
                 className="mr-1 inline-block w-4 border-t-2 border-dashed align-middle"
                 style={{ borderColor: GAP_COLOR }}
               />
-              unsurveyed gap
+              {t("map.key.gap")}
             </span>
           )}
           {sync === "time" && others.length > 0 && (
-            <span title="Each lap's dot sits where that lap was at the reference lap's elapsed time">
-              dots synced on lap time
-            </span>
+            <span title={t("map.key.timeSyncTitle")}>{t("map.key.timeSync")}</span>
           )}
-          <span className="ml-auto">scroll to zoom · drag to pan</span>
+          <span className="ml-auto">{t("map.key.panHint")}</span>
         </div>
       )}
     </div>
@@ -1710,11 +1733,12 @@ function CornerBar({
   current: Corner | null;
   onPick: (c: Corner | null) => void;
 }) {
+  const t = useT();
   return (
     <div className="flex items-center gap-1.5 border-t border-edge px-3 py-1.5 text-[11px]">
       <button
         onClick={() => onPick(stepCorner(corners, current, -1))}
-        aria-label="Previous corner"
+        aria-label={t("map.prevCorner")}
         className="shrink-0 rounded border border-edge px-1.5 text-ink-dim transition-colors hover:border-edge-bright hover:text-ink"
       >
         ‹
@@ -1726,13 +1750,13 @@ function CornerBar({
             current ? "text-ink-dim hover:text-ink" : "bg-accent/15 text-accent"
           }`}
         >
-          lap
+          {t("map.lapChip")}
         </button>
         {corners.map((c) => (
           <button
             key={c.n}
             onClick={() => onPick(c)}
-            title={c.name || `Corner ${c.n}`}
+            title={c.name || t("map.cornerN", { n: String(c.n) })}
             className={`shrink-0 rounded px-1.5 font-tabular transition-colors ${
               current?.n === c.n
                 ? "bg-accent/15 text-accent"
@@ -1745,7 +1769,7 @@ function CornerBar({
       </div>
       <button
         onClick={() => onPick(stepCorner(corners, current, 1))}
-        aria-label="Next corner"
+        aria-label={t("map.nextCorner")}
         className="shrink-0 rounded border border-edge px-1.5 text-ink-dim transition-colors hover:border-edge-bright hover:text-ink"
       >
         ›
@@ -1753,7 +1777,7 @@ function CornerBar({
       {current && (
         <span className="shrink-0 truncate pl-1 text-ink-dim">
           {current.name || `T${current.n}`}
-          {current.direction && ` · ${current.direction === "L" ? "left" : "right"}`}
+          {current.direction && ` · ${t(current.direction === "L" ? "map.dir.left" : "map.dir.right")}`}
           {` · ${current.min_speed.toFixed(0)} km/h · ${current.angle_deg.toFixed(0)}°`}
         </span>
       )}

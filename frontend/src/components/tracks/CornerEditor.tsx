@@ -18,6 +18,7 @@ import type { EChartsOption, SeriesOption } from "echarts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EChart } from "@/components/EChart";
 import { Select } from "@/components/ui/Select";
+import { rich, useT, type MessageKey } from "@/i18n";
 import { api, type TrackBundleDoc } from "@/lib/api";
 import { formatLapTime } from "@/lib/format";
 import { boundariesFromSplits, formatClock, parseClock } from "@/lib/sectorSplits";
@@ -55,14 +56,14 @@ type PlaceMode =
   | "section-end"
   | "sector-end";
 
-const MODE_HELP: Record<PlaceMode, string> = {
-  apex: "Click the map for each corner, in track order. Name them as you go.",
-  "move-apex": "Click where this corner's apex should be.",
-  entry: "Click where the corner starts — turn-in.",
-  exit: "Click where the corner ends — the exit.",
-  "section-start": "Click where this section begins.",
-  "section-end": "Click where this section ends.",
-  "sector-end": "Click where this sector ends — the split line.",
+const MODE_HELP_KEY: Record<PlaceMode, MessageKey> = {
+  apex: "cornerEditor.mode.apex",
+  "move-apex": "cornerEditor.mode.moveApex",
+  entry: "cornerEditor.mode.entry",
+  exit: "cornerEditor.mode.exit",
+  "section-start": "cornerEditor.mode.sectionStart",
+  "section-end": "cornerEditor.mode.sectionEnd",
+  "sector-end": "cornerEditor.mode.sectorEnd",
 };
 
 function blank(n: number): AuthoredCorner {
@@ -82,6 +83,7 @@ export function CornerEditor({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const t = useT();
   const [doc, setDoc] = useState<TrackBundleDoc | null>(null);
   const [error, setError] = useState("");
   const [corners, setCorners] = useState<AuthoredCorner[]>([]);
@@ -130,7 +132,7 @@ export function CornerEditor({
     if (splitLap == null) return;
     const times = splitMs.map((ms) => ms ?? 0);
     if (times.some((ms) => !(ms > 0))) {
-      setSplitError("Every sector needs a time, as the game showed it.");
+      setSplitError(t("cornerEditor.splits.needTimes"));
       return;
     }
     setSplitBusy(true);
@@ -165,7 +167,11 @@ export function CornerEditor({
       setDirty(true);
       setSplitsOpen(false);
       toastSuccess(
-        `${result.boundaries.length + 1} sectors placed from L${splitLap.number} — last sector ${formatClock(result.remainder_ms)}. Save to keep them.`,
+        t("cornerEditor.splits.placed", {
+          count: result.boundaries.length + 1,
+          lap: String(splitLap.number),
+          last: formatClock(result.remainder_ms),
+        }),
       );
     } catch (e) {
       setSplitError((e as Error).message);
@@ -442,10 +448,15 @@ export function CornerEditor({
       setSectors(result.sectors ?? []);
       setDirty(false);
       const saved = result.sectors ?? [];
+      const cornerCount = t("count.corners", { count: result.corners.length });
       toastSuccess(
-        `Saved ${result.corners.length} corners${
-          saved.length > 0 ? ` and ${saved.length + 1} sectors` : ""
-        } on ${result.track}`,
+        saved.length > 0
+          ? t("cornerEditor.savedWithSectors", {
+              corners: cornerCount,
+              sectors: t("count.sectors", { count: saved.length + 1 }),
+              track: result.track,
+            })
+          : t("cornerEditor.saved", { corners: cornerCount, track: result.track }),
       );
       onSaved();
     } catch (e) {
@@ -461,26 +472,26 @@ export function CornerEditor({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <h3 className="text-sm font-semibold">Corners — {trackName}</h3>
+        <h3 className="text-sm font-semibold">{t("cornerEditor.title", { track: trackName })}</h3>
         {turns > 0 && (
           <span
             className={`rounded-full px-2 py-0.5 text-xs ${
               labelled >= turns ? "bg-throttle/15 text-throttle" : "bg-panel-2 text-ink-dim"
             }`}
-            title="The official catalog knows this layout's turn count; it is the only outside check on whether the labelling is finished"
+            title={t("cornerEditor.turnCountTitle")}
           >
-            {labelled} of {turns} labelled
+            {t("cornerEditor.labelledOf", { labelled, turns })}
           </span>
         )}
         {turns === 0 && (
-          <span className="text-xs text-ink-dim">{labelled} labelled</span>
+          <span className="text-xs text-ink-dim">{t("cornerEditor.labelled", { count: labelled })}</span>
         )}
         <div className="ml-auto flex items-center gap-2">
           <button className="btn" disabled={!dirty || saving} onClick={() => void save()}>
-            {saving ? "Saving…" : "Save"}
+            {saving ? t("common.saving") : t("common.save")}
           </button>
           <button className="btn" onClick={onClose}>
-            Close
+            {t("common.close")}
           </button>
         </div>
       </div>
@@ -500,12 +511,10 @@ export function CornerEditor({
                 if (mode !== "apex") setSelected(-1);
               }}
             >
-              {mode === "apex" ? "Placing apexes…" : "Place corners"}
+              {mode === "apex" ? t("cornerEditor.placingApexes") : t("cornerEditor.placeCorners")}
             </button>
             <span>
-              {mode
-                ? MODE_HELP[mode]
-                : "Scroll to zoom, drag to pan. Pick a corner to edit it."}
+              {mode ? t(MODE_HELP_KEY[mode]) : t("cornerEditor.mapHelp")}
             </span>
           </div>
           {/* Square, because the axes carry equal x/z spans — a stretched box
@@ -523,8 +532,7 @@ export function CornerEditor({
         <div className="max-h-[32rem] space-y-2 overflow-y-auto panel p-2">
           {corners.length === 0 && (
             <p className="p-2 text-xs text-ink-dim">
-              No corners yet. Hit <b>Place corners</b> and click your way around the
-              map, starting with the first corner after the start line.
+              {rich(t("cornerEditor.empty"), { place: <b>{t("cornerEditor.placeCorners")}</b> })}
             </p>
           )}
           {corners.map((c, i) => (
@@ -539,42 +547,52 @@ export function CornerEditor({
                 <span className="w-6 shrink-0 font-tabular text-sm">{i + 1}</span>
                 <input
                   value={c.name}
-                  placeholder="name (optional)"
+                  placeholder={t("cornerEditor.namePlaceholder")}
                   onChange={(e) => update(i, { name: e.target.value })}
                   className="min-w-0 flex-1 rounded border border-edge bg-panel-2 px-1.5 py-1 text-xs text-ink"
                 />
                 <button
                   className="rounded border border-edge px-1.5 py-1 text-xs text-ink-dim hover:text-ink"
-                  title={c.direction === "L" ? "left-hander" : c.direction === "R" ? "right-hander" : "direction unset"}
+                  title={t(
+                    c.direction === "L"
+                      ? "cornerEditor.dir.left"
+                      : c.direction === "R"
+                        ? "cornerEditor.dir.right"
+                        : "cornerEditor.dir.unset",
+                  )}
                   onClick={() =>
                     update(i, {
                       direction: c.direction === null ? "L" : c.direction === "L" ? "R" : null,
                     })
                   }
                 >
-                  {c.direction ?? "–"}
+                  {c.direction === "L"
+                    ? t("cornerEditor.dir.leftShort")
+                    : c.direction === "R"
+                      ? t("cornerEditor.dir.rightShort")
+                      : "–"}
                 </button>
               </div>
               {i === selected && (
                 <div className="mt-1.5 flex flex-wrap items-center gap-1 text-xs">
                   <button
                     className={`btn ${mode === "move-apex" ? "border-accent text-accent" : ""}`}
-                    title="Click the map to move this corner's apex"
+                    title={t("cornerEditor.apexTitle")}
                     onClick={() => setMode(mode === "move-apex" ? null : "move-apex")}
                   >
-                    apex
+                    {t("cornerEditor.apex")}
                   </button>
                   <button
                     className={`btn ${mode === "entry" ? "border-accent text-accent" : ""}`}
                     onClick={() => setMode(mode === "entry" ? null : "entry")}
                   >
-                    {c.entry ? "entry ✓" : "entry"}
+                    {c.entry ? t("cornerEditor.entrySet") : t("cornerEditor.entry")}
                   </button>
                   <button
                     className={`btn ${mode === "exit" ? "border-accent text-accent" : ""}`}
                     onClick={() => setMode(mode === "exit" ? null : "exit")}
                   >
-                    {c.exit ? "exit ✓" : "exit"}
+                    {c.exit ? t("cornerEditor.exitSet") : t("cornerEditor.exit")}
                   </button>
                   <button className="btn" onClick={() => move(i, -1)}>
                     ↑
@@ -598,7 +616,7 @@ export function CornerEditor({
                       setDirty(true);
                     }}
                   >
-                    Remove
+                    {t("common.remove")}
                   </button>
                 </div>
               )}
@@ -607,12 +625,9 @@ export function CornerEditor({
 
           <div className="border-t border-edge pt-2">
             <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold">Sections</span>
-              <span
-                className="text-xs text-ink-dim"
-                title="Named stretches of road — the straights, mostly. The lap analysis export times each one and finds the speed trap in it."
-              >
-                optional · named straights
+              <span className="text-xs font-semibold">{t("cornerEditor.sections")}</span>
+              <span className="text-xs text-ink-dim" title={t("cornerEditor.sectionsTitle")}>
+                {t("common.optional")} · {t("cornerEditor.namedStraights")}
               </span>
               <button
                 className="btn ml-auto"
@@ -626,7 +641,7 @@ export function CornerEditor({
                   setDirty(true);
                 }}
               >
-                Add
+                {t("common.add")}
               </button>
             </div>
             {sections.map((s, i) => (
@@ -640,7 +655,7 @@ export function CornerEditor({
                 <div className="flex items-center gap-1.5">
                   <input
                     value={s.name}
-                    placeholder={`section ${i + 1}`}
+                    placeholder={t("cornerEditor.sectionN", { n: String(i + 1) })}
                     onChange={(e) => {
                       setSections((prev) =>
                         prev.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)),
@@ -656,7 +671,7 @@ export function CornerEditor({
                       setMode("section-start");
                     }}
                   >
-                    start
+                    {t("cornerEditor.start")}
                   </button>
                   <button
                     className={`btn ${mode === "section-end" && i === selectedSection ? "border-accent text-accent" : ""}`}
@@ -665,7 +680,7 @@ export function CornerEditor({
                       setMode("section-end");
                     }}
                   >
-                    end
+                    {t("cornerEditor.end")}
                   </button>
                   <button
                     className="btn btn-danger"
@@ -686,19 +701,19 @@ export function CornerEditor({
 
           <div className="border-t border-edge pt-2">
             <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold">Sectors</span>
-              <span
-                className="text-xs text-ink-dim"
-                title="Where each sector ends, in track order; the last runs to the start/finish line. GT7 broadcasts none, so the sector times in Analysis are read off these. Without them the lap is split into thirds."
-              >
-                optional · {sectors.length === 0 ? "thirds of the lap" : `${sectors.length + 1} sectors`}
+              <span className="text-xs font-semibold">{t("tracks.label.sectors")}</span>
+              <span className="text-xs text-ink-dim" title={t("cornerEditor.sectorsTitle")}>
+                {t("common.optional")} ·{" "}
+                {sectors.length === 0
+                  ? t("cornerEditor.thirds")
+                  : t("count.sectors", { count: sectors.length + 1 })}
               </span>
               <button
                 className={`btn ml-auto ${splitsOpen ? "border-accent text-accent" : ""}`}
-                title="Place the boundaries from the sector times a race screen showed for one of your laps"
+                title={t("cornerEditor.fromSplitsTitle")}
                 onClick={() => setSplitsOpen((open) => !open)}
               >
-                From splits…
+                {t("cornerEditor.fromSplits")}
               </button>
               <button
                 className="btn"
@@ -709,33 +724,31 @@ export function CornerEditor({
                   setDirty(true);
                 }}
               >
-                Add
+                {t("common.add")}
               </button>
             </div>
             {splitsOpen && (
               <div className="mt-1.5 space-y-2 rounded-lg border border-accent/40 bg-panel-2 p-2 text-xs">
-                <p className="text-ink-dim">
-                  Pick a lap at this circuit and type each sector's time as the race screen
-                  showed it. The last sector is not typed — it is what is left of the lap —
-                  and each boundary goes where that lap was at that moment.
-                </p>
+                <p className="text-ink-dim">{t("cornerEditor.splits.blurb")}</p>
                 {splitLaps == null && <div className="skeleton h-7" />}
                 {splitLaps != null && splitLaps.length === 0 && (
-                  <div className="text-ink-dim">No recorded laps at this circuit yet.</div>
+                  <div className="text-ink-dim">{t("cornerEditor.splits.noLaps")}</div>
                 )}
                 {splitLaps != null && splitLaps.length > 0 && (
                   <>
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-ink-dim">lap</span>
+                      <span className="text-ink-dim">{t("cornerEditor.splits.lap")}</span>
                       <Select
-                        ariaLabel="Lap the split times belong to"
+                        ariaLabel={t("cornerEditor.splits.lapAria")}
                         value={String(splitLapId ?? "")}
                         onValueChange={(v) => setSplitLapId(Number(v))}
                         options={splitLaps.map((lap) => ({
                           value: String(lap.id),
-                          label: `#${lap.session_id} · L${lap.number} · ${formatLapTime(lap.time_ms)}${
-                            lap.car_name ? ` · ${lap.car_name}` : ""
-                          }`,
+                          label: `${t("cornerEditor.splits.lapOption", {
+                            session: String(lap.session_id),
+                            lap: String(lap.number),
+                            time: formatLapTime(lap.time_ms),
+                          })}${lap.car_name ? ` · ${lap.car_name}` : ""}`,
                         }))}
                         className="max-w-full px-2 py-1 text-xs"
                       />
@@ -762,25 +775,32 @@ export function CornerEditor({
                       <button
                         className="btn"
                         onClick={() => setSplitTimes((prev) => [...prev, ""])}
-                        title="One more sector before the last"
+                        title={t("cornerEditor.splits.addSectorTitle")}
                       >
-                        + sector
+                        {t("cornerEditor.splits.addSector")}
                       </button>
                       {splitTimes.length > 1 && (
                         <button
                           className="btn"
                           onClick={() => setSplitTimes((prev) => prev.slice(0, -1))}
                         >
-                          − sector
+                          {t("cornerEditor.splits.removeSector")}
                         </button>
                       )}
                     </div>
                     <div className="font-tabular text-ink-dim">
                       {splitLap && splitTotal > 0
                         ? splitTotal < splitLap.time_ms
-                          ? `S${splitTimes.length + 1} = ${formatClock(splitLap.time_ms - splitTotal)} of the ${formatLapTime(splitLap.time_ms)} lap`
-                          : `the sectors add up to ${formatClock(splitTotal)}, past the ${formatLapTime(splitLap.time_ms)} lap`
-                        : `${splitTimes.length + 1} sectors`}
+                          ? t("cornerEditor.splits.remainder", {
+                              n: String(splitTimes.length + 1),
+                              left: formatClock(splitLap.time_ms - splitTotal),
+                              lap: formatLapTime(splitLap.time_ms),
+                            })
+                          : t("cornerEditor.splits.over", {
+                              total: formatClock(splitTotal),
+                              lap: formatLapTime(splitLap.time_ms),
+                            })
+                        : t("count.sectors", { count: splitTimes.length + 1 })}
                     </div>
                     {splitError && <div className="text-brake">{splitError}</div>}
                     <div className="flex gap-2">
@@ -789,10 +809,14 @@ export function CornerEditor({
                         disabled={splitBusy || splitLap == null || splitMs.some((ms) => !(ms != null && ms > 0))}
                         onClick={() => void placeFromSplits()}
                       >
-                        {splitBusy ? "Placing…" : sectors.length > 0 ? "Replace boundaries" : "Place boundaries"}
+                        {splitBusy
+                          ? t("cornerEditor.splits.placing")
+                          : sectors.length > 0
+                            ? t("cornerEditor.splits.replace")
+                            : t("cornerEditor.splits.place")}
                       </button>
                       <button className="btn" onClick={() => setSplitsOpen(false)}>
-                        Cancel
+                        {t("common.cancel")}
                       </button>
                     </div>
                   </>
@@ -811,7 +835,7 @@ export function CornerEditor({
                   <span className="w-6 shrink-0 font-tabular text-xs">S{i + 1}</span>
                   <input
                     value={s.name}
-                    placeholder="name (optional)"
+                    placeholder={t("cornerEditor.namePlaceholder")}
                     onChange={(e) => {
                       setSectors((prev) =>
                         prev.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)),
@@ -822,13 +846,13 @@ export function CornerEditor({
                   />
                   <button
                     className={`btn ${mode === "sector-end" && i === selectedSector ? "border-accent text-accent" : ""}`}
-                    title="Click the map where this sector ends"
+                    title={t("cornerEditor.sectorEndTitle")}
                     onClick={() => {
                       setSelectedSector(i);
                       setMode("sector-end");
                     }}
                   >
-                    {s.end.x === 0 && s.end.z === 0 ? "ends at…" : "ends ✓"}
+                    {s.end.x === 0 && s.end.z === 0 ? t("cornerEditor.endsAt") : t("cornerEditor.endsSet")}
                   </button>
                   <button
                     className="btn btn-danger"
