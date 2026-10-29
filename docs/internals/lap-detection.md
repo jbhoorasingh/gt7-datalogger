@@ -13,6 +13,9 @@ hold**:
 - the race isn't already finished — after the checkered flag GT7 reports
   `current_lap = total_laps + 1` for the cool-down lap, which is skipped.
 
+[Replay Recording](#replay-recording) relaxes the on-track condition for replays that
+stream without the flag.
+
 Lap 0 — GT7's number for the time-trial out-lap — is **buffered but can never commit
 as a normal lap**. It has to be buffered, because a single-lap replay streams entirely
 as lap 0 (see [replay salvage](#replay-salvage) below); but the only way a lap-0
@@ -165,6 +168,39 @@ of someone else's lap from your own driving — that is what the Sessions view's
 is for. `GT7_SIM_SCENARIO=leader_replay` stages exactly this stream (pre-roll, one
 flying lap as lap 0 with a running packet-C clock, then `LOADING`) for testing the
 path without a console.
+
+### Replay Recording
+
+Some leaderboard replays stream every packet with the on-track flag clear (on a PS5,
+flags `0x0198`, `0x01B8` and `0x0190` while the car moves). The sampler skips all of
+them, so the lap never reaches salvage and the replay records nothing. **Replay
+Recording**, a switch in the [Live view](../guide/live-view.md#context-strip)
+(`POST /api/control/replay-recording`, admin), lets them through. It is off by
+default, resets to off when the server restarts, and changes these rules only while
+it is on:
+
+- **Capture starts on the first moving packet.** The first packet that is not paused
+  or loading, has a lap counter of 0 or more and moves faster than 1 m/s starts the
+  replay. From then on, packets without the on-track flag count as active; paused and
+  `LOADING` packets still never do. Turning the switch off and on again waits for
+  movement again.
+- **Only a moving car is sampled.** An idle menu looks just like a parked replay car
+  (`0x0190` at speed 0), so off-track packets at 1 m/s or less are not sampled. Their
+  frames and distance still ride on the next sample, so a replay that stops keeps the
+  stop's time and salvage can still match GT7's. A pit stop in a replayed race
+  therefore reads as part of the lap, not as the gap the
+  [stint trend](../guide/analysis-view.md#stint-trend) marks. A paused, `LOADING` or
+  otherwise inactive packet drops what was carried.
+- **Laps complete only through salvage.** Even when the counter steps, a lap commits
+  only if a time GT7 reports vouches for it, so every lap recorded in this mode is
+  `salvaged`.
+- **Sessions it opens are excluded from bests.** A session that opens while the
+  switch is on starts with
+  [Exclude from bests](../guide/sessions-view.md#excluding-a-session-from-bests) set.
+  The session already open when it is turned on keeps its setting.
+
+Turn it on before starting the replay and off before driving: while it is on, your
+own laps take the same salvage-only path and their sessions are excluded too (#171).
 
 ## What's stored per lap
 

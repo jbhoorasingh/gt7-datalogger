@@ -11,8 +11,15 @@ Across the top: the car, the track badge, and a line with the session number, th
 (`lap 4/10`, or `finished` after the flag), the race position (`P3/16`) and the
 in-game time of day, plus *paused* / *not on track* when they apply.
 
-On the right, two links to the second-screen pages:
+On the right, the Replay Recording switch and two links to the second-screen pages:
 
+- **Replay Recording: ON / OFF** — records GT7 leaderboard replays that stream
+  without the on-track flag, which otherwise record nothing; amber while on. Turn it
+  on before the replay starts and off before you drive: sessions opened while it is on
+  are excluded from bests, and their laps save only when GT7's own time matches. It
+  resets to off when the server restarts, and on a protected server it needs the
+  [admin token](settings.md#access). How it works:
+  [Replay Recording](../internals/lap-detection.md#replay-recording).
 - **Race Engineer** chip — whether the server's voice callouts are going anywhere:
   *speaking on this browser* / *a Driver dash* / *an Engineer page* with the
   verbosity, *voice off*, or *callouts off*. Click it to open the
