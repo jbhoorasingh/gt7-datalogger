@@ -29,9 +29,10 @@ The status bar's telemetry pill (*Receiving* / *No telemetry* / *Offline*) is a 
 to **Settings › Connection** from any page, and the **Settings** tab carries a dot when
 something there needs attention — dropped telemetry frames, or a sync error.
 
-The status bar's **language menu** (English, Español, Português (Brasil), 日本語, or
-*Auto* to follow the browser) belongs to this browser, not the installation, like the
-km/h · mph toggle beside it. Every view and the Race Engineer's callouts follow it,
+The status bar's **language menu** — a globe and the language's code (EN, ES, PT, JA)
+— lists English, Español, Português (Brasil), 日本語 and *Auto*, which follows the
+browser. It belongs to this browser, not the installation, like the km/h · mph toggle
+beside it. Every view and the Race Engineer's callouts follow it,
 except **Settings › Advanced**, which shows setting names and descriptions as the
 server words them, in English.
 

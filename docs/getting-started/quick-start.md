@@ -23,6 +23,10 @@ GT7_PS_IP=<your playstation ip> docker compose up --build
 Open <http://localhost:8000> and start driving. Laps are recorded automatically whenever
 you are on track.
 
+The page opens in your browser's language when it is Spanish, Portuguese or Japanese,
+and in English otherwise. The 🌐 menu at the right of the status bar changes it for
+this browser only ([Language](../guide/race-engineer.md#language)).
+
 !!! tip "No PlayStation handy?"
     Run the built-in simulated telemetry source instead — it drives laps around a
     synthetic circuit at 60 Hz, complete with lockups, wheelspin, kerb strikes, and

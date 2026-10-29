@@ -11,7 +11,8 @@ can share one logger. User-facing behavior is in
 | Part | Where the words come from |
 | --- | --- |
 | The interface: every view, the dash and its widgets, the OBS overlays, the error pages, dates | `frontend/src/i18n/locales/<lang>.json` |
-| Spoken callouts, their captions, the callout feed, **Replay** and the examples under *What each category says* | `frontend/src/i18n/callouts/<lang>.ts` |
+| Spoken callouts, their captions, the callout feed, **Replay**, the examples under *What each category says*, and the Analysis view's post-lap coaching notes | `frontend/src/i18n/callouts/<lang>.ts` |
+| A Tracks layout suggestion's reason | `tracks.why.*` in the catalogs, from the suggestion's `match` |
 | Telemetry readouts, lap times and chart axes | Not translated: `1:32.487`, `245 km/h` and `12.4 L` keep one format in every language |
 | Setting names and descriptions in **Settings › Advanced** | English: they come from the server's settings registry |
 | Speech-engine diagnostics (*no response from the speech engine …*) | English: the same text goes back to the server's log |
@@ -46,6 +47,17 @@ another, and an OBS source never downloads a language it does not show.
   `formatTimeShort`, `formatDuration` and `formatInt` in `lib/format.ts`, or
   `currentLanguage()` as the `Intl` locale.
 
+## Which language a page shows
+
+The stored choice (localStorage `gt7-language-v1`, set by the 🌐 menu), else the
+browser's languages matched to a shipped one — exact tag, then base language (`pt-PT`
+reads `pt-BR`, `es-MX` reads `es`) — else English. `?lang=es` on a page's URL, or in a
+hash route's query (`#/dash?lang=ja`), overrides both for that page load without
+storing anything: an OBS browser source or a kiosk tablet has no menu to pick from.
+Links built for another device — the overlay builder's **Copy URL**, Settings ›
+Overlays — carry `lang` unless the page they came from is in English
+(`withLanguage()`).
+
 `i18n.test.ts` fails when a catalog lacks a key English has or has one English does
 not, when a translation drops or adds a placeholder, when a plural set has no
 `_other`, or when a whole English sentence was copied in untranslated.
@@ -68,6 +80,16 @@ precision travels as `places` and `rounding`, so a phrasebook never re-decides w
 is worth saying. Corner names (`corner_name`) and the server's spoken units
 (`units`) ride along where the sentence uses them. A change to a detector's wording
 that adds or drops a clause has to change its arguments too.
+
+The Analysis view's post-lap coaching notes come from the same detector, replayed, and
+carry the same `message_key`/`message_args`, so they are worded with the same
+phrasebook. A Tracks layout suggestion's reasoning travels as `match` beside its English
+`why`.
+
+Gaps without a set precision are rounded to whole tenths **before** the unit is
+chosen (`spokenGap()` in `callouts/numbers.ts`, `spoken_gap` on the server): 950–999 ms
+is ten tenths, said as one second, never "コンマ10秒". With the sector-voice precision
+the server sends, `quantize()` rounds first and carries the same way.
 
 Numbers stay digits outside English — "32,5" in Spanish and Portuguese, "1分32秒5"
 in Japanese — because voices read their own language's digits correctly; English

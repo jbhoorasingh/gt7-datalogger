@@ -17,7 +17,7 @@ Full feature parity with [snipem/gt7dashboard](https://github.com/snipem/gt7dash
 plus additional features like the lens-coloured race line map, sector times, the corner
 report card with braking points, chassis event detection, track auto-identification, the
 overlay builder, a voice race engineer, and webhook notifications — rebuilt with a cleaner
-architecture and a modern UI.
+architecture and a modern UI. In English, Spanish, Brazilian Portuguese and Japanese.
 
 **📖 Full documentation: [jbhoorasingh.github.io/gt7-datalogger](https://jbhoorasingh.github.io/gt7-datalogger/)** —
 per-feature guides, how every calculation works, and the API reference.
@@ -195,7 +195,9 @@ per-feature guides, how every calculation works, and the API reference.
   windows, position changes, engine warnings and corner coaching, generated on the
   backend and **spoken by the browser** (`/dash` or `/engineer`) — no speaker, audio
   device, or TTS package needed on the Pi or server. Opt-in per device, one active
-  speaker at a time, with verbosity modes and per-category toggles.
+  speaker at a time, with verbosity modes and per-category toggles. Spoken and
+  captioned in English, Spanish, Brazilian Portuguese or Japanese, each worded in its
+  own language rather than translated from the English sentence.
 - **Webhook / Discord notifications** — personal bests, session summaries, overtakes,
   positions lost, and off-road excursions posted to any webhook URL (Discord URLs get
   a rich embed, others plain JSON), each event individually toggleable.
@@ -205,6 +207,9 @@ per-feature guides, how every calculation works, and the API reference.
   cloud copy) and **live** (the car's position for the service's spectate page). In
   the background with retry and backoff; per-type toggles, all off by default; the
   token is stored apart, masked, and never logged.
+- **Spanish, Brazilian Portuguese and Japanese** — the whole interface and the Race
+  Engineer's callouts. Each browser picks its own from the 🌐 menu in the status bar
+  (*Auto* follows the browser's language); an OBS source takes `?lang=es` on its URL.
 - Configurable units (km/h / mph), persisted in the browser; dark-themed responsive UI
   built on accessible primitives with a colorblind-validated chart palette.
 

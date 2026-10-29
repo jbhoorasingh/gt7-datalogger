@@ -73,8 +73,8 @@ Callouts can be spoken in English, Spanish, Brazilian Portuguese or Japanese. Li
 the voice and volume, the language belongs to the device, so a phone in Spanish and a
 laptop in English can share one logger.
 
-- The **language menu** in the status bar (and in the `/engineer` header) sets the
-  interface language. *Auto* follows the browser's own language and falls back to
+- The **language menu** in the status bar (and in the `/engineer` header) — the 🌐
+  globe with the language's code — sets the interface language. *Auto* follows the browser's own language and falls back to
   English; a Portuguese (Portugal) browser gets Brazilian Portuguese, a Mexican one
   Spanish.
 - **Callout language**, in the Voice panel on `/engineer` and in the dash's Race
