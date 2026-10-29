@@ -23,11 +23,13 @@ RING_R = TICKS * SPEED / 60 / (2 * math.pi)
 LAP_TIME_MS = round(TICKS / 60 * 1000)
 
 
-async def drive_circle(service: TelemetryService, laps: int = 2) -> None:
+async def drive_circle(service: TelemetryService, laps: int = 2, join_tick: int = 0) -> None:
     """Laps with a path and a clock, which the sector maths needs and the
-    straight-line laps of tests.test_api.drive_laps do not have."""
+    straight-line laps of tests.test_api.drive_laps do not have. `join_tick`
+    starts the recording that far into the first lap, as a logger switched on
+    mid-lap would."""
     for lap in range(1, laps + 1):
-        for tick in range(TICKS):
+        for tick in range(join_tick if lap == 1 else 0, TICKS):
             theta = 2 * math.pi * tick / TICKS
             await service._on_packet(parse_packet(build_packet(
                 packet_id=lap * 1000 + tick,
@@ -142,15 +144,15 @@ def test_the_clock_is_read_from_the_line_not_the_first_sample() -> None:
     past it. A split measured from that sample instead would hand the gap
     to the last sector on every lap — so the gap has to show up in S1."""
     lap = circle_lap()
-    late = {**lap, "t": [v + 0.5 for v in lap["t"]]}  # the first sample half a second in
+    late = {**lap, "t": [v + 0.25 for v in lap["t"]]}  # the first sample a quarter second in
     time_ms = round(late["t"][-1] * 1000) + 16
     points, _ = sectors.boundary_points([], lap)
     plain = sectors.splits_ms(lap, points, time_ms)
     shifted = sectors.splits_ms(late, points, time_ms)
     assert plain is not None and shifted is not None
-    assert shifted[0] == pytest.approx(plain[0] + 500, abs=0.5)
+    assert shifted[0] == pytest.approx(plain[0] + 250, abs=0.5)
     assert shifted[1] == pytest.approx(plain[1], abs=0.5)
-    assert shifted[-1] == pytest.approx(plain[-1] - 500, abs=0.5)
+    assert shifted[-1] == pytest.approx(plain[-1] - 250, abs=0.5)
 
 
 def test_no_clock_no_lap_time_no_splits() -> None:
@@ -162,6 +164,38 @@ def test_no_clock_no_lap_time_no_splits() -> None:
     # A lap time shorter than the clock at the first boundary is not this
     # lap's time — a partial lap's — and cannot be split.
     assert sectors.splits_ms(lap, points, 100) is None
+
+
+def test_a_clock_that_missed_part_of_the_lap_has_no_splits() -> None:
+    """GT7's lap time covers the whole lap; the lap's own clock only what was
+    recorded. Where they disagree the missing time cannot be placed, and
+    reading the boundaries anyway would hand all of it to the last sector."""
+    lap = circle_lap()
+    time_ms = round(lap["t"][-1] * 1000) + 16
+    points, _ = sectors.boundary_points([], lap)
+    # Joined a sixth of the way round, inside S1: the clock and the distance
+    # start where the recording did, and the lap still passes both boundaries.
+    k = len(lap["t"]) // 6
+    joined = {key: values[k:] for key, values in lap.items()}
+    joined["t"] = [v - lap["t"][k] for v in joined["t"]]
+    joined["dist"] = [v - lap["dist"][k] for v in joined["dist"]]
+    assert sectors.project(joined, points) is not None
+    assert sectors.splits_ms(joined, points, time_ms) is None
+    # A stop the sampler skipped: GT7's clock ran on through it, ours froze.
+    assert sectors.splits_ms(lap, points, time_ms + 30_000) is None
+    # A clock that ran past the lap time is no better.
+    assert sectors.splits_ms(lap, points, time_ms - 5_000) is None
+
+
+def test_a_clock_within_honest_drift_still_splits() -> None:
+    """The salvage window: integration drift well under half a second over
+    a lap is the same lap, and its splits still sum to the lap time."""
+    lap = circle_lap()
+    time_ms = round(lap["t"][-1] * 1000) + 16 + 300
+    points, _ = sectors.boundary_points([], lap)
+    splits = sectors.splits_ms(lap, points, time_ms)
+    assert splits is not None
+    assert sum(splits) == pytest.approx(time_ms, abs=0.5)
 
 
 # --- over the API ----------------------------------------------------------------
@@ -194,6 +228,23 @@ async def test_every_lap_of_a_session_is_split_at_the_same_places(client) -> Non
     for lap in body["laps"]:
         assert lap["splits_ms"] is not None and len(lap["splits_ms"]) == 3
         assert sum(lap["splits_ms"]) == pytest.approx(lap["time_ms"], abs=0.5)
+
+
+async def test_a_lap_joined_part_way_round_has_no_splits(client) -> None:  # noqa: F811
+    """GT7 reports the whole lap's time for a lap the logger joined part way
+    round, but the lap's clock started where the recording did, not on the
+    line, so the splits would put the stretch it missed in the last sector."""
+    c, service, _tmp = client
+    # Just short of the first boundary, a third of the way round: the lap
+    # still passes both boundaries in order and nothing else stops it.
+    await drive_circle(service, laps=3, join_tick=TICKS // 3 - 1)
+    session = (await c.get("/api/sessions")).json()[0]
+    body = (await c.get(f"/api/analysis/sectors?session_id={session['id']}")).json()
+    by_number = {lap["number"]: lap for lap in body["laps"]}
+    assert by_number[1]["time_ms"] == LAP_TIME_MS
+    assert by_number[1]["splits_ms"] is None
+    for n in (2, 3):
+        assert sum(by_number[n]["splits_ms"]) == pytest.approx(LAP_TIME_MS, abs=0.5)
 
 
 async def test_authored_sectors_split_the_session(client) -> None:  # noqa: F811

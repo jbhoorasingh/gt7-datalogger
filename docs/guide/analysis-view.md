@@ -309,7 +309,26 @@ and the last sector runs to the start/finish line. A circuit without them is spl
 which. Either way the boundaries are *places on the road*: on a circuit without its own,
 the thirds are taken from the session's quickest lap and then found on every other lap,
 so that a wider line through a corner does not move the split. A lap that never passed a
-boundary (a cut, or another layout under the same name) shows no sector times.
+boundary (a cut, or another layout under the same name) shows no sector times, and neither
+does one the recording did not time from start to finish — joined part way round, or
+through a stop the logger skipped: GT7's lap time covers the whole lap, and there is no
+telling which sector the missing time belongs to.
+
+## Sector comparison
+
+Beside Sector times, this panel sets the reference lap's sectors against the session's
+best of each, in three rows: the **reference**, the **session best sectors** in purple, and the
+**delta**, the best minus the reference — green where another lap was quicker through
+that sector, level (±0.000) where the reference holds the best itself. Added up, the
+best sectors make the **theoretical best**, the lap the session would have had with
+every best sector in one lap, shown with how far it is under the reference's lap time.
+Deltas are to the millisecond.
+
+The bests come from the laps that count, as in Sector times, and the same boundaries
+apply: thirds of the lap where the circuit has none of its own, which the panel notes.
+A reference with no sector times of its own still gets the theoretical best, with dashes
+where its sectors would be; there is no theoretical best while any sector lacks one. A
+reference from another session has no comparison, since the bests are this session's.
 
 ## Race line map
 
