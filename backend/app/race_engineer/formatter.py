@@ -12,6 +12,8 @@ thirty-two point five", not three decimal places.
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 _ONES = (
     "zero", "one", "two", "three", "four", "five", "six", "seven", "eight",
     "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen",
@@ -160,3 +162,120 @@ def spoken_corner(number: int | None, name: str = "") -> str:
     if name:
         return name
     return f"turn {spoken_int(number)}" if number else "the next braking zone"
+
+
+def spoken_sector_decimal(
+    value: float,
+    places: int = 3,
+    rounding: str = "round",
+) -> str:
+    """Speak sector timing values with fixed decimal precision.
+
+    Unlike spoken_decimal(), fractional trailing zeros are retained.
+    The fractional digits are spoken individually for predictable TTS.
+    """
+    from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
+
+    if places not in (1, 2, 3):
+        raise ValueError("Sector precision must be 1, 2 or 3")
+    if rounding not in ("round", "truncate"):
+        raise ValueError("Sector rounding must be 'round' or 'truncate'")
+
+    negative = value < 0
+    magnitude = Decimal(str(abs(value)))
+    unit = Decimal(1).scaleb(-places)
+    mode = ROUND_HALF_UP if rounding == "round" else ROUND_DOWN
+    quantized = magnitude.quantize(unit, rounding=mode)
+
+    whole, fractional = format(quantized, f".{places}f").split(".")
+    digits = " ".join(_ONES[int(digit)] for digit in fractional)
+
+    if int(whole) == 0 and quantized != 0:
+        result = f"point {digits}"
+    else:
+        result = f"{spoken_int(int(whole))} point {digits}"
+
+    return f"minus {result}" if negative and quantized != 0 else result
+
+
+def _precise_timing_seconds(ms: int | float, places: int, rounding: str) -> Decimal:
+    """Quantize milliseconds to seconds using the selected voice precision."""
+    from decimal import ROUND_DOWN, ROUND_HALF_UP
+
+    if places not in (1, 2, 3):
+        raise ValueError("Timing precision must be 1, 2 or 3")
+    if rounding not in ("round", "truncate"):
+        raise ValueError("Timing rounding must be 'round' or 'truncate'")
+
+    mode = ROUND_HALF_UP if rounding == "round" else ROUND_DOWN
+    unit = Decimal(1).scaleb(-places)
+    return (Decimal(str(abs(ms))) / Decimal(1000)).quantize(
+        unit, rounding=mode
+    )
+
+
+def spoken_precise_lap_time(
+    ms: int,
+    places: int = 3,
+    rounding: str = "round",
+) -> str:
+    """Speak a completed lap time with configurable fractional precision."""
+    from decimal import Decimal
+
+    if ms <= 0:
+        return "no time"
+
+    total = _precise_timing_seconds(ms, places, rounding)
+    minutes, seconds = divmod(total, Decimal(60))
+
+    spoken_seconds = spoken_sector_decimal(
+        float(seconds), places, rounding
+    )
+
+    if minutes == 0:
+        unit = "second" if seconds == 1 else "seconds"
+        return f"{spoken_seconds} {unit}"
+
+    spoken_minutes = int(minutes)
+    head = f"{spoken_int(spoken_minutes)} {plural(spoken_minutes, 'minute')}"
+    return f"{head} {spoken_seconds}"
+
+
+def spoken_sector_duration(
+    ms: int | float,
+    places: int = 3,
+    rounding: str = "round",
+) -> str:
+    """Speak sector duration in minutes when appropriate.
+
+    Quantize before splitting minutes and seconds so rounding across
+    the 60-second boundary is handled correctly. Reference deltas
+    continue to use spoken_sector_decimal separately.
+    """
+    from decimal import Decimal
+
+    total = _precise_timing_seconds(ms, places, rounding)
+    minutes, seconds = divmod(total, Decimal(60))
+    spoken_seconds = spoken_sector_decimal(float(seconds), places, rounding)
+
+    if not minutes:
+        return f"{spoken_seconds} seconds"
+
+    if 0 < seconds < 1:
+        spoken_seconds = f"zero {spoken_seconds}"
+
+    count = int(minutes)
+    spoken_minutes = f"{spoken_int(count)} {plural(count, 'minute')}"
+    return f"{spoken_minutes} {spoken_seconds} seconds"
+
+
+def spoken_precise_gap(
+    ms: int | float,
+    places: int = 3,
+    rounding: str = "round",
+) -> str:
+    """Speak a lap-time difference using the sector precision settings."""
+    seconds = _precise_timing_seconds(ms, places, rounding)
+    spoken = spoken_sector_decimal(float(seconds), places, rounding)
+    unit = "second" if seconds == 1 else "seconds"
+    return f"{spoken} {unit}"

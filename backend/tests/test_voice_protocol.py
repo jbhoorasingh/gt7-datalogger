@@ -232,3 +232,247 @@ async def test_a_finished_lap_is_lined_up_off_the_loop_before_coaching_runs(serv
     assert latest.axis.reference is ctx.reference
     assert latest.axis.aligned is True
     assert latest.samples["dist"][-1] - latest.axis.samples["dist"][-1] > 20.0
+
+async def test_service_forwards_live_samples_to_sector_observer(
+    service, monkeypatch
+) -> None:
+    """Forward recorded telemetry and interrupt when recording stops."""
+    ws = FakeWS()
+    await register(service, ws, "sector-test")
+    await service.set_recording(True)
+
+    observations = []
+
+    def capture_sector(manager, lap, sample):
+        observations.append((lap, sample))
+        return None
+
+    monkeypatch.setattr(
+        type(service.engineer), "observe_sector", capture_sector
+    )
+
+    for i in range(3):
+        packet = parse_packet(build_packet(
+            fmt="C",
+            packet_id=1000 + i,
+            current_lap=2,
+            speed_mps=40.0,
+            flags=ON_TRACK,
+        ))
+        await service._on_packet(packet)
+
+    assert any(
+        lap == 2 and sample is not None
+        for lap, sample in observations
+    ), "Recorded live samples must reach the sector observer"
+
+    await service.set_recording(False)
+
+    packet = parse_packet(build_packet(
+        fmt="C",
+        packet_id=1003,
+        current_lap=2,
+        speed_mps=40.0,
+        flags=ON_TRACK,
+    ))
+    await service._on_packet(packet)
+
+    assert observations[-1] == (2, None)
+
+@pytest.mark.parametrize(
+    "invalid_flags",
+    [
+        pytest.param(
+            ON_TRACK | int(SimulatorFlags.PAUSED),
+            id="paused",
+        ),
+        pytest.param(
+            int(SimulatorFlags.NONE),
+            id="off_track",
+        ),
+        pytest.param(
+            ON_TRACK | int(SimulatorFlags.LOADING),
+            id="loading",
+        ),
+    ],
+)
+async def test_service_interrupts_sector_tracking_for_invalid_packet(
+    service, monkeypatch, invalid_flags
+) -> None:
+    """Invalid packet states must break live sector position continuity."""
+    ws = FakeWS()
+    await register(service, ws, "sector-safety-test")
+    await service.set_recording(True)
+
+    observations = []
+
+    def capture_sector(manager, lap, sample):
+        observations.append((lap, sample))
+        return None
+
+    monkeypatch.setattr(
+        type(service.engineer), "observe_sector", capture_sector
+    )
+
+    valid = parse_packet(build_packet(
+        fmt="C",
+        packet_id=4101,
+        current_lap=2,
+        speed_mps=40.0,
+        flags=ON_TRACK,
+    ))
+    await service._on_packet(valid)
+
+    assert observations
+    assert observations[-1][0] == 2
+    assert observations[-1][1] is not None
+
+    # Same position deliberately tests reuse of a stale recorded sample.
+    invalid = parse_packet(build_packet(
+        fmt="C",
+        packet_id=4102,
+        current_lap=2,
+        speed_mps=40.0,
+        flags=invalid_flags,
+    ))
+    await service._on_packet(invalid)
+
+    assert observations[-1] == (2, None)
+
+async def test_sector_live_sample_rejects_past_race_finish(service) -> None:
+    """Never reuse retained telemetry after the chequered flag."""
+    await service.set_recording(True)
+
+    packet = parse_packet(build_packet(
+        fmt="C",
+        packet_id=8101,
+        current_lap=3,
+        total_laps=2,
+        speed_mps=40.0,
+        flags=ON_TRACK,
+    ))
+
+    # Simulate a retained sample whose position matches the packet.
+    live = service.processor.live_lap_samples
+    live["t"].append(50.0)
+    live["pos_x"].append(round(packet.position_x, 2))
+    live["pos_z"].append(round(packet.position_z, 2))
+
+    assert service._sector_live_sample(packet) is None
+
+async def test_service_rejects_unrecorded_sector_sample(
+    service, monkeypatch
+) -> None:
+    """A new packet must not reuse a sample the processor did not append."""
+    ws = FakeWS()
+    await register(service, ws, "sector-freshness-test")
+    await service.set_recording(True)
+
+    observations = []
+
+    def capture_sector(manager, lap, sample):
+        observations.append((lap, sample))
+        return None
+
+    monkeypatch.setattr(
+        type(service.engineer), "observe_sector", capture_sector
+    )
+
+    first = parse_packet(build_packet(
+        fmt="C",
+        packet_id=9301,
+        current_lap=2,
+        speed_mps=40.0,
+        flags=ON_TRACK,
+    ))
+    await service._on_packet(first)
+
+    assert observations[-1][0] == 2
+    assert observations[-1][1] is not None
+
+    # Simulate a packet that the processor does not append.
+    async def skip_feed(processor, packet):
+        return None
+
+    monkeypatch.setattr(type(service.processor), "feed", skip_feed)
+
+    second = parse_packet(build_packet(
+        fmt="C",
+        packet_id=9302,
+        current_lap=2,
+        speed_mps=40.0,
+        flags=ON_TRACK,
+    ))
+    await service._on_packet(second)
+
+    assert observations[-1] == (2, None)
+
+
+async def test_service_publishes_live_sector_callout(
+    service, monkeypatch
+) -> None:
+    """A live sector crossing reaches the normal voice publisher."""
+    from app.race_engineer.models import CalloutRequest
+    from app.race_engineer.sectors import SectorCrossing
+
+    ws = FakeWS()
+    await register(service, ws, "sector-publication-test")
+    await service.set_recording(True)
+    service.engineer.configure(sector_voice_enabled=True)
+
+    published = []
+
+    monkeypatch.setattr(
+        service,
+        "_publish_callouts",
+        lambda callouts: published.extend(callouts),
+    )
+
+    def observe_sector(manager, lap, sample):
+        if sample is None:
+            return None
+        return SectorCrossing(
+            sector=1,
+            time_ms=30050.0,
+            cumulative_ms=30050.0,
+        )
+
+    def sector_callout(manager, lap, crossing):
+        return manager._emit(
+            CalloutRequest(
+                event_type="sector_time",
+                text="Sector one, point four five zero seconds faster.",
+                message_key="sector.time",
+                dedupe_key=(
+                    f"sector_time:{manager.ctx.session_seq}:"
+                    f"{lap}:{crossing.sector}"
+                ),
+            )
+        )
+
+    monkeypatch.setattr(
+        type(service.engineer), "observe_sector", observe_sector
+    )
+    monkeypatch.setattr(
+        type(service.engineer), "sector_callout", sector_callout
+    )
+
+    packet = parse_packet(build_packet(
+        fmt="C",
+        packet_id=9401,
+        current_lap=2,
+        speed_mps=40.0,
+        flags=ON_TRACK,
+    ))
+
+    await service._on_packet(packet)
+
+    sector_events = [
+        callout for callout in published
+        if callout.event_type == "sector_time"
+    ]
+
+    assert len(sector_events) == 1
+    assert sector_events[0].category == "lap"
+    assert sector_events[0].priority == 55
+    assert sector_events[0].ttl_ms == 15_000

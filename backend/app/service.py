@@ -191,9 +191,17 @@ class TelemetryService:
             categories=settings.enabled_callout_categories(),
             units=settings.race_engineer_units,
         )
+        self.engineer.configure(
+            sector_voice_enabled=settings.race_engineer_sector_voice_enabled,
+            sector_voice_decimals=settings.race_engineer_sector_voice_decimals,
+            sector_voice_rounding=settings.race_engineer_sector_voice_rounding,
+            sector_voice_content=settings.race_engineer_sector_voice_content,
+            sector_voice_comparison=settings.race_engineer_sector_voice_comparison,
+        )
         # Authored corners outrank detection, and the bundles they live in are
         # this class's business, not the engineer's (#48).
         self.engineer.corner_source = self.authored_corners
+        self.engineer.sector_source = self.authored_sectors
         # client_id of the browser currently allowed to speak, and the last
         # one that held the claim (restored when the same page reconnects).
         self._active_voice_client = ""
@@ -498,8 +506,15 @@ class TelemetryService:
     async def _on_packet(self, p: TelemetryPacket) -> None:
         self.latest_packet = p
         async with self.session_lock:
+            sector_before = self.processor.live_lap_samples
+            sector_count_before = len(sector_before["t"])
             if self.recording:
                 await self.processor.feed(p)
+            sector_after = self.processor.live_lap_samples
+            sector_fresh = bool(sector_after["t"]) and (
+                sector_after is not sector_before
+                or len(sector_after["t"]) > sector_count_before
+            )
         # The live stream (#79) keeps the newest packet and sends it on its
         # own clock; this is a field write unless a frame is due.
         self.sync.live.on_packet(p, self._lap_elapsed_s)
@@ -512,7 +527,18 @@ class TelemetryService:
             if record is not None:
                 self._publish({"type": "survey", "data": record})
         if self.engineer_active:
-            self._publish_callouts(self.engineer.on_packet(p))
+            crossing = self.engineer.observe_sector(
+                p.current_lap,
+                self._sector_live_sample(p) if sector_fresh else None,
+            )
+            callouts = self.engineer.on_packet(p)
+            if crossing is not None:
+                sector_callout = self.engineer.sector_callout(
+                    p.current_lap, crossing
+                )
+                if sector_callout is not None:
+                    callouts.append(sector_callout)
+            self._publish_callouts(callouts)
         if self._clients:
             self._publish_telemetry(p)
 
@@ -534,6 +560,39 @@ class TelemetryService:
             )
         elif event.kind == "off_road":
             self.notifier.off_road(p.current_lap, car, self.track_name)
+
+    def _sector_live_sample(
+        self, p: TelemetryPacket
+    ) -> tuple[float, float, float] | None:
+        """Return the latest recorded lap sample, never a stale position."""
+        if (
+            not self.recording
+            or p.is_loading
+            or p.is_paused
+            or not p.is_on_track
+            or (0 < p.total_laps < p.current_lap)
+        ):
+            return None
+
+        live = self.processor.live_lap_samples
+        times = live.get("t", [])
+        xs = live.get("pos_x", [])
+        zs = live.get("pos_z", [])
+
+        if not times or len(times) != len(xs) or len(times) != len(zs):
+            return None
+
+        x, z, elapsed = xs[-1], zs[-1], times[-1]
+
+        # The lap processor records positions to two decimal places.
+        # Reject packets that did not produce a matching live sample.
+        if (
+            x != round(p.position_x, 2)
+            or z != round(p.position_z, 2)
+        ):
+            return None
+
+        return (x, z, elapsed)
 
     def _lap_elapsed_s(self) -> float:
         live = self.processor.live_lap_samples

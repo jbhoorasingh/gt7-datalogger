@@ -45,6 +45,7 @@ import { LargeDialog } from "@/components/ui/Dialog";
 import type { ChannelDef } from "@/lib/channels";
 import { cornerRange, selectedCorner, stepCorner } from "@/lib/cornerZoom";
 import { speedUnit, speedValue, type Units } from "@/lib/format";
+import type { SectorTiming } from "@/lib/sectorTiming";
 import { lineDragRange, wheelRange } from "@/lib/lapStrip";
 import {
   aidPoints,
@@ -66,6 +67,7 @@ import {
   AIDS_TCS,
   type CompareLapEntry,
   type Corner,
+  type Sector,
   type EventType,
   kerbWheelCount,
   looseWheelCount,
@@ -174,6 +176,8 @@ const READOUT_GAP_PX = 16;
 const READOUT_MARGIN_PX = 8;
 
 const NO_CHANNELS: ChannelDef[] = [];
+const NO_SECTORS: Sector[] = [];
+const NO_SECTOR_TIMINGS: Record<number, SectorTiming> = {};
 
 export interface MapLap {
   id: string;
@@ -224,6 +228,8 @@ interface MapProps {
   // here agree with the strip's and the report card's. Defaults to the
   // reference entry's own corners.
   corners?: Corner[];
+  sectors?: Sector[];
+  sectorTimings?: Record<number, SectorTiming>;
   // The lap the apex badges and the corner callout set against the
   // reference: the report card's focus. Null compares nothing.
   focusId?: string | null;
@@ -414,6 +420,8 @@ function MapBody({
   brakeMarks = NO_MARKS,
   lens = null,
   corners: cornersProp,
+  sectors = NO_SECTORS,
+  sectorTimings = NO_SECTOR_TIMINGS,
   focusId = null,
   units = "metric",
   animate = true,
@@ -1410,9 +1418,55 @@ function MapBody({
     return { full: `${full}Z`, part };
   }, [zoomed, ref, hero, zoomRange]);
 
-  // The corner callout: what the compared lap did here against the reference.
+  // Corner and sector timing share the same floating map callout.
   const callout = useMemo(() => {
-    if (!current || !ref || !hero) return null;
+    if (!hero) return null;
+
+    const sector = sectors.find(
+      (row) =>
+        zoomRange != null &&
+        Math.abs(zoomRange[0] - row.start_dist) < 1 &&
+        Math.abs(zoomRange[1] - row.end_dist) < 1,
+    );
+
+    if (sector) {
+      const timing = sectorTimings[sector.n];
+      const duration = timing?.selectedMs;
+      const name = `S${sector.n}`;
+
+      const dir = duration == null
+        ? "time unavailable"
+        : `${timing?.approximate ? "~" : ""}${(() => {
+            const rounded = Math.round(duration);
+            const minutes = Math.floor(rounded / 60000);
+            const seconds = ((rounded % 60000) / 1000).toFixed(3);
+            return `${minutes ? `${minutes}:${seconds.padStart(6, "0")}` : seconds}s`;
+          })()}`;
+
+      if (timing?.deltaMs == null || !focus) {
+        return {
+          name,
+          dir,
+          note: focus ? "comparison unavailable" : "reference time",
+        };
+      }
+
+      const lost = timing.deltaMs;
+      const delta = `${lost > 0 ? "+" : lost < 0 ? "-" : "±"}${(Math.abs(lost) / 1000).toFixed(3)} s`;
+      const deltaColor =
+        lost > 0 ? "text-brake" : lost < 0 ? "text-throttle" : "text-ink-dim";
+
+      return {
+        name,
+        dir,
+        who: focus.label.split(" ")[0],
+        delta,
+        deltaColor,
+        brake: null,
+      };
+    }
+
+    if (!current || !ref) return null;
     const dir = current.direction === "L" ? "left" : "right";
     const refRow = ref.entry.corner_report?.find((r) => r.n === current.n);
     const row = focus?.entry.corner_report?.find((r) => r.n === current.n);
@@ -1430,7 +1484,7 @@ function MapBody({
           ? "brakes level with ref"
           : `brakes ${Math.round(Math.abs(bd))} m ${bd < 0 ? "earlier" : "later"}`;
     return { name: `T${current.n}`, dir, who: focus.label.split(" ")[0], delta, deltaColor, brake };
-  }, [current, ref, focus, hero, units]);
+  }, [current, ref, focus, hero, units, sectors, sectorTimings, zoomRange]);
 
   const others = laps.filter((lap) => !lap.isRef && layers.others);
   const key = useMemo(
@@ -1547,7 +1601,9 @@ function MapBody({
             {"who" in callout && (
               <>
                 <span className="text-ink-faint">·</span>
-                <span className="text-ink-dim">{callout.who} here</span>
+                {callout.name.startsWith("T") && (
+                  <span className="text-ink-dim">{callout.who} here</span>
+                )}
                 <span className={callout.deltaColor}>{callout.delta}</span>
                 {callout.brake && (
                   <>

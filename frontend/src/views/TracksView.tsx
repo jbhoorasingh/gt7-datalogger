@@ -873,6 +873,25 @@ export function TracksView() {
         detail: "Placed on the map once surveyed.",
       });
     }
+    const sectorBoundaries = b?.sectors ?? 0;
+    checks.push({
+      key: "sectors",
+      tone: sectorBoundaries > 0 ? "ok" : "todo",
+      label: "Sectors",
+      detail:
+        sectorBoundaries > 0
+          ? `${sectorBoundaries + 1} sectors configured · ${sectorBoundaries} ${sectorBoundaries === 1 ? "boundary" : "boundaries"} saved.`
+          : b
+            ? "Not configured. Add sector boundaries for timing and voice callouts."
+            : "Not configured. Survey this track before adding sector boundaries.",
+      action: b
+        ? {
+            label: sectorBoundaries > 0 ? "Edit sectors" : "Configure sectors",
+            title: "Configure this circuit's sector boundaries",
+            onClick: () => setEditing(current),
+          }
+        : undefined,
+    });
     const info = b && syncActive && current.sync ? syncInfo(current.sync) : null;
     if (info && current.sync) {
       const st = current.sync.status;

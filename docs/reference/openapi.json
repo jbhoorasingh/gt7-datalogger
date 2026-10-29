@@ -498,6 +498,76 @@
             ],
             "title": "Race Engineer Categories"
           },
+          "race_engineer_sector_voice_comparison": {
+            "anyOf": [
+              {
+                "enum": [
+                  "individual",
+                  "cumulative"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Race Engineer Sector Voice Comparison"
+          },
+          "race_engineer_sector_voice_content": {
+            "anyOf": [
+              {
+                "enum": [
+                  "delta",
+                  "time",
+                  "both"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Race Engineer Sector Voice Content"
+          },
+          "race_engineer_sector_voice_decimals": {
+            "anyOf": [
+              {
+                "maximum": 3.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Race Engineer Sector Voice Decimals"
+          },
+          "race_engineer_sector_voice_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Race Engineer Sector Voice Enabled"
+          },
+          "race_engineer_sector_voice_rounding": {
+            "anyOf": [
+              {
+                "enum": [
+                  "round",
+                  "truncate"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Race Engineer Sector Voice Rounding"
+          },
           "race_engineer_units": {
             "anyOf": [
               {

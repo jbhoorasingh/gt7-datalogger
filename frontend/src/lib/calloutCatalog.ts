@@ -38,12 +38,17 @@ export const CALLOUT_CATALOG: Record<CalloutCategory, CategoryInfo> = {
     ],
   },
   lap: {
-    summary: "Your lap time, every completed lap.",
+    summary: "Lap times and optional live sector announcements.",
     callouts: [
       {
         event: "lap_time",
         example: "Lap time, one minute thirty-two point five. Two tenths slower.",
         when: "every full lap, compared with your session best",
+      },
+      {
+        event: "sector_time",
+        example: "Sector one, thirty-two point four eight three. Point three six nine faster.",
+        when: "crossing an authored sector boundary with sector voice enabled and a valid reference lap",
       },
     ],
   },

@@ -132,6 +132,13 @@ class Settings(BaseSettings):
     # side because the callout text is worded before it reaches a browser.
     race_engineer_units: str = "metric"
 
+    # Optional sector announcements, independently configurable.
+    race_engineer_sector_voice_enabled: bool = False
+    race_engineer_sector_voice_decimals: int = 3
+    race_engineer_sector_voice_rounding: str = "round"
+    race_engineer_sector_voice_content: str = "delta"
+    race_engineer_sector_voice_comparison: str = "individual"
+
     def car_inventory(self) -> Path:
         """The car file to read, most specific first.
 

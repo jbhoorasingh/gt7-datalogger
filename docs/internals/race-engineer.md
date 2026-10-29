@@ -257,6 +257,21 @@ circuit identified: the same circuit resumes it, another ends it. Requests are
 applied one at a time by a single task, latest wins, so a stream of them costs one
 lap load at a time. Nothing is persisted.
 
+### Sector callouts
+
+`sector_time` needs the circuit's authored sector boundaries; the thirds that
+Analysis falls back to are never announced. Whenever the reference changes,
+`refresh_reference` prepares the sectors on a worker thread: it gets each
+boundary's travel direction from the reference lap, then replays that lap through
+a `LiveSectorTracker` to time its sectors. Live laps go through the same tracker
+one recorded sample at a time, so the reference and the live lap use one crossing
+rule (the car's closest pass to the boundary point, interpolated between two
+samples). A lap that repeats the reference sample for sample reads level at every
+sector. The final sector is announced in `on_lap`, before a quicker lap can replace
+the reference it is measured against. It waits in the browser queue behind that
+lap's own announcement, so its TTL (15 s) is longer than that announcement takes
+to speak.
+
 ## WebSocket protocol
 
 `/ws/live` gained a client → server direction. Anything unparseable is ignored, so

@@ -124,6 +124,94 @@ export function EngineerSection({ draft, edit, busy, run }: SectionProps) {
         </div>
       </SettingRow>
 
+      <div className="rule" />
+      <div className="px-[18px] py-3">
+        <div className="text-xs font-semibold text-ink">
+          Sector Voice Announcements
+        </div>
+        <p className="mt-1 text-[11px] text-ink-dim">
+          Announce sector timing against the active reference lap.
+          Sector callouts require authored boundaries. Precision and rounding also apply to completed laps when Sector Voice is on.
+        </p>
+      </div>
+
+      <SettingRow
+        label="Sector announcements"
+        help="Enable sector callouts and configurable lap voice precision. Turning this off restores the original completed-lap announcements."
+      >
+        <Toggle
+          ariaLabel="Sector voice announcements"
+          checked={draft.race_engineer_sector_voice_enabled}
+          disabled={!on}
+          onCheckedChange={(v) => edit({ race_engineer_sector_voice_enabled: v })}
+        />
+      </SettingRow>
+
+      <SettingRow label="Decimal precision" help="Decimal places spoken for sector times, completed laps, personal bests and timing differences.">
+        <SegmentedControl
+          ariaLabel="Sector voice decimal precision"
+          value={String(draft.race_engineer_sector_voice_decimals)}
+          disabled={!on || !draft.race_engineer_sector_voice_enabled}
+          onValueChange={(v) =>
+            edit({ race_engineer_sector_voice_decimals: Number(v) as 1 | 2 | 3 })
+          }
+          options={[
+            { value: "1", label: "1" },
+            { value: "2", label: "2" },
+            { value: "3", label: "3" },
+          ]}
+        />
+      </SettingRow>
+
+      <SettingRow label="Rounding" help="Round or truncate spoken sector timings, completed-lap times and their differences.">
+        <SegmentedControl
+          ariaLabel="Sector voice rounding"
+          value={draft.race_engineer_sector_voice_rounding}
+          disabled={!on || !draft.race_engineer_sector_voice_enabled}
+          onValueChange={(v: "round" | "truncate") =>
+            edit({ race_engineer_sector_voice_rounding: v })
+          }
+          options={[
+            { value: "round", label: "Round" },
+            { value: "truncate", label: "Truncate" },
+          ]}
+        />
+      </SettingRow>
+
+      <SettingRow label="Announcement content" help="What the Race Engineer says at each sector.">
+        <SegmentedControl
+          ariaLabel="Sector voice announcement content"
+          value={draft.race_engineer_sector_voice_content}
+          disabled={!on || !draft.race_engineer_sector_voice_enabled}
+          onValueChange={(v: "delta" | "time" | "both") =>
+            edit({ race_engineer_sector_voice_content: v })
+          }
+          options={[
+            { value: "delta", label: "Delta" },
+            { value: "time", label: "Time" },
+            { value: "both", label: "Both" },
+          ]}
+        />
+      </SettingRow>
+
+      <SettingRow
+        label="Comparison mode"
+        help="Compare each sector individually or cumulative progress through the lap."
+      >
+        <SegmentedControl
+          ariaLabel="Sector voice comparison mode"
+          value={draft.race_engineer_sector_voice_comparison}
+          disabled={!on || !draft.race_engineer_sector_voice_enabled}
+          onValueChange={(v: "individual" | "cumulative") =>
+            edit({ race_engineer_sector_voice_comparison: v })
+          }
+          options={[
+            { value: "individual", label: "Individual" },
+            { value: "cumulative", label: "Cumulative" },
+          ]}
+        />
+      </SettingRow>
+
       <SettingRow label="Spoken units" help="For braking points and speeds inside callouts.">
         <SegmentedControl
           ariaLabel="Spoken units"

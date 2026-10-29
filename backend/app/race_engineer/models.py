@@ -79,6 +79,11 @@ SPECS: dict[str, CalloutSpec] = {
     "test": CalloutSpec("system", 20, 10_000),
     # lap / pace
     "lap_time": CalloutSpec("lap", 60, 10_000),
+    # The final sector is emitted with the lap's own announcement and, at a
+    # lower priority, waits in the browser queue while that (and any pace
+    # drop) is spoken: about ten seconds at three decimals. Its lifetime has
+    # to outlast that wait, or it expires unheard on every lap.
+    "sector_time": CalloutSpec("lap", 55, 15_000),
     "personal_best": CalloutSpec("pace", 70, 12_000),
     "pace_drop": CalloutSpec("pace", 62, 12_000),
     # race state

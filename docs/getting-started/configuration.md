@@ -52,6 +52,11 @@ The **Applies** column says when a change takes effect:
 | `GT7_RACE_ENGINEER_VERBOSITY` | `coach` | live | The **most** any device may hear: `minimal`, `race` or `coach`. Each browser chooses its own verbosity under this ceiling, so the default produces everything and lets the device decide; lowering it puts those categories out of reach for every device |
 | `GT7_RACE_ENGINEER_CATEGORIES` | *(all)* | live | Comma-separated callout categories: `system`, `lap`, `pace`, `race`, `position`, `fuel`, `strategy`, `engine`, `tires`, `chassis`, `coaching` |
 | `GT7_RACE_ENGINEER_UNITS` | `metric` | live | Units spoken inside callouts (`metric` = meters and km/h, `imperial` = feet and mph) |
+| `GT7_RACE_ENGINEER_SECTOR_VOICE_ENABLED` | `false` | live | Announce sectors against the active reference lap (requires authored boundaries). Also enables configurable precision for completed-lap announcements; disabling restores original lap voice formatting. |
+| `GT7_RACE_ENGINEER_SECTOR_VOICE_DECIMALS` | `3` | live | Number of decimal places spoken for sector times, completed laps, personal bests and their timing differences (1 to 3), when sector voice is enabled. |
+| `GT7_RACE_ENGINEER_SECTOR_VOICE_ROUNDING` | `round` | live | Round or truncate spoken sector times, completed-lap times, personal bests and their timing differences when sector voice is enabled. |
+| `GT7_RACE_ENGINEER_SECTOR_VOICE_CONTENT` | `delta` | live | Announce the reference delta, sector time, or both. |
+| `GT7_RACE_ENGINEER_SECTOR_VOICE_COMPARISON` | `individual` | live | Compare the individual sector or cumulative lap progress. |
 
 ### Notifications
 

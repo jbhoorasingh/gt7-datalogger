@@ -599,7 +599,8 @@ export interface Sector {
 
 // Every lap of a session split at the same sector boundaries (#22).
 // `splits_ms` is null on a lap that has no sector times: it never passed a
-// boundary (a cut, another layout) or has no lap time.
+// boundary (a cut, another layout), has no lap time, or has a clock that does
+// not account for its lap time (a recording joined part way round).
 export interface SectorTimes {
   session_id: number;
   source: "track" | "thirds" | "none";
@@ -844,6 +845,11 @@ export interface AdminSettings {
   race_engineer_verbosity: Verbosity;
   race_engineer_categories: CalloutCategory[];
   race_engineer_units: SpokenUnits;
+  race_engineer_sector_voice_enabled: boolean;
+  race_engineer_sector_voice_decimals: 1 | 2 | 3;
+  race_engineer_sector_voice_rounding: "round" | "truncate";
+  race_engineer_sector_voice_content: "delta" | "time" | "both";
+  race_engineer_sector_voice_comparison: "individual" | "cumulative";
   // The sync service (#79). The token never comes back from the server:
   // `sync_token_set` says whether one is stored, the hint which one.
   sync_url: string;

@@ -162,6 +162,40 @@ ENTRIES: tuple[Entry, ...] = (
         "feet and mph)",
         choices=("metric", "imperial"),
     ),
+    Entry(
+        "race_engineer_sector_voice_enabled", "Race Engineer",
+        "Sector voice announcements",
+        "Announce sectors against the active reference lap (requires authored boundaries). "
+        "Also enables configurable precision for completed-lap announcements; "
+        "disabling restores original lap voice formatting.",
+        kind="bool",
+    ),
+    Entry(
+        "race_engineer_sector_voice_decimals", "Race Engineer",
+        "Sector voice decimal places",
+        "Number of decimal places spoken for sector times, completed laps, personal bests "
+        "and their timing differences (1 to 3), when sector voice is enabled.",
+        kind="int", minimum=1, maximum=3,
+    ),
+    Entry(
+        "race_engineer_sector_voice_rounding", "Race Engineer",
+        "Sector voice rounding",
+        "Round or truncate spoken sector times, completed-lap times, personal bests "
+        "and their timing differences when sector voice is enabled.",
+        choices=("round", "truncate"),
+    ),
+    Entry(
+        "race_engineer_sector_voice_content", "Race Engineer",
+        "Sector announcement content",
+        "Announce the reference delta, sector time, or both.",
+        choices=("delta", "time", "both"),
+    ),
+    Entry(
+        "race_engineer_sector_voice_comparison", "Race Engineer",
+        "Sector comparison mode",
+        "Compare the individual sector or cumulative lap progress.",
+        choices=("individual", "cumulative"),
+    ),
     # --- Notifications --------------------------------------------------------
     Entry(
         "webhook_url", "Notifications", "Webhook URL",

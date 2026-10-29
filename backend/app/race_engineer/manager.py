@@ -23,6 +23,7 @@ from app.models import TelemetryPacket
 from app.processing.analysis import corners_for_lap
 from app.processing.laps import CompletedLap, SessionInfo
 from app.processing.live_events import LiveEvent
+from app.processing.sectors import Boundary
 from app.race_engineer.detectors import (
     CoachingDetector,
     Detector,
@@ -40,6 +41,13 @@ from app.race_engineer.models import (
     CalloutRequest,
     VoiceCallout,
     categories_for,
+)
+from app.race_engineer.sectors import (
+    LiveSectorTracker,
+    SectorCrossing,
+    reference_sector_directions,
+    reference_sector_splits,
+    validated_sector_boundaries,
 )
 from app.race_engineer.state import (
     EngineerContext,
@@ -87,6 +95,14 @@ class RaceEngineerManager:
         self._emitted: dict[str, float] = {}  # dedupe key -> packet-clock time
         self._severity: dict[str, int] = {}  # dedupe key -> highest severity seen
         self._seq = 0
+        self.sector_voice_enabled = False
+        self.sector_voice_decimals = 3
+        self.sector_voice_rounding = "round"
+        self.sector_voice_content = "delta"
+        self.sector_voice_comparison = "individual"
+        self._sector_tracker = LiveSectorTracker()
+        self._sector_reference_generation = 0
+        self._sector_reference_splits_ms: list[float] | None = None
         self._pending_reference: dict[str, list[float]] | None = None
         self._reference_lap: int | None = None
         # What coaching compares against: the session's fastest counting lap
@@ -127,6 +143,7 @@ class RaceEngineerManager:
         # Injected by TelemetryService (which owns the bundle cache) rather
         # than read here, so the manager keeps knowing nothing about files.
         self.corner_source: Callable[[str], list[dict[str, Any]]] | None = None
+        self.sector_source: Callable[[str], list[dict[str, Any]]] | None = None
 
     # --- configuration ------------------------------------------------------
 
@@ -141,6 +158,11 @@ class RaceEngineerManager:
         verbosity: str | None = None,
         categories: set[str] | None = None,
         units: str | None = None,
+        sector_voice_enabled: bool | None = None,
+        sector_voice_decimals: int | None = None,
+        sector_voice_rounding: str | None = None,
+        sector_voice_content: str | None = None,
+        sector_voice_comparison: str | None = None,
     ) -> None:
         if enabled is not None:
             self.enabled = enabled
@@ -150,6 +172,157 @@ class RaceEngineerManager:
             self.categories = set(categories)
         if units is not None:
             self.ctx.units = units
+        if sector_voice_enabled is not None:
+            self.sector_voice_enabled = sector_voice_enabled
+        if sector_voice_decimals is not None:
+            if type(sector_voice_decimals) is not int or sector_voice_decimals not in (1, 2, 3):
+                raise ValueError("sector_voice_decimals must be 1, 2 or 3")
+            self.sector_voice_decimals = sector_voice_decimals
+        if sector_voice_rounding is not None:
+            if sector_voice_rounding not in ("round", "truncate"):
+                raise ValueError("sector_voice_rounding must be round or truncate")
+            self.sector_voice_rounding = sector_voice_rounding
+        if sector_voice_content is not None:
+            if sector_voice_content not in ("delta", "time", "both"):
+                raise ValueError("sector_voice_content must be delta, time or both")
+            self.sector_voice_content = sector_voice_content
+        if sector_voice_comparison is not None:
+            if sector_voice_comparison not in ("individual", "cumulative"):
+                raise ValueError("sector_voice_comparison must be individual or cumulative")
+            self.sector_voice_comparison = sector_voice_comparison
+
+    def sector_callout(
+        self, lap: int, crossing: SectorCrossing
+    ) -> VoiceCallout | None:
+        """Build a spoken sector comparison through the normal voice policy."""
+        from math import isfinite
+
+        from app.race_engineer.formatter import (
+            _precise_timing_seconds,
+            spoken_sector_decimal,
+            spoken_sector_duration,
+        )
+
+        splits = self._sector_reference_splits_ms
+        if (
+            not self.enabled
+            or not self.sector_voice_enabled
+            or self.ctx.reference is None
+            or splits is None
+            or len(splits) < 2
+            or lap <= 0
+            or not 1 <= crossing.sector <= len(splits)
+        ):
+            return None
+
+        reference_ms = splits[crossing.sector - 1]
+
+        if (
+            not isfinite(reference_ms)
+            or reference_ms <= 0
+            or not isfinite(crossing.time_ms)
+            or crossing.time_ms <= 0
+            or not isfinite(crossing.cumulative_ms)
+            or crossing.cumulative_ms < crossing.time_ms
+        ):
+            return None
+
+        if self.sector_voice_comparison == "cumulative":
+            reference_sectors = splits[:crossing.sector]
+            if any(
+                not isfinite(ms) or ms <= 0
+                for ms in reference_sectors
+            ):
+                return None
+            reference_ms = sum(reference_sectors)
+            delta_ms = crossing.cumulative_ms - reference_ms
+        else:
+            delta_ms = crossing.time_ms - reference_ms
+        sector_names = (
+            "one", "two", "three", "four", "five",
+            "six", "seven", "eight", "nine", "ten",
+        )
+        sector_name = (
+            sector_names[crossing.sector - 1]
+            if crossing.sector <= len(sector_names)
+            else str(crossing.sector)
+        )
+
+        phrases = []
+
+        if self.sector_voice_content in ("time", "both"):
+            sector_time = spoken_sector_duration(
+                crossing.time_ms,
+                self.sector_voice_decimals,
+                self.sector_voice_rounding,
+            )
+            phrases.append(sector_time)
+
+        if self.sector_voice_content in ("delta", "both"):
+            # Level is what the driver would hear as zero, not an exact
+            # zero: a cumulative reference is a sum of splits, a hair off
+            # the crossing it adds up to.
+            level = _precise_timing_seconds(
+                delta_ms, self.sector_voice_decimals, self.sector_voice_rounding
+            ) == 0
+            if level:
+                phrases.append("level with the reference")
+            else:
+                if self.sector_voice_comparison == "cumulative":
+                    direction = "ahead" if delta_ms < 0 else "behind"
+                else:
+                    direction = "faster" if delta_ms < 0 else "slower"
+                spoken = spoken_sector_decimal(
+                    abs(delta_ms) / 1000.0,
+                    self.sector_voice_decimals,
+                    self.sector_voice_rounding,
+                )
+                phrases.append(f"{spoken} seconds {direction}")
+
+        text = f"Sector {sector_name}, {', '.join(phrases)}."
+
+        return self._emit(
+            CalloutRequest(
+                event_type="sector_time",
+                text=text,
+                message_key="sector.time",
+                message_args={
+                    "lap": lap,
+                    "sector": crossing.sector,
+                    "time_ms": crossing.time_ms,
+                    "delta_ms": delta_ms,
+                },
+                dedupe_key=(
+                    f"sector_time:{self.ctx.session_seq}:"
+                    f"{lap}:{crossing.sector}"
+                ),
+                metadata={
+                    "lap": lap,
+                    "sector": crossing.sector,
+                    "time_ms": crossing.time_ms,
+                    "reference_ms": reference_ms,
+                    "delta_ms": delta_ms,
+                },
+            )
+        )
+
+    def observe_sector(
+        self,
+        lap: int,
+        sample: tuple[float, float, float] | None,
+    ) -> SectorCrossing | None:
+        """Observe live lap timing using the current validated reference."""
+        if sample is None:
+            self._sector_tracker.interrupt()
+            return None
+
+        if (
+            not self.enabled
+            or self._sector_reference_splits_ms is None
+            or self.ctx.reference is None
+        ):
+            return None
+        return self._sector_tracker.observe(lap, sample)
 
     # --- pipeline hooks -----------------------------------------------------
 
@@ -240,6 +413,17 @@ class RaceEngineerManager:
                 if callout is not None:
                     out.append(callout)
 
+        # Announce S3 against the reference active during this lap,
+        # before a faster completed lap can replace that reference.
+        if record.counts_for_best and self.sector_voice_enabled:
+            crossing = self._sector_tracker.complete(
+                record.number, record.time_ms
+            )
+            if crossing is not None:
+                callout = self.sector_callout(record.number, crossing)
+                if callout is not None:
+                    out.append(callout)
+
         candidates = [t for t in (before, record.time_ms if record.counts_for_best else None)
                       if t is not None]
         self.ctx.best_lap_ms = min(candidates) if candidates else None
@@ -254,6 +438,7 @@ class RaceEngineerManager:
             ):
                 self._chase_adopt(None, record.time_ms, record.samples, record.number)
         elif record.counts_for_best and self.ctx.best_lap_ms == record.time_ms:
+            self._invalidate_sector_reference()
             self._pending_reference = record.samples
             self._reference_lap = record.number
         return out
@@ -276,6 +461,7 @@ class RaceEngineerManager:
             return
         best = self._session_fastest()
         if best is not None and best.number != self._reference_lap:
+            self._invalidate_sector_reference()
             self._pending_reference = best.samples
             self._reference_lap = best.number
 
@@ -336,6 +522,7 @@ class RaceEngineerManager:
         self.ctx.reference = None
         self.ctx.corners = []
         self.ctx.span_confirmed = False
+        self._invalidate_sector_reference()
         self._pending_reference = None
         self._reference_lap = None
         if self.reference_mode == "chase":
@@ -375,6 +562,38 @@ class RaceEngineerManager:
         self._chase_settle()
         await self.refresh_reference()
 
+    def _sector_reference_time_ms(
+        self,
+        samples: dict[str, list[float]],
+    ) -> int | None:
+        """Return the duration belonging to these exact reference samples."""
+        if self.reference_mode == "chase":
+            if (
+                samples is self._chase_samples
+                and self.reference_time_ms is not None
+                and self.reference_time_ms > 0
+            ):
+                return self.reference_time_ms
+            return None
+
+        for record in self.ctx.laps:
+            if (
+                record.session_seq == self.ctx.session_seq
+                and record.number == self._reference_lap
+                and record.samples is samples
+                and record.counts_for_best
+                and record.time_ms > 0
+            ):
+                return record.time_ms
+
+        return None
+
+    def _invalidate_sector_reference(self) -> None:
+        """Discard sector timing and invalidate outstanding reference work."""
+        self._sector_reference_generation += 1
+        self._sector_reference_splits_ms = None
+        self._sector_tracker.configure([])
+
     # --- coaching reference -------------------------------------------------
 
     def select_chase_reference(
@@ -390,6 +609,7 @@ class RaceEngineerManager:
         """
         if time_ms <= 0 or not samples.get("dist"):
             raise ValueError("That lap has no usable telemetry")
+        self._invalidate_sector_reference()
         self.reference_mode = "chase"
         self._chase_base = (lap_id, time_ms, samples)
         self._chase_samples = None
@@ -402,6 +622,7 @@ class RaceEngineerManager:
     def select_session_best_reference(self) -> None:
         """Back to coaching against the session's fastest counting lap."""
         self._end_chase()
+        self._invalidate_sector_reference()
         best = self._session_fastest()
         if best is not None:
             self._pending_reference = best.samples
@@ -446,6 +667,7 @@ class RaceEngineerManager:
         what lets _reflag drop it if it stops counting.
         """
         if samples is not self._chase_samples or self.ctx.reference is None:
+            self._invalidate_sector_reference()
             self._pending_reference = samples
         self._chase_samples = samples
         self.reference_lap_id = lap_id
@@ -468,6 +690,48 @@ class RaceEngineerManager:
         if samples is None:
             return
         self.ctx.reference = samples
+        self._invalidate_sector_reference()
+        sector_generation = self._sector_reference_generation
+
+        # Sector reference preparation is independent of coaching.
+        # Track bundles and reference geometry are processed off the packet path.
+        sector_source = self.sector_source
+        if sector_source is not None and self.ctx.track_name:
+            track = self.ctx.track_name
+
+            reference_time_ms = self._sector_reference_time_ms(samples)
+
+            def _sector_reference() -> tuple[
+                list[Boundary],
+                list[tuple[float, float]],
+                list[float] | None,
+            ]:
+                authored = sector_source(track)
+                boundaries = validated_sector_boundaries(authored)
+                if boundaries is None or reference_time_ms is None:
+                    return [], [], None
+                directions = reference_sector_directions(samples, boundaries)
+                if directions is None:
+                    return [], [], None
+                splits = reference_sector_splits(
+                    samples, boundaries, directions, reference_time_ms
+                )
+                if splits is None or len(splits) != len(boundaries) + 1:
+                    return [], [], None
+                return boundaries, directions, splits
+
+            try:
+                boundaries, directions, splits = await asyncio.to_thread(_sector_reference)
+                if sector_generation == self._sector_reference_generation:
+                    self._sector_tracker.configure(boundaries, directions=directions)
+                    self._sector_reference_splits_ms = splits
+            except Exception:
+                if sector_generation == self._sector_reference_generation:
+                    log.warning(
+                        "sector reference preparation failed; sector voice disabled",
+                        exc_info=True,
+                    )
+                    self._sector_tracker.configure([])
         if not {"coaching", "chassis"} & self.effective_categories:
             self.ctx.corners = []
             return
@@ -500,6 +764,57 @@ class RaceEngineerManager:
             rec.axis = view
 
     # --- emission -----------------------------------------------------------
+
+    def _lap_announcement_text(self, request: CalloutRequest) -> str:
+        """Use sector precision for lap announcements only when opted in."""
+        if (
+            not self.sector_voice_enabled
+            or request.event_type not in ("lap_time", "personal_best")
+        ):
+            return request.text
+
+        from app.race_engineer.detectors.lap import MIN_GAP_MS
+        from app.race_engineer.formatter import (
+            spoken_precise_gap,
+            spoken_precise_lap_time,
+        )
+
+        args = request.message_args
+        time_ms = args.get("time_ms")
+
+        if not isinstance(time_ms, (int, float)) or time_ms <= 0:
+            return request.text
+
+        places = self.sector_voice_decimals
+        rounding = self.sector_voice_rounding
+
+        spoken_time = spoken_precise_lap_time(int(time_ms), places, rounding)
+
+        # Do not say "zero point zero seconds faster" when truncating.
+        min_gap_ms = max(
+            MIN_GAP_MS,
+            1000 // (10 ** places) if rounding == "truncate" else 0,
+        )
+
+        if request.event_type == "personal_best":
+            text = f"New personal best, {spoken_time}."
+            gain = args.get("gain_ms")
+
+            if isinstance(gain, (int, float)) and gain >= min_gap_ms:
+                spoken_gain = spoken_precise_gap(gain, places, rounding)
+                text += f" {spoken_gain.capitalize()} faster."
+
+            return text
+
+        text = f"Lap time, {spoken_time}."
+        delta = args.get("delta_ms")
+
+        if isinstance(delta, (int, float)) and abs(delta) >= min_gap_ms:
+            spoken_delta = spoken_precise_gap(delta, places, rounding)
+            direction = "slower" if delta > 0 else "faster"
+            text += f" {spoken_delta.capitalize()} {direction}."
+
+        return text
 
     def _emit(self, request: CalloutRequest) -> VoiceCallout | None:
         spec = SPECS.get(request.event_type)
@@ -534,7 +849,7 @@ class RaceEngineerManager:
         callout = VoiceCallout(
             id=f"{request.event_type}-{self.ctx.session_seq}-{self._seq}",
             event_type=request.event_type,
-            text=request.text,
+            text=self._lap_announcement_text(request),
             category=spec.category,
             priority=spec.priority,
             created_at_ms=created,

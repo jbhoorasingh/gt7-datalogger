@@ -32,6 +32,38 @@ Notable changes to GT7 Datalogger. The format follows
   simulator scenario, LAN announcement) listed but off by default. **Dash/OBS**
   merges by name, and **Tokens** go into `secrets.json` only when ticked. Laps are
   then re-judged against the surveys here in the background (#161).
+- **Sector times from the Race Engineer.** With **Sector announcements** on
+  (Settings › Race Engineer, off by default), the engineer calls each sector as
+  you complete it, against the coaching reference: the delta, the sector time
+  or both, sector by sector or cumulative. It needs the circuit's sector
+  boundaries, authored in Tracks, where the checklist now has a **Sectors**
+  row. The same switch sets how many decimals (1 to 3) and whether rounded or
+  truncated, for sector and lap time announcements alike. Contributed by
+  @Marstiphal (#165).
+- **Sector times on the Analysis lap strip.** Each sector on the lap strip shows its
+  time, for the compared lap or the reference when none is compared, with the delta
+  to the reference beside it; zoomed to a sector, the map's callout shows the same.
+  The times run the lap's own clock from the line to the line, so they add up to the
+  lap time. A lap whose clock did not run the whole lap (a recording joined part way
+  round, a stop the logger skipped) shows none, and a circuit without authored sectors
+  is timed in thirds of the lap, marked `~`. Contributed by @Marstiphal (#166).
+- **Sector comparison and theoretical best.** A new Analysis panel beside Sector times
+  sets the reference lap's sectors against the session's best of each, with the time
+  the reference lost to the best in every sector, and adds the best sectors up into a
+  theoretical best lap and how far it is under the reference. Bests come only from laps
+  that count; a reference from another session has no comparison, since the bests are
+  this session's. Contributed by @Marstiphal (#167).
+
+### Fixed
+
+- **Sector times put time the recording missed into the last sector.** Analysis ›
+  Sector times shares GT7's lap time out by the lap's own clock, and the last sector
+  takes the remainder. A lap the logger joined part way round, or whose clock froze
+  through a stop or an outage it skipped, has a clock that falls short of the lap time,
+  so the sectors where it lost time read short and the last sector long by everything
+  missed — up to six minutes on recorded laps. A lap whose clock does not agree with its lap
+  time, within the window a salvaged lap has to meet (500 ms, or 0.5 % of the lap),
+  now shows no sector times. Partial laps timed line to line keep theirs.
 
 ## [0.8.1] - 2026-10-21
 

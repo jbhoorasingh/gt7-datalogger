@@ -30,6 +30,53 @@ describe("pending edits", () => {
   });
 });
 
+describe("sector voice settings", () => {
+  const sectorDefaults: AdminSettings = {
+    ...saved,
+    race_engineer_sector_voice_enabled: false,
+    race_engineer_sector_voice_decimals: 3,
+    race_engineer_sector_voice_rounding: "round",
+    race_engineer_sector_voice_content: "delta",
+    race_engineer_sector_voice_comparison: "individual",
+  };
+
+  it("tracks and sends changes to all five sector voice settings", () => {
+    const changes = {
+      race_engineer_sector_voice_enabled: true,
+      race_engineer_sector_voice_decimals: 2,
+      race_engineer_sector_voice_rounding: "truncate",
+      race_engineer_sector_voice_content: "both",
+      race_engineer_sector_voice_comparison: "cumulative",
+    } as const;
+
+    const edits = mergeEdits(sectorDefaults, {}, changes);
+
+    expect(pendingKeys(sectorDefaults, edits)).toHaveLength(5);
+    expect(pendingKeys(sectorDefaults, edits)).toEqual(
+      expect.arrayContaining(Object.keys(changes)),
+    );
+    expect(pendingPatch(sectorDefaults, edits)).toEqual(changes);
+  });
+
+  it("excludes unchanged settings and removes reverted edits", () => {
+    const edits = mergeEdits(sectorDefaults, {}, {
+      race_engineer_sector_voice_enabled: true,
+      race_engineer_sector_voice_decimals: 3,
+    });
+
+    expect(pendingPatch(sectorDefaults, edits)).toEqual({
+      race_engineer_sector_voice_enabled: true,
+    });
+
+    const reverted = mergeEdits(sectorDefaults, edits, {
+      race_engineer_sector_voice_enabled: false,
+    });
+
+    expect(pendingKeys(sectorDefaults, reverted)).toEqual([]);
+    expect(pendingPatch(sectorDefaults, reverted)).toEqual({});
+  });
+});
+
 describe("rail", () => {
   it("filters by label and keywords", () => {
     expect(filterSections("token").flatMap((g) => g.items.map((i) => i.id))).toEqual(["sync", "access"]);
