@@ -47,17 +47,28 @@ ALL = ["data", "surveys", "source_id", "config", "layouts", "tokens"]
 
 class StubSource:
     """A telemetry source that sends nothing: the restore stops and starts
-    it, and a test must not bind a port or run the simulator to see that."""
+    it, and a test must not bind a port or run the simulator to see that.
+    Started while running, it fails as the UDP listener does on a port it
+    already holds, and says so in `events`."""
 
     def __init__(self) -> None:
         self.starts = 0
         self.stops = 0
+        self.running = False
+        self.events: list[str] = []
 
     async def start(self) -> None:
+        if self.running:
+            self.events.append("started twice")
+            raise OSError(48, "Address already in use")
         self.starts += 1
+        self.running = True
+        self.events.append("start")
 
     async def stop(self) -> None:
         self.stops += 1
+        self.running = False
+        self.events.append("stop")
 
     @property
     def stats(self) -> dict[str, object]:
@@ -1139,10 +1150,7 @@ async def test_a_request_in_progress_finishes_before_the_swap_and_new_ones_wait(
         await new.service.repo.set_session_track(first, "Old circuit")
         return {"id": first}
 
-    # Ahead of the app's own routes: a built frontend is mounted at "/".
-    new.app.add_api_route("/api/test/name-the-first-session", name_the_first_session,
-                          methods=["POST"])
-    new.app.router.routes.insert(0, new.app.router.routes.pop())
+    add_route_first(new, "/api/test/name-the-first-session", name_the_first_session)
     naming = asyncio.create_task(new.client.post("/api/test/name-the-first-session"))
     await asyncio.wait_for(read.wait(), 5)
     swap = asyncio.create_task(new.service.replace_database(staged))
@@ -1167,6 +1175,79 @@ async def test_a_request_in_progress_finishes_before_the_swap_and_new_ones_wait(
     sessions = (await listing).json()
     assert len(sessions) == 1
     assert all(s["track_name"] != "Old circuit" for s in sessions)
+
+
+def add_route_first(install: Install, path: str, endpoint) -> None:
+    """A route ahead of the app's own: a built frontend is mounted at "/"."""
+    install.app.add_api_route(path, endpoint, methods=["POST"])
+    install.app.router.routes.insert(0, install.app.router.routes.pop())
+
+
+async def test_telemetry_is_not_restarted_by_a_request_in_the_middle_of_a_swap(
+    installs, monkeypatch
+) -> None:
+    """A request restarting telemetry (Restart, or a port, scenario or source
+    change) that arrives during the swap waits until the restore has started
+    telemetry again; otherwise the restore's own start would be a second."""
+    new, staged, entered, release = await staged_swap(installs, monkeypatch)
+    source = new.service.source
+
+    async def restart_source() -> None:  # what switch_source does, minus a new object
+        await source.stop()
+        await source.start()
+
+    async def database_replaced() -> None:
+        # main.lifespan's does database work, so other tasks get turns.
+        await new.service.repo.stats()
+        await asyncio.sleep(0.01)
+
+    monkeypatch.setattr(new.service, "restart_source", restart_source)
+    new.service.database_replaced = database_replaced
+    swap = asyncio.create_task(new.service.replace_database(staged))
+    assert await asyncio.to_thread(entered.wait, 5)
+    restarting = asyncio.create_task(new.client.post("/api/admin/restart-source"))
+    await asyncio.sleep(0.05)
+    assert not restarting.done()
+
+    release.set()
+    await asyncio.wait_for(swap, 5)
+    assert (await asyncio.wait_for(restarting, 5)).status_code == 200
+    assert source.events == ["stop", "start", "stop", "start"]  # type: ignore[attr-defined]
+
+
+async def test_telemetry_restarted_by_a_request_in_progress_is_stopped_after_it(
+    installs, monkeypatch
+) -> None:
+    """A request already running when the restore begins may start telemetry
+    as it finishes; the restore stops telemetry only once it has."""
+    old = await installs("old")
+    await drive_laps(old.service, laps=1)
+    zf = zipfile.ZipFile(io.BytesIO(await make_backup(old, ["data"])))
+    new = await installs("new")
+    staged = new.data_dir / ".restore-test.db"
+    staged.write_bytes(zf.read("gt7.db"))
+    source = new.service.source
+    started, finish = asyncio.Event(), asyncio.Event()
+
+    async def change_the_port() -> dict[str, str]:
+        started.set()
+        await finish.wait()
+        await source.stop()
+        await source.start()
+        return {"status": "restarted"}
+
+    add_route_first(new, "/api/test/change-the-port", change_the_port)
+    changing = asyncio.create_task(new.client.post("/api/test/change-the-port"))
+    await asyncio.wait_for(started.wait(), 5)
+    swap = asyncio.create_task(new.service.replace_database(staged))
+    await asyncio.sleep(0.05)
+    assert source.events == []  # type: ignore[attr-defined]
+
+    finish.set()
+    assert (await asyncio.wait_for(changing, 5)).status_code == 200
+    await asyncio.wait_for(swap, 5)
+    assert source.events == ["stop", "start", "stop", "start"]  # type: ignore[attr-defined]
+    assert source.running  # type: ignore[attr-defined]
 
 
 def test_survey_file_writers_take_turns(tmp_path) -> None:

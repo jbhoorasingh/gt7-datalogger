@@ -1405,9 +1405,11 @@ class TelemetryService:
         so the recorder is paused for the swap alone. Nothing may write while
         the files change hands: SQLite finds its journal by the file's name,
         and save_lap does not retry a locked database. So the API requests in
-        progress finish first and new ones wait (a request can read ids in one
-        session and write by them in the next, and must not do so across the
-        swap); then everything else that writes stops — the telemetry source
+        progress finish first and new ones wait until telemetry is running
+        again (a request can read ids in one session and write by them in the
+        next, and must not do so across the swap; nor may one start or stop
+        telemetry in the middle of it); then everything else that writes
+        stops — the telemetry source
         (a lap it holds is saved, into the recordings being kept), the work
         going through stored laps, sync, re-judging, a backup being made —
         and the session gate shuts once the sessions in progress are done.
@@ -1416,26 +1418,32 @@ class TelemetryService:
         """
         db_path = self.settings.db_path
         kept = restore.kept_path(db_path)
-        await self.source.stop()
+        # The request gate is held from before telemetry stops until after it
+        # starts again: a request restarting the source or changing a setting
+        # that restarts it (port, scenario, source) would otherwise start
+        # telemetry in a gap, and the restart here would then start a second
+        # producer — two simulators feeding the recorder, one of them out of
+        # reach to stop, or a UDP listener binding a port already bound.
         try:
-            try:
-                async with self.requests.shut(SWAP_WAIT_S):
-                    await self._swap_files(db_path, staged, kept)
-            except TimeoutError as exc:
-                raise restore.RestoreError(
-                    "the database stayed busy; try again in a minute"
-                ) from exc
-            if self.database_replaced is not None:
-                await self.database_replaced()
-        finally:
-            # Unless the service stopped meanwhile: its stop has already
-            # stopped these, and must not find them running again.
-            if not self._stopping:
-                await self.sync.start()
+            async with self.requests.shut(SWAP_WAIT_S):
+                await self.source.stop()
                 try:
-                    await self.source.start()
-                except OSError:
-                    log.exception("telemetry source did not restart after the restore")
+                    await self._swap_files(db_path, staged, kept)
+                    # What a start does for the recordings, before telemetry
+                    # starts, in the order a start does it.
+                    if self.database_replaced is not None:
+                        await self.database_replaced()
+                finally:
+                    # Unless the service stopped meanwhile: its stop has
+                    # already stopped these, and must not find them running.
+                    if not self._stopping:
+                        await self.sync.start()
+                        try:
+                            await self.source.start()
+                        except OSError:
+                            log.exception("telemetry source did not restart after the restore")
+        except TimeoutError as exc:
+            raise restore.RestoreError("the database stayed busy; try again in a minute") from exc
         return kept
 
     async def _swap_files(self, db_path: Path, staged: Path, kept: Path) -> None:
