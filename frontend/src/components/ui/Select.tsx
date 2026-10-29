@@ -32,6 +32,7 @@ export function Select({
   ariaLabel,
   variant = "default",
   placeholder,
+  display,
 }: {
   value: string;
   onValueChange: (value: string) => void;
@@ -41,6 +42,9 @@ export function Select({
   variant?: keyof typeof TRIGGER_VARIANTS;
   /** Shown while `value` is "" — which no option may use as its value. */
   placeholder?: string;
+  /** Shown in the trigger instead of the chosen option's label — a short
+   *  form where the full one is too wide for its place. */
+  display?: React.ReactNode;
 }) {
   return (
     <SelectPrimitive.Root value={value} onValueChange={onValueChange}>
@@ -49,7 +53,7 @@ export function Select({
         className={`inline-flex items-center justify-between gap-2 transition-colors data-[placeholder]:text-ink-dim ${TRIGGER_VARIANTS[variant]} ${className}`}
       >
         <span className="truncate">
-          <SelectPrimitive.Value placeholder={placeholder} />
+          <SelectPrimitive.Value placeholder={placeholder}>{display}</SelectPrimitive.Value>
         </span>
         <SelectPrimitive.Icon className="text-[10px] text-ink-faint">▾</SelectPrimitive.Icon>
       </SelectPrimitive.Trigger>
