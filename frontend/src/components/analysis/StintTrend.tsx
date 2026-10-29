@@ -18,6 +18,7 @@ import { useMemo, useRef, useState } from "react";
 import { CHART_COLORS, EChart } from "@/components/EChart";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Tip } from "@/components/ui/Tooltip";
+import { useT, type MessageKey, type Translate } from "@/i18n";
 import { formatLapTime } from "@/lib/format";
 import { formatDrift, formatWarming, stintScale, stintSpan, type StintPoint } from "@/lib/stint";
 import { excludeReasonLabel, type StintLap, type StintTrend } from "@/lib/types";
@@ -30,12 +31,17 @@ const FRONT = CHART_COLORS.warn;
 const REAR = CHART_COLORS.brake;
 const FUEL = CHART_COLORS.throttle;
 
-const WHEELS = [
-  { key: "fl", label: "FL", color: FRONT, dash: false },
-  { key: "fr", label: "FR", color: FRONT, dash: true },
-  { key: "rl", label: "RL", color: REAR, dash: false },
-  { key: "rr", label: "RR", color: REAR, dash: true },
-] as const;
+const WHEELS: readonly {
+  key: "fl" | "fr" | "rl" | "rr";
+  labelKey: MessageKey;
+  color: string;
+  dash: boolean;
+}[] = [
+  { key: "fl", labelKey: "common.wheel.fl", color: FRONT, dash: false },
+  { key: "fr", labelKey: "common.wheel.fr", color: FRONT, dash: true },
+  { key: "rl", labelKey: "common.wheel.rl", color: REAR, dash: false },
+  { key: "rr", labelKey: "common.wheel.rr", color: REAR, dash: true },
+];
 
 type TempMode = "axle" | "wheel";
 
@@ -52,13 +58,14 @@ interface PointDatum {
   lapId: number;
 }
 
-function whyNot(lap: StintLap): string {
-  if (lap.pit) return "pit lap";
-  if (lap.exclude_reason) return `excluded · ${excludeReasonLabel(lap.exclude_reason)}`;
-  return lap.counts ? "" : "partial";
+function whyNot(lap: StintLap, t: Translate): string {
+  if (lap.pit) return t("stint.why.pit");
+  if (lap.exclude_reason) return t("stint.why.excluded", { reason: excludeReasonLabel(lap.exclude_reason) });
+  return lap.counts ? "" : t("stint.why.partial");
 }
 
 export function StintTrendChart({ trend, selected, lapColors, onToggleLap }: Props) {
+  const t = useT();
   const [mode, setMode] = useState<TempMode>("axle");
   const [showFuel, setShowFuel] = useState(false);
   const toggleRef = useRef(onToggleLap);
@@ -115,7 +122,7 @@ export function StintTrendChart({ trend, selected, lapColors, onToggleLap }: Pro
                   position: "insideEndTop",
                   color: CHART_COLORS.label,
                   fontSize: 9,
-                  formatter: "pit",
+                  formatter: t("stint.pitMark"),
                 },
                 lineStyle: { color: CHART_COLORS.label, type: "dashed", width: 1 },
                 data: pitLaps.map((n) => ({ xAxis: n })),
@@ -272,7 +279,7 @@ export function StintTrendChart({ trend, selected, lapColors, onToggleLap }: Pro
           color: CHART_COLORS.label,
           fontSize: 10,
           // The half-lap margins either end put ticks at 0.5 and N + 0.5.
-          formatter: (v: number) => (Number.isInteger(v) ? `L${v}` : ""),
+          formatter: (v: number) => (Number.isInteger(v) ? t("lapChart.lapTick", { n: String(v) }) : ""),
         },
         axisLine: { lineStyle: { color: CHART_COLORS.axis } },
         splitLine: { show: false },
@@ -320,36 +327,38 @@ export function StintTrendChart({ trend, selected, lapColors, onToggleLap }: Pro
           const lap = byNumber.get(Math.round(at));
           if (!lap) return "";
           const stint = lap.stint != null ? stintOf.get(lap.stint) : undefined;
-          const why = whyNot(lap);
+          const why = whyNot(lap, t);
           const lines = [
-            `<b>Lap ${lap.number}</b> · ${formatLapTime(lap.time_ms)}` +
-              (stint && trend.stints.length > 1 ? ` · stint ${stint.n}` : ""),
+            `<b>${t("lapChart.lapN", { n: String(lap.number) })}</b> · ${formatLapTime(lap.time_ms)}` +
+              (stint && trend.stints.length > 1 ? ` · ${t("stint.label", { n: String(stint.n) })}` : ""),
           ];
-          if (why) lines.push(`${why} — not in the trend`);
+          if (why) lines.push(t("stint.tip.notInTrend", { why }));
           if (lap.tt_front != null && lap.tt_rear != null) {
             lines.push(
-              `<span style="color:${FRONT}">front ${lap.tt_front.toFixed(1)} °C</span> · ` +
-                `<span style="color:${REAR}">rear ${lap.tt_rear.toFixed(1)} °C</span>`,
+              `<span style="color:${FRONT}">${t("stint.front", { value: `${lap.tt_front.toFixed(1)} °C` })}</span> · ` +
+                `<span style="color:${REAR}">${t("stint.rear", { value: `${lap.tt_rear.toFixed(1)} °C` })}</span>`,
             );
             const wheels = WHEELS.map((w) => {
-              const t = lap.tt[w.key];
-              return t ? `${w.label} ${t.avg.toFixed(0)}/${t.max.toFixed(0)}` : null;
+              const temp = lap.tt[w.key];
+              return temp ? `${t(w.labelKey)} ${temp.avg.toFixed(0)}/${temp.max.toFixed(0)}` : null;
             }).filter(Boolean);
             if (wheels.length === 4) {
               lines.push(
-                `<span style="color:${CHART_COLORS.label}">${wheels.join(" · ")} avg/max</span>`,
+                `<span style="color:${CHART_COLORS.label}">${t("stint.tip.avgMax", { wheels: wheels.join(" · ") })}</span>`,
               );
             }
           }
           if (lap.fuel_start != null && hasFuel) {
-            lines.push(`<span style="color:${FUEL}">fuel ${lap.fuel_start.toFixed(1)}</span>`);
+            lines.push(
+              `<span style="color:${FUEL}">${t("stint.tip.fuel", { value: lap.fuel_start.toFixed(1) })}</span>`,
+            );
           }
           return lines.join("<br/>");
         },
       },
       series,
     };
-  }, [trend, selected, lapColors, mode, fuelOn, hasTemps, hasFuel]);
+  }, [trend, selected, lapColors, mode, fuelOn, hasTemps, hasFuel, t]);
 
   if (!option) return null;
 
@@ -360,21 +369,21 @@ export function StintTrendChart({ trend, selected, lapColors, onToggleLap }: Pro
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3.5 pt-2.5 text-[10.5px] text-ink-dim">
         {hasTemps && (
           <span className="inline-flex items-center gap-1.5">
-            tyres
+            {t("stint.tyres")}
             <SegmentedControl
-              ariaLabel="Tyre temperatures"
+              ariaLabel={t("stint.tyreTemps")}
               size="sm"
               value={mode}
               onValueChange={setMode}
               options={[
-                { value: "axle", label: "Front / rear" },
-                { value: "wheel", label: "Each wheel" },
+                { value: "axle", label: t("stint.mode.axle") },
+                { value: "wheel", label: t("stint.mode.wheel") },
               ]}
             />
           </span>
         )}
         {hasFuel && (
-          <Tip content="Draw the fuel on board at the start of each lap. A lighter car is a quicker one, which hides part of what the tyres cost">
+          <Tip content={t("stint.fuelTip")}>
             <button
               onClick={() => setShowFuel((on) => !on)}
               aria-pressed={showFuel}
@@ -384,14 +393,14 @@ export function StintTrendChart({ trend, selected, lapColors, onToggleLap }: Pro
                   : "border-edge text-ink-dim hover:border-accent hover:text-accent"
               }`}
             >
-              Fuel
+              {t("common.fuel")}
             </button>
           </Tip>
         )}
         <span className="ml-auto flex flex-wrap gap-x-3 gap-y-1 [&>span]:whitespace-nowrap">
           <span>
             <i className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-ink-muted align-middle" />
-            lap time
+            {t("stint.legend.lapTime")}
           </span>
           {hasTemps && mode === "axle" && (
             <>
@@ -400,14 +409,14 @@ export function StintTrendChart({ trend, selected, lapColors, onToggleLap }: Pro
                   className="mr-1.5 inline-block h-0.5 w-3.5 align-middle"
                   style={{ backgroundColor: FRONT }}
                 />
-                front tyres
+                {t("stint.legend.front")}
               </span>
               <span>
                 <i
                   className="mr-1.5 inline-block h-0.5 w-3.5 align-middle"
                   style={{ backgroundColor: REAR }}
                 />
-                rear tyres
+                {t("stint.legend.rear")}
               </span>
             </>
           )}
@@ -419,7 +428,7 @@ export function StintTrendChart({ trend, selected, lapColors, onToggleLap }: Pro
                   className="mr-1.5 inline-block w-3.5 border-t-2 align-middle"
                   style={{ borderColor: w.color, borderStyle: w.dash ? "dashed" : "solid" }}
                 />
-                {w.label}
+                {t(w.labelKey)}
               </span>
             ))}
           {fuelOn && (
@@ -428,7 +437,7 @@ export function StintTrendChart({ trend, selected, lapColors, onToggleLap }: Pro
                 className="mr-1.5 inline-block w-3.5 border-t-2 border-dotted align-middle"
                 style={{ borderColor: FUEL }}
               />
-              fuel
+              {t("stint.legend.fuel")}
             </span>
           )}
         </span>
@@ -445,35 +454,33 @@ export function StintTrendChart({ trend, selected, lapColors, onToggleLap }: Pro
       />
       <div className="flex flex-wrap gap-x-4 gap-y-1 px-3.5 pb-1 font-tabular text-[10.5px] text-ink-dim">
         {drifting.length === 0 && (
-          <span className="text-ink-faint">A drift needs three laps that count in a stint</span>
+          <span className="text-ink-faint">{t("stint.needsLaps")}</span>
         )}
         {drifting.map((s) => (
           <span key={s.n}>
-            {trend.stints.length > 1 && <span className="text-ink-faint">stint {s.n} · </span>}
+            {trend.stints.length > 1 && (
+              <span className="text-ink-faint">{t("stint.label", { n: String(s.n) })} · </span>
+            )}
             {stintSpan(s)}{" "}
             <span className="text-accent">{formatDrift(s.pace_ms_per_lap as number)}</span>
             {s.tt_front_per_lap != null && (
               <>
                 {" · "}
-                <span style={{ color: FRONT }}>front {formatWarming(s.tt_front_per_lap)}</span>
+                <span style={{ color: FRONT }}>{t("stint.front", { value: formatWarming(s.tt_front_per_lap) })}</span>
               </>
             )}
             {s.tt_rear_per_lap != null && (
               <>
                 {" · "}
-                <span style={{ color: REAR }}>rear {formatWarming(s.tt_rear_per_lap)}</span>
+                <span style={{ color: REAR }}>{t("stint.rear", { value: formatWarming(s.tt_rear_per_lap) })}</span>
               </>
             )}
           </span>
         ))}
-        <span className="ml-auto text-ink-faint">
-          ○ not counted · □ pit lap · △ off the scale
-        </span>
+        <span className="ml-auto text-ink-faint">{t("stint.key")}</span>
       </div>
       <div className="px-3.5 pb-2.5 text-[10px] text-ink-faint">
-        GT7 sends no tyre wear: temperature and the drift in lap time are what there is to read
-        it by. The drift is the typical change from one lap to the next, so one slow lap does
-        not move it.
+        {t("stint.note")}
       </div>
     </div>
   );

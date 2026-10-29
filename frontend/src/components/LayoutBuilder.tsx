@@ -12,6 +12,7 @@ import { ConfirmDialog, PromptDialog } from "@/components/ui/Dialog";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Select } from "@/components/ui/Select";
 import { Toggle } from "@/components/ui/Toggle";
+import { rich, t as translate, useT, withLanguage, type MessageKey, type Translate } from "@/i18n";
 import { api } from "@/lib/api";
 import { DASH_PRESETS } from "@/lib/dashPresets";
 import {
@@ -28,7 +29,7 @@ import { parseHash, routeHash } from "@/lib/router";
 import { useLiveFrame } from "@/lib/useLiveFrame";
 import {
   defaultSize,
-  WIDGET_GROUP_LABELS,
+  WIDGET_GROUP_LABEL_KEYS,
   WIDGET_META,
   type WidgetGroup,
 } from "@/lib/widgetMeta";
@@ -41,14 +42,14 @@ const LEGACY_MIGRATED_KEY = "gt7-overlay-migrated";
 const SCALE_STEPS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
 // Canvas sizes offered in the toolbar; anything else is set with the custom
-// W × H inputs under "Canvas & page".
-const CANVAS_SIZES: { key: string; label: string; size: OverlaySize | null }[] = [
-  { key: "fill", label: "Fill", size: null },
-  { key: "1920x1080", label: "1920×1080", size: { width: 1920, height: 1080 } },
-  { key: "1920x260", label: "Strip 1920×260", size: { width: 1920, height: 260 } },
-  { key: "1080x1920", label: "1080×1920", size: { width: 1080, height: 1920 } },
-  { key: "720x1280", label: "720×1280", size: { width: 720, height: 1280 } },
-  { key: "1280x800", label: "Tablet 1280×800", size: { width: 1280, height: 800 } },
+// W × H inputs under "Canvas & page". A null labelKey shows the bare size.
+const CANVAS_SIZES: { key: string; labelKey: MessageKey | null; size: OverlaySize | null }[] = [
+  { key: "fill", labelKey: "layout.size.fill", size: null },
+  { key: "1920x1080", labelKey: null, size: { width: 1920, height: 1080 } },
+  { key: "1920x260", labelKey: "layout.size.strip", size: { width: 1920, height: 260 } },
+  { key: "1080x1920", labelKey: null, size: { width: 1080, height: 1920 } },
+  { key: "720x1280", labelKey: null, size: { width: 720, height: 1280 } },
+  { key: "1280x800", labelKey: "layout.size.tablet", size: { width: 1280, height: 800 } },
 ];
 
 // What "New" starts from: an empty full-HD grid.
@@ -154,11 +155,11 @@ function fitsAt(layout: LayoutConfig, skipId: string, x: number, y: number, w: n
 }
 
 export function sizeLabel(size: OverlaySize | null): string {
-  return size ? `${size.width}×${size.height}` : "fill";
+  return size ? `${size.width}×${size.height}` : translate("layout.meta.fill");
 }
 
 function conflictMessage(e: unknown, name: string): string {
-  return String(e).includes("409") ? `A layout named "${name}" already exists` : String(e);
+  return String(e).includes("409") ? translate("layout.toast.nameTaken", { name }) : String(e);
 }
 
 type DialogKind = "saveAs" | "saveCopy" | "rename" | "delete" | "discardNew";
@@ -166,6 +167,7 @@ type DialogKind = "saveAs" | "saveCopy" | "rename" | "delete" | "discardNew";
 // `requested` is the ?layout=<id or name> route param: once the server list
 // is in, that layout is opened (the Settings page's Edit links land here).
 export function useLayoutBuilder(requested: string | null) {
+  const t = useT();
   const [draft, setDraft] = useState<Draft>(loadDraft);
   const [saved, setSaved] = useState<LayoutSummary[] | null>(null);
   // Edits to layouts that aren't open right now, so switching doesn't lose them.
@@ -262,7 +264,7 @@ export function useLayoutBuilder(requested: string | null) {
     const hit =
       saved.find((s) => String(s.id) === requested) ?? saved.find((s) => s.name === requested);
     if (hit) openSavedRef.current(hit);
-    else toast(`No saved layout "${requested}"`, "error");
+    else toast(t("layout.toast.notFound", { name: requested }), "error");
   }, [requested, saved]);
 
   // An unsaved draft with widgets on it would be lost by starting over.
@@ -288,7 +290,7 @@ export function useLayoutBuilder(requested: string | null) {
     setDraft(d);
     setSelected(null);
     reflect(null);
-    toast(`Started from ${label}`, "success");
+    toast(t("layout.toast.started", { source: label }), "success");
   }
 
   function setLayout(next: LayoutConfig) {
@@ -322,7 +324,7 @@ export function useLayoutBuilder(requested: string | null) {
       const updated = await api.layouts.update(draft.id, { kind: draft.kind, config: layout });
       mergeSaved(updated);
       await refreshList();
-      toast(`Layout "${draft.name}" saved`, "success");
+      toast(t("layout.toast.saved", { name: draft.name ?? "" }), "success");
     } catch (e) {
       toast(String(e), "error");
     }
@@ -337,7 +339,7 @@ export function useLayoutBuilder(requested: string | null) {
       setDraft((d) => ({ ...d, id: created.id, name: created.name }));
       reflect(created.id);
       await refreshList();
-      toast(`Layout "${name}" saved`, "success");
+      toast(t("layout.toast.saved", { name }), "success");
     } catch (e) {
       toast(conflictMessage(e, name), "error");
     }
@@ -351,7 +353,7 @@ export function useLayoutBuilder(requested: string | null) {
       mergeSaved(updated);
       setDraft((d) => ({ ...d, name: updated.name }));
       await refreshList();
-      toast(`Renamed to "${name}"`, "success");
+      toast(t("layout.toast.renamed", { name }), "success");
     } catch (e) {
       toast(conflictMessage(e, name), "error");
     }
@@ -372,7 +374,7 @@ export function useLayoutBuilder(requested: string | null) {
       setSaved((list) => (list ?? []).filter((s) => s.id !== id));
       reflect(null);
       await refreshList();
-      toast("Layout deleted — the draft stays here until you save again", "success");
+      toast(t("layout.toast.deleted"), "success");
     } catch (e) {
       toast(String(e), "error");
     }
@@ -426,7 +428,7 @@ export function useLayoutBuilder(requested: string | null) {
         return;
       }
     }
-    toast("No room on the grid — enlarge it or remove a widget", "error");
+    toast(t("layout.toast.noRoom"), "error");
   }
 
   function duplicateCell(id: string) {
@@ -441,7 +443,7 @@ export function useLayoutBuilder(requested: string | null) {
         return;
       }
     }
-    toast("No room on the grid for a copy — enlarge it or remove a widget", "error");
+    toast(t("layout.toast.noRoomCopy"), "error");
   }
 
   function updateCell(id: string, patch: Partial<LayoutCell>) {
@@ -454,7 +456,7 @@ export function useLayoutBuilder(requested: string | null) {
     const cell = layout.cells.find((c) => c.id === id);
     if (!cell) return;
     if (!fitsAt(layout, id, cell.x, cell.y, w, h)) {
-      toast("That size doesn't fit here — move the widget first", "error");
+      toast(t("layout.toast.sizeNoFit"), "error");
       return;
     }
     updateCell(id, { w, h });
@@ -469,8 +471,8 @@ export function useLayoutBuilder(requested: string | null) {
   const keyHandler = useRef<(e: KeyboardEvent) => void>(() => {});
   keyHandler.current = (e: KeyboardEvent) => {
     if (!selected || dialog || pendingStart || e.metaKey || e.ctrlKey || e.altKey) return;
-    const t = e.target as HTMLElement | null;
-    if (t?.closest("input, textarea, select, [contenteditable], [role=dialog]")) return;
+    const target = e.target as HTMLElement | null;
+    if (target?.closest("input, textarea, select, [contenteditable], [role=dialog]")) return;
     const cell = layout.cells.find((c) => c.id === selected);
     if (!cell) return;
     if (e.key === "Delete" || e.key === "Backspace") {
@@ -524,7 +526,7 @@ export function useLayoutBuilder(requested: string | null) {
     localStorage.setItem(LEGACY_MIGRATED_KEY, "1");
     setLegacyPresets(null);
     await refreshList();
-    toast(`Migrated ${migrated} legacy preset${migrated === 1 ? "" : "s"} to server layouts`, "success");
+    toast(t("layout.toast.migrated", { count: migrated }), "success");
   }
 
   function dismissLegacy() {
@@ -558,13 +560,13 @@ export function useLayoutBuilder(requested: string | null) {
       if (!next) throw new Error("bad file");
       startFrom(next, draft.kind, file.name);
     } catch {
-      toast("Import failed — not a valid layout file", "error");
+      toast(t("settings.overlays.invalid"), "error");
     }
   }
 
   const path = draft.kind === "dash" ? "/dash" : "/overlay";
   const urlFor = (origin: string) =>
-    draft.name != null ? `${origin}${path}?layout=${encodeURIComponent(draft.name)}` : null;
+    draft.name != null ? withLanguage(`${origin}${path}?layout=${encodeURIComponent(draft.name)}`) : null;
   const shareUrl = urlFor(lan ? `http://${lan.ip}:${lan.port}` : window.location.origin);
   const previewUrl = urlFor(window.location.origin);
 
@@ -643,6 +645,7 @@ function RailRow({
   meta: string;
   onClick: () => void;
 }) {
+  const t = useT();
   return (
     <button
       onClick={onClick}
@@ -656,7 +659,7 @@ function RailRow({
         {dirty && (
           <span
             className="h-[5px] w-[5px] shrink-0 rounded-full bg-warn"
-            title="Unsaved changes"
+            title={t("layout.rail.unsavedChanges")}
           />
         )}
       </span>
@@ -665,22 +668,26 @@ function RailRow({
   );
 }
 
-const railMeta = (d: { kind: LayoutKind; config: LayoutConfig }) =>
-  `${d.kind === "dash" ? "dash" : "overlay"} · ${sizeLabel(d.config.size)} · ${d.config.cells.length} widgets`;
+function railMeta(t: Translate, d: { kind: LayoutKind; config: LayoutConfig }): string {
+  const kind = d.kind === "dash" ? t("layout.kind.dash") : t("layout.kind.overlay");
+  const widgets = t("layout.count.widgets", { count: d.config.cells.length });
+  return `${kind} · ${sizeLabel(d.config.size)} · ${widgets}`;
+}
 
 export function LayoutsPanel({ b }: { b: LayoutBuilderState }) {
+  const t = useT();
   const { draft, saved, parked, dirtyKeys } = b;
   const unsaved = draft.id == null ? draft : parked[NEW_KEY];
   const live = (s: LayoutSummary) =>
     s.id === draft.id ? draft : (parked[String(s.id)] ?? fromSummary(s));
   return (
     <div className="panel">
-      <PanelHead title="Layouts">
+      <PanelHead title={t("layout.panel.layouts")}>
         <button
           className="btn ml-auto px-2 py-0.5"
-          onClick={() => b.startFrom(BLANK_LAYOUT, draft.kind, "a blank canvas")}
+          onClick={() => b.startFrom(BLANK_LAYOUT, draft.kind, t("layout.start.blank"))}
         >
-          New
+          {t("layout.new")}
         </button>
       </PanelHead>
       <div className="flex flex-col p-1.5">
@@ -688,14 +695,16 @@ export function LayoutsPanel({ b }: { b: LayoutBuilderState }) {
           <RailRow
             active={draft.id == null}
             dirty
-            name="Unsaved draft"
-            meta={railMeta({ kind: unsaved.kind, config: unsaved.layout })}
+            name={t("layout.unsavedDraft")}
+            meta={railMeta(t, { kind: unsaved.kind, config: unsaved.layout })}
             onClick={b.openUnsaved}
           />
         )}
-        {saved == null && <span className="px-2.5 py-2 text-[11px] text-ink-faint">Loading…</span>}
+        {saved == null && (
+          <span className="px-2.5 py-2 text-[11px] text-ink-faint">{t("common.loading")}</span>
+        )}
         {saved?.length === 0 && !unsaved && (
-          <span className="px-2.5 py-2 text-[11px] text-ink-faint">No saved layouts yet.</span>
+          <span className="px-2.5 py-2 text-[11px] text-ink-faint">{t("layout.rail.none")}</span>
         )}
         {saved?.map((s) => {
           const d = live(s);
@@ -705,7 +714,7 @@ export function LayoutsPanel({ b }: { b: LayoutBuilderState }) {
               active={s.id === draft.id}
               dirty={dirtyKeys.has(String(s.id))}
               name={s.name}
-              meta={railMeta({ kind: d.kind, config: d.layout })}
+              meta={railMeta(t, { kind: d.kind, config: d.layout })}
               onClick={() => b.openSaved(s)}
             />
           );
@@ -716,23 +725,23 @@ export function LayoutsPanel({ b }: { b: LayoutBuilderState }) {
         {draft.id != null && (
           <>
             <button className="btn px-2 py-0.5" onClick={() => b.setDialog("rename")}>
-              Rename…
+              {t("layout.action.rename")}
             </button>
             <button className="btn px-2 py-0.5" onClick={() => b.setDialog("saveCopy")}>
-              Save copy…
+              {t("layout.action.saveCopy")}
             </button>
           </>
         )}
         <button
           className="btn px-2 py-0.5"
           onClick={b.exportLayout}
-          title="Download this layout as JSON"
+          title={t("layout.action.exportTitle")}
         >
-          Export JSON
+          {t("layout.action.export")}
         </button>
         {draft.id != null && (
           <button className="btn btn-danger px-2 py-0.5" onClick={() => b.setDialog("delete")}>
-            Delete…
+            {t("layout.action.delete")}
           </button>
         )}
       </div>
@@ -741,31 +750,34 @@ export function LayoutsPanel({ b }: { b: LayoutBuilderState }) {
 }
 
 export function PresetsPanel({ b }: { b: LayoutBuilderState }) {
+  const t = useT();
   return (
     <div className="panel">
-      <PanelHead title="Start from a preset" />
+      <PanelHead title={t("layout.panel.presets")} />
       <div className="flex flex-wrap gap-1.5 px-3 py-2.5">
         {Object.entries(DASH_PRESETS).map(([key, p]) => (
           <button
             key={key}
             className="btn"
-            onClick={() => b.startFrom(p.layout, "dash", `the ${p.label} dashboard`)}
+            onClick={() =>
+              b.startFrom(p.layout, "dash", t("layout.start.preset", { name: t(p.labelKey) }))
+            }
           >
-            {p.label}
+            {t(p.labelKey)}
           </button>
         ))}
         <button
           className="btn"
-          onClick={() => b.startFrom(DEFAULT_LAYOUT, "overlay", "the minimal OBS strip")}
+          onClick={() => b.startFrom(DEFAULT_LAYOUT, "overlay", t("layout.start.minimal"))}
         >
-          Minimal strip
+          {t("layout.preset.minimal")}
         </button>
         <button
           className="btn"
           onClick={() => b.importFile.current?.click()}
-          title="Load a layout JSON as a new draft (old overlay configs are converted)"
+          title={t("layout.action.importTitle")}
         >
-          Import JSON…
+          {t("settings.overlays.import")}
         </button>
         <input
           ref={b.importFile}
@@ -784,56 +796,58 @@ export function PresetsPanel({ b }: { b: LayoutBuilderState }) {
 }
 
 export function LegacyPresetsBanner({ b }: { b: LayoutBuilderState }) {
+  const t = useT();
   if (!b.legacyPresets) return null;
   const n = Object.keys(b.legacyPresets).length;
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-panel border border-warn/40 bg-warn/10 px-3 py-2 text-xs">
-      <span>
-        You have {n} overlay preset{n === 1 ? "" : "s"} from the old builder stored in this
-        browser.
-      </span>
+      <span>{t("layout.legacy.body", { count: n })}</span>
       <button className="btn" onClick={() => void b.migrateLegacyPresets()}>
-        Import as server layouts
+        {t("layout.legacy.import")}
       </button>
       <button className="text-ink-dim underline hover:text-ink" onClick={b.dismissLegacy}>
-        dismiss
+        {t("layout.legacy.dismiss")}
       </button>
     </div>
   );
 }
 
 export function BuilderToolbar({ b }: { b: LayoutBuilderState }) {
+  const t = useT();
   const { draft, layout, dirty } = b;
   const sizeKey = layout.size ? `${layout.size.width}x${layout.size.height}` : "fill";
-  const target = draft.kind === "dash" ? "the dash" : "OBS";
+  const dash = draft.kind === "dash";
   const status =
     draft.id == null
-      ? { text: "Not saved yet — save it to get a URL", tone: "warn" }
+      ? { text: t("layout.status.new"), tone: "warn" }
       : dirty
-        ? { text: `Unsaved — ${target} still shows the saved version`, tone: "warn" }
-        : { text: `Saved · live in ${target}`, tone: "ok" };
+        ? { text: dash ? t("layout.status.unsavedDash") : t("layout.status.unsavedObs"), tone: "warn" }
+        : { text: dash ? t("layout.status.savedDash") : t("layout.status.savedObs"), tone: "ok" };
   return (
     <div className="panel flex flex-wrap items-center gap-2.5 px-3 py-2">
-      <span className="text-[15px] font-medium">{draft.name ?? "Unsaved draft"}</span>
+      <span className="text-[15px] font-medium">{draft.name ?? t("layout.unsavedDraft")}</span>
       <SegmentedControl
         size="sm"
-        ariaLabel="Layout kind"
+        ariaLabel={t("layout.kind.label")}
         value={draft.kind}
         onValueChange={b.setKind}
         options={[
-          { value: "overlay", label: "OBS overlay" },
-          { value: "dash", label: "Driver dash" },
+          { value: "overlay", label: t("layout.kind.obsOverlay") },
+          { value: "dash", label: t("layout.kind.driverDash") },
         ]}
       />
       <SegmentedControl
         size="sm"
-        ariaLabel="Canvas size"
+        ariaLabel={t("layout.canvasSize")}
         value={CANVAS_SIZES.some((s) => s.key === sizeKey) ? sizeKey : "custom"}
         onValueChange={(key) => {
           const preset = CANVAS_SIZES.find((s) => s.key === key);
           if (preset) b.patchLayout({ size: preset.size ? { ...preset.size } : null });
         }}
-        options={CANVAS_SIZES.map((s) => ({ value: s.key, label: s.label }))}
+        options={CANVAS_SIZES.map((s) => {
+          const dims = s.size ? `${s.size.width}×${s.size.height}` : "";
+          return { value: s.key, label: s.labelKey ? t(s.labelKey, { size: dims }) : dims };
+        })}
       />
       <span
         className={`ml-auto flex items-center gap-1.5 text-[11px] ${
@@ -844,20 +858,21 @@ export function BuilderToolbar({ b }: { b: LayoutBuilderState }) {
         {status.text}
       </span>
       <button className="btn" onClick={b.discard} disabled={draft.id != null && !dirty}>
-        Discard
+        {t("layout.discard")}
       </button>
       <button
         className="btn btn-primary"
         onClick={() => void b.save()}
         disabled={draft.id != null && !dirty}
       >
-        {draft.id == null ? "Save layout…" : "Save layout"}
+        {draft.id == null ? t("layout.saveAs") : t("layout.save")}
       </button>
     </div>
   );
 }
 
 export function CanvasPanel({ b }: { b: LayoutBuilderState }) {
+  const t = useT();
   const { layout } = b;
   // The frame loop pauses while the canvas is scrolled out of sight (#32).
   const rootRef = useRef<HTMLDivElement>(null);
@@ -887,11 +902,16 @@ export function CanvasPanel({ b }: { b: LayoutBuilderState }) {
             <span>
               {layout.size
                 ? `${layout.size.width}×${layout.size.height} px`
-                : "Fills the screen (previewed at 1280×720)"}{" "}
-              · grid {layout.grid.cols}×{layout.grid.rows} · shown at {Math.round(scale * 100)}%
+                : t("layout.footer.fills")}{" "}
+              ·{" "}
+              {t("layout.footer.grid", {
+                cols: layout.grid.cols,
+                rows: layout.grid.rows,
+                pct: Math.round(scale * 100),
+              })}
             </span>
-            <span>Drag to move · drag corner to resize · arrows nudge · Del removes</span>
-            <span>{placeholder ? "Demo telemetry" : "Live telemetry"}</span>
+            <span>{t("layout.footer.help")}</span>
+            <span>{placeholder ? t("layout.footer.demo") : t("layout.footer.live")}</span>
           </div>
         )}
       />
@@ -900,30 +920,31 @@ export function CanvasPanel({ b }: { b: LayoutBuilderState }) {
 }
 
 export function UsePanel({ b }: { b: LayoutBuilderState }) {
+  const t = useT();
   const { draft, layout, shareUrl, previewUrl } = b;
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!copied) return;
-    const t = window.setTimeout(() => setCopied(false), 1500);
-    return () => window.clearTimeout(t);
+    const timer = window.setTimeout(() => setCopied(false), 1500);
+    return () => window.clearTimeout(timer);
   }, [copied]);
 
   const hint =
     draft.kind === "dash"
-      ? "Open on a phone or tablet on the same network. Add to home screen for full-screen."
+      ? t("layout.use.dashHint")
       : layout.size
-        ? `OBS → Browser source → this URL at ${layout.size.width}×${layout.size.height}. Transparent background; add &page=green for apps without alpha.`
-        : "OBS → Browser source → this URL; the overlay fills whatever size the source has. Transparent background; add &page=green for apps without alpha.";
+        ? t("layout.use.obsSizedHint", { size: `${layout.size.width}×${layout.size.height}` })
+        : t("layout.use.obsFillHint");
 
   return (
     <div className="panel flex flex-wrap items-center gap-2.5 px-3 py-2.5">
-      <span className="section-header">Use it</span>
+      <span className="section-header">{t("layout.use.title")}</span>
       <span
         className={`min-w-[260px] flex-1 truncate rounded-md border border-edge bg-panel-2 px-2.5 py-[5px] font-tabular text-xs ${
           shareUrl ? "text-accent-300" : "text-ink-faint"
         }`}
       >
-        {shareUrl ?? "Save the layout to get its URL"}
+        {shareUrl ?? t("layout.use.noUrl")}
       </span>
       <button
         className="btn"
@@ -933,18 +954,18 @@ export function UsePanel({ b }: { b: LayoutBuilderState }) {
           navigator.clipboard
             .writeText(shareUrl)
             .then(() => setCopied(true))
-            .catch(() => toast("Copy failed — select the URL manually", "error"))
+            .catch(() => toast(t("settings.overlays.copyFailed"), "error"))
         }
       >
-        {copied ? "Copied" : "Copy URL"}
+        {copied ? t("common.copied") : t("settings.overlays.copy")}
       </button>
       {previewUrl ? (
         <a className="btn" href={previewUrl} target="_blank" rel="noreferrer">
-          Open preview
+          {t("layout.use.preview")}
         </a>
       ) : (
         <button className="btn" disabled>
-          Open preview
+          {t("layout.use.preview")}
         </button>
       )}
       <span className="w-full text-[11px] text-ink-faint">{hint}</span>
@@ -986,19 +1007,20 @@ function NumberInput({
 // The canvas options that don't fit the toolbar: exact size, grid, padding,
 // page and card background, and the placeholder-data switch.
 export function CanvasOptionsPanel({ b }: { b: LayoutBuilderState }) {
+  const t = useT();
   const { layout } = b;
   const row = "rule-row flex flex-wrap items-center gap-2 px-3 py-2.5 text-xs text-ink-dim";
   return (
     <div className="panel">
-      <PanelHead title="Canvas & page" />
+      <PanelHead title={t("layout.options.title")} />
       <div className={row}>
-        <span className="w-28 shrink-0">Custom size</span>
+        <span className="w-28 shrink-0">{t("layout.options.customSize")}</span>
         <NumberInput
           width="w-20"
           min={100}
           max={7680}
           value={layout.size?.width ?? ""}
-          placeholder="W"
+          placeholder={t("layout.options.widthShort")}
           onChange={(width) =>
             width && b.patchLayout({ size: { width, height: layout.size?.height ?? 1080 } })
           }
@@ -1009,7 +1031,7 @@ export function CanvasOptionsPanel({ b }: { b: LayoutBuilderState }) {
           min={100}
           max={7680}
           value={layout.size?.height ?? ""}
-          placeholder="H"
+          placeholder={t("layout.options.heightShort")}
           onChange={(height) =>
             height && b.patchLayout({ size: { width: layout.size?.width ?? 1920, height } })
           }
@@ -1017,12 +1039,12 @@ export function CanvasOptionsPanel({ b }: { b: LayoutBuilderState }) {
         px
       </div>
       <div className={row}>
-        <span className="w-28 shrink-0">Grid</span>
+        <span className="w-28 shrink-0">{t("layout.options.grid")}</span>
         <NumberInput
           min={1}
           max={MAX_GRID_DIM}
           value={layout.grid.cols}
-          title="Columns"
+          title={t("layout.options.columns")}
           onChange={(cols) =>
             b.setLayout(normalizeLayout({ ...layout, grid: { ...layout.grid, cols: cols || 1 } }))
           }
@@ -1032,12 +1054,12 @@ export function CanvasOptionsPanel({ b }: { b: LayoutBuilderState }) {
           min={1}
           max={MAX_GRID_DIM}
           value={layout.grid.rows}
-          title="Rows"
+          title={t("layout.options.rows")}
           onChange={(rows) =>
             b.setLayout(normalizeLayout({ ...layout, grid: { ...layout.grid, rows: rows || 1 } }))
           }
         />
-        cells, gap
+        {t("layout.options.cellsGap")}
         <NumberInput
           min={0}
           max={64}
@@ -1047,13 +1069,13 @@ export function CanvasOptionsPanel({ b }: { b: LayoutBuilderState }) {
         px
       </div>
       <div className={row}>
-        <span className="w-28 shrink-0">Edge padding</span>
+        <span className="w-28 shrink-0">{t("layout.options.padding")}</span>
         <NumberInput
           width="w-16"
           min={0}
           max={200}
           value={layout.padX}
-          title="Horizontal padding (px)"
+          title={t("layout.options.padX")}
           onChange={(padX) => b.patchLayout({ padX: Math.max(0, padX || 0) })}
         />
         ×
@@ -1062,27 +1084,27 @@ export function CanvasOptionsPanel({ b }: { b: LayoutBuilderState }) {
           min={0}
           max={200}
           value={layout.padY}
-          title="Vertical padding (px)"
+          title={t("layout.options.padY")}
           onChange={(padY) => b.patchLayout({ padY: Math.max(0, padY || 0) })}
         />
         px
       </div>
       <div className={row}>
-        <span className="w-28 shrink-0">Page behind</span>
+        <span className="w-28 shrink-0">{t("layout.options.page")}</span>
         <SegmentedControl
           size="sm"
-          ariaLabel="Page behind the widgets"
+          ariaLabel={t("layout.options.pageAria")}
           value={layout.page}
           onValueChange={(page) => b.patchLayout({ page })}
           options={[
-            { value: "transparent", label: "Transparent" },
-            { value: "green", label: "Green screen" },
-            { value: "dark", label: "Solid dark" },
+            { value: "transparent", label: t("layout.options.pageTransparent") },
+            { value: "green", label: t("layout.options.pageGreen") },
+            { value: "dark", label: t("layout.options.pageDark") },
           ]}
         />
       </div>
       <label className={row}>
-        <span className="w-28 shrink-0">Card background</span>
+        <span className="w-28 shrink-0">{t("layout.options.cardBg")}</span>
         <input
           type="range"
           min={0}
@@ -1098,12 +1120,13 @@ export function CanvasOptionsPanel({ b }: { b: LayoutBuilderState }) {
         <Toggle
           checked={layout.demo}
           onCheckedChange={(demo) => b.patchLayout({ demo })}
-          ariaLabel="Placeholder data when no telemetry"
+          ariaLabel={t("layout.options.demo")}
         />
         <span>
-          <span className="text-ink">Placeholder data when no telemetry</span> — the saved{" "}
-          {b.draft.kind === "dash" ? "dash" : "overlay"} plays an animated fake lap (the fuel
-          slowly drains so the alerts widget fires too)
+          {rich(
+            b.draft.kind === "dash" ? t("layout.options.demoDash") : t("layout.options.demoOverlay"),
+            { label: <span className="text-ink">{t("layout.options.demo")}</span> },
+          )}
         </span>
       </div>
     </div>
@@ -1141,20 +1164,21 @@ function Chip({
 }
 
 export function SelectedWidgetPanel({ b }: { b: LayoutBuilderState }) {
+  const t = useT();
   const cell = b.layout.cells.find((c) => c.id === b.selected) ?? null;
   return (
     <div className="panel">
-      <PanelHead title="Selected widget" />
+      <PanelHead title={t("layout.selected.title")} />
       {cell ? (
         <div className="flex flex-col gap-3 p-3">
           <div className="flex items-baseline gap-2">
-            <span className="text-sm">{WIDGET_META[cell.widget].label}</span>
+            <span className="text-sm">{t(WIDGET_META[cell.widget].labelKey)}</span>
             <span className="font-tabular text-[11px] text-ink-faint">
-              at {cell.x},{cell.y}
+              {t("layout.selected.at", { x: String(cell.x), y: String(cell.y) })}
             </span>
           </div>
           <div>
-            <span className="mb-[5px] block text-[11px] text-ink-dim">Style</span>
+            <span className="mb-[5px] block text-[11px] text-ink-dim">{t("layout.selected.style")}</span>
             <div className="flex flex-col gap-1">
               {WIDGET_META[cell.widget].variants.map((v) => (
                 <Chip
@@ -1163,13 +1187,13 @@ export function SelectedWidgetPanel({ b }: { b: LayoutBuilderState }) {
                   active={cell.variant === v.key}
                   onClick={() => b.updateCell(cell.id, { variant: v.key })}
                 >
-                  {v.label}
+                  {t(v.labelKey)}
                 </Chip>
               ))}
             </div>
           </div>
           <div>
-            <span className="mb-[5px] block text-[11px] text-ink-dim">Size (cells)</span>
+            <span className="mb-[5px] block text-[11px] text-ink-dim">{t("layout.selected.size")}</span>
             <div className="flex flex-wrap gap-1">
               {WIDGET_META[cell.widget].sizes.map(([w, h]) => (
                 <Chip
@@ -1184,9 +1208,9 @@ export function SelectedWidgetPanel({ b }: { b: LayoutBuilderState }) {
             </div>
           </div>
           <label className="flex items-center justify-between gap-2 text-[11px] text-ink-dim">
-            Fine scale
+            {t("layout.selected.scale")}
             <Select
-              ariaLabel="Widget scale"
+              ariaLabel={t("layout.selected.scaleAria")}
               value={String(
                 typeof cell.options?.scale === "number" ? cell.options.scale : 1,
               )}
@@ -1199,16 +1223,16 @@ export function SelectedWidgetPanel({ b }: { b: LayoutBuilderState }) {
           </label>
           <div className="flex gap-1.5">
             <button className="btn" onClick={() => b.duplicateCell(cell.id)}>
-              Duplicate
+              {t("layout.selected.duplicate")}
             </button>
             <button className="btn btn-danger" onClick={() => b.removeCell(cell.id)}>
-              Remove
+              {t("common.remove")}
             </button>
           </div>
         </div>
       ) : (
         <p className="px-3 py-3.5 text-[11.5px] text-ink-faint">
-          Click a widget on the canvas to change its style or size.
+          {t("layout.selected.none")}
         </p>
       )}
     </div>
@@ -1216,13 +1240,14 @@ export function SelectedWidgetPanel({ b }: { b: LayoutBuilderState }) {
 }
 
 export function AddWidgetPanel({ b }: { b: LayoutBuilderState }) {
+  const t = useT();
   const used = new Set(b.layout.cells.map((c) => c.widget));
-  const groups = Object.keys(WIDGET_GROUP_LABELS) as WidgetGroup[];
+  const groups = Object.keys(WIDGET_GROUP_LABEL_KEYS) as WidgetGroup[];
   return (
     <div className="panel">
       <div className="flex items-baseline gap-2 px-3 py-2.5">
-        <span className="section-header">Add widget</span>
-        <span className="text-[10.5px] text-ink-faint">placed in the first free spot</span>
+        <span className="section-header">{t("layout.add.title")}</span>
+        <span className="text-[10.5px] text-ink-faint">{t("layout.add.hint")}</span>
       </div>
       <div className="rule" />
       <div className="flex flex-col gap-2.5 px-3 py-2.5">
@@ -1234,7 +1259,7 @@ export function AddWidgetPanel({ b }: { b: LayoutBuilderState }) {
           return (
             <div key={group}>
               <span className="mb-[5px] block text-[10.5px] text-ink-faint">
-                {WIDGET_GROUP_LABELS[group]}
+                {t(WIDGET_GROUP_LABEL_KEYS[group])}
               </span>
               <div className="flex flex-wrap gap-1">
                 {ids.map((id) => (
@@ -1245,11 +1270,11 @@ export function AddWidgetPanel({ b }: { b: LayoutBuilderState }) {
                     onClick={() => b.addWidget(id)}
                     title={
                       used.has(id)
-                        ? "Already on the canvas — select it and Duplicate to add another"
-                        : `Add ${WIDGET_META[id].label}`
+                        ? t("layout.add.used")
+                        : t("layout.add.one", { name: t(WIDGET_META[id].labelKey) })
                     }
                   >
-                    + {WIDGET_META[id].label}
+                    + {t(WIDGET_META[id].labelKey)}
                   </button>
                 ))}
               </div>
@@ -1262,49 +1287,50 @@ export function AddWidgetPanel({ b }: { b: LayoutBuilderState }) {
 }
 
 export function BuilderDialogs({ b }: { b: LayoutBuilderState }) {
+  const t = useT();
   const { dialog, draft } = b;
   const close = () => b.setDialog(null);
   return (
     <>
       <PromptDialog
         open={dialog === "saveAs" || dialog === "saveCopy"}
-        title={dialog === "saveCopy" ? "Save a copy" : "Save layout"}
-        label="Name this layout — the name becomes part of its URL."
-        placeholder="e.g. race-strip, endurance-dash"
+        title={dialog === "saveCopy" ? t("layout.dialog.saveCopy") : t("layout.save")}
+        label={t("layout.dialog.nameLabel")}
+        placeholder={t("layout.dialog.namePlaceholder")}
         onSubmit={(name) => void b.saveAs(name)}
         onCancel={close}
       />
       <PromptDialog
         open={dialog === "rename"}
-        title="Rename layout"
-        label="Existing OBS sources using the old name will need the new URL."
+        title={t("layout.dialog.rename")}
+        label={t("layout.dialog.renameLabel")}
         initialValue={draft.name ?? ""}
         onSubmit={(name) => void b.rename(name)}
         onCancel={close}
       />
       <ConfirmDialog
         open={dialog === "delete"}
-        title={`Delete layout "${draft.name}"?`}
-        body="OBS sources and dashboards using its URL will stop rendering."
-        confirmLabel="Delete"
+        title={t("layout.dialog.delete", { name: draft.name ?? "" })}
+        body={t("layout.dialog.deleteBody")}
+        confirmLabel={t("common.delete")}
         danger
         onConfirm={() => void b.removeLayout()}
         onCancel={close}
       />
       <ConfirmDialog
         open={dialog === "discardNew"}
-        title="Discard this draft?"
-        body="It has never been saved, so there is nothing to go back to."
-        confirmLabel="Discard"
+        title={t("layout.dialog.discard")}
+        body={t("layout.dialog.discardBody")}
+        confirmLabel={t("layout.discard")}
         danger
         onConfirm={b.discardNew}
         onCancel={close}
       />
       <ConfirmDialog
         open={b.pendingStart != null}
-        title="Replace the unsaved draft?"
-        body={`Starting from ${b.pendingStart?.label ?? ""} discards the draft you haven't saved.`}
-        confirmLabel="Replace"
+        title={t("layout.dialog.replace")}
+        body={t("layout.dialog.replaceBody", { source: b.pendingStart?.label ?? "" })}
+        confirmLabel={t("layout.dialog.replaceConfirm")}
         danger
         onConfirm={() => b.pendingStart && b.commitStart(b.pendingStart.draft, b.pendingStart.label)}
         onCancel={() => b.setPendingStart(null)}

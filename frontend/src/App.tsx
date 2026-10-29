@@ -3,6 +3,7 @@ import { NotFoundPage, UnreachablePage, useServerReachability } from "@/componen
 import { StatusBar } from "@/components/StatusBar";
 import { Toasts } from "@/components/ui/Toasts";
 import { TooltipProvider } from "@/components/ui/Tooltip";
+import { useT } from "@/i18n";
 import { api } from "@/lib/api";
 import { isDashLocation, parseDashParams } from "@/lib/dash";
 import { trackEngineerStatus } from "@/lib/engineerStatus";
@@ -62,6 +63,7 @@ function useMissingSession(sessionId: number | undefined): number | null {
 }
 
 export default function App() {
+  const t = useT();
   const route = useRoute();
   const connect = useTelemetry((s) => s.connect);
   const wsConnected = useTelemetry((s) => s.wsConnected);
@@ -116,7 +118,7 @@ export default function App() {
         <StatusBar view={route.view} />
         <main className="min-h-0 flex-1 overflow-y-auto px-5 pb-7 pt-3.5">
           <Suspense
-            fallback={<div className="p-6 text-sm text-ink-dim">Loading…</div>}
+            fallback={<div className="p-6 text-sm text-ink-dim">{t("common.loading")}</div>}
           >
             {/* The server is gone: no view can show anything true, so the
                 page says so instead (the StatusBar stays for navigation). */}
@@ -129,8 +131,11 @@ export default function App() {
                 {route.view === "analysis" &&
                   (missingSession != null ? (
                     <NotFoundPage
-                      body={`Session #${missingSession} isn’t in this logger’s database — it may have been deleted, or the link came from another installation. Lap links only work on the logger that recorded them.`}
-                      diag={`${window.location.hash} · no session ${missingSession}`}
+                      body={t("error.missingSession.body", { id: String(missingSession) })}
+                      diag={t("error.missingSession.diag", {
+                        hash: window.location.hash,
+                        id: String(missingSession),
+                      })}
                     />
                   ) : (
                     <AnalysisView request={analysisRequest} />

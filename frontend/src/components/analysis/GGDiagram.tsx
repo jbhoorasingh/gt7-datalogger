@@ -18,6 +18,7 @@ import type { EChartsOption, SeriesOption } from "echarts";
 import { useEffect, useMemo, useRef } from "react";
 import type { MapLap } from "@/components/analysis/RaceLineMap";
 import { CHART_COLORS, EChart } from "@/components/EChart";
+import { rich, useT } from "@/i18n";
 import { nearestIndex } from "@/lib/playback";
 import type { AccelCalibration } from "@/lib/types";
 
@@ -71,6 +72,7 @@ export function GGDiagram({
   accel: AccelCalibration;
   cursorDist: number | null;
 }) {
+  const t = useT();
   const chartRef = useRef<echarts.ECharts | null>(null);
   const ref = laps.find((lap) => lap.isRef) ?? laps[0];
 
@@ -217,41 +219,35 @@ export function GGDiagram({
           }}
         />
         <span className="pointer-events-none absolute left-1/2 top-2 -translate-x-1/2 text-[10px] text-ink-dim">
-          accelerating
+          {t("gg.accelerating")}
         </span>
         <span className="pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2 text-[10px] text-ink-dim">
-          braking
+          {t("gg.braking")}
         </span>
         <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-ink-dim">
-          left
+          {t("gg.left")}
         </span>
         <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-ink-dim">
-          right
+          {t("gg.right")}
         </span>
       </div>
       {peaks && (
         <div className="grid grid-cols-4 gap-1 px-3 pb-1 text-center font-tabular text-[11px]">
-          <Peak label="brake" value={peaks.braking} />
-          <Peak label="left" value={peaks.lat_left} />
-          <Peak label="right" value={peaks.lat_right} />
-          <Peak label="accel" value={peaks.accel} />
+          <Peak label={t("gg.peak.brake")} value={peaks.braking} />
+          <Peak label={t("gg.left")} value={peaks.lat_left} />
+          <Peak label={t("gg.right")} value={peaks.lat_right} />
+          <Peak label={t("gg.peak.accel")} value={peaks.accel} />
         </div>
       )}
       <div className="px-3 pb-3 pt-1 text-[10px] leading-relaxed text-ink-dim">
         {proven ? (
-          <>
-            Scale checked against the lap's own physics: lateral vs v·ω
-            (R²&nbsp;{lat!.r2.toFixed(2)}), longitudinal vs dv/dt (R²&nbsp;
-            {long!.r2.toFixed(2)}). GT7 broadcasts these as{" "}
-            <span className="text-ink">{accel.unit}</span>.
-          </>
+          rich(t("gg.proven", { latR2: lat!.r2.toFixed(2), longR2: long!.r2.toFixed(2) }), {
+            unit: <span className="text-ink">{accel.unit}</span>,
+          })
         ) : (
-          <>
-            <span className="text-warn">Scale unverified</span> — this lap gave
-            too little steady cornering or braking to check the broadcast
-            channels against v·ω and dv/dt, so g is assumed to be m/s². Shapes
-            are still comparable between laps; the numbers may not be.
-          </>
+          rich(t("gg.unproven"), {
+            flag: <span className="text-warn">{t("gg.unverified")}</span>,
+          })
         )}
       </div>
     </div>

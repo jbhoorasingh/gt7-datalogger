@@ -7,6 +7,7 @@
 // turn 3, and three laps' marks in one braking zone say it happens there
 // every time — which is the reading that changes how a corner is driven.
 
+import { t as translate, type MessageKey, type Translate } from "@/i18n";
 import { positionAtDist } from "@/lib/playback";
 import type { CompareLapEntry, EventType, LapEvent, Samples } from "@/lib/types";
 
@@ -28,35 +29,35 @@ export type MapLayers = Record<MapLayerKey, boolean>;
 
 export interface MapLayerDef {
   key: MapLayerKey;
-  label: string;
-  help: string;
+  labelKey: MessageKey;
+  helpKey: MessageKey;
 }
 
-export const MAP_LAYER_GROUPS: { title: string; layers: MapLayerDef[] }[] = [
+export const MAP_LAYER_GROUPS: { titleKey: MessageKey; layers: MapLayerDef[] }[] = [
   {
-    title: "Track",
+    titleKey: "common.track",
     layers: [
-      { key: "road", label: "Surveyed road", help: "Road fill and borders" },
-      { key: "numbers", label: "Corner numbers", help: "Click one to zoom to it" },
+      { key: "road", labelKey: "map.layer.road", helpKey: "map.layer.road.help" },
+      { key: "numbers", labelKey: "map.layer.numbers", helpKey: "map.layer.numbers.help" },
     ],
   },
   {
-    title: "Laps",
+    titleKey: "map.layerGroup.laps",
     layers: [
-      { key: "others", label: "Other laps", help: "Their lines, markers and dots — thin until you zoom in" },
-      { key: "apex", label: "Apex speeds", help: "Min speed per lap, when zoomed" },
-      { key: "brakes", label: "Brake points", help: "Where each lap braked, per corner" },
-      { key: "readout", label: "Hover readout", help: "Every lap's values where you point at the line" },
+      { key: "others", labelKey: "map.layer.others", helpKey: "map.layer.others.help" },
+      { key: "apex", labelKey: "map.layer.apex", helpKey: "map.layer.apex.help" },
+      { key: "brakes", labelKey: "map.layer.brakes", helpKey: "map.layer.brakes.help" },
+      { key: "readout", labelKey: "map.layer.readout", helpKey: "map.layer.readout.help" },
     ],
   },
   {
-    title: "Markers",
+    titleKey: "map.layerGroup.markers",
     layers: [
-      { key: "peaks", label: "Peaks & valleys", help: "Speed maxima ▲ and minima ▼" },
-      { key: "kerbs", label: "Kerbs & off-track", help: "Where wheels touched kerb or grass" },
-      { key: "events", label: "Events", help: "Lockups, wheelspin, bottoming" },
-      { key: "tcs", label: "TCS", help: "Ring where traction control cut power" },
-      { key: "asm", label: "ASM", help: "Ring where stability management stepped in" },
+      { key: "peaks", labelKey: "map.layer.peaks", helpKey: "map.layer.peaks.help" },
+      { key: "kerbs", labelKey: "map.layer.kerbs", helpKey: "map.layer.kerbs.help" },
+      { key: "events", labelKey: "map.layer.events", helpKey: "map.layer.events.help" },
+      { key: "tcs", labelKey: "map.layer.tcs", helpKey: "map.layer.tcs.help" },
+      { key: "asm", labelKey: "map.layer.asm", helpKey: "map.layer.asm.help" },
     ],
   },
 ];
@@ -78,18 +79,18 @@ export const DEFAULT_MAP_LAYERS: MapLayers = {
   asm: false,
 };
 
-export const EVENT_LABELS: Record<EventType, string> = {
-  lockup: "Lockup",
-  wheelspin: "Wheelspin",
-  bottoming: "Bottoming",
-  kerb: "Kerb strike",
+export const EVENT_LABEL_KEYS: Record<EventType, MessageKey> = {
+  lockup: "map.event.lockup",
+  wheelspin: "map.event.wheelspin",
+  bottoming: "map.event.bottoming",
+  kerb: "map.event.kerb",
 };
 
-const WHEEL_LABELS: Record<string, string> = {
-  fl: "front left",
-  fr: "front right",
-  rl: "rear left",
-  rr: "rear right",
+const WHEEL_LABELS: Record<string, MessageKey> = {
+  fl: "map.wheel.fl",
+  fr: "map.wheel.fr",
+  rl: "map.wheel.rl",
+  rr: "map.wheel.rr",
 };
 
 export interface EventMarker {
@@ -216,11 +217,12 @@ export function brakeMarkers(laps: BrakeLap[], corner: number | null): BrakeMark
 }
 
 /** A brake point against the reference's, in words: "14 m earlier than the
- *  reference". */
-export function brakeDeltaText(deltaM: number): string {
+ *  reference". The text helpers below take `t` from a caller that memoizes
+ *  what they say. */
+export function brakeDeltaText(deltaM: number, t: Translate = translate): string {
   const m = Math.round(Math.abs(deltaM));
-  if (m === 0) return "level with the reference";
-  return `${m} m ${deltaM < 0 ? "earlier" : "later"} than the reference`;
+  if (m === 0) return t("map.brakeDelta.level");
+  return t(deltaM < 0 ? "map.brakeDelta.earlier" : "map.brakeDelta.later", { m: String(m) });
 }
 
 /** Whether any sample of the lap has this aid bit set. */
@@ -255,19 +257,20 @@ export function aidPoints(
  * the worst wheel-slip ratio for slip events, and how far into the lap's
  * range of suspension travel the wheel was pushed for the others.
  */
-export function severityText(event: LapEvent): string {
+export function severityText(event: LapEvent, t: Translate = translate): string {
+  const pct = String(Math.round(event.severity * 100));
   switch (event.type) {
     case "lockup":
-      return `slowest wheel at ${Math.round(event.severity * 100)}% of road speed`;
+      return t("map.severity.lockup", { pct });
     case "wheelspin":
-      return `fastest wheel at ${Math.round(event.severity * 100)}% of road speed`;
+      return t("map.severity.wheelspin", { pct });
     case "bottoming":
     case "kerb":
-      return `compressed to ${Math.round(event.severity * 100)}% of the lap's travel`;
+      return t("map.severity.travel", { pct });
   }
 }
 
-export function wheelsText(wheels: string[]): string {
-  if (wheels.length === 4) return "all four wheels";
-  return wheels.map((w) => WHEEL_LABELS[w] ?? w).join(", ");
+export function wheelsText(wheels: string[], t: Translate = translate): string {
+  if (wheels.length === 4) return t("map.wheel.all");
+  return wheels.map((w) => (w in WHEEL_LABELS ? t(WHEEL_LABELS[w]) : w)).join(t("map.wheel.separator"));
 }

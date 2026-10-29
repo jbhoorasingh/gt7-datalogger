@@ -4,6 +4,7 @@
 // every page shows the same one.
 
 import { useEffect, useState } from "react";
+import { useT } from "@/i18n";
 import { api } from "@/lib/api";
 import { formatLapTime, formatTime } from "@/lib/format";
 import type { LapSummary } from "@/lib/types";
@@ -12,6 +13,7 @@ import { useEngineer } from "@/store/engineer";
 import { useTelemetry } from "@/store/telemetry";
 
 export function ChaseReferenceSelector() {
+  const t = useT();
   const trackName = useTelemetry((st) => st.status?.track_name ?? "");
   const wsConnected = useTelemetry((st) => st.wsConnected);
   const lapEpoch = useTelemetry((st) => st.lapEpoch);
@@ -47,11 +49,11 @@ export function ChaseReferenceSelector() {
         const counting = all.filter((lap) => lap.counts_for_best && lap.time_ms > 0);
         setList({ track: trackName, laps: counting.sort((a, b) => a.time_ms - b.time_ms) });
       })
-      .catch(() => live && setError("Could not load the laps stored at this circuit."));
+      .catch(() => live && setError(t("chase.loadFailed")));
     return () => {
       live = false;
     };
-  }, [picking, trackName, lapEpoch]);
+  }, [picking, trackName, lapEpoch, t]);
 
   // Name the lap being chased, wherever the choice was made.
   useEffect(() => {
@@ -72,7 +74,7 @@ export function ChaseReferenceSelector() {
   const choose = (lapId: number | null) => {
     setError(null);
     if (!sendWs({ type: "set_engineer_reference", data: { lap_id: lapId } })) {
-      setError("Not connected to the datalogger.");
+      setError(t("chase.notConnected"));
       return;
     }
     setPicking(false);
@@ -81,41 +83,41 @@ export function ChaseReferenceSelector() {
   const chasing = mode === "chase";
   const chasedLabel =
     chasedId == null
-      ? "your lap that beat it"
+      ? t("chase.yourLap")
       : chased
-        ? `${chased.car_name ?? "–"} · S#${chased.session_id} L${chased.number}`
-        : `lap #${chasedId}`;
+        ? `${chased.car_name ?? "–"} · ${t("chase.lapRef", { session: String(chased.session_id), lap: chased.number })}`
+        : t("chase.lapId", { id: String(chasedId) });
 
   return (
     <div className="panel">
       <div className="flex items-baseline gap-2 px-4 py-2.5">
-        <span className="section-header">Coaching reference</span>
+        <span className="section-header">{t("chase.title")}</span>
         <span className="min-w-0 truncate text-[10.5px] text-ink-faint">
-          {trackName || "circuit not identified yet"}
+          {trackName || t("chase.noCircuit")}
         </span>
       </div>
       <div className="rule" />
       <div className="flex flex-col gap-3 px-4 py-3.5">
-        <div className="grid grid-cols-2 gap-1.5" role="radiogroup" aria-label="Coaching reference">
+        <div className="grid grid-cols-2 gap-1.5" role="radiogroup" aria-label={t("chase.title")}>
           <Choice
             checked={!chasing}
             disabled={!wsConnected}
-            label="Session best"
-            hint="Your fastest lap of this session that counts."
+            label={t("chase.sessionBest")}
+            hint={t("chase.sessionBestHint")}
             onClick={() => choose(null)}
           />
           <Choice
             checked={chasing}
             disabled={!wsConnected || !trackName}
-            label="Chase a lap"
-            hint="A stored lap at this circuit. Beat it and your lap takes over."
+            label={t("chase.chaseLap")}
+            hint={t("chase.chaseLapHint")}
             onClick={() => setPicking((open) => !open)}
           />
         </div>
 
         {chasing && chasedMs != null && (
           <div className="flex min-w-0 items-baseline gap-2 text-[11.5px]">
-            <span className="whitespace-nowrap text-ink-faint">Chasing</span>
+            <span className="whitespace-nowrap text-ink-faint">{t("chase.chasing")}</span>
             <span className="min-w-0 truncate text-ink-soft">{chasedLabel}</span>
             <span className="ml-auto font-tabular text-accent-300">{formatLapTime(chasedMs)}</span>
           </div>
@@ -126,7 +128,7 @@ export function ChaseReferenceSelector() {
             {laps == null &&
               [0, 1, 2].map((i) => <div key={i} className="skeleton h-9" />)}
             {laps != null && laps.length === 0 && (
-              <p className="text-[11px] text-ink-faint">No laps stored at this circuit yet.</p>
+              <p className="text-[11px] text-ink-faint">{t("chase.noLaps")}</p>
             )}
             {laps?.map((lap) => {
               const current = chasing && lap.id === chasedId;
@@ -144,7 +146,8 @@ export function ChaseReferenceSelector() {
                 >
                   <span className="shrink-0 font-tabular">{formatLapTime(lap.time_ms)}</span>
                   <span className="min-w-0 truncate text-ink-dim">
-                    · {lap.car_name ?? "–"} · S#{lap.session_id} L{lap.number}
+                    · {lap.car_name ?? "–"} ·{" "}
+                    {t("chase.lapRef", { session: String(lap.session_id), lap: lap.number })}
                     {lap.finished_at ? ` · ${formatTime(lap.finished_at)}` : ""}
                   </span>
                 </button>
@@ -161,10 +164,10 @@ export function ChaseReferenceSelector() {
 
         <span className="text-[11px] text-ink-faint">
           {!chasing
-            ? "Coaching compares every lap against this session’s fastest."
+            ? t("chase.explainBest")
             : chasedId == null
-              ? "You beat the lap you chose, so coaching uses yours now."
-              : "Kept through race restarts. A new car or circuit goes back to the session best."}
+              ? t("chase.explainBeaten")
+              : t("chase.explainChasing")}
         </span>
       </div>
     </div>

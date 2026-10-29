@@ -5,6 +5,7 @@
 // surveyed) is a switch that does nothing.
 
 import { useEffect, useRef, useState } from "react";
+import { useT } from "@/i18n";
 import { MAP_LAYER_GROUPS, type MapLayerKey, type MapLayers } from "@/lib/mapLayers";
 
 export function LayersMenu({
@@ -17,6 +18,7 @@ export function LayersMenu({
   available: Set<MapLayerKey>;
   onToggle: (key: MapLayerKey, on: boolean) => void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
 
@@ -55,9 +57,9 @@ export function LayersMenu({
         className={`rounded border px-2.5 py-0.5 text-[10.5px] transition-colors ${
           open ? "border-accent text-ink" : "border-edge text-ink-dim hover:text-ink"
         }`}
-        title="What the map draws besides the reference line"
+        title={t("map.layers.title")}
       >
-        Layers · <span className="font-tabular">{count}</span> ▾
+        {t("map.layers.label")} · <span className="font-tabular">{count}</span> ▾
       </button>
       {open && (
         <div
@@ -65,8 +67,8 @@ export function LayersMenu({
           className="elevated absolute right-0 top-full z-20 mt-1.5 max-h-[420px] w-[252px] overflow-y-auto rounded-md bg-panel py-1 pb-1.5"
         >
           {groups.map((g) => (
-            <div key={g.title}>
-              <div className="section-header px-3 pb-0.5 pt-2">{g.title}</div>
+            <div key={g.titleKey}>
+              <div className="section-header px-3 pb-0.5 pt-2">{t(g.titleKey)}</div>
               {g.layers.map((l) => {
                 const on = layers[l.key];
                 return (
@@ -78,8 +80,8 @@ export function LayersMenu({
                     className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-ink transition-colors hover:bg-panel-2"
                   >
                     <span className="min-w-0 flex-1">
-                      <span className="block text-xs">{l.label}</span>
-                      <span className="block text-[10.5px] text-ink-faint">{l.help}</span>
+                      <span className="block text-xs">{t(l.labelKey)}</span>
+                      <span className="block text-[10.5px] text-ink-faint">{t(l.helpKey)}</span>
                     </span>
                     <span
                       className={`relative h-4 w-[30px] shrink-0 rounded-full transition-colors ${

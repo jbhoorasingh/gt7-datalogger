@@ -1,3 +1,4 @@
+import { useT } from "@/i18n";
 import { api } from "@/lib/api";
 import { formatDuration } from "@/lib/format";
 import type { AdminStats } from "@/lib/types";
@@ -12,6 +13,7 @@ export function HealthSection({
   stats,
   hz,
 }: Pick<SectionProps, "busy" | "run"> & { stats: Stats | null; hz: number | null }) {
+  const t = useT();
   const src = stats?.source;
   const dropped = src?.frames_dropped ?? 0;
   const decodeErrors = src?.decode_errors ?? 0;
@@ -20,35 +22,42 @@ export function HealthSection({
     stats && src
       ? [
           {
-            title: "Telemetry",
+            title: t("settings.health.telemetry"),
             rows: [
-              ["Status", src.connected ? "receiving" : "no data", src.connected ? "good" : "bad"],
-              ["Console", src.source === "sim" ? "simulator" : src.console_ip || "auto-discover"],
-              ["Packets", src.packets_received.toLocaleString()],
-              ["Rate", hz != null ? `${hz} Hz` : "—"],
-              ["Decode errors", String(decodeErrors), decodeErrors > 0 ? "warn" : undefined],
-              ["Frames dropped", String(dropped), dropped > 0 ? "warn" : undefined],
-              ["Format", src.packet_format ?? "A"],
+              [
+                t("settings.healthPanel.status"),
+                src.connected ? t("settings.meta.receiving") : t("settings.meta.noData"),
+                src.connected ? "good" : "bad",
+              ],
+              [
+                t("settings.connection.console"),
+                src.source === "sim" ? t("settings.health.simulator") : src.console_ip || t("settings.health.autoDiscover"),
+              ],
+              [t("settings.healthPanel.packets"), src.packets_received.toLocaleString()],
+              [t("settings.healthPanel.rate"), hz != null ? `${hz} Hz` : "—"],
+              [t("settings.healthPanel.decodeErrors"), String(decodeErrors), decodeErrors > 0 ? "warn" : undefined],
+              [t("settings.healthPanel.framesDropped"), String(dropped), dropped > 0 ? "warn" : undefined],
+              [t("settings.healthPanel.format"), src.packet_format ?? "A"],
             ],
           },
           {
-            title: "Server",
+            title: t("settings.healthPanel.server"),
             rows: [
-              ["Uptime", formatDuration(stats.uptime_s * 1000)],
-              ["Live clients", String(stats.clients)],
-              ["Car names", String(stats.cars_loaded)],
+              [t("settings.healthPanel.uptime"), formatDuration(stats.uptime_s * 1000)],
+              [t("settings.healthPanel.clients"), String(stats.clients)],
+              [t("settings.healthPanel.carNames"), String(stats.cars_loaded)],
               ...(stats.cars_generated
-                ? ([["Car list from", stats.cars_generated.slice(0, 10)]] as [string, string][])
+                ? ([[t("settings.healthPanel.carListFrom"), stats.cars_generated.slice(0, 10)]] as [string, string][])
                 : []),
-              ["Recording", src.recording ? "on" : "off"],
+              [t("settings.health.recording"), src.recording ? t("settings.meta.on") : t("settings.meta.off")],
             ],
           },
           {
-            title: "Database",
+            title: t("settings.healthPanel.database"),
             rows: [
-              ["Sessions", stats.db.sessions.toLocaleString()],
-              ["Laps", stats.db.laps.toLocaleString()],
-              ["Size", mb(stats.db.size_bytes)],
+              [t("settings.healthPanel.sessions"), stats.db.sessions.toLocaleString()],
+              [t("settings.healthPanel.laps"), stats.db.laps.toLocaleString()],
+              [t("settings.healthPanel.size"), mb(stats.db.size_bytes)],
             ],
           },
         ]
@@ -60,49 +69,45 @@ export function HealthSection({
     notes.push({
       tone: "warn",
       text:
-        src.source === "sim"
-          ? "The simulator is not producing frames — try restarting the telemetry source."
-          : "No telemetry — check the console IP, that GT7 is in a session, and that UDP 33740 reaches this machine.",
+        src.source === "sim" ? t("settings.healthPanel.simSilent") : t("settings.healthPanel.noTelemetry"),
     });
   }
   if (dropped > 0) {
-    notes.push({
-      tone: "warn",
-      text: `${dropped.toLocaleString()} frame${dropped === 1 ? "" : "s"} dropped since the source started — usually Wi-Fi. A wired console or the 5 GHz band fixes it.`,
-    });
+    notes.push({ tone: "warn", text: t("settings.healthPanel.dropped", { count: dropped }) });
   }
   if (decodeErrors > 0) {
-    notes.push({
-      tone: "warn",
-      text: `${decodeErrors.toLocaleString()} packet${decodeErrors === 1 ? "" : "s"} could not be decoded — check the packet format matches your game version.`,
-    });
+    notes.push({ tone: "warn", text: t("settings.healthPanel.undecoded", { count: decodeErrors }) });
   }
 
   return (
     <SectionPanel
-      title="Health"
-      description="Live — refreshes every 5 s."
+      title={t("settings.section.health")}
+      description={t("settings.healthPanel.desc")}
       actions={
         <>
           <button
             className="btn"
             disabled={busy !== null}
-            onClick={() => void run("Restart source", api.admin.restartSource)}
+            onClick={() => void run(t("settings.healthPanel.restartLabel"), api.admin.restartSource)}
           >
-            Restart telemetry source
+            {t("settings.healthPanel.restart")}
           </button>
           <button
             className="btn"
             disabled={busy !== null}
             onClick={() =>
-              void run("Car DB update", api.admin.updateCars, (r) => {
+              void run(t("settings.healthPanel.carsLabel"), api.admin.updateCars, (r) => {
                 const res = r as { cars: number; sessions_updated: number };
-                const filled = res.sessions_updated ? `, ${res.sessions_updated} session(s) updated` : "";
-                return `Car database updated: ${res.cars} cars${filled}`;
+                return res.sessions_updated
+                  ? t("settings.healthPanel.carsUpdatedSessions", {
+                      cars: res.cars,
+                      sessions: res.sessions_updated,
+                    })
+                  : t("settings.healthPanel.carsUpdated", { cars: res.cars });
               })
             }
           >
-            Update car database
+            {t("settings.healthPanel.updateCars")}
           </button>
         </>
       }
@@ -124,7 +129,7 @@ export function HealthSection({
           ))}
         </div>
       ) : (
-        <div className="px-[18px] py-3.5 text-sm text-ink-dim">Loading…</div>
+        <div className="px-[18px] py-3.5 text-sm text-ink-dim">{t("common.loading")}</div>
       )}
       {notes.length > 0 && (
         <>

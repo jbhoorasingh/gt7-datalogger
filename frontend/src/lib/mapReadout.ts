@@ -21,7 +21,7 @@ export interface ReadoutRow {
 }
 
 // The time diff leads, as its panel leads the charts.
-const DELTA_LINE = { key: "delta", title: "Time diff (s)" };
+const DELTA_LINE = { key: "delta", titleKey: "channel.delta.title" as const };
 
 function valueAt(
   dist: number[] | undefined,

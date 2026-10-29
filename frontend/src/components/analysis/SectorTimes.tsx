@@ -4,6 +4,7 @@
 // timing-screen convention. Only laps that count can hold a best; a pit
 // out-lap is listed, faint, for completeness.
 
+import { t as translate, useT } from "@/i18n";
 import { FASTEST_COLOR } from "@/lib/colors";
 import { formatLapTime } from "@/lib/format";
 import { formatSplit, sectorBests } from "@/lib/sectorTimes";
@@ -11,8 +12,8 @@ import type { SectorTimes as SectorTimesData } from "@/lib/types";
 
 export function sectorNote(data: SectorTimesData): string {
   return data.source === "track"
-    ? `${data.sectors.length} sectors from the track · purple = best`
-    : "thirds of the lap · purple = best";
+    ? translate("sectors.noteTrack", { count: data.sectors.length })
+    : translate("sectors.noteThirds");
 }
 
 export function SectorTimes({
@@ -28,6 +29,7 @@ export function SectorTimes({
   selected: number[];
   refLapId: number | null;
 }) {
+  const t = useT();
   const count = data.sectors.length;
   const bests = sectorBests(data.laps, count);
   const laps = [...data.laps].sort((a, b) => a.number - b.number || a.id - b.id);
@@ -37,19 +39,20 @@ export function SectorTimes({
       <table className="w-full font-tabular text-xs">
         <thead>
           <tr className="text-[10px] uppercase text-ink-dim">
-            <th className="px-2 py-1 text-left font-normal">Lap</th>
+            <th className="px-2 py-1 text-left font-normal">{t("common.lap")}</th>
             {data.sectors.map((s) => (
               <th key={s.n} className="px-1.5 py-1 text-right font-normal" title={s.name || undefined}>
                 S{s.n}
               </th>
             ))}
-            <th className="px-2 py-1 text-right font-normal">Lap time</th>
+            <th className="px-2 py-1 text-right font-normal">{t("sectors.lapTime")}</th>
           </tr>
         </thead>
         <tbody>
           {laps.map((lap) => {
             const inComparison = selected.includes(lap.id) || lap.id === refLapId;
-            const tag = lap.id === refLapId ? "ref" : !lap.counts_for_best ? "out" : "";
+            const tag =
+              lap.id === refLapId ? t("sectors.tag.ref") : !lap.counts_for_best ? t("sectors.tag.out") : "";
             const bestLap = lap.counts_for_best && bests.lap != null && lap.time_ms === bests.lap;
             return (
               <tr
@@ -66,7 +69,7 @@ export function SectorTimes({
                           : "var(--color-edge-bright)",
                       }}
                     />
-                    L{lap.number}
+                    {t("lapChart.lapTick", { n: String(lap.number) })}
                     {tag && <span className="text-[10px] text-ink-faint">{tag}</span>}
                   </span>
                 </td>

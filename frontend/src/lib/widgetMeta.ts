@@ -3,8 +3,9 @@
 // Pure data — the component map lives in widgetRegistry.tsx so this file can
 // be imported by normalization code without dragging in React.
 
+import type { MessageKey } from "@/i18n";
 import type { LapSummary, LiveFrame } from "./types";
-import { WIDGET_LABELS, type WidgetId } from "./overlay";
+import { WIDGET_LABEL_KEYS, type WidgetId } from "./overlay";
 
 export type WidgetGroup = "driving" | "timing" | "race" | "car" | "strategy";
 
@@ -20,12 +21,12 @@ export interface WidgetRenderProps {
 }
 
 export interface WidgetMeta {
-  label: string;
+  labelKey: MessageKey;
   group: WidgetGroup;
   // baseW is the content width (px) the variant was designed for at 1:1. The
   // grid zoom is capped so this width fits the cell — without it, text-heavy
   // widgets wrap and clip in tall cells. Defaults to 90.
-  variants: { key: string; label: string; baseW?: number }[];
+  variants: { key: string; labelKey: MessageKey; baseW?: number }[];
   defaultVariant: string;
   sizes: WidgetSize[]; // allowed footprints; first entry = default
   // Rendered without the card chrome — the widget draws its own background
@@ -33,21 +34,21 @@ export interface WidgetMeta {
   frameless?: boolean;
 }
 
-export const WIDGET_GROUP_LABELS: Record<WidgetGroup, string> = {
-  driving: "Driving",
-  timing: "Timing",
-  race: "Race",
-  car: "Car health",
-  strategy: "Strategy",
+export const WIDGET_GROUP_LABEL_KEYS: Record<WidgetGroup, MessageKey> = {
+  driving: "widget.group.driving",
+  timing: "widget.group.timing",
+  race: "widget.group.race",
+  car: "widget.group.car",
+  strategy: "widget.group.strategy",
 };
 
 export const WIDGET_META: Record<WidgetId, WidgetMeta> = {
   gear: {
-    label: WIDGET_LABELS.gear,
+    labelKey: WIDGET_LABEL_KEYS.gear,
     group: "driving",
     variants: [
-      { key: "digits", label: "Digit + suggested", baseW: 64 },
-      { key: "plain", label: "Digit only", baseW: 64 },
+      { key: "digits", labelKey: "widget.variant.digitSuggested", baseW: 64 },
+      { key: "plain", labelKey: "widget.variant.digitOnly", baseW: 64 },
     ],
     defaultVariant: "digits",
     sizes: [
@@ -58,12 +59,12 @@ export const WIDGET_META: Record<WidgetId, WidgetMeta> = {
     ],
   },
   speed: {
-    label: WIDGET_LABELS.speed,
+    labelKey: WIDGET_LABEL_KEYS.speed,
     group: "driving",
     variants: [
-      { key: "digits", label: "Digits" },
-      { key: "bar", label: "Bar", baseW: 150 },
-      { key: "gauge", label: "Gauge", baseW: 96 },
+      { key: "digits", labelKey: "widget.variant.digits" },
+      { key: "bar", labelKey: "widget.variant.bar", baseW: 150 },
+      { key: "gauge", labelKey: "widget.variant.gauge", baseW: 96 },
     ],
     defaultVariant: "digits",
     sizes: [
@@ -75,13 +76,13 @@ export const WIDGET_META: Record<WidgetId, WidgetMeta> = {
     ],
   },
   rpm: {
-    label: WIDGET_LABELS.rpm,
+    labelKey: WIDGET_LABEL_KEYS.rpm,
     group: "driving",
     variants: [
-      { key: "bar", label: "Bar", baseW: 160 },
-      { key: "shift-lights", label: "Shift lights", baseW: 160 },
-      { key: "gauge", label: "Gauge", baseW: 96 },
-      { key: "digits", label: "Digits", baseW: 100 },
+      { key: "bar", labelKey: "widget.variant.bar", baseW: 160 },
+      { key: "shift-lights", labelKey: "widget.variant.shiftLights", baseW: 160 },
+      { key: "gauge", labelKey: "widget.variant.gauge", baseW: 96 },
+      { key: "digits", labelKey: "widget.variant.digits", baseW: 100 },
     ],
     defaultVariant: "bar",
     sizes: [
@@ -93,11 +94,11 @@ export const WIDGET_META: Record<WidgetId, WidgetMeta> = {
     ],
   },
   inputs: {
-    label: WIDGET_LABELS.inputs,
+    labelKey: WIDGET_LABEL_KEYS.inputs,
     group: "driving",
     variants: [
-      { key: "bars-h", label: "Horizontal bars", baseW: 144 },
-      { key: "bars-v", label: "Vertical bars", baseW: 60 },
+      { key: "bars-h", labelKey: "widget.variant.barsH", baseW: 144 },
+      { key: "bars-v", labelKey: "widget.variant.barsV", baseW: 60 },
     ],
     defaultVariant: "bars-h",
     sizes: [
@@ -108,11 +109,11 @@ export const WIDGET_META: Record<WidgetId, WidgetMeta> = {
     ],
   },
   steering: {
-    label: WIDGET_LABELS.steering,
+    labelKey: WIDGET_LABEL_KEYS.steering,
     group: "driving",
     variants: [
-      { key: "wheel", label: "Wheel + angle", baseW: 72 },
-      { key: "plain", label: "Wheel only", baseW: 72 },
+      { key: "wheel", labelKey: "widget.variant.wheelAngle", baseW: 72 },
+      { key: "plain", labelKey: "widget.variant.wheelOnly", baseW: 72 },
     ],
     defaultVariant: "wheel",
     sizes: [
@@ -123,12 +124,12 @@ export const WIDGET_META: Record<WidgetId, WidgetMeta> = {
     ],
   },
   times: {
-    label: WIDGET_LABELS.times,
+    labelKey: WIDGET_LABEL_KEYS.times,
     group: "timing",
     variants: [
-      { key: "list", label: "Lap / best / last", baseW: 150 },
-      { key: "last", label: "Last lap (big)", baseW: 150 },
-      { key: "best", label: "Best lap (big)", baseW: 150 },
+      { key: "list", labelKey: "widget.variant.lapBestLast", baseW: 150 },
+      { key: "last", labelKey: "widget.variant.lastBig", baseW: 150 },
+      { key: "best", labelKey: "widget.variant.bestBig", baseW: 150 },
     ],
     defaultVariant: "list",
     sizes: [
@@ -138,11 +139,11 @@ export const WIDGET_META: Record<WidgetId, WidgetMeta> = {
     ],
   },
   delta: {
-    label: WIDGET_LABELS.delta,
+    labelKey: WIDGET_LABEL_KEYS.delta,
     group: "timing",
     variants: [
-      { key: "big", label: "Big number", baseW: 110 },
-      { key: "bar", label: "Centered bar", baseW: 160 },
+      { key: "big", labelKey: "widget.variant.bigNumber", baseW: 110 },
+      { key: "bar", labelKey: "widget.variant.centeredBar", baseW: 160 },
     ],
     defaultVariant: "big",
     sizes: [
@@ -153,11 +154,11 @@ export const WIDGET_META: Record<WidgetId, WidgetMeta> = {
     ],
   },
   position: {
-    label: WIDGET_LABELS.position,
+    labelKey: WIDGET_LABEL_KEYS.position,
     group: "race",
     variants: [
-      { key: "big", label: "Big" },
-      { key: "compact", label: "Compact", baseW: 70 },
+      { key: "big", labelKey: "widget.variant.big" },
+      { key: "compact", labelKey: "widget.variant.compact", baseW: 70 },
     ],
     defaultVariant: "big",
     sizes: [
@@ -167,11 +168,11 @@ export const WIDGET_META: Record<WidgetId, WidgetMeta> = {
     ],
   },
   tires: {
-    label: WIDGET_LABELS.tires,
+    labelKey: WIDGET_LABEL_KEYS.tires,
     group: "car",
     variants: [
-      { key: "temps", label: "Temps", baseW: 72 },
-      { key: "temps-slip", label: "Temps + slip", baseW: 72 },
+      { key: "temps", labelKey: "widget.variant.temps", baseW: 72 },
+      { key: "temps-slip", labelKey: "widget.variant.tempsSlip", baseW: 72 },
     ],
     defaultVariant: "temps",
     sizes: [
@@ -182,12 +183,12 @@ export const WIDGET_META: Record<WidgetId, WidgetMeta> = {
     ],
   },
   fuel: {
-    label: WIDGET_LABELS.fuel,
+    labelKey: WIDGET_LABEL_KEYS.fuel,
     group: "strategy",
     variants: [
-      { key: "percent", label: "Percent", baseW: 70 },
-      { key: "bar", label: "Bar", baseW: 150 },
-      { key: "laps", label: "Laps remaining" },
+      { key: "percent", labelKey: "widget.variant.percent", baseW: 70 },
+      { key: "bar", labelKey: "widget.variant.bar", baseW: 150 },
+      { key: "laps", labelKey: "widget.variant.lapsRemaining" },
     ],
     defaultVariant: "percent",
     sizes: [
@@ -199,11 +200,11 @@ export const WIDGET_META: Record<WidgetId, WidgetMeta> = {
     ],
   },
   strategy: {
-    label: WIDGET_LABELS.strategy,
+    labelKey: WIDGET_LABEL_KEYS.strategy,
     group: "strategy",
     variants: [
-      { key: "summary", label: "Summary", baseW: 120 },
-      { key: "pit-window", label: "Pit window", baseW: 100 },
+      { key: "summary", labelKey: "widget.variant.summary", baseW: 120 },
+      { key: "pit-window", labelKey: "widget.variant.pitWindow", baseW: 100 },
     ],
     defaultVariant: "summary",
     sizes: [
@@ -212,9 +213,9 @@ export const WIDGET_META: Record<WidgetId, WidgetMeta> = {
     ],
   },
   clock: {
-    label: WIDGET_LABELS.clock,
+    labelKey: WIDGET_LABEL_KEYS.clock,
     group: "race",
-    variants: [{ key: "digits", label: "Digits", baseW: 80 }],
+    variants: [{ key: "digits", labelKey: "widget.variant.digits", baseW: 80 }],
     defaultVariant: "digits",
     sizes: [
       [1, 1],
@@ -222,11 +223,11 @@ export const WIDGET_META: Record<WidgetId, WidgetMeta> = {
     ],
   },
   engine: {
-    label: WIDGET_LABELS.engine,
+    labelKey: WIDGET_LABEL_KEYS.engine,
     group: "car",
     variants: [
-      { key: "compact", label: "Water / oil", baseW: 110 },
-      { key: "detailed", label: "Detailed", baseW: 130 },
+      { key: "compact", labelKey: "widget.variant.waterOil", baseW: 110 },
+      { key: "detailed", labelKey: "widget.variant.detailed", baseW: 130 },
     ],
     defaultVariant: "compact",
     sizes: [
@@ -237,9 +238,9 @@ export const WIDGET_META: Record<WidgetId, WidgetMeta> = {
     ],
   },
   aids: {
-    label: WIDGET_LABELS.aids,
+    labelKey: WIDGET_LABEL_KEYS.aids,
     group: "car",
-    variants: [{ key: "badges", label: "Badges", baseW: 130 }],
+    variants: [{ key: "badges", labelKey: "widget.variant.badges", baseW: 130 }],
     defaultVariant: "badges",
     sizes: [
       [2, 1],
@@ -248,11 +249,11 @@ export const WIDGET_META: Record<WidgetId, WidgetMeta> = {
     ],
   },
   boost: {
-    label: WIDGET_LABELS.boost,
+    labelKey: WIDGET_LABEL_KEYS.boost,
     group: "driving",
     variants: [
-      { key: "digits", label: "Digits" },
-      { key: "gauge", label: "Gauge", baseW: 96 },
+      { key: "digits", labelKey: "widget.variant.digits" },
+      { key: "gauge", labelKey: "widget.variant.gauge", baseW: 96 },
     ],
     defaultVariant: "digits",
     sizes: [
@@ -262,11 +263,11 @@ export const WIDGET_META: Record<WidgetId, WidgetMeta> = {
     ],
   },
   alerts: {
-    label: WIDGET_LABELS.alerts,
+    labelKey: WIDGET_LABEL_KEYS.alerts,
     group: "race",
     variants: [
-      { key: "banner", label: "Banner", baseW: 220 },
-      { key: "list", label: "List", baseW: 160 },
+      { key: "banner", labelKey: "widget.variant.banner", baseW: 220 },
+      { key: "list", labelKey: "widget.variant.list", baseW: 160 },
     ],
     defaultVariant: "banner",
     frameless: true,

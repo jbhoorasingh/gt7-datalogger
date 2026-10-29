@@ -2,6 +2,7 @@
 // Categories carry their own colour so a feed can be skimmed: what the
 // engineer is talking about is legible before the sentence is read.
 
+import { useT } from "@/i18n";
 import type { CalloutCategory } from "@/lib/types";
 
 export const CATEGORY_PILL: Partial<Record<CalloutCategory, string>> = {
@@ -13,13 +14,14 @@ export const CATEGORY_PILL: Partial<Record<CalloutCategory, string>> = {
 };
 
 export function CalloutPill({ category }: { category: CalloutCategory }) {
+  const t = useT();
   return (
     <span
       className={`shrink-0 rounded-[9px] px-2 py-px text-[10px] ${
         CATEGORY_PILL[category] ?? "bg-edge text-ink-soft"
       }`}
     >
-      {category}
+      {t(`category.${category}`)}
     </span>
   );
 }

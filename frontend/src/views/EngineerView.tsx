@@ -6,48 +6,21 @@
 import { useEffect, useState } from "react";
 import { CalloutPill } from "@/components/CalloutPill";
 import { ChaseReferenceSelector } from "@/components/ChaseReferenceSelector";
+import { LanguagePicker } from "@/components/LanguagePicker";
+import { CalloutLanguageRow, VoiceLanguageNotice, voiceOptions } from "@/components/RaceEngineerPanel";
 import { Toggle } from "@/components/ui/Toggle";
-import { CALLOUT_CATALOG } from "@/lib/calloutCatalog";
+import { useLanguage, useT } from "@/i18n";
+import { calloutExample, CALLOUT_CATALOG } from "@/lib/calloutCatalog";
 import { formatAge, voiceState, type VoiceState } from "@/lib/engineerState";
 import { onVoicesChanged } from "@/lib/speech";
-import {
-  CALLOUT_CATEGORIES,
-  VERBOSITY_CATEGORIES,
-  type CalloutCategory,
-  type Verbosity,
-} from "@/lib/types";
+import { CALLOUT_CATEGORIES, VERBOSITY_CATEGORIES, type CalloutCategory, type Verbosity } from "@/lib/types";
 import { STALE_AFTER_MS } from "@/lib/useLiveFrame";
 import { useNow } from "@/lib/useNow";
 import { useVoiceClient } from "@/lib/useVoiceClient";
-import { clientId, useEngineer } from "@/store/engineer";
+import { clientId, spokenLanguage, useCalloutWording, useEngineer } from "@/store/engineer";
 import { liveFrameRef, useTelemetry } from "@/store/telemetry";
 
-const VERBOSITY_LABEL: Record<Verbosity, string> = {
-  minimal: "Minimal",
-  race: "Race",
-  coach: "Coach",
-};
-
-// Worded from VERBOSITY_CATEGORIES, so each hint names what that level adds.
-const VERBOSITY_HINT: Record<Verbosity, string> = {
-  minimal: "Only what needs action: pit window, fuel shortage, engine, final lap.",
-  race: "Adds lap times, bests, positions and fuel range.",
-  coach: "Everything, plus tires, chassis, lockups, wheelspin and corner feedback.",
-};
-
-const CATEGORY_HINT: Record<CalloutCategory, string> = {
-  system: "status messages",
-  lap: "lap times",
-  pace: "personal bests",
-  race: "final lap, halfway",
-  position: "position changes",
-  fuel: "fuel range",
-  strategy: "pit window, fuel shortage",
-  engine: "temperatures, oil pressure",
-  tires: "tire temperature and balance",
-  chassis: "ride height, kerbs",
-  coaching: "lockups, wheelspin, corner losses",
-};
+const VERBOSITIES: Verbosity[] = ["minimal", "race", "coach"];
 
 const SETTINGS_ENGINEER = "/#/settings/race-engineer";
 
@@ -59,6 +32,7 @@ export function EngineerView() {
     return () => document.body.classList.remove("overlay-page");
   }, []);
 
+  const t = useT();
   const level = useEngineer((s) => s.serverStatus?.verbosity ?? null);
   const sessionLine = useSessionLine();
 
@@ -68,17 +42,18 @@ export function EngineerView() {
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2">
             <span className="h-[7px] w-[7px] rounded-full bg-accent shadow-[0_0_8px_var(--color-accent)]" />
-            <h1 className="text-[15px] font-medium">Race Engineer</h1>
+            <h1 className="text-[15px] font-medium">{t("engineer.title")}</h1>
           </div>
           <span className="font-tabular text-[11px] text-ink-faint">{sessionLine}</span>
           {/* /#/live and /dash: this page has no nav, and /engineer may be a
               path where a bare hash change would go nowhere. */}
-          <div className="ml-auto flex gap-2">
+          <div className="ml-auto flex items-center gap-2">
+            <LanguagePicker className="h-[30px]" />
             <a className="btn" href="/#/live">
-              ← Live
+              {t("engineer.back")}
             </a>
             <a className="btn" href="/dash">
-              Dash
+              {t("engineer.dash")}
             </a>
           </div>
         </div>
@@ -95,11 +70,12 @@ export function EngineerView() {
         </div>
 
         <span className="text-center text-[10.5px] text-ink-ghost">
-          The server’s ceiling (
+          {t("engineer.ceiling.before")}
           <a className="text-ink-ghost hover:text-ink-dim hover:underline" href={SETTINGS_ENGINEER}>
-            Settings › Race Engineer
+            {t("engineer.settingsLink")}
           </a>
-          {level ? `: ${level}` : ""}) limits what any device can hear.
+          {level ? `: ${t(`verbosity.${level}`)}` : ""}
+          {t("engineer.ceiling.after")}
         </span>
       </div>
     </div>
@@ -109,16 +85,17 @@ export function EngineerView() {
 // Car · track · lap from the live frame, sampled once a second — this page
 // has no gauges, so the 15 Hz frame hook would only re-render it for nothing.
 function useSessionLine(): string {
+  const t = useT();
   const [line, setLine] = useState("");
   useEffect(() => {
     const tick = () => {
       const f = liveFrameRef.current;
       if (!f || performance.now() - liveFrameRef.at > STALE_AFTER_MS) {
-        setLine("no telemetry");
+        setLine(t("engineer.noTelemetry"));
         return;
       }
       setLine(
-        [f.car_name, f.track_name, f.current_lap > 0 ? `lap ${f.current_lap}` : ""]
+        [f.car_name, f.track_name, f.current_lap > 0 ? t("engineer.lapN", { n: f.current_lap }) : ""]
           .filter(Boolean)
           .join(" · "),
       );
@@ -126,12 +103,11 @@ function useSessionLine(): string {
     tick();
     const timer = window.setInterval(tick, 1000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [t]);
   return line;
 }
 
 interface StateLook {
-  title: string;
   sub: string;
   dot: string;
   halo: string;
@@ -141,28 +117,24 @@ interface StateLook {
 
 const LOOK: Record<VoiceState, Omit<StateLook, "sub">> = {
   speaking: {
-    title: "Speaking on this device",
     dot: "bg-throttle shadow-[0_0_10px_var(--color-throttle)]",
     halo: "bg-throttle/14",
     ring: "color-mix(in srgb, var(--color-throttle) 35%, transparent)",
     pulse: true,
   },
   off: {
-    title: "Voice is off",
     dot: "bg-ink-faint",
     halo: "bg-panel-2",
     ring: "var(--color-hairline)",
     pulse: false,
   },
   other: {
-    title: "Speaking on another device",
     dot: "bg-warn shadow-[0_0_10px_var(--color-warn)]",
     halo: "bg-warn/14",
     ring: "color-mix(in srgb, var(--color-warn) 30%, transparent)",
     pulse: false,
   },
   error: {
-    title: "Speech is failing",
     dot: "bg-brake shadow-[0_0_10px_var(--color-brake)]",
     halo: "bg-brake/14",
     ring: "color-mix(in srgb, var(--color-brake) 40%, transparent)",
@@ -186,6 +158,7 @@ const TONE_TEXT: Record<Tone, string> = {
 };
 
 function Hero() {
+  const t = useT();
   const s = useEngineer();
   const wsConnected = useTelemetry((st) => st.wsConnected);
   const [testing, setTesting] = useState(false);
@@ -201,14 +174,16 @@ function Hero() {
     )?.page ?? null;
 
   const sub: Record<VoiceState, string> = {
-    speaking: "Callouts play here. Keep this tab open — the phone can sleep its screen.",
-    off: "One tap turns it on. Browsers need that tap before they’re allowed to speak.",
-    other: `${otherPage ? `The /${otherPage} page on another device` : "Another device"} has the voice. Only one device speaks at a time.`,
+    speaking: t("engineer.hero.speakingSub"),
+    off: t("engineer.hero.offSub"),
+    other: otherPage
+      ? t("engineer.hero.otherPageSub", { page: `/${otherPage}` })
+      : t("engineer.hero.otherSub"),
     error: !s.supported
-      ? "This browser has no speech synthesis. Callouts still show below and as captions on /dash."
-      : `This browser receives callouts but can’t play them${
-          s.speechError ? ` (${s.speechError})` : ""
-        }. Try another voice, or an on-device one.`,
+      ? t("engineer.hero.unsupportedSub")
+      : s.speechError
+        ? t("engineer.hero.errorSubReason", { reason: s.speechError })
+        : t("engineer.hero.errorSub"),
   };
   const look = LOOK[state];
 
@@ -218,45 +193,50 @@ function Hero() {
 
   const primary =
     state === "speaking" ? (
-      <HeroButton onClick={() => s.setEnabled(false)}>Stop speaking here</HeroButton>
+      <HeroButton onClick={() => s.setEnabled(false)}>{t("engineer.stopHere")}</HeroButton>
     ) : state === "off" ? (
       <HeroButton primary onClick={takeOver}>
-        Turn on voice
+        {t("engineer.turnOn")}
       </HeroButton>
     ) : state === "other" ? (
       <HeroButton primary onClick={takeOver}>
-        Speak here instead
+        {t("engineer.speakHere")}
       </HeroButton>
     ) : s.supported ? (
       <HeroButton primary onClick={() => void s.enableVoice()}>
-        Try again
+        {t("engineer.tryAgain")}
       </HeroButton>
     ) : null;
 
   const serverTone: Tone = wsConnected ? "ok" : "bad";
   const callouts: [string, Tone] =
     s.serverStatus == null
-      ? ["unknown", "none"]
+      ? [t("engineer.check.unknown"), "none"]
       : !s.serverStatus.enabled
-        ? ["off on the server", "warn"]
+        ? [t("engineer.check.offOnServer"), "warn"]
         : s.serverStatus.active
-          ? [`running · ${s.receivedCount} received`, "ok"]
-          : ["idle", "none"];
+          ? [t("engineer.check.running", { count: s.receivedCount }), "ok"]
+          : [t("engineer.check.idle"), "none"];
   const audio: [string, Tone] = !s.supported
-    ? ["unsupported", "bad"]
+    ? [t("engineer.check.unsupported"), "bad"]
     : s.speechError && s.enabled
-      ? [`${s.failedCount} failed`, "bad"]
+      ? [t("engineer.check.failed", { n: s.failedCount }), "bad"]
       : !armed
-        ? ["needs a tap", "warn"]
+        ? [t("engineer.check.needsTap"), "warn"]
         : s.spokenCount > 0
-          ? ["speaking", "ok"]
-          : ["armed", "ok"];
+          ? [t("engineer.check.speaking"), "ok"]
+          : [t("engineer.check.armed"), "ok"];
   const speaker: [string, Tone] =
     state === "speaking"
-      ? ["this device", "ok"]
+      ? [t("engineer.check.thisDevice"), "ok"]
       : s.activeClientId !== "" && s.activeClientId !== me
-        ? [otherPage ? `another · /${otherPage}` : "another device", "warn"]
-        : ["none", "none"];
+        ? [
+            otherPage
+              ? t("engineer.check.anotherPage", { page: `/${otherPage}` })
+              : t("engineer.check.anotherDevice"),
+            "warn",
+          ]
+        : [t("engineer.check.none"), "none"];
 
   return (
     <div
@@ -273,7 +253,7 @@ function Hero() {
             />
           </span>
           <div>
-            <div className="text-xl font-medium">{look.title}</div>
+            <div className="text-xl font-medium">{t(`engineer.hero.${state}`)}</div>
             <div className="mt-0.5 text-xs text-ink-dim">{sub[state]}</div>
           </div>
         </div>
@@ -288,14 +268,18 @@ function Hero() {
               window.setTimeout(() => setTesting(false), 1500);
             }}
           >
-            {testing ? "Playing…" : "Test voice"}
+            {testing ? t("engineer.playing") : t("engineer.testVoice")}
           </button>
         </div>
         <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2 gap-y-1.5">
-          <Check k="Server" v={wsConnected ? "connected" : "offline"} tone={serverTone} />
-          <Check k="Callouts" v={callouts[0]} tone={callouts[1]} />
-          <Check k="Browser audio" v={audio[0]} tone={audio[1]} />
-          <Check k="Speaker" v={speaker[0]} tone={speaker[1]} />
+          <Check
+            k={t("engineer.check.server")}
+            v={wsConnected ? t("engineer.check.connected") : t("engineer.check.offline")}
+            tone={serverTone}
+          />
+          <Check k={t("engineer.check.callouts")} v={callouts[0]} tone={callouts[1]} />
+          <Check k={t("engineer.check.audio")} v={audio[0]} tone={audio[1]} />
+          <Check k={t("engineer.check.speaker")} v={speaker[0]} tone={speaker[1]} />
         </div>
       </div>
       <LastCallout />
@@ -333,6 +317,8 @@ function Check({ k, v, tone }: { k: string; v: string; tone: Tone }) {
 }
 
 function LastCallout() {
+  const t = useT();
+  const word = useCalloutWording();
   const latest = useEngineer((s) => s.history[0] ?? null);
   const receipt = useEngineer((s) => (latest ? s.receipts[latest.id] : undefined));
   const supported = useEngineer((s) => s.supported);
@@ -342,11 +328,11 @@ function LastCallout() {
   return (
     <div className="flex flex-col justify-center gap-2.5 bg-panel-2 p-5">
       <div className="flex items-center gap-2">
-        <span className="section-header">Last callout</span>
+        <span className="section-header">{t("engineer.lastCallout")}</span>
         {latest && <CalloutPill category={latest.category} />}
         {receipt && (
           <span className="font-tabular text-[10.5px] text-ink-faint">
-            {formatAge(now - receipt.receivedAt)}
+            {formatAge(now - receipt.receivedAt, t)}
           </span>
         )}
         {latest && (
@@ -355,25 +341,26 @@ function LastCallout() {
             disabled={!supported}
             onClick={() => replay(latest)}
           >
-            Replay
+            {t("engineer.replay")}
           </button>
         )}
       </div>
       {latest ? (
         <div className="text-2xl font-medium leading-tight [text-wrap:balance]">
-          “{latest.text}”
+          {t("engineer.quoted", { text: word(latest) })}
         </div>
       ) : (
-        <div className="text-[13px] text-ink-faint">
-          Nothing yet. Callouts show here as they arrive, whether or not this device is
-          the one speaking.
-        </div>
+        <div className="text-[13px] text-ink-faint">{t("engineer.nothingYet")}</div>
       )}
     </div>
   );
 }
 
 function WhatYoullHear() {
+  const t = useT();
+  const ui = useLanguage();
+  const calloutLanguage = useEngineer((s) => s.calloutLanguage);
+  const language = spokenLanguage(calloutLanguage, ui);
   const verbosity = useEngineer((s) => s.verbosity);
   const categories = useEngineer((s) => s.categories);
   const setVerbosity = useEngineer((s) => s.setVerbosity);
@@ -390,13 +377,13 @@ function WhatYoullHear() {
   return (
     <div className="panel">
       <div className="flex items-baseline gap-2 px-4 py-2.5">
-        <span className="section-header">What you’ll hear</span>
-        <span className="text-[10.5px] text-ink-faint">this device only</span>
+        <span className="section-header">{t("engineer.hear.title")}</span>
+        <span className="text-[10.5px] text-ink-faint">{t("engineer.thisDeviceOnly")}</span>
       </div>
       <div className="rule" />
       <div className="flex flex-col gap-3 px-4 py-3.5">
-        <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-label="Verbosity">
-          {(Object.keys(VERBOSITY_LABEL) as Verbosity[]).map((v) => (
+        <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-label={t("engineer.verbosity")}>
+          {VERBOSITIES.map((v) => (
             <button
               key={v}
               role="radio"
@@ -408,10 +395,10 @@ function WhatYoullHear() {
               }`}
               onClick={() => setVerbosity(v)}
             >
-              <span className={`text-[13px] ${verbosity === v ? "text-accent-300" : "text-ink"}`}>
-                {VERBOSITY_LABEL[v]}
+              <span className={`text-[13px] capitalize ${verbosity === v ? "text-accent-300" : "text-ink"}`}>
+                {t(`verbosity.${v}`)}
               </span>
-              <span className="text-[10.5px] leading-snug text-ink-dim">{VERBOSITY_HINT[v]}</span>
+              <span className="text-[10.5px] leading-snug text-ink-dim">{t(`verbosity.${v}.hint`)}</span>
             </button>
           ))}
         </div>
@@ -427,10 +414,13 @@ function WhatYoullHear() {
                 aria-pressed={picked}
                 title={
                   !onServer(c)
-                    ? `${CATEGORY_HINT[c]} — the server doesn’t send this`
+                    ? t("engineer.category.notSent", { hint: t(`category.${c}.hint`) })
                     : !inMode(c)
-                      ? `${CATEGORY_HINT[c]} — off at ${verbosity}`
-                      : CATEGORY_HINT[c]
+                      ? t("engineer.category.offAt", {
+                          hint: t(`category.${c}.hint`),
+                          verbosity: t(`verbosity.${verbosity}`),
+                        })
+                      : t(`category.${c}.hint`)
                 }
                 className={`rounded border px-2.5 py-[5px] text-[11.5px] capitalize transition-colors disabled:cursor-default disabled:opacity-40 ${
                   picked
@@ -439,7 +429,7 @@ function WhatYoullHear() {
                 }`}
                 onClick={() => toggleCategory(c, !categories.includes(c))}
               >
-                {c}
+                {t(`category.${c}`)}
               </button>
             );
           })}
@@ -447,30 +437,34 @@ function WhatYoullHear() {
         <span className="text-[11px] text-ink-faint">
           {greyed > 0 ? (
             <>
-              {greyed} categor{greyed > 1 ? "ies are" : "y is"} greyed because the server
-              only sends up to “{serverStatus?.verbosity}”. Raise it in{" "}
+              {t("engineer.hear.greyed", {
+                count: greyed,
+                verbosity: serverStatus ? t(`verbosity.${serverStatus.verbosity}`) : "",
+              })}{" "}
               <a className="text-accent hover:underline" href={SETTINGS_ENGINEER}>
-                Settings › Race Engineer
+                {t("engineer.settingsLink")}
               </a>
-              .
+              {t("engineer.hear.greyedAfter")}
             </>
           ) : (
-            "Tap a category to mute it on this device."
+            t("engineer.hear.tapToMute")
           )}
           {verbosity === "coach" && serverStatus && !serverStatus.coaching_ready && (
-            <> Coaching needs a few laps that agree on the track distance first.</>
+            <> {t("engineer.hear.coachingWaits")}</>
           )}
         </span>
 
         <details className="text-[11px] text-ink-dim">
           <summary className="cursor-pointer text-ink-faint hover:text-ink-dim">
-            Sample callouts per category
+            {t("engineer.hear.samples")}
           </summary>
           <div className="mt-2 flex flex-col gap-1.5 leading-snug">
             {CALLOUT_CATEGORIES.map((c) => (
               <span key={c} className={inMode(c) && onServer(c) ? "" : "opacity-50"}>
-                <b className="font-medium capitalize text-ink">{c}</b> —{" "}
-                {CALLOUT_CATALOG[c].callouts.map((x) => `“${x.example}”`).join(" · ")}
+                <b className="font-medium capitalize text-ink">{t(`category.${c}`)}</b> —{" "}
+                {CALLOUT_CATALOG[c].callouts
+                  .map((x) => t("engineer.quoted", { text: calloutExample(x, language) }))
+                  .join(" · ")}
               </span>
             ))}
           </div>
@@ -481,61 +475,57 @@ function WhatYoullHear() {
 }
 
 function VoicePanel() {
+  const t = useT();
+  const ui = useLanguage();
   const s = useEngineer();
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   useEffect(() => onVoicesChanged(setVoices), []);
+  const language = spokenLanguage(s.calloutLanguage, ui);
+  const options = voiceOptions(voices, language, s.voiceURI);
 
   return (
     <div className="panel">
       <div className="px-4 py-2.5">
-        <span className="section-header">Voice</span>
+        <span className="section-header">{t("engineer.voice")}</span>
       </div>
       <div className="rule" />
       <div className="flex flex-col gap-3 px-4 py-3.5">
         {s.supported && voices.length === 0 && (
           <p className="rounded-md border border-warn/40 bg-warn/10 p-2 text-[11px] text-warn">
-            No speech voices found. Browsers load the list a moment after the page, so
-            this may clear on its own — but if it does not, the browser has no voices to
-            speak with (Chrome on Linux needs a speech engine such as speech-dispatcher
-            installed).
+            {t("engineer.noVoices")}
           </p>
         )}
+        <CalloutLanguageRow />
+        <VoiceLanguageNotice voices={voices} language={language} />
         {/* Native select, not ui/Select: the on-device/network split needs
             optgroups. A network-backed voice accepts speak() and can then
             never start, which surfaces only as "no response from the speech
             engine"; grouping is how the two are told apart. */}
         <select
-          aria-label="Voice"
+          aria-label={t("engineer.voice")}
           className="w-full rounded-[5px] border border-edge bg-panel-2 px-2.5 py-2 text-[12.5px] text-ink-soft focus:border-accent focus:outline-none"
-          value={s.voiceURI}
+          value={options.value}
           disabled={!s.supported}
-          onChange={(e) => {
-            const voice = voices.find((v) => v.voiceURI === e.target.value);
-            s.setVoice(e.target.value, voice?.lang ?? s.lang);
-          }}
+          onChange={(e) => s.setVoice(e.target.value)}
         >
-          <option value="">Browser default (on-device voice)</option>
-          {(["local", "network"] as const).map((kind) => {
-            const group = voices.filter((v) => v.localService === (kind === "local"));
-            if (!group.length) return null;
-            return (
-              <optgroup
-                key={kind}
-                label={kind === "local" ? "On-device (recommended)" : "Network — may not start"}
-              >
-                {group.map((v) => (
-                  <option key={v.voiceURI} value={v.voiceURI}>
-                    {v.name} — {v.lang}
-                  </option>
-                ))}
-              </optgroup>
-            );
-          })}
+          <option value="">{t("engineer.voiceDefault")}</option>
+          {options.groups.map((group) => (
+            <optgroup
+              key={group.kind}
+              label={group.kind === "local" ? t("engineer.voiceLocal") : t("engineer.voiceNetwork")}
+            >
+              {group.voices.map((v) => (
+                <option key={v.voiceURI} value={v.voiceURI}>
+                  {v.name} — {v.lang}
+                </option>
+              ))}
+            </optgroup>
+          ))}
         </select>
 
         <div className="grid grid-cols-3 gap-3.5">
           <Slider
-            label="Volume"
+            label={t("engineer.volume")}
             value={s.volume}
             display={`${Math.round(s.volume * 100)}%`}
             min={0}
@@ -543,7 +533,7 @@ function VoicePanel() {
             onChange={(volume) => s.setAudio({ volume })}
           />
           <Slider
-            label="Rate"
+            label={t("engineer.rate")}
             value={s.rate}
             display={`${s.rate.toFixed(2)}×`}
             min={0.6}
@@ -551,7 +541,7 @@ function VoicePanel() {
             onChange={(rate) => s.setAudio({ rate })}
           />
           <Slider
-            label="Pitch"
+            label={t("engineer.pitch")}
             value={s.pitch}
             display={s.pitch.toFixed(2)}
             min={0.6}
@@ -562,14 +552,14 @@ function VoicePanel() {
 
         <div className="flex flex-col gap-0.5">
           <ToggleRow
-            label="On-screen captions"
-            hint="on /dash and overlays"
+            label={t("engineer.captions")}
+            hint={t("engineer.captionsHint")}
             checked={s.captions}
             onChange={s.setCaptions}
           />
           <ToggleRow
-            label="Quiet when tab is hidden"
-            hint="for a laptop you also browse on"
+            label={t("engineer.quietHidden")}
+            hint={t("engineer.quietHiddenHint")}
             checked={s.muteWhenHidden}
             onChange={s.setMuteWhenHidden}
           />
@@ -634,21 +624,20 @@ function ToggleRow({
 }
 
 function CalloutFeed() {
+  const t = useT();
+  const word = useCalloutWording();
   const history = useEngineer((s) => s.history);
   const receipts = useEngineer((s) => s.receipts);
 
   return (
     <div className="panel min-w-0">
       <div className="flex flex-wrap items-baseline gap-2 px-4 py-2.5">
-        <span className="section-header">Callouts this session</span>
-        <span className="text-[10.5px] text-ink-faint">shown even when not speaking here</span>
+        <span className="section-header">{t("engineer.feed.title")}</span>
+        <span className="text-[10.5px] text-ink-faint">{t("engineer.feed.sub")}</span>
       </div>
       <div className="rule" />
       {history.length === 0 ? (
-        <p className="px-4 py-3 text-[11px] text-ink-faint">
-          Nothing yet. Callouts appear here as they arrive, whether or not this device is
-          the one speaking.
-        </p>
+        <p className="px-4 py-3 text-[11px] text-ink-faint">{t("engineer.nothingYet")}</p>
       ) : (
         <div className="flex flex-col px-4 pb-2.5 pt-1">
           {history.map((callout, i) => {
@@ -663,14 +652,14 @@ function CalloutFeed() {
                 }`}
               >
                 <span className="font-tabular text-[10.5px] text-ink-faint">
-                  {receipt?.lap ? `L${receipt.lap}` : "—"}
+                  {receipt?.lap ? t("engineer.feed.lap", { n: receipt.lap }) : "—"}
                 </span>
                 <div className="flex flex-col gap-1">
                   <span className="flex items-center gap-1.5">
                     <CalloutPill category={callout.category} />
-                    {note && <span className="text-[10px] text-ink-ghost">{note}</span>}
+                    {note && <span className="text-[10px] text-ink-ghost">{t(note.key, note.vars)}</span>}
                   </span>
-                  <span className="text-[12.5px] leading-snug">{callout.text}</span>
+                  <span className="text-[12.5px] leading-snug">{word(callout)}</span>
                 </div>
               </div>
             );

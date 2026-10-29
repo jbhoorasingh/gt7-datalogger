@@ -25,14 +25,20 @@ class LapDetector(Detector):
         if prev is not None and lap.time_ms < prev:
             gain = prev - lap.time_ms
             text = f"New personal best, {spoken}."
-            if gain >= MIN_GAP_MS:
+            said_gain = gain >= MIN_GAP_MS
+            if said_gain:
                 text += f" {spoken_gap(gain).capitalize()} faster."
             return [
                 CalloutRequest(
                     event_type="personal_best",
                     text=text,
                     message_key="lap.personal_best",
-                    message_args={"time_ms": lap.time_ms, "gain_ms": gain},
+                    # Arguments carry what the sentence says: a gap too small
+                    # to mention is None, so a translation leaves it out too.
+                    message_args={
+                        "time_ms": lap.time_ms,
+                        "gain_ms": gain if said_gain else None,
+                    },
                     dedupe_key=f"personal_best:{key}",
                     metadata={"lap": lap.number, "time_ms": lap.time_ms, "gain_ms": gain},
                 )
@@ -40,14 +46,18 @@ class LapDetector(Detector):
 
         text = f"Lap time, {spoken}."
         diff = lap.time_ms - prev if prev is not None else 0
-        if prev is not None and abs(diff) >= MIN_GAP_MS:
+        said_delta = prev is not None and abs(diff) >= MIN_GAP_MS
+        if said_delta:
             text += f" {spoken_gap(diff).capitalize()} {'slower' if diff > 0 else 'faster'}."
         return [
             CalloutRequest(
                 event_type="lap_time",
                 text=text,
                 message_key="lap.time",
-                message_args={"time_ms": lap.time_ms, "delta_ms": diff},
+                message_args={
+                    "time_ms": lap.time_ms,
+                    "delta_ms": diff if said_delta else None,
+                },
                 dedupe_key=f"lap_time:{key}",
                 metadata={"lap": lap.number, "time_ms": lap.time_ms, "delta_ms": diff},
             )

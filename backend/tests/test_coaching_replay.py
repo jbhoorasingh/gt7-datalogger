@@ -62,6 +62,8 @@ def test_replay_speaks_the_live_braking_callout() -> None:
     assert finding["type"] == "braking_early"
     assert finding["text"] == "You are braking early into turn four, about thirty meters."
     assert finding["corner"] == 4
+    assert finding["message_key"] == "coaching.braking_early"
+    assert finding["message_args"]["corner"] == 4
 
 
 def test_replay_says_each_observation_once() -> None:

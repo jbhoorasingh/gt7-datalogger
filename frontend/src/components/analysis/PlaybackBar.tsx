@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Tip } from "@/components/ui/Tooltip";
+import { useT } from "@/i18n";
 import { formatLapTime, speedUnit, speedValue } from "@/lib/format";
 import {
   advancePlayhead,
@@ -45,6 +46,7 @@ export function PlaybackBar({
   /** Reported up so the view can let the playhead own the cursor over hover. */
   onPlayingChange?: (playing: boolean) => void;
 }) {
+  const t = useT();
   const endS = playbackEnd(series);
   const units = useSettings((s) => s.units);
   const [playing, setPlaying] = useState(false);
@@ -153,10 +155,10 @@ export function PlaybackBar({
 
   return (
     <div className="panel mb-3 flex flex-wrap items-center gap-3.5 px-3.5 py-2">
-      <Tip content={playing ? "Pause" : "Play the reference lap (drives every cursor-synced panel)"}>
+      <Tip content={playing ? t("playback.pause") : t("playback.playTip")}>
         <button
           onClick={toggle}
-          aria-label={playing ? "Pause playback" : "Play lap"}
+          aria-label={playing ? t("playback.pauseAria") : t("playback.playAria")}
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-accent bg-accent/12 text-[11px] text-accent transition-colors hover:bg-accent/22"
         >
           {playing ? "❚❚" : "▶"}
@@ -169,7 +171,7 @@ export function PlaybackBar({
         step={endS / 2000}
         value={Math.min(tUI, endS)}
         onChange={(e) => seek(Number(e.target.value))}
-        aria-label="Lap position"
+        aria-label={t("playback.position")}
         className="min-w-40 flex-1"
       />
       {/* Fixed width: the readout must not shift the controls beside it as
@@ -179,7 +181,7 @@ export function PlaybackBar({
         <span className="text-ink-faint"> / {formatLapTime(Math.round(endS * 1000))}</span>
       </span>
       <SegmentedControl
-        ariaLabel="Playback speed"
+        ariaLabel={t("playback.speed")}
         size="sm"
         value={String(speed)}
         onValueChange={(v) => setSpeed(Number(v))}
@@ -193,8 +195,8 @@ export function PlaybackBar({
           role="img"
           aria-label={
             frame.steer_rad != null
-              ? `Steering ${Math.round(steerDeg)} degrees`
-              : "Steering unknown"
+              ? t("playback.steering", { deg: String(Math.round(steerDeg)) })
+              : t("playback.steeringUnknown")
           }
         >
           <circle cx="17" cy="17" r="14" fill="none" stroke="var(--color-ink-ghost)" strokeWidth="2.5" />
@@ -220,7 +222,8 @@ export function PlaybackBar({
             {gearText}
           </div>
           <div className="whitespace-nowrap text-[8px] uppercase tracking-[0.14em] text-ink-faint">
-            gear{suggested != null ? ` → ${suggested}` : ""}
+            {t("playback.gear")}
+            {suggested != null ? ` → ${suggested}` : ""}
           </div>
         </div>
         <div className="w-[60px] text-center">

@@ -7,6 +7,7 @@
 
 import { memo, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { CARD_PAD, widgetZoom } from "@/components/GridRenderer";
+import { useT } from "@/i18n";
 import type { LayoutCell, LayoutConfig } from "@/lib/layout";
 import type { LapSummary, LiveFrame } from "@/lib/types";
 import { WIDGET_META, widgetBaseW } from "@/lib/widgetMeta";
@@ -61,6 +62,7 @@ export function GridCanvas({
   // Rendered under the canvas once its scale is known (the caption).
   footer?: (scale: number) => ReactNode;
 }) {
+  const t = useT();
   const container = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
   // The ref is authoritative: pointermove + pointerup can fire faster than a
@@ -307,14 +309,14 @@ export function GridCanvas({
                         options={cell.options ?? {}}
                       />
                     ) : (
-                      <span className="text-xs text-ink-dim">{WIDGET_META[cell.widget].label}</span>
+                      <span className="text-xs text-ink-dim">{t(WIDGET_META[cell.widget].labelKey)}</span>
                     )}
                   </div>
                   {/* empty frameless widgets (e.g. alerts with nothing firing)
                       would be invisible and undraggable — give them a label */}
                   {frameless && (
                     <span className="pointer-events-none absolute left-1 top-1 rounded bg-black/50 px-1 text-[8px] uppercase tracking-wider text-ink-dim">
-                      {WIDGET_META[cell.widget].label}
+                      {t(WIDGET_META[cell.widget].labelKey)}
                     </span>
                   )}
                 </div>
@@ -345,12 +347,12 @@ export function GridCanvas({
                       padding: `${2 * px}px ${8 * px}px`,
                     }}
                   >
-                    {WIDGET_META[selectedCell.widget].label} · {selectedCell.w}×{selectedCell.h}
+                    {t(WIDGET_META[selectedCell.widget].labelKey)} · {selectedCell.w}×{selectedCell.h}
                   </span>
                 )}
                 <div
                   className="pointer-events-auto absolute cursor-nwse-resize touch-none border-accent"
-                  title="Drag to resize"
+                  title={t("layout.canvas.dragResize")}
                   style={{
                     right: -3 * px,
                     bottom: -3 * px,

@@ -2,6 +2,8 @@
 // all encoded in the URL hash so OBS, a phone, and a second monitor can each
 // load their own setup, e.g. /#overlay?w=gear,speed&layout=grid&scale=1.25
 
+import { currentLanguage, type MessageKey } from "@/i18n";
+
 export const WIDGET_IDS = [
   "gear",
   "speed",
@@ -23,23 +25,23 @@ export const WIDGET_IDS = [
 
 export type WidgetId = (typeof WIDGET_IDS)[number];
 
-export const WIDGET_LABELS: Record<WidgetId, string> = {
-  gear: "Gear",
-  speed: "Speed",
-  rpm: "RPM",
-  inputs: "Throttle / brake",
-  steering: "Steering wheel",
-  times: "Lap times",
-  delta: "Delta (big)",
-  position: "Race position",
-  tires: "Tire temps",
-  fuel: "Fuel",
-  strategy: "Fuel strategy",
-  clock: "In-game clock",
-  engine: "Engine temps",
-  aids: "Driver aids",
-  boost: "Boost",
-  alerts: "Race alerts",
+export const WIDGET_LABEL_KEYS: Record<WidgetId, MessageKey> = {
+  gear: "widget.name.gear",
+  speed: "widget.name.speed",
+  rpm: "widget.name.rpm",
+  inputs: "widget.name.inputs",
+  steering: "widget.name.steering",
+  times: "widget.name.times",
+  delta: "widget.name.delta",
+  position: "widget.name.position",
+  tires: "widget.name.tires",
+  fuel: "widget.name.fuel",
+  strategy: "widget.name.strategy",
+  clock: "widget.name.clock",
+  engine: "widget.name.engine",
+  aids: "widget.name.aids",
+  boost: "widget.name.boost",
+  alerts: "widget.name.alerts",
 };
 
 export type OverlayLayout = "strip" | "stack" | "grid";
@@ -73,11 +75,11 @@ export interface OverlayConfig {
 export const DEFAULT_PAD = 16;
 
 // Common stream canvas sizes; "custom" comes from free W x H inputs.
-export const SIZE_PRESETS: { label: string; size: OverlaySize }[] = [
-  { label: "full HD", size: { width: 1920, height: 1080 } },
-  { label: "bottom strip", size: { width: 1920, height: 260 } },
-  { label: "TikTok / Shorts", size: { width: 1080, height: 1920 } },
-  { label: "vertical 720p", size: { width: 720, height: 1280 } },
+export const SIZE_PRESETS: { labelKey: MessageKey; size: OverlaySize }[] = [
+  { labelKey: "overlay.size.fullHd", size: { width: 1920, height: 1080 } },
+  { labelKey: "overlay.size.bottomStrip", size: { width: 1920, height: 260 } },
+  { labelKey: "overlay.size.shorts", size: { width: 1080, height: 1920 } },
+  { labelKey: "overlay.size.vertical720", size: { width: 720, height: 1280 } },
 ];
 
 export const DEFAULT_CONFIG: OverlayConfig = {
@@ -226,5 +228,7 @@ export function buildOverlayUrl(
   if (config.padX !== DEFAULT_PAD || config.padY !== DEFAULT_PAD) {
     params.set("pad", `${config.padX}x${config.padY}`);
   }
+  const language = currentLanguage();
+  if (language !== "en") params.set("lang", language);
   return `${origin}/overlay?${params.toString()}`;
 }

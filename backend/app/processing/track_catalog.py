@@ -115,6 +115,7 @@ def suggest(
     best: dict[str, Any] | None = None
     best_score = 0.0
     best_why = ""
+    best_match: dict[str, Any] = {}
     for cfg in configs:
         if cfg["official_id"] in exclude:
             continue
@@ -122,22 +123,32 @@ def suggest(
         if score <= 0:
             continue
         why = "the name matches this layout exactly" if score >= 1.0 else "the name is close"
+        # The same reasoning as data, for a browser that words it in
+        # another language.
+        match: dict[str, Any] = {
+            "name": "exact" if score >= 1.0 else "close",
+            "length": None,
+            "measured_m": None,
+        }
         if length_m and cfg["length_m"]:
             rel = abs(length_m - cfg["length_m"]) / cfg["length_m"]
             if rel <= LENGTH_AGREE:
                 score += 0.15
                 why += f", and the measured lap length agrees ({length_m:.0f} m)"
+                match.update(length="agrees", measured_m=round(length_m))
             elif rel > LENGTH_DISAGREE:
                 # A name can be typed wrong; a lap length measured from
                 # driving it cannot be off by a sixth.
                 score -= 0.4
                 why += f", but the measured lap length disagrees ({length_m:.0f} m)"
+                match.update(length="disagrees", measured_m=round(length_m))
         if score > best_score:
-            best, best_score, best_why = cfg, score, why
+            best, best_score, best_why, best_match = cfg, score, why, match
     if best is None or best_score < SUGGEST_MIN_SCORE:
         return None
     return {
         **{k: v for k, v in best.items() if k != "elevation_m"},
         "confidence": round(min(best_score, 1.0), 2),
         "why": best_why,
+        "match": best_match,
     }

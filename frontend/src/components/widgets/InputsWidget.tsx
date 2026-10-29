@@ -1,16 +1,18 @@
+import { useT } from "@/i18n";
 import type { WidgetRenderProps } from "@/lib/widgetMeta";
 
 export function InputsWidget({ frame, variant }: WidgetRenderProps) {
+  const t = useT();
   if (variant === "bars-v") {
     return (
       <div className="flex items-end justify-center gap-2">
         {(
           [
-            ["T", frame.throttle, "bg-throttle"],
-            ["B", frame.brake, "bg-brake"],
+            [t("widget.inputs.throttle"), frame.throttle, "bg-throttle"],
+            [t("widget.inputs.brake"), frame.brake, "bg-brake"],
           ] as const
         ).map(([label, value, color]) => (
-          <div key={label} className="flex flex-col items-center gap-1">
+          <div key={color} className="flex flex-col items-center gap-1">
             <div className="flex h-16 w-3 items-end overflow-hidden rounded-full bg-white/10">
               <div className={`w-full ${color}`} style={{ height: `${value}%` }} />
             </div>

@@ -116,6 +116,11 @@ each track condition — are in the [widget reference](widgets.md).
 If the stream drops, the overlay renders nothing (an empty source, not a frozen box)
 until telemetry resumes.
 
+The overlay's text (tile headings, alerts) is in the language of the page you copied
+the URL from: a copied URL ends in `&lang=es` (`pt-BR`, `ja`) unless that page is in
+English. An OBS browser source has no language menu, so change the `lang` value to
+switch it; without one, the overlay follows the language OBS's browser reports.
+
 ## Placeholder mode
 
 The **Placeholder data when no telemetry** switch (or `demo=1` on any overlay/dash

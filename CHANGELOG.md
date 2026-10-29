@@ -7,6 +7,23 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Added
 
+- **Spanish, Brazilian Portuguese and Japanese.** A language menu in the status bar
+  (and on `/engineer`) sets this device's language; *Auto* follows the browser. The
+  Race Engineer speaks and captions its callouts in it, with that language's own
+  wording rather than a translated English sentence ("*Tiempo de vuelta, un minuto
+  32,5*", "*ラップタイム、1分32秒5*"), and its Voice panel can pick a different
+  **Callout language** from the interface's. Voices are listed for the callout
+  language; a device with none for it speaks the English and keeps the captions
+  translated. The whole interface is translated — every view, the dash and the OBS
+  overlays — except the setting names in **Settings › Advanced**, which the server
+  sends in English; dates follow the language too. A copied overlay or dash URL
+  carries the language (`&lang=es`), since an OBS source has no menu. Callout
+  `message_args` now describe the English sentence exactly — `null` for a clause it
+  leaves out, plus the sector-voice precision, corner names and spoken units — which is
+  what the browser words a translation from; the Analysis coaching notes carry the same
+  `message_key`/`message_args`, and a Tracks layout suggestion its reasoning as
+  `match` (#85).
+
 - **Backup: one file for a whole install.** Settings › Data › **Back up** makes
   `gt7-backup-<date>.zip` from the parts you pick: **Data** (every session and lap, as
   a copy of the database), **Surveys** (track bundles, corrections, survey logs, car

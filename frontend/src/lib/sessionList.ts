@@ -2,6 +2,7 @@
 // the free-text filter, and which lap-table columns say nothing because they
 // read the same on every lap, or have nothing to read at all.
 
+import { currentLanguage, t, type MessageKey } from "@/i18n";
 import type { GearChoice, LapSummary, SessionSummary } from "@/lib/types";
 
 const DAY_MS = 86_400_000;
@@ -21,15 +22,15 @@ function daysAgo(iso: string, now: Date): number | null {
 /** "Today" / "Yesterday" / "Earlier this week" / "Earlier this month" / "August 2026". */
 export function dateGroupLabel(iso: string, now: Date = new Date()): string {
   const days = daysAgo(iso, now);
-  if (days == null) return "Undated";
-  if (days <= 0) return "Today";
-  if (days === 1) return "Yesterday";
-  if (days < 7) return "Earlier this week";
+  if (days == null) return t("sessions.group.undated");
+  if (days <= 0) return t("sessions.group.today");
+  if (days === 1) return t("sessions.group.yesterday");
+  if (days < 7) return t("sessions.group.thisWeek");
   const d = new Date(iso);
   if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()) {
-    return "Earlier this month";
+    return t("sessions.group.thisMonth");
   }
-  return d.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  return d.toLocaleDateString(currentLanguage(), { month: "long", year: "numeric" });
 }
 
 /** Consecutive runs of the (newest-first) list under their date label. */
@@ -53,9 +54,10 @@ export function sessionWhen(iso: string, now: Date = new Date()): string {
   const days = daysAgo(iso, now);
   if (days == null) return iso;
   const d = new Date(iso);
-  if (days <= 1) return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-  if (days < 7) return d.toLocaleDateString(undefined, { weekday: "short" });
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const language = currentLanguage();
+  if (days <= 1) return d.toLocaleTimeString(language, { hour: "2-digit", minute: "2-digit" });
+  if (days < 7) return d.toLocaleDateString(language, { weekday: "short" });
+  return d.toLocaleDateString(language, { month: "short", day: "numeric" });
 }
 
 /** "today 12:58" / "yesterday 21:40" / "Tue 12 Sep 12:58" — for the detail kicker. */
@@ -63,10 +65,11 @@ export function sessionStarted(iso: string, now: Date = new Date()): string {
   const days = daysAgo(iso, now);
   if (days == null) return iso;
   const d = new Date(iso);
-  const time = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-  if (days <= 0) return `today ${time}`;
-  if (days === 1) return `yesterday ${time}`;
-  const date = d.toLocaleDateString(undefined, {
+  const language = currentLanguage();
+  const time = d.toLocaleTimeString(language, { hour: "2-digit", minute: "2-digit" });
+  if (days <= 0) return t("sessions.started.today", { time });
+  if (days === 1) return t("sessions.started.yesterday", { time });
+  const date = d.toLocaleDateString(language, {
     weekday: "short",
     day: "numeric",
     month: "short",
@@ -105,11 +108,11 @@ export type LapColumn =
 
 export interface LapColumnDef {
   id: LapColumn;
-  label: string;
+  labelKey: MessageKey;
   /** As shown in the "Same on every lap, hidden:" line. */
-  short: string;
+  shortKey: MessageKey;
   /** The header's hover text, for a column whose label needs explaining. */
-  title?: string;
+  titleKey?: MessageKey;
   /** The value as the cell renders it: two laps that print the same ARE the same. */
   text: (lap: LapSummary) => string;
   /** Whether a lap has anything for this column at all, for a column only
@@ -126,38 +129,62 @@ export interface LapColumnDef {
 export const LAP_COLUMNS: LapColumnDef[] = [
   {
     id: "pos",
-    label: "Pos",
-    short: "position",
+    labelKey: "sessions.col.pos",
+    shortKey: "sessions.col.pos.short",
     text: (l) => ((l.race_position ?? -1) >= 1 ? `P${l.race_position}` : "–"),
     hasData: (l) => (l.race_position ?? -1) >= 1,
     quietWhenSame: true,
   },
-  { id: "fuel", label: "Fuel", short: "fuel", text: (l) => `${l.fuel_consumed.toFixed(2)} L` },
+  {
+    id: "fuel",
+    labelKey: "sessions.col.fuel",
+    shortKey: "sessions.col.fuel.short",
+    text: (l) => `${l.fuel_consumed.toFixed(2)} L`,
+  },
   {
     id: "throttle",
-    label: "Full thr.",
-    short: "full throttle",
+    labelKey: "sessions.col.throttle",
+    shortKey: "sessions.col.throttle.short",
     text: (l) => `${l.full_throttle_pct.toFixed(0)}%`,
   },
   {
     id: "brake",
-    label: "Full brk",
-    short: "full brake",
+    labelKey: "sessions.col.brake",
+    shortKey: "sessions.col.brake.short",
     text: (l) => `${l.full_brake_pct.toFixed(0)}%`,
   },
-  { id: "coast", label: "Coast", short: "coast", text: (l) => `${l.coasting_pct.toFixed(0)}%` },
-  { id: "spin", label: "Spin", short: "spin", text: (l) => `${l.tire_spin_pct.toFixed(0)}%` },
-  { id: "events", label: "Events", short: "events", text: (l) => formatEventCounts(l.event_counts) },
+  {
+    id: "coast",
+    labelKey: "sessions.col.coast",
+    shortKey: "sessions.col.coast.short",
+    text: (l) => `${l.coasting_pct.toFixed(0)}%`,
+  },
+  {
+    id: "spin",
+    labelKey: "sessions.col.spin",
+    shortKey: "sessions.col.spin.short",
+    text: (l) => `${l.tire_spin_pct.toFixed(0)}%`,
+  },
+  {
+    id: "events",
+    labelKey: "sessions.col.events",
+    shortKey: "sessions.col.events.short",
+    text: (l) => formatEventCounts(l.event_counts),
+  },
   {
     id: "gear",
-    label: "Gear high",
-    short: "gear high",
-    title:
-      "Corners taken in a higher gear than GT7 suggested, of the corners it suggested one for — judged at each corner's slowest point, against the session's quickest lap that counts",
+    labelKey: "sessions.col.gear",
+    shortKey: "sessions.col.gear.short",
+    titleKey: "sessions.col.gear.title",
     text: (l) => (l.gear_judged ? `${l.gear_high ?? 0}/${l.gear_judged}` : "–"),
     hasData: (l) => (l.gear_judged ?? 0) > 0,
   },
-  { id: "speed", label: "Max spd", short: "max speed", text: (l) => `${Math.round(l.max_speed)}` },
+  {
+    id: "speed",
+    labelKey: "sessions.col.speed",
+    shortKey: "sessions.col.speed.short",
+    text: (l) => `${Math.round(l.max_speed)}`,
+  },
 ];
 
 /**

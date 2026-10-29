@@ -1,17 +1,15 @@
 import { useState } from "react";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
+import { useT, type MessageKey } from "@/i18n";
 import { api } from "@/lib/api";
 import type { AdminSettings, AdminStats } from "@/lib/types";
 import { Dot, INPUT_CLS, SectionPanel, SettingRow, type SectionProps } from "./parts";
 
-const NOT_FOUND =
-  "Not found — the console must be on the same network and GT7 running; type its IP instead.";
-
-const FORMATS: { value: AdminSettings["packet_format"]; tag: string; desc: string }[] = [
-  { value: "A", tag: "GT7 < 1.42", desc: "Core channels only." },
-  { value: "B", tag: "1.42+", desc: "Adds wheel rotation, sway." },
-  { value: "~", tag: "1.42+", desc: "B plus filtered inputs & torque vectors." },
-  { value: "C", tag: "1.68+ · best", desc: "Everything, incl. surface & positions." },
+const FORMATS: { value: AdminSettings["packet_format"]; tag: MessageKey; desc: MessageKey }[] = [
+  { value: "A", tag: "settings.connection.formatA.tag", desc: "settings.connection.formatA.desc" },
+  { value: "B", tag: "settings.connection.formatB.tag", desc: "settings.connection.formatB.desc" },
+  { value: "~", tag: "settings.connection.formatTilde.tag", desc: "settings.connection.formatTilde.desc" },
+  { value: "C", tag: "settings.connection.formatC.tag", desc: "settings.connection.formatC.desc" },
 ];
 
 export function ConnectionSection({
@@ -21,8 +19,12 @@ export function ConnectionSection({
   stats,
   hz,
 }: SectionProps & { stats: AdminStats | null; hz: number | null }) {
+  const t = useT();
   const src = stats?.source;
-  const ports = `heartbeat ${saved.heartbeat_port} → telemetry ${saved.telemetry_port}/udp`;
+  const ports = t("settings.connection.ports", {
+    heartbeat: String(saved.heartbeat_port),
+    telemetry: String(saved.telemetry_port),
+  });
   // Find console: the server broadcasts the heartbeat and reports who
   // answered. The address only lands in the draft — Apply saves it, like any
   // other edit. It also covers pinning a console that auto-discovery found,
@@ -43,36 +45,40 @@ export function ConnectionSection({
         setNote({
           tone: "good",
           text:
-            r.ip === saved.ps_ip ? `Found at ${r.ip} — already saved.` : `Found at ${r.ip} — Apply to save it.`,
+            r.ip === saved.ps_ip
+              ? t("settings.connection.foundSaved", { ip: r.ip })
+              : t("settings.connection.foundApply", { ip: r.ip }),
         });
       } else {
-        setNote({ tone: "warn", text: r.reason ? `Can't search: ${r.reason}.` : NOT_FOUND });
+        setNote({
+          tone: "warn",
+          text: r.reason
+            ? t("settings.connection.cantSearch", { reason: r.reason })
+            : t("settings.connection.notFound"),
+        });
       }
     } catch (e) {
-      setNote({ tone: "warn", text: e instanceof Error ? e.message : "Search failed." });
+      setNote({ tone: "warn", text: e instanceof Error ? e.message : t("settings.connection.searchFailed") });
     } finally {
       setFinding(false);
     }
   }
 
   return (
-    <SectionPanel title="Connection" description="Where telemetry comes from. Applied without a restart.">
-      <SettingRow
-        label="Telemetry source"
-        help="Simulated drives a synthetic lap for testing without a console."
-      >
+    <SectionPanel title={t("settings.section.connection")} description={t("settings.connection.desc")}>
+      <SettingRow label={t("settings.label.source")} help={t("settings.connection.sourceHelp")}>
         <SegmentedControl
-          ariaLabel="Telemetry source"
+          ariaLabel={t("settings.label.source")}
           value={draft.source}
           onValueChange={(source) => edit({ source })}
           options={[
             { value: "udp", label: "PlayStation" },
-            { value: "sim", label: "Simulated" },
+            { value: "sim", label: t("settings.connection.simulated") },
           ]}
         />
       </SettingRow>
 
-      <SettingRow label="Console" help="Leave empty to auto-discover on your network." htmlFor="ps-ip">
+      <SettingRow label={t("settings.connection.console")} help={t("settings.connection.consoleHelp")} htmlFor="ps-ip">
         <div className="flex flex-col gap-1.5">
           <div className="flex gap-2">
             <input
@@ -82,7 +88,7 @@ export function ConnectionSection({
                 edit({ ps_ip: e.target.value.trim() });
                 setNote(null);
               }}
-              placeholder="auto-discover"
+              placeholder={t("settings.health.autoDiscover")}
               autoComplete="off"
               className={INPUT_CLS}
             />
@@ -90,13 +96,9 @@ export function ConnectionSection({
               className="btn shrink-0"
               onClick={findConsole}
               disabled={finding || !canFind}
-              title={
-                canFind
-                  ? "Broadcast on your network and see which console answers"
-                  : "Switch the source to PlayStation first"
-              }
+              title={canFind ? t("settings.connection.findTitle") : t("settings.connection.findDisabled")}
             >
-              {finding ? "Searching…" : "Find console"}
+              {finding ? t("settings.connection.searching") : t("settings.connection.find")}
             </button>
           </div>
           {note && (
@@ -111,15 +113,20 @@ export function ConnectionSection({
                 <>
                   <Dot tone="good" />
                   {src.source === "sim"
-                    ? "Receiving from the simulator"
-                    : `Receiving from ${src.console_ip || "console"}`}
+                    ? t("settings.connection.receivingSim")
+                    : t("settings.connection.receivingFrom", {
+                        ip: src.console_ip || t("settings.connection.consoleWord"),
+                      })}
                   {hz != null && ` · ${hz} Hz`}
                   {src.source !== "sim" && ` · ${ports}`}
                 </>
               ) : (
                 <>
                   <Dot tone="warn" />
-                  No telemetry{src.console_ip ? ` from ${src.console_ip}` : ""} · {ports}
+                  {src.console_ip
+                    ? t("settings.connection.noTelemetryFrom", { ip: src.console_ip })
+                    : t("nav.status.noTelemetry")}{" "}
+                  · {ports}
                 </>
               )}
             </span>
@@ -127,10 +134,10 @@ export function ConnectionSection({
         </div>
       </SettingRow>
 
-      <SettingRow label="Packet format" help="Pick the richest one your game version sends." last>
+      <SettingRow label={t("settings.label.packet_format")} help={t("settings.connection.formatHelp")} last>
         <div
           role="radiogroup"
-          aria-label="Packet format"
+          aria-label={t("settings.label.packet_format")}
           className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-2"
         >
           {FORMATS.map((f) => {
@@ -146,10 +153,10 @@ export function ConnectionSection({
                 }`}
               >
                 <span className={`flex justify-between text-[12.5px] ${on ? "text-accent-300" : "text-ink"}`}>
-                  <span>Format {f.value}</span>
-                  <span className="text-[10px] text-ink-faint">{f.tag}</span>
+                  <span>{t("settings.connection.formatName", { format: f.value })}</span>
+                  <span className="text-[10px] text-ink-faint">{t(f.tag)}</span>
                 </span>
-                <span className="text-[10.5px] text-ink-dim">{f.desc}</span>
+                <span className="text-[10.5px] text-ink-dim">{t(f.desc)}</span>
               </button>
             );
           })}

@@ -6,15 +6,16 @@ import type * as echarts from "echarts";
 import type { EChartsOption, SeriesOption } from "echarts";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { CHART_COLORS, EChart } from "@/components/EChart";
+import { useT, type MessageKey } from "@/i18n";
 import { channelValues, formatValueFor, readoutLines, type ChannelDef } from "@/lib/channels";
 import { lapColor } from "@/lib/colors";
-import type { Units } from "@/lib/format";
+import { formatInt, type Units } from "@/lib/format";
 import { gearHighBands, suggestionValues } from "@/lib/gearChoice";
 import { AIDS_ASM, AIDS_TCS, type CompareResult, type LapEvent } from "@/lib/types";
 
 interface PanelDef {
   key: string;
-  title: string;
+  titleKey: MessageKey;
   height: number; // relative weight
   transform?: (v: number, units: Units) => number;
   step?: boolean;
@@ -23,7 +24,7 @@ interface PanelDef {
 
 // The time-diff panel is the anchor of the view and always first;
 // every other panel comes from the channel picker.
-const DELTA_PANEL: PanelDef = { key: "delta", title: "Time diff (s)", height: 1.2 };
+const DELTA_PANEL: PanelDef = { key: "delta", titleKey: "channel.delta.title", height: 1.2 };
 
 // The tooltip is HTML, and lap labels are text.
 function escapeHtml(text: string): string {
@@ -110,6 +111,7 @@ export function StackedCharts({
   /** Which lap the readouts report — the reference lap. */
   refLapId?: string | null;
 }) {
+  const t = useT();
   const chartRef = useRef<echarts.ECharts | null>(null);
 
   const panels = useMemo<PanelDef[]>(
@@ -117,7 +119,7 @@ export function StackedCharts({
       DELTA_PANEL,
       ...channels.map((c) => ({
         key: c.key,
-        title: c.title,
+        titleKey: c.titleKey,
         height: c.height,
         transform: c.transform,
         step: c.step,
@@ -215,7 +217,7 @@ export function StackedCharts({
         height: `${h - 3}%`,
       });
       titles.push({
-        text: panel.title.toUpperCase(),
+        text: t(panel.titleKey).toUpperCase(),
         left: 56,
         top: `${cursor - 0.4}%`,
         textStyle: { color: CHART_COLORS.label, fontSize: 10, fontWeight: 600 },
@@ -294,7 +296,7 @@ export function StackedCharts({
         if (raw === null) return; // lap predates this channel — skip gracefully
         const values = panel.transform ? raw.map((v) => panel.transform!(v, units)) : raw;
         const seriesId = `${panel.key}|${lapId}`;
-        seriesMeta.set(seriesId, { panelKey: panel.key, panelTitle: panel.title, lapId });
+        seriesMeta.set(seriesId, { panelKey: panel.key, panelTitle: t(panel.titleKey), lapId });
 
         // Shaded context bands: detected events on the causing panel, plus
         // TCS activation on throttle and ASM on speed (aids bitmask runs),
@@ -316,7 +318,7 @@ export function StackedCharts({
         series.push({
           type: "line",
           id: seriesId,
-          name: lapLabels[lapId] ?? `Lap ${lapId}`,
+          name: lapLabels[lapId] ?? t("analysis.lap.fallback", { id: lapId }),
           xAxisIndex: gi,
           yAxisIndex: gi,
           data: dist.map((d, i) => [d, values[i]]),
@@ -362,13 +364,15 @@ export function StackedCharts({
           const ghostId = `suggested_gear|${lapId}`;
           seriesMeta.set(ghostId, {
             panelKey: "suggested_gear",
-            panelTitle: "Suggested gear",
+            panelTitle: t("channel.gear.suggested"),
             lapId,
           });
           series.push({
             type: "line",
             id: ghostId,
-            name: `${lapLabels[lapId] ?? `Lap ${lapId}`} — suggested`,
+            name: t("channel.gear.suggestedSeries", {
+              lap: lapLabels[lapId] ?? t("analysis.lap.fallback", { id: lapId }),
+            }),
             xAxisIndex: gi,
             yAxisIndex: gi,
             data: dist.map((d, i) => [d, suggested[i] ?? null]),
@@ -493,7 +497,7 @@ export function StackedCharts({
             ? `<tr><td></td>${cols
                 .map(
                   (id) =>
-                    `<td style="text-align:right;padding:0 0 3px 14px;color:#8b93a1">${lapMarker.get(id)}${escapeHtml((lapLabels[id] ?? `Lap ${id}`).split(" ")[0])}</td>`,
+                    `<td style="text-align:right;padding:0 0 3px 14px;color:#8b93a1">${lapMarker.get(id)}${escapeHtml((lapLabels[id] ?? t("analysis.lap.fallback", { id })).split(" ")[0])}</td>`,
                 )
                 .join("")}</tr>`
             : "";
@@ -510,12 +514,12 @@ export function StackedCharts({
                 .join("")}
             </tr>`;
           }).join("");
-          return `<div style="font-weight:600;margin-bottom:4px">${Math.round(dist).toLocaleString()} m</div>
+          return `<div style="font-weight:600;margin-bottom:4px">${formatInt(dist)} m</div>
             <table style="border-collapse:collapse">${header}${rows}</table>`;
         },
       },
     };
-  }, [data, lapLabels, lapColors, units, panels]);
+  }, [data, lapLabels, lapColors, units, panels, t]);
 
   // Per-strip value readout at the playhead. Updated with a title-only
   // setOption so the series data is never rebuilt as the cursor moves.
@@ -579,7 +583,7 @@ export function StackedCharts({
       { series: playheads, ...(next ? { title: next } : {}) },
       { notMerge: false, lazyUpdate: true },
     );
-  }, [cursorDist, refLapId, data, panels, units]);
+  }, [cursorDist, refLapId, data, panels, units, t]);
 
   return (
     <div className="flex flex-col">

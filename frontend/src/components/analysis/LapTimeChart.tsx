@@ -12,6 +12,7 @@ import type * as echarts from "echarts";
 import type { EChartsOption, SeriesOption } from "echarts";
 import { useMemo, useRef } from "react";
 import { CHART_COLORS, EChart } from "@/components/EChart";
+import { rich, useT } from "@/i18n";
 import { FASTEST_COLOR } from "@/lib/colors";
 import { countingLaps, formatSpread, lapConsistency } from "@/lib/consistency";
 import { formatLapTime } from "@/lib/format";
@@ -38,6 +39,7 @@ function escapeHtml(text: string): string {
 }
 
 export function LapTimeChart({ laps, selected, lapColors, onToggleLap }: Props) {
+  const t = useT();
   const consistency = useMemo(() => lapConsistency(laps), [laps]);
   const toggleRef = useRef(onToggleLap);
   toggleRef.current = onToggleLap;
@@ -63,13 +65,15 @@ export function LapTimeChart({ laps, selected, lapColors, onToggleLap }: Props) 
       const seconds = lap.time_ms / 1000;
       const why = notCountingLabel(lap);
       const tip =
-        `<b>Lap ${lap.number}</b> · ${formatLapTime(lap.time_ms)}` +
-        (lap.id === bestId ? " · session best" : "") +
-        (why ? `<br/>${escapeHtml(why)} — not in the spread` : "") +
+        `<b>${t("lapChart.lapN", { n: String(lap.number) })}</b> · ${formatLapTime(lap.time_ms)}` +
+        (lap.id === bestId ? ` · ${t("lapChart.sessionBest")}` : "") +
+        (why ? `<br/>${t("lapChart.notInSpread", { why: escapeHtml(why) })}` : "") +
         (consistency && !why
-          ? `<br/>${lap.time_ms >= consistency.medianMs ? "+" : "−"}${(
-              Math.abs(lap.time_ms - consistency.medianMs) / 1000
-            ).toFixed(3)} s against the median`
+          ? `<br/>${t("lapChart.vsMedian", {
+              delta: `${lap.time_ms >= consistency.medianMs ? "+" : "−"}${(
+                Math.abs(lap.time_ms - consistency.medianMs) / 1000
+              ).toFixed(3)}`,
+            })}`
           : "");
       const point: Point = { value: [lap.number, Math.min(seconds, yMax)], lapId: lap.id, tip };
       if (seconds > yMax) clipped.push(point);
@@ -103,7 +107,7 @@ export function LapTimeChart({ laps, selected, lapColors, onToggleLap }: Props) 
                 position: "insideEndTop",
                 color: CHART_COLORS.label,
                 fontSize: 9,
-                formatter: "median",
+                formatter: t("lapChart.median"),
               },
               lineStyle: { color: CHART_COLORS.label, type: "dashed", width: 1 },
               data: [{ yAxis: consistency.medianMs / 1000 }],
@@ -172,7 +176,7 @@ export function LapTimeChart({ laps, selected, lapColors, onToggleLap }: Props) 
           color: CHART_COLORS.label,
           fontSize: 10,
           // The half-lap margins either end put ticks at 0.5 and N + 0.5.
-          formatter: (v: number) => (Number.isInteger(v) ? `L${v}` : ""),
+          formatter: (v: number) => (Number.isInteger(v) ? t("lapChart.lapTick", { n: String(v) }) : ""),
         },
         axisLine: { lineStyle: { color: CHART_COLORS.axis } },
         splitLine: { show: false },
@@ -201,7 +205,7 @@ export function LapTimeChart({ laps, selected, lapColors, onToggleLap }: Props) 
       },
       series,
     };
-  }, [laps, selected, lapColors, consistency]);
+  }, [laps, selected, lapColors, consistency, t]);
 
   if (!option) return null;
 
@@ -221,21 +225,30 @@ export function LapTimeChart({ laps, selected, lapColors, onToggleLap }: Props) 
         {consistency ? (
           <>
             <span>
-              spread <span className="text-ink">{formatSpread(consistency.stdMs)}</span>
-              <span className="text-ink-faint"> · {consistency.pct.toFixed(2)}% of median</span>
+              {rich(t("lapChart.spread"), {
+                value: <span className="text-ink">{formatSpread(consistency.stdMs)}</span>,
+              })}
+              <span className="text-ink-faint">
+                {" · "}
+                {t("lapChart.pctOfMedian", { pct: consistency.pct.toFixed(2) })}
+              </span>
             </span>
             <span>
-              median <span className="text-ink">{formatLapTime(consistency.medianMs)}</span>
+              {rich(t("lapChart.medianValue"), {
+                value: <span className="text-ink">{formatLapTime(consistency.medianMs)}</span>,
+              })}
             </span>
             <span>
-              best <span style={{ color: FASTEST_COLOR }}>{formatLapTime(consistency.bestMs)}</span>
+              {rich(t("lapChart.bestValue"), {
+                value: <span style={{ color: FASTEST_COLOR }}>{formatLapTime(consistency.bestMs)}</span>,
+              })}
             </span>
-            <span className="text-ink-faint">{consistency.laps} laps counted</span>
+            <span className="text-ink-faint">{t("lapChart.lapsCounted", { count: consistency.laps })}</span>
           </>
         ) : (
-          <span className="text-ink-faint">Spread needs three laps that count</span>
+          <span className="text-ink-faint">{t("lapChart.needsLaps")}</span>
         )}
-        <span className="ml-auto text-ink-faint">○ not counted · △ off the scale</span>
+        <span className="ml-auto text-ink-faint">{t("lapChart.key")}</span>
       </div>
     </div>
   );

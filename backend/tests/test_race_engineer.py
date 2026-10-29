@@ -559,6 +559,15 @@ def test_corner_loss_says_how_the_corner_was_driven_differently() -> None:
     assert "braked twenty meters earlier" in call.text
     assert "carried five kilometers per hour less at the apex" in call.text
     assert call.metadata["brake_delta_m"] == -20.0
+    # The arguments a translation is worded from say the same thing.
+    assert call.message_args == {
+        "corner": 6,
+        "corner_name": "",
+        "loss_ms": call.message_args["loss_ms"],
+        "brake_delta_m": -20.0,
+        "apex_delta_kmh": -5.0,
+        "units": "metric",
+    }
 
 
 def test_corner_loss_falls_back_to_plain_wording_without_a_clear_cause() -> None:
@@ -580,6 +589,10 @@ def test_corner_loss_falls_back_to_plain_wording_without_a_clear_cause() -> None
     )
     assert call.text.startswith("Most time was lost in turn six.")
     assert "braked" not in call.text
+    # Unspoken differences are None in the arguments; the measurement stays.
+    assert call.message_args["brake_delta_m"] is None
+    assert call.message_args["apex_delta_kmh"] is None
+    assert call.metadata["brake_delta_m"] == 0.0
 
 
 def test_spoken_units_follow_the_server_setting() -> None:
@@ -658,6 +671,7 @@ def test_braking_point_callout_needs_the_habit_not_the_moment() -> None:
     call = next(c for c in out if c.event_type == "braking_early")
     assert call.text == "You are braking early into turn four, about thirty meters."
     assert call.category == "coaching"
+    assert call.message_args == {"corner": 4, "corner_name": "", "meters": 30, "units": "metric"}
 
 
 def test_braking_point_reports_the_mildest_lap_not_the_worst() -> None:
@@ -842,8 +856,28 @@ def test_every_callout_type_is_documented_for_the_user() -> None:
         Path(__file__).resolve().parents[2]
         / "frontend" / "src" / "lib" / "calloutCatalog.ts"
     ).read_text()
-    documented = set(re.findall(r'event:\s*"([a-z_]+)"', catalog))
+    documented = set(re.findall(r'info\(\s*"([a-z_]+)"', catalog))
     assert documented == set(SPECS), (
         f"undocumented: {sorted(set(SPECS) - documented)}; "
         f"stale: {sorted(documented - set(SPECS))}"
     )
+
+
+# --- arguments for translated wording ------------------------------------------
+
+
+def test_lap_arguments_carry_only_the_gap_that_is_said() -> None:
+    """A translation words the lap from message_args, so a gap the English
+    leaves out (no best yet, or too small to mention) must be None there too."""
+    mgr = manager()
+    first = mgr.on_lap(completed_lap(number=1, time_ms=92_000))[0]
+    assert first.message_args == {"time_ms": 92_000, "delta_ms": None}
+
+    close = mgr.on_lap(completed_lap(number=2, time_ms=92_030, session_best_before_ms=92_000))[0]
+    assert close.text == "Lap time, one minute thirty-two."
+    assert close.message_args["delta_ms"] is None
+
+    slow = mgr.on_lap(completed_lap(number=3, time_ms=92_300, session_best_before_ms=92_000))[0]
+    assert "Three tenths slower." in slow.text
+    assert slow.message_args["delta_ms"] == 300
+    assert slow.metadata["delta_ms"] == 300

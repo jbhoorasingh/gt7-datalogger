@@ -941,6 +941,12 @@ def test_s3_voice_respects_completed_lap_validity(valid: bool) -> None:
     assert s3.message_args["sector"] == 3
     assert s3.message_args["time_ms"] == pytest.approx(29550.0)
     assert s3.message_args["delta_ms"] == pytest.approx(50.0)
+    # What a translation needs to say the same thing.
+    assert s3.message_args["content"] == manager.sector_voice_content
+    assert s3.message_args["comparison"] == manager.sector_voice_comparison
+    assert s3.message_args["places"] == manager.sector_voice_decimals
+    assert s3.message_args["rounding"] == manager.sector_voice_rounding
+    assert s3.message_args["level"] is False
     assert "sector three" in s3.text.lower()
     assert "slower" in s3.text.lower()
 

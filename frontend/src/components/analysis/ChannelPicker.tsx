@@ -5,6 +5,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Tip } from "@/components/ui/Tooltip";
+import { useT } from "@/i18n";
 import { CHANNEL_GROUPS, CHANNELS, DEFAULT_CHANNEL_KEYS } from "@/lib/channels";
 
 // Breathing room kept between the popover and the viewport edge.
@@ -20,6 +21,7 @@ export function ChannelPicker({
   /** Opens the Analysis guide at its channel list. */
   onHelp?: () => void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const pop = useRef<HTMLDivElement>(null);
@@ -74,9 +76,9 @@ export function ChannelPicker({
         }`}
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
-        title="Choose which telemetry channels are charted"
+        title={t("channel.picker.tip")}
       >
-        Channels · {selected.length}
+        {t("analysis.channelsCount", { n: selected.length })}
       </button>
       {open && (
         // Anchored left, but flipped to hug the right edge on viewports too
@@ -90,12 +92,12 @@ export function ChannelPicker({
               stay reachable however long the channel list gets. */}
           <div className="grid min-h-0 flex-1 grid-cols-2 gap-3.5 overflow-y-auto px-4 pb-2 pt-3.5 sm:grid-cols-3">
             {CHANNEL_GROUPS.map((group) => {
-              const items = CHANNELS.filter((c) => c.group === group);
+              const items = CHANNELS.filter((c) => c.group === group.id);
               if (items.length === 0) return null;
               return (
-                <div key={group}>
+                <div key={group.id}>
                   <div className="mb-1.5 text-[9.5px] font-semibold uppercase tracking-[0.12em] text-ink-faint">
-                    {group}
+                    {t(group.labelKey)}
                   </div>
                   <div className="flex flex-col gap-1">
                     {items.map((c) => {
@@ -105,9 +107,11 @@ export function ChannelPicker({
                           key={c.key}
                           content={
                             <>
-                              {c.description}
-                              {c.needs && (
-                                <span className="mt-1 block text-ink-faint">Needs: {c.needs}</span>
+                              {t(c.descriptionKey)}
+                              {c.needsKey && (
+                                <span className="mt-1 block text-ink-faint">
+                                  {t("channel.picker.needs", { needs: t(c.needsKey) })}
+                                </span>
                               )}
                             </>
                           }
@@ -124,7 +128,7 @@ export function ChannelPicker({
                                 on ? "border-accent bg-accent/30" : "border-ink-ghost"
                               }`}
                             />
-                            {c.title}
+                            {t(c.titleKey)}
                           </button>
                         </Tip>
                       );
@@ -139,16 +143,16 @@ export function ChannelPicker({
               className="btn px-2.5 py-[3px] hover:border-accent hover:text-accent"
               onClick={() => onChange([...DEFAULT_CHANNEL_KEYS])}
             >
-              Default · {DEFAULT_CHANNEL_KEYS.length}
+              {t("channel.picker.default", { n: DEFAULT_CHANNEL_KEYS.length })}
             </button>
             <button
               className="btn px-2.5 py-[3px] hover:border-accent hover:text-accent"
               onClick={() => onChange(CHANNELS.map((c) => c.key))}
             >
-              All · {CHANNELS.length}
+              {t("channel.picker.all", { n: CHANNELS.length })}
             </button>
             <span className="text-[10px] text-ink-faint">
-              persists to the URL — a shared link reproduces the exact view
+              {t("channel.picker.persists")}
             </span>
             {onHelp && (
               <button
@@ -158,14 +162,14 @@ export function ChannelPicker({
                   onHelp();
                 }}
               >
-                What are these?
+                {t("channel.picker.help")}
               </button>
             )}
             <button
               className="btn btn-primary ml-auto px-3 py-[3px]"
               onClick={() => setOpen(false)}
             >
-              Done
+              {t("common.done")}
             </button>
           </div>
         </div>

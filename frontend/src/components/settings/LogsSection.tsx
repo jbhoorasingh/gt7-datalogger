@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
+import { useT } from "@/i18n";
 import { api } from "@/lib/api";
 import type { AdminSettings, LogRecord } from "@/lib/types";
 import { toast } from "@/store/toasts";
@@ -28,6 +29,7 @@ function download(logs: LogRecord[]) {
 }
 
 export function LogsSection({ draft, edit }: SectionProps) {
+  const t = useT();
   const [logs, setLogs] = useState<LogRecord[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
   const [paused, setPaused] = useState(false);
@@ -58,25 +60,25 @@ export function LogsSection({ draft, edit }: SectionProps) {
   }, [filter, paused]);
 
   return (
-    <SectionPanel title="Logs" description="Live server log — refreshes every 2 s.">
+    <SectionPanel title={t("settings.section.logs")} description={t("settings.logs.desc")}>
       <div className="flex flex-wrap items-center gap-2 px-[18px] py-2">
         <SegmentedControl
-          ariaLabel="Log level filter"
+          ariaLabel={t("settings.logs.filter")}
           size="sm"
           value={filter}
           onValueChange={setFilter}
           options={[
-            { value: "all", label: "All" },
+            { value: "all", label: t("settings.logs.all") },
             { value: "INFO", label: "INFO+" },
             { value: "WARNING", label: "WARN+" },
             { value: "ERROR", label: "ERROR" },
           ]}
         />
         <button className="btn" onClick={() => setPaused((p) => !p)}>
-          {paused ? "Resume" : "Pause"}
+          {paused ? t("settings.logs.resume") : t("settings.logs.pause")}
         </button>
         <button className="btn" disabled={logs.length === 0} onClick={() => download(logs)}>
-          Download
+          {t("settings.logs.download")}
         </button>
         <button
           className="btn"
@@ -84,15 +86,17 @@ export function LogsSection({ draft, edit }: SectionProps) {
             api.admin
               .clearLogs()
               .then(() => setLogs([]))
-              .catch((e) => toast(e instanceof Error ? e.message : "Clear failed", "error"))
+              .catch((e) => toast(e instanceof Error ? e.message : t("settings.logs.clearFailed"), "error"))
           }
         >
-          Clear
+          {t("settings.logs.clear")}
         </button>
-        <span className="font-tabular text-[11px] text-ink-faint">{logs.length} entries</span>
-        <span className="ml-auto text-[11px] text-ink-dim">Server log level</span>
+        <span className="font-tabular text-[11px] text-ink-faint">
+          {t("settings.logs.entries", { count: logs.length })}
+        </span>
+        <span className="ml-auto text-[11px] text-ink-dim">{t("settings.label.log_level")}</span>
         <SegmentedControl
-          ariaLabel="Server log level"
+          ariaLabel={t("settings.label.log_level")}
           size="sm"
           value={draft.log_level}
           onValueChange={(l: AdminSettings["log_level"]) => edit({ log_level: l })}
@@ -106,7 +110,7 @@ export function LogsSection({ draft, edit }: SectionProps) {
       </div>
       <div className="rule" />
       <div ref={scroller} className="h-[340px] overflow-y-auto px-3 py-2 font-mono text-[10.5px] leading-5">
-        {logs.length === 0 && <div className="p-2 text-ink-faint">No log entries.</div>}
+        {logs.length === 0 && <div className="p-2 text-ink-faint">{t("settings.logs.none")}</div>}
         {logs.map((r, i) => (
           <div key={`${r.ts}-${i}`} className="flex gap-2 whitespace-pre-wrap break-all px-1 hover:bg-panel-2">
             <span className="shrink-0 text-ink-faint">{r.ts.slice(11, 19)}</span>

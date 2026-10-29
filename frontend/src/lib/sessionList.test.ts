@@ -25,7 +25,7 @@ describe("dateGroupLabel", () => {
     expect(dateGroupLabel(at(6), NOW)).toBe("Earlier this week");
     expect(dateGroupLabel(at(10), NOW)).toBe("Earlier this month");
     expect(dateGroupLabel(at(40), NOW)).toBe(
-      new Date(2026, 7, 18).toLocaleDateString(undefined, { month: "long", year: "numeric" }),
+      new Date(2026, 7, 18).toLocaleDateString("en", { month: "long", year: "numeric" }),
     );
   });
 

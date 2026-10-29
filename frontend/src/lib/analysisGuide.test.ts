@@ -4,6 +4,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { t } from "@/i18n";
 import { channelDocs, docsUrl, GUIDE_FEATURES, matchesQuery } from "./analysisGuide";
 import { CHANNEL_GROUPS, CHANNELS } from "./channels";
 
@@ -33,13 +34,13 @@ function resolves(path: string): boolean {
 describe("channel descriptions", () => {
   it("explain every channel, briefly", () => {
     for (const c of CHANNELS) {
-      expect(c.description.trim(), c.key).not.toBe("");
-      expect(c.description.length, c.key).toBeLessThanOrEqual(200);
+      expect(t(c.descriptionKey).trim(), c.key).not.toBe("");
+      expect(t(c.descriptionKey).length, c.key).toBeLessThanOrEqual(200);
     }
   });
 
   it("belong to a group the guide and picker list", () => {
-    for (const c of CHANNELS) expect(CHANNEL_GROUPS).toContain(c.group);
+    for (const c of CHANNELS) expect(CHANNEL_GROUPS.map((g) => g.id)).toContain(c.group);
   });
 });
 
@@ -72,7 +73,9 @@ describe("search", () => {
 
   it("finds the channels a driver would look for", () => {
     const hits = (q: string) =>
-      CHANNELS.filter((c) => matchesQuery(q, c.title, c.description, c.needs)).map((c) => c.key);
+      CHANNELS.filter((c) =>
+        matchesQuery(q, t(c.titleKey), t(c.descriptionKey), c.needsKey && t(c.needsKey)),
+      ).map((c) => c.key);
     expect(hits("understeer")).toEqual(expect.arrayContaining(["yaw_rate", "tt_balance"]));
     expect(hits("locking")).toEqual(expect.arrayContaining(["tire_slip", "slip_fl"]));
     expect(hits("packet b")).toEqual(expect.arrayContaining(["steer", "acc_lat"]));

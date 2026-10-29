@@ -2,6 +2,7 @@
 // the four voice states this device is in, and why a callout was not heard
 // here. Kept out of the store so both are testable without a speech engine.
 
+import type { MessageKey, Translate, Vars } from "@/i18n";
 import {
   VERBOSITY_CATEGORIES,
   type CalloutAckStatus,
@@ -38,42 +39,43 @@ export function voiceState(s: VoiceStateInput): VoiceState {
 }
 
 /**
- * Why this device did not say a callout, in the feed's words — or null when
- * it was spoken (or is still waiting its turn). Worked out when the ack
- * happens, so a later verbosity change does not rewrite history.
+ * Why this device did not say a callout, as a message id for the feed — or
+ * null when it was spoken (or is still waiting its turn). Worked out when the
+ * ack happens, so a later verbosity change does not rewrite history; worded
+ * when shown, so a language change does.
  */
 export function ackNote(
   status: CalloutAckStatus,
   category: CalloutCategory,
   verbosity: Verbosity,
-): string | null {
+): { key: MessageKey; vars?: Vars } | null {
   switch (status) {
     case "spoken":
       return null;
     case "category_disabled":
       return VERBOSITY_CATEGORIES[verbosity].includes(category)
-        ? "not heard — muted on this device"
-        : `not heard — off at ${verbosity}`;
+        ? { key: "engineer.note.muted" }
+        : { key: `engineer.note.offAt.${verbosity}` };
     case "not_active_speaker":
-      return "not heard — another device speaks";
+      return { key: "engineer.note.otherDevice" };
     case "disabled":
-      return "not heard — voice off";
+      return { key: "engineer.note.voiceOff" };
     case "expired":
-      return "not heard — too late to say";
+      return { key: "engineer.note.expired" };
     case "duplicate":
-      return "not heard — just said";
+      return { key: "engineer.note.duplicate" };
     case "interrupted":
-      return "cut off";
+      return { key: "engineer.note.interrupted" };
     case "speech_error":
-      return "not heard — speech failed";
+      return { key: "engineer.note.speechFailed" };
   }
 }
 
 /** "4 s ago" / "3 min ago" for callout ages; both clocks are the browser's. */
-export function formatAge(ms: number): string {
+export function formatAge(ms: number, t: Translate): string {
   const s = Math.max(0, Math.round(ms / 1000));
-  if (s < 60) return `${s} s ago`;
+  if (s < 60) return t("engineer.age.seconds", { n: s });
   const m = Math.floor(s / 60);
-  if (m < 60) return `${m} min ago`;
-  return `${Math.floor(m / 60)} h ago`;
+  if (m < 60) return t("engineer.age.minutes", { n: m });
+  return t("engineer.age.hours", { n: Math.floor(m / 60) });
 }

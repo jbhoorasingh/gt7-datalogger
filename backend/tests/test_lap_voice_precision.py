@@ -208,3 +208,33 @@ def test_personal_best_truncated_zero_gain_is_suppressed():
     assert manager._lap_announcement_text(request) == (
         "New personal best, one minute thirty-two point four."
     )
+
+
+def test_precise_announcement_arguments_follow_the_text():
+    """The precision is in the arguments, and a gap the truncation hides is None."""
+    manager = RaceEngineerManager()
+    manager.configure(
+        sector_voice_enabled=True,
+        sector_voice_decimals=1,
+        sector_voice_rounding="truncate",
+    )
+    request = CalloutRequest(
+        event_type="lap_time",
+        text="Original upstream lap announcement",
+        message_key="lap.time",
+        message_args={"time_ms": 92487, "delta_ms": 99},
+        dedupe_key="precision-args",
+    )
+
+    callout = manager._emit(request)
+
+    assert callout is not None
+    assert callout.text == "Lap time, one minute thirty-two point four."
+    assert callout.message_args == {
+        "time_ms": 92487,
+        "delta_ms": None,
+        "places": 1,
+        "rounding": "truncate",
+    }
+    # The request itself is left alone.
+    assert request.message_args == {"time_ms": 92487, "delta_ms": 99}

@@ -26,6 +26,7 @@ import { PhoneSection } from "@/components/settings/PhoneSection";
 import { PendingBar } from "@/components/settings/PendingBar";
 import { Dot, mb, SectionPanel, TONE_TEXT, type SectionProps, type Tone } from "@/components/settings/parts";
 import { SyncSection, syncQueued } from "@/components/settings/SyncSection";
+import { useT } from "@/i18n";
 import { api, ApiError, type AdminSettingsPatch } from "@/lib/api";
 import type { LayoutSummary } from "@/lib/layout";
 import { openSettings } from "@/lib/router";
@@ -37,6 +38,7 @@ import { version } from "../../package.json";
 const POLL_MS = 5000;
 
 export function SettingsView({ section: sectionParam }: { section?: string | null }) {
+  const t = useT();
   const section = resolveSection(sectionParam);
   const setStatus = useTelemetry((s) => s.setStatus);
 
@@ -70,8 +72,8 @@ export function SettingsView({ section: sectionParam }: { section?: string | nul
         setSaved(s);
         setSettingsError(null);
       })
-      .catch((e) => setSettingsError(e instanceof Error ? e : new Error("Could not load settings")));
-  }, []);
+      .catch((e) => setSettingsError(e instanceof Error ? e : new Error(t("settings.loadFailed"))));
+  }, [t]);
 
   useEffect(() => {
     reloadSettings();
@@ -160,11 +162,11 @@ export function SettingsView({ section: sectionParam }: { section?: string | nul
       const next = await api.admin.updateSettings(pendingPatch(saved, edits));
       setSaved(next);
       setEdits({});
-      toast("Settings applied", "success");
+      toast(t("settings.applied"), "success");
       refreshStats();
       reloadSync();
     } catch (e) {
-      toast(e instanceof Error ? e.message : "Applying settings failed", "error");
+      toast(e instanceof Error ? e.message : t("settings.applyFailed"), "error");
     } finally {
       setApplying(false);
     }
@@ -181,13 +183,13 @@ export function SettingsView({ section: sectionParam }: { section?: string | nul
         setEdits((e) => mergeEdits(next, e, {}));
         return next;
       } catch (e) {
-        toast(e instanceof Error ? e.message : `${label} failed`, "error");
+        toast(e instanceof Error ? e.message : t("settings.actionFailed", { label }), "error");
         return null;
       } finally {
         setBusy(null);
       }
     },
-    [],
+    [t],
   );
 
   const run = useCallback(
@@ -195,15 +197,15 @@ export function SettingsView({ section: sectionParam }: { section?: string | nul
       setBusy(label);
       try {
         const r = await fn();
-        toast(done ? done(r) : `${label} done`, "success");
+        toast(done ? done(r) : t("settings.actionDone", { label }), "success");
         refreshStats();
       } catch (e) {
-        toast(e instanceof Error ? e.message : `${label} failed`, "error");
+        toast(e instanceof Error ? e.message : t("settings.actionFailed", { label }), "error");
       } finally {
         setBusy(null);
       }
     },
-    [refreshStats],
+    [refreshStats, t],
   );
 
   // --- the rail and health strip read the same facts ------------------------
@@ -216,15 +218,15 @@ export function SettingsView({ section: sectionParam }: { section?: string | nul
   const meta: Partial<Record<SectionId, [string, Tone]>> = {};
   if (src) {
     meta.connection = src.connected
-      ? [src.source === "sim" ? "simulated" : "receiving", "good"]
-      : ["no data", "warn"];
+      ? [src.source === "sim" ? t("settings.meta.simulated") : t("settings.meta.receiving"), "good"]
+      : [t("settings.meta.noData"), "warn"];
     const dropped = src.frames_dropped ?? 0;
     meta.health =
       dropped > 0
-        ? [`${dropped.toLocaleString()} dropped`, "warn"]
+        ? [t("settings.meta.dropped", { n: dropped }), "warn"]
         : src.decode_errors > 0
-          ? [`${src.decode_errors} bad`, "warn"]
-          : ["ok", "faint"];
+          ? [t("settings.meta.bad", { n: src.decode_errors }), "warn"]
+          : [t("settings.meta.ok"), "faint"];
   }
   if (stats) {
     const size = stats.db.size_bytes / 1048576;
@@ -232,40 +234,46 @@ export function SettingsView({ section: sectionParam }: { section?: string | nul
   }
   if (draft && saved) {
     meta.sync = !saved.sync_token_set
-      ? ["not set up", "faint"]
+      ? [t("settings.meta.notSetUp"), "faint"]
       : syncErr || syncTypeErr
-        ? ["error", "bad"]
+        ? [t("settings.meta.error"), "bad"]
         : !draft.sync_enabled
-          ? ["off", "faint"]
+          ? [t("settings.meta.off"), "faint"]
           : queued > 0
-            ? [`${queued} queued`, "accent"]
-            : ["on", "good"];
-    meta["race-engineer"] = draft.race_engineer ? ["on", "good"] : ["off", "faint"];
+            ? [t("settings.meta.queued", { n: queued }), "accent"]
+            : [t("settings.meta.on"), "good"];
+    meta["race-engineer"] = draft.race_engineer
+      ? [t("settings.meta.on"), "good"]
+      : [t("settings.meta.off"), "faint"];
     meta.notifications = draft.webhook_url.trim()
-      ? [`${draft.webhook_events.length} event${draft.webhook_events.length === 1 ? "" : "s"}`, "good"]
-      : ["off", "faint"];
+      ? [t("settings.meta.events", { count: draft.webhook_events.length }), "good"]
+      : [t("settings.meta.off"), "faint"];
   }
   // A server on loopback only (#151) is reachable neither way.
   if (stats)
     meta.phone = stats.mdns
-      ? ["announced", "good"]
+      ? [t("settings.meta.announced"), "good"]
       : stats.loopback_only
-        ? ["unreachable", "warn"]
-        : ["by code", "faint"];
-  if (layouts) meta.overlays = [`${layouts.length} saved`, "faint"];
-  if (logErrors > 0) meta.logs = [`${logErrors} error${logErrors === 1 ? "" : "s"}`, "bad"];
-  if (protection) meta.access = protection === "open" ? ["open", "warn"] : ["protected", "good"];
+        ? [t("settings.meta.unreachable"), "warn"]
+        : [t("settings.meta.byCode"), "faint"];
+  if (layouts) meta.overlays = [t("settings.meta.saved", { n: layouts.length }), "faint"];
+  if (logErrors > 0) meta.logs = [t("settings.meta.errors", { count: logErrors }), "bad"];
+  if (protection)
+    meta.access =
+      protection === "open"
+        ? [t("settings.meta.open"), "warn"]
+        : [t("settings.meta.protected"), "good"];
 
-  const rail = filterSections(query);
+  const rail = filterSections(query, t);
 
   const health: { label: string; value: string; meta: string; tone: Tone; go: SectionId }[] = [];
   if (src) {
     health.push({
-      label: "Telemetry",
-      value: src.connected ? "Receiving" : "No telemetry",
+      label: t("settings.health.telemetry"),
+      value: src.connected ? t("nav.status.receiving") : t("nav.status.noTelemetry"),
       meta: [
-        src.source === "sim" ? "simulator" : src.console_ip || "auto-discover",
-        `format ${src.packet_format ?? "A"}`,
+        src.source === "sim" ? t("settings.health.simulator") : src.console_ip || t("settings.health.autoDiscover"),
+        t("settings.health.format", { format: src.packet_format ?? "A" }),
         src.connected && hz != null ? `${hz} Hz` : "",
       ]
         .filter(Boolean)
@@ -274,29 +282,44 @@ export function SettingsView({ section: sectionParam }: { section?: string | nul
       go: "connection",
     });
     health.push({
-      label: "Recording",
-      value: src.recording ? `On${src.session_id != null ? ` · session #${src.session_id}` : ""}` : "Paused",
-      meta: src.track_name || "circuit not identified yet",
+      label: t("settings.health.recording"),
+      value: src.recording
+        ? src.session_id != null
+          ? t("settings.health.recordingSession", { id: String(src.session_id) })
+          : t("settings.health.recordingOn")
+        : t("settings.health.paused"),
+      meta: src.track_name || t("chase.noCircuit"),
       tone: src.recording ? "bad" : "faint",
       go: "health",
     });
   }
   if (saved) {
-    const host = sync?.capabilities?.server || sync?.url || saved.sync_url || "hosted service";
+    const host = sync?.capabilities?.server || sync?.url || saved.sync_url || t("settings.health.hosted");
+    const label = t("settings.section.sync");
     health.push(
       !saved.sync_token_set
-        ? { label: "Sync", value: "Not set up", meta: "paste your sync token", tone: "faint", go: "sync" }
+        ? {
+            label,
+            value: t("settings.health.notSetUp"),
+            meta: t("settings.health.pasteToken"),
+            tone: "faint",
+            go: "sync",
+          }
         : syncErr
           ? {
-              label: "Sync",
-              value: /\b40[13]\b/.test(syncErr) ? "Token rejected" : "Sync error",
+              label,
+              value: /\b40[13]\b/.test(syncErr) ? t("settings.health.tokenRejected") : t("settings.health.syncError"),
               meta: syncErr,
               tone: "bad",
               go: "sync",
             }
           : {
-              label: "Sync",
-              value: !saved.sync_enabled ? "Off" : queued > 0 ? `${queued} queued` : "Connected",
+              label,
+              value: !saved.sync_enabled
+                ? t("settings.health.off")
+                : queued > 0
+                  ? t("settings.meta.queued", { n: queued })
+                  : t("settings.health.connected"),
               meta: host,
               tone: !saved.sync_enabled ? "faint" : queued > 0 ? "accent" : "good",
               go: "sync",
@@ -305,9 +328,9 @@ export function SettingsView({ section: sectionParam }: { section?: string | nul
   }
   if (stats) {
     health.push({
-      label: "Storage",
+      label: t("settings.health.storage"),
       value: mb(stats.db.size_bytes),
-      meta: `${stats.db.sessions.toLocaleString()} sessions · ${stats.db.laps.toLocaleString()} laps`,
+      meta: `${t("count.sessions", { count: stats.db.sessions })} · ${t("count.laps", { count: stats.db.laps })}`,
       tone: "faint",
       go: "data",
     });
@@ -373,20 +396,18 @@ export function SettingsView({ section: sectionParam }: { section?: string | nul
   return (
     <div className={`mx-auto flex max-w-[1200px] flex-col gap-3 ${pending.length > 0 ? "pb-20" : ""}`}>
       <div className="flex flex-wrap items-center gap-3">
-        <h2 className="text-[17px] font-medium">Settings</h2>
-        <span className="text-[11px] text-ink-faint">
-          this installation · v{version} · changes apply when you press Apply
-        </span>
+        <h2 className="text-[17px] font-medium">{t("nav.settings")}</h2>
+        <span className="text-[11px] text-ink-faint">{t("settings.subtitle", { version })}</span>
         <input
           type="search"
-          aria-label="Find a setting"
+          aria-label={t("settings.find")}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
             const first = rail[0]?.items[0];
             if (e.key === "Enter" && query.trim() && first) openSettings(first.id);
           }}
-          placeholder="Find a setting…  (e.g. token, webhook, format)"
+          placeholder={t("settings.findPlaceholder")}
           className="ml-auto w-[280px] max-w-full rounded-md border border-edge bg-panel-2 px-3 py-1.5 text-xs text-ink placeholder:text-ink-ghost focus:border-accent focus:outline-none"
         />
       </div>
@@ -413,10 +434,10 @@ export function SettingsView({ section: sectionParam }: { section?: string | nul
       )}
 
       <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-[minmax(180px,208px)_minmax(0,1fr)]">
-        <nav aria-label="Settings sections" className="flex flex-col gap-3.5 md:sticky md:top-3">
+        <nav aria-label={t("settings.sections")} className="flex flex-col gap-3.5 md:sticky md:top-3">
           {rail.map((g) => (
             <div key={g.group} className="flex flex-col gap-0.5">
-              <span className="section-header px-2.5 pb-1">{g.group}</span>
+              <span className="section-header px-2.5 pb-1">{t(g.group)}</span>
               {g.items.map((it) => {
                 const active = it.id === section;
                 const m = meta[it.id];
@@ -429,7 +450,7 @@ export function SettingsView({ section: sectionParam }: { section?: string | nul
                       active ? "bg-accent/16 text-accent-300" : "text-ink-muted hover:text-ink"
                     }`}
                   >
-                    <span className="flex-1">{it.label}</span>
+                    <span className="flex-1">{t(it.label)}</span>
                     {m && (
                       <span className={`flex items-center gap-[5px] font-tabular text-[10.5px] ${TONE_TEXT[m[1]]}`}>
                         <Dot tone={m[1]} size={5} />
@@ -442,7 +463,9 @@ export function SettingsView({ section: sectionParam }: { section?: string | nul
             </div>
           ))}
           {rail.length === 0 && (
-            <span className="px-2.5 text-[11px] text-ink-faint">No setting matches “{query.trim()}”.</span>
+            <span className="px-2.5 text-[11px] text-ink-faint">
+              {t("settings.noMatch", { query: query.trim() })}
+            </span>
           )}
         </nav>
 
@@ -460,14 +483,13 @@ export function SettingsView({ section: sectionParam }: { section?: string | nul
 }
 
 function SettingsUnavailable({ error, locked }: { error: Error | null; locked: string | null }) {
+  const t = useT();
   if (locked) {
     return (
-      <SectionPanel title="Settings are locked on this server" description={locked}>
+      <SectionPanel title={t("settings.locked.title")} description={locked}>
         <div className="flex flex-col gap-1.5 px-[18px] py-3.5">
-          <TokenField label="Unlock settings" placeholder="the server's GT7_ADMIN_TOKEN" />
-          <span className="text-[11px] text-ink-dim">
-            Stored in this browser only. Live, overlay and dash pages work without it.
-          </span>
+          <TokenField label={t("settings.locked.unlock")} placeholder={t("settings.locked.placeholder")} />
+          <span className="text-[11px] text-ink-dim">{t("settings.locked.note")}</span>
         </div>
       </SectionPanel>
     );
@@ -476,11 +498,12 @@ function SettingsUnavailable({ error, locked }: { error: Error | null; locked: s
     <div className="panel px-[18px] py-3.5 text-sm text-ink-dim">
       {error ? (
         <span className="text-warn">
-          Backend unreachable — could not load settings
-          {error instanceof ApiError ? ` (HTTP ${error.status})` : ""}.
+          {error instanceof ApiError
+            ? t("settings.unreachableStatus", { status: String(error.status) })
+            : t("settings.unreachable")}
         </span>
       ) : (
-        "Loading…"
+        t("common.loading")
       )}
     </div>
   );

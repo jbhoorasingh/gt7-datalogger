@@ -21,10 +21,11 @@ import { ConfirmDialog, PromptDialog } from "@/components/ui/Dialog";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Select } from "@/components/ui/Select";
 import { Tip } from "@/components/ui/Tooltip";
+import { rich, t as translate, useT, type MessageKey, type Translate } from "@/i18n";
 import { api, ApiError } from "@/lib/api";
 import { FASTEST_COLOR, lapColorMap } from "@/lib/colors";
 import { countingLaps, formatSpread, lapConsistency } from "@/lib/consistency";
-import { formatDelta, formatLapTime, formatSpeed, formatTime } from "@/lib/format";
+import { formatDelta, formatInt, formatLapTime, formatSpeed, formatTime } from "@/lib/format";
 import { openInAnalysis } from "@/lib/router";
 import {
   constantColumns,
@@ -43,7 +44,7 @@ import {
 } from "@/lib/sessionList";
 import {
   EXCLUDE_REASONS,
-  excludeReasonLabel,
+  excludedLabel,
   type ExcludeReason,
   type GearChoice,
   type LapSummary,
@@ -97,6 +98,7 @@ function download(href: string, filename?: string) {
 }
 
 export function SessionsView({ subTab = "sessions" }: { subTab?: SubTab }) {
+  const t = useT();
   const units = useSettings((s) => s.units);
   const lapEpoch = useTelemetry((s) => s.lapEpoch);
   const status = useTelemetry((s) => s.status);
@@ -155,7 +157,7 @@ export function SessionsView({ subTab = "sessions" }: { subTab?: SubTab }) {
   const refresh = useCallback(() => {
     api.sessions()
       .then(setSessions)
-      .catch(() => toast("Could not load sessions", "error"));
+      .catch(() => toast(translate("sessions.toast.loadSessionsFailed"), "error"));
   }, []);
 
   useEffect(refresh, [refresh, lapEpoch]);
@@ -166,13 +168,13 @@ export function SessionsView({ subTab = "sessions" }: { subTab?: SubTab }) {
     if (sub !== "bests") return;
     api.personalBests()
       .then((r) => setBests(r.bests))
-      .catch(() => toast("Could not load bests", "error"));
+      .catch(() => toast(translate("sessions.toast.loadBestsFailed"), "error"));
   }, [sub, lapEpoch]);
 
   const reloadLaps = useCallback((sessionId: number) => {
     api.sessionLaps(sessionId)
       .then((ls) => setLapsOf({ sessionId, laps: ls }))
-      .catch(() => toast("Could not load laps", "error"));
+      .catch(() => toast(translate("sessions.toast.loadLapsFailed"), "error"));
   }, []);
 
   useEffect(() => {
@@ -235,9 +237,9 @@ export function SessionsView({ subTab = "sessions" }: { subTab?: SubTab }) {
   async function exportLaps(ids: number[]) {
     try {
       for (const id of ids) await exportLap(id);
-      toast(`Exported ${ids.length} lap${ids.length === 1 ? "" : "s"}`, "success");
+      toast(t("sessions.toast.exported", { count: ids.length }), "success");
     } catch {
-      toast("Export failed", "error");
+      toast(t("sessions.toast.exportFailed"), "error");
     }
   }
 
@@ -249,10 +251,10 @@ export function SessionsView({ subTab = "sessions" }: { subTab?: SubTab }) {
     try {
       const payload = JSON.parse(await file.text());
       await api.importLap(payload);
-      toast(`Imported ${file.name}`, "success");
+      toast(t("sessions.toast.imported", { name: file.name }), "success");
       refresh();
     } catch {
-      toast("Import failed — not a valid lap file", "error");
+      toast(t("sessions.toast.importFailed"), "error");
     }
   }
 
@@ -260,24 +262,24 @@ export function SessionsView({ subTab = "sessions" }: { subTab?: SubTab }) {
     try {
       const ls = lapsOf?.sessionId === sessionId ? lapsOf.laps : await api.sessionLaps(sessionId);
       if (ls.length === 0) {
-        toast("Session has no laps to identify the track from", "error");
+        toast(t("sessions.toast.noLapsForTrack"), "error");
         return;
       }
       await api.createTrack(name, ls[0].id);
-      toast(`Track saved as "${name}"`, "success");
+      toast(t("sessions.toast.trackSaved", { name }), "success");
       refresh();
     } catch {
-      toast("Could not save track", "error");
+      toast(t("sessions.toast.trackSaveFailed"), "error");
     }
   }
 
   async function logLapNow() {
     try {
       const res = await api.logLapNow();
-      toast(`Saved in-progress lap #${res.id}`, "success");
+      toast(t("sessions.toast.lapLogged", { id: String(res.id) }), "success");
       refresh();
     } catch {
-      toast("No lap in progress", "error");
+      toast(t("sessions.toast.noLapInProgress"), "error");
     }
   }
 
@@ -310,7 +312,7 @@ export function SessionsView({ subTab = "sessions" }: { subTab?: SubTab }) {
       refresh();
     } catch {
       putLap(sessionId, lap);
-      toast("Could not update lap", "error");
+      toast(t("sessions.toast.lapUpdateFailed"), "error");
     }
   }
 
@@ -318,17 +320,14 @@ export function SessionsView({ subTab = "sessions" }: { subTab?: SubTab }) {
   async function excludeLaps(sessionId: number, targets: LapSummary[]) {
     const counting = targets.filter((l) => l.counts_for_best !== false);
     if (counting.length === 0) {
-      toast("None of those laps count toward bests", "info");
+      toast(t("sessions.toast.noneCount"), "info");
       return;
     }
     try {
       await Promise.all(counting.map((l) => api.updateLap(l.id, flipRuling(l))));
-      toast(
-        `Excluded ${counting.length} lap${counting.length === 1 ? "" : "s"} from bests`,
-        "success",
-      );
+      toast(t("sessions.toast.excludedLaps", { count: counting.length }), "success");
     } catch {
-      toast("Could not update every lap", "error");
+      toast(t("sessions.toast.someUpdatesFailed"), "error");
     }
     reloadLaps(sessionId);
     refresh();
@@ -352,14 +351,14 @@ export function SessionsView({ subTab = "sessions" }: { subTab?: SubTab }) {
       await api.updateSession(s.id, { bests_excluded: excluded });
       toast(
         excluded
-          ? `Session #${s.id} excluded from bests`
-          : `Session #${s.id} counts for bests again`,
+          ? t("sessions.toast.sessionExcluded", { id: String(s.id) })
+          : t("sessions.toast.sessionIncluded", { id: String(s.id) }),
         "success",
       );
       refresh();
     } catch {
       flip(s.bests_excluded);
-      toast("Could not update session", "error");
+      toast(t("sessions.toast.sessionUpdateFailed"), "error");
     }
   }
 
@@ -374,11 +373,11 @@ export function SessionsView({ subTab = "sessions" }: { subTab?: SubTab }) {
               key={id}
               onClick={() => setSub(id)}
               aria-pressed={sub === id}
-              className={`px-4 py-1.5 text-xs capitalize transition-colors ${
+              className={`px-4 py-1.5 text-xs transition-colors ${
                 sub === id ? "bg-accent/15 text-accent-300" : "text-ink-dim hover:text-ink"
               }`}
             >
-              {id}
+              {t(id === "sessions" ? "nav.sessions" : "sessions.tab.bests")}
             </button>
           ))}
         </div>
@@ -396,7 +395,7 @@ export function SessionsView({ subTab = "sessions" }: { subTab?: SubTab }) {
                     : "text-ink-faint hover:text-ink"
                 }`}
               >
-                {c || "All"}
+                {c || t("sessions.filter.all")}
               </button>
             ))}
           </div>
@@ -407,21 +406,21 @@ export function SessionsView({ subTab = "sessions" }: { subTab?: SubTab }) {
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Filter by car, circuit or #tag"
-            aria-label="Filter sessions"
+            placeholder={t("sessions.filter.placeholder")}
+            aria-label={t("sessions.filter.label")}
             className="w-60 rounded-md border border-edge bg-panel-2 px-2.5 py-[5px] text-xs text-ink outline-none placeholder:text-ink-ghost focus:border-accent"
           />
         )}
 
         <div className="ml-auto flex gap-2">
           <button onClick={logLapNow} className="btn btn-primary px-3 py-[5px] text-[11.5px]">
-            Log lap now
+            {t("sessions.logLapNow")}
           </button>
           <button
             onClick={() => fileInput.current?.click()}
             className="btn px-3 py-[5px] text-[11.5px]"
           >
-            Import lap…
+            {t("sessions.importLap")}
           </button>
           <input
             ref={fileInput}
@@ -446,8 +445,8 @@ export function SessionsView({ subTab = "sessions" }: { subTab?: SubTab }) {
         </div>
       ) : sessions.length === 0 ? (
         <div className="panel p-8 text-center text-ink-dim">
-          <div className="mb-1 text-base text-ink">No sessions recorded yet</div>
-          Laps are recorded automatically while you drive — or import a lap file above.
+          <div className="mb-1 text-base text-ink">{t("sessions.empty.title")}</div>
+          {t("sessions.empty.body")}
         </div>
       ) : (
         <div className="grid grid-cols-1 items-start gap-3.5 md:grid-cols-[minmax(260px,320px)_minmax(0,1fr)]">
@@ -478,17 +477,15 @@ export function SessionsView({ subTab = "sessions" }: { subTab?: SubTab }) {
                 <div className="skeleton h-60" />
               ) : laps.length === 0 ? (
                 <div className="panel p-6 text-center text-[12px] text-ink-dim">
-                  No laps in this session yet.
+                  {t("sessions.noLaps")}
                 </div>
               ) : (
                 <>
                   {laps.length > 1 && countingLaps(laps).length > 0 && (
                     <div className="panel">
                       <div className="flex flex-wrap items-baseline gap-2 px-4 py-2.5">
-                        <span className="section-header">Lap time by lap</span>
-                        <span className="text-[10.5px] text-ink-faint">
-                          lower is quicker · hover a point for its time
-                        </span>
+                        <span className="section-header">{t("sessions.chart.title")}</span>
+                        <span className="text-[10.5px] text-ink-faint">{t("sessions.chart.hint")}</span>
                       </div>
                       <div className="rule" />
                       <LapTimeChart
@@ -526,7 +523,7 @@ export function SessionsView({ subTab = "sessions" }: { subTab?: SubTab }) {
             </section>
           ) : (
             <div className="panel p-8 text-center text-[12px] text-ink-dim">
-              No session matches “{query}”.
+              {t("sessions.noMatch", { query })}
             </div>
           )}
         </div>
@@ -544,9 +541,9 @@ export function SessionsView({ subTab = "sessions" }: { subTab?: SubTab }) {
 
       <PromptDialog
         open={naming != null}
-        title="Name this track"
-        label="Future sessions on this track will be identified automatically."
-        placeholder="e.g. Suzuka Circuit"
+        title={t("sessions.nameTrack.title")}
+        label={t("sessions.nameTrack.label")}
+        placeholder={t("sessions.nameTrack.placeholder")}
         onSubmit={(name) => {
           const id = naming!;
           setNaming(null);
@@ -557,9 +554,9 @@ export function SessionsView({ subTab = "sessions" }: { subTab?: SubTab }) {
 
       <ConfirmDialog
         open={deletingSession != null}
-        title={`Delete session #${deletingSession ?? ""}?`}
-        body="The session and all its laps will be removed. This cannot be undone."
-        confirmLabel="Delete session"
+        title={t("sessions.deleteSession.title", { id: String(deletingSession ?? "") })}
+        body={t("sessions.deleteSession.body")}
+        confirmLabel={t("sessions.deleteSession.confirm")}
         danger
         onConfirm={async () => {
           const id = deletingSession!;
@@ -567,13 +564,13 @@ export function SessionsView({ subTab = "sessions" }: { subTab?: SubTab }) {
           try {
             await api.deleteSession(id);
             setPickedId((cur) => (cur === id ? null : cur));
-            toast(`Session #${id} deleted`, "success");
+            toast(t("sessions.toast.sessionDeleted", { id: String(id) }), "success");
             refresh();
           } catch (error) {
             toast(
               error instanceof ApiError && error.status === 409
-                ? "Pause recording (● REC in the status bar) before deleting the session being recorded."
-                : "Could not delete session",
+                ? t("sessions.toast.deleteRecording")
+                : t("sessions.toast.deleteSessionFailed"),
               "error",
             );
           }
@@ -583,25 +580,18 @@ export function SessionsView({ subTab = "sessions" }: { subTab?: SubTab }) {
 
       <ConfirmDialog
         open={deletingLaps != null}
-        title={
-          deletingLaps && deletingLaps.length > 1
-            ? `Delete ${deletingLaps.length} laps?`
-            : "Delete lap?"
-        }
-        body={
-          deletingLaps && deletingLaps.length > 1
-            ? "The laps and their telemetry samples will be removed. This cannot be undone."
-            : "The lap and its telemetry samples will be removed. This cannot be undone."
-        }
-        confirmLabel={deletingLaps && deletingLaps.length > 1 ? "Delete laps" : "Delete lap"}
+        title={t("sessions.deleteLaps.title", { count: deletingLaps?.length ?? 1 })}
+        body={t("sessions.deleteLaps.body", { count: deletingLaps?.length ?? 1 })}
+        confirmLabel={t("sessions.deleteLaps.confirm", { count: deletingLaps?.length ?? 1 })}
         danger
         onConfirm={async () => {
           const ids = deletingLaps!;
           setDeletingLaps(null);
           const results = await Promise.allSettled(ids.map((id) => api.deleteLap(id)));
           const failed = results.filter((r) => r.status === "rejected").length;
-          if (failed > 0) toast(`Could not delete ${failed} of ${ids.length} laps`, "error");
-          else toast(ids.length > 1 ? `${ids.length} laps deleted` : "Lap deleted", "success");
+          if (failed > 0) {
+            toast(t("sessions.toast.deleteLapsFailed", { failed, count: ids.length }), "error");
+          } else toast(t("sessions.toast.lapsDeleted", { count: ids.length }), "success");
           if (currentId != null) reloadLaps(currentId);
           refresh();
         }}
@@ -637,10 +627,11 @@ function TrackChip({ name, size = "sm" }: { name: string; size?: "sm" | "md" }) 
 }
 
 function RecordingDot() {
+  const t = useT();
   return (
     <span
       className="animate-pulse-dot h-1.5 w-1.5 shrink-0 rounded-full bg-brake"
-      aria-label="Recording"
+      aria-label={t("sessions.recording")}
     />
   );
 }
@@ -658,12 +649,13 @@ function SessionList({
   query: string;
   onPick: (id: number) => void;
 }) {
+  const t = useT();
   const now = new Date();
   return (
     <aside className="panel overflow-hidden md:sticky md:top-0 md:max-h-[calc(100vh-7.5rem)] md:overflow-y-auto">
       {sessions.length === 0 && (
         <div className="px-3.5 py-6 text-center text-[11.5px] text-ink-faint">
-          No session matches “{query}”.
+          {t("sessions.noMatch", { query })}
         </div>
       )}
       {groupByDate(sessions, now).map((g) => (
@@ -695,7 +687,7 @@ function SessionList({
                     <TrackChip name={s.track_name} />
                   ) : (
                     <span className="whitespace-nowrap text-[10.5px] italic text-ink-ghost">
-                      unnamed circuit
+                      {t("sessions.list.unnamedCircuit")}
                     </span>
                   )}
                   <span className="whitespace-nowrap font-tabular text-[10.5px] text-ink-faint">
@@ -703,7 +695,7 @@ function SessionList({
                   </span>
                 </span>
                 <span className="text-right font-tabular text-[10.5px] text-ink-faint">
-                  {s.lap_count} {s.lap_count === 1 ? "lap" : "laps"}
+                  {t("count.laps", { count: s.lap_count })}
                 </span>
               </button>
             );
@@ -724,20 +716,31 @@ function SessionList({
  * displacement, some cars no measured torque — so those pairs are dropped
  * instead of rendering "0 cc". Sessions recorded before #57 have all of them
  * empty until the startup backfill fills them in. */
-function carSpecs(s: SessionSummary): [string, string][] {
-  const specs: [string, string][] = [];
-  if (s.car_power_bhp) specs.push(["Power", `${s.car_power_bhp} BHP`]);
-  if (s.car_torque_kgfm) specs.push(["Torque", `${s.car_torque_kgfm} kgfm`]);
-  if (s.car_weight_kg) specs.push(["Weight", `${s.car_weight_kg.toLocaleString()} kg`]);
-  if (s.car_displacement_cc) specs.push(["Displacement", `${s.car_displacement_cc} cc`]);
-  if (s.car_performance_points) specs.push(["PP", s.car_performance_points.toFixed(2)]);
+function carSpecs(s: SessionSummary): [MessageKey, string][] {
+  const specs: [MessageKey, string][] = [];
+  if (s.car_power_bhp) specs.push(["sessions.spec.power", `${s.car_power_bhp} BHP`]);
+  if (s.car_torque_kgfm) specs.push(["sessions.spec.torque", `${s.car_torque_kgfm} kgfm`]);
+  if (s.car_weight_kg) specs.push(["sessions.spec.weight", `${formatInt(s.car_weight_kg)} kg`]);
+  if (s.car_displacement_cc) {
+    specs.push(["sessions.spec.displacement", `${s.car_displacement_cc} cc`]);
+  }
+  if (s.car_performance_points) {
+    specs.push(["sessions.spec.pp", s.car_performance_points.toFixed(2)]);
+  }
   if (s.car_length_mm && s.car_width_mm && s.car_height_mm) {
-    specs.push(["L×W×H", `${s.car_length_mm}×${s.car_width_mm}×${s.car_height_mm} mm`]);
+    specs.push([
+      "sessions.spec.dimensions",
+      `${s.car_length_mm}×${s.car_width_mm}×${s.car_height_mm} mm`,
+    ]);
   }
   return specs;
 }
 
-const HEADLINE_SPECS = new Set(["Power", "Weight", "PP"]);
+const HEADLINE_SPECS = new Set<MessageKey>([
+  "sessions.spec.power",
+  "sessions.spec.weight",
+  "sessions.spec.pp",
+]);
 
 function SessionHeader({
   session: s,
@@ -760,6 +763,7 @@ function SessionHeader({
   onDelete: () => void;
   onExportCsvs: () => void;
 }) {
+  const t = useT();
   // The note and the new tag are local drafts. The header is keyed by
   // session, so a draft never bleeds from one session into another.
   const [editingNote, setEditingNote] = useState(false);
@@ -779,24 +783,24 @@ function SessionHeader({
       onSaved();
       return true;
     } catch {
-      toast("Could not update session", "error");
+      toast(t("sessions.toast.sessionUpdateFailed"), "error");
       return false;
     }
   }
 
   function addTag() {
-    const t = newTag.trim();
+    const tag = newTag.trim();
     setAddingTag(false);
     setNewTag("");
-    if (!t) return;
-    if (t.includes(",")) {
-      toast("Tags cannot contain commas", "error");
+    if (!tag) return;
+    if (tag.includes(",")) {
+      toast(t("sessions.toast.tagComma"), "error");
       return;
     }
     // Same case-insensitive dedupe the server applies, so the UI never shows
     // an add that the PATCH would collapse.
-    if (tags.some((x) => x.toLowerCase() === t.toLowerCase())) return;
-    void save({ tags: [...tags, t] });
+    if (tags.some((x) => x.toLowerCase() === tag.toLowerCase())) return;
+    void save({ tags: [...tags, tag] });
   }
 
   return (
@@ -805,7 +809,7 @@ function SessionHeader({
         <div className="flex min-w-[260px] flex-1 flex-col gap-1.5">
           <span className="flex items-center gap-1.5 font-tabular text-[11px] text-ink-faint">
             {recording && <RecordingDot />}#{s.id} · {sessionStarted(s.started_at)}
-            {recording ? " · recording now" : ""}
+            {recording ? ` · ${t("sessions.header.recordingNow")}` : ""}
           </span>
 
           <div className="flex flex-wrap items-center gap-2.5">
@@ -820,7 +824,7 @@ function SessionHeader({
                   className="rounded-[9px] border border-dashed border-edge px-2 py-px text-[10px] text-ink-faint transition-colors hover:border-accent hover:text-accent"
                   onClick={onNameTrack}
                 >
-                  name track…
+                  {t("sessions.header.nameTrack")}
                 </button>
               )
             )}
@@ -831,9 +835,20 @@ function SessionHeader({
             )}
             {s.final_position >= 1 && (
               <Tip
-                content={`Finished P${s.final_position} of ${s.final_total_positions} — ${s.race_laps}-lap race${
-                  s.race_time_ms != null ? `, total ${formatLapTime(s.race_time_ms)}` : ""
-                }`}
+                content={
+                  s.race_time_ms != null
+                    ? t("sessions.header.finishedTotal", {
+                        pos: String(s.final_position),
+                        total: String(s.final_total_positions),
+                        count: s.race_laps,
+                        time: formatLapTime(s.race_time_ms),
+                      })
+                    : t("sessions.header.finished", {
+                        pos: String(s.final_position),
+                        total: String(s.final_total_positions),
+                        count: s.race_laps,
+                      })
+                }
               >
                 <span className="whitespace-nowrap rounded-[9px] border border-throttle/38 bg-throttle/15 px-2 py-px font-tabular text-[10px] text-throttle">
                   P{s.final_position}/{s.final_total_positions}
@@ -842,25 +857,25 @@ function SessionHeader({
             )}
             {s.bests_excluded && (
               <span className="whitespace-nowrap rounded-[9px] border border-dashed border-edge px-2 py-px text-[10px] text-ink-faint">
-                excluded from bests
+                {t("sessions.header.excluded")}
               </span>
             )}
-            {tags.map((t) => (
+            {tags.map((tag) => (
               <span
-                key={t}
+                key={tag}
                 className="group flex items-center gap-1 rounded-[9px] bg-edge px-2 py-px text-[10px] text-ink-soft"
               >
                 <button
                   className="hover:text-accent"
-                  title={`Show sessions tagged #${t}`}
-                  onClick={() => onFilterTag(t)}
+                  title={t("sessions.header.filterTag", { tag })}
+                  onClick={() => onFilterTag(tag)}
                 >
-                  #{t}
+                  #{tag}
                 </button>
                 <button
                   className="text-ink-faint opacity-0 transition-opacity hover:text-brake focus-visible:opacity-100 group-hover:opacity-100"
-                  aria-label={`Remove tag ${t}`}
-                  onClick={() => void save({ tags: tags.filter((x) => x !== t) })}
+                  aria-label={t("sessions.header.removeTag", { tag })}
+                  onClick={() => void save({ tags: tags.filter((x) => x !== tag) })}
                 >
                   ×
                 </button>
@@ -880,8 +895,8 @@ function SessionHeader({
                 }}
                 onBlur={addTag}
                 maxLength={40}
-                placeholder="tag"
-                aria-label="New tag"
+                placeholder={t("sessions.header.tagPlaceholder")}
+                aria-label={t("sessions.header.newTag")}
                 className="w-24 rounded-[9px] border border-accent bg-transparent px-2 py-px text-[10px] outline-none placeholder:text-ink-ghost"
               />
             ) : (
@@ -889,7 +904,7 @@ function SessionHeader({
                 className="rounded-[9px] border border-dashed border-edge px-2 py-px text-[10px] text-ink-faint transition-colors hover:border-accent hover:text-accent"
                 onClick={() => setAddingTag(true)}
               >
-                + tag
+                {t("sessions.header.addTag")}
               </button>
             )}
             {!s.note && !editingNote && (
@@ -897,7 +912,7 @@ function SessionHeader({
                 className="text-[10.5px] text-ink-faint transition-colors hover:text-accent"
                 onClick={() => setEditingNote(true)}
               >
-                + note
+                {t("sessions.header.addNote")}
               </button>
             )}
           </div>
@@ -912,7 +927,7 @@ function SessionHeader({
                   </span>
                   {specs.map(([label, value]) => (
                     <span key={label} className="text-ink-dim">
-                      {label} <span className="text-ink">{value}</span>
+                      {t(label)} <span className="text-ink">{value}</span>
                     </span>
                   ))}
                 </span>
@@ -923,7 +938,7 @@ function SessionHeader({
                   ...detail.map((d) => <span key={d}>{d}</span>),
                   ...headline.map(([label, value]) => (
                     <span key={label}>
-                      {label} <span className="text-ink-dim">{value}</span>
+                      {t(label)} <span className="text-ink-dim">{value}</span>
                     </span>
                   )),
                 ].map((part, i) => (
@@ -950,7 +965,7 @@ function SessionHeader({
                 }}
                 rows={2}
                 maxLength={500}
-                placeholder="Notes — setup changes, conditions, what to try next…"
+                placeholder={t("sessions.header.notePlaceholder")}
                 className="min-h-[34px] min-w-0 flex-1 resize-y rounded-[5px] border border-edge bg-transparent px-2.5 py-[7px] text-[11.5px] outline-none placeholder:text-ink-ghost focus:border-accent"
               />
               <button
@@ -960,7 +975,7 @@ function SessionHeader({
                   if (await save({ note })) setEditingNote(false);
                 }}
               >
-                Save note
+                {t("sessions.header.saveNote")}
               </button>
               <button
                 className="btn shrink-0 px-3 py-[5px]"
@@ -969,14 +984,14 @@ function SessionHeader({
                   setEditingNote(false);
                 }}
               >
-                Cancel
+                {t("common.cancel")}
               </button>
             </div>
           ) : (
             s.note && (
               <button
                 className="w-fit max-w-full whitespace-pre-wrap text-left text-[11.5px] text-ink-dim transition-colors hover:text-ink"
-                title="Edit note"
+                title={t("sessions.header.editNote")}
                 onClick={() => setEditingNote(true)}
               >
                 {s.note} <span className="text-[10px] text-ink-faint">✎</span>
@@ -986,36 +1001,36 @@ function SessionHeader({
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <Tip content="Open this session in the Analysis view — pick the laps to compare there">
+          <Tip content={t("sessions.header.analyzeHint")}>
             <button
               className="btn btn-primary px-3 py-[5px] text-[11.5px]"
               disabled={s.lap_count === 0}
               onClick={() => openInAnalysis({ session: s.id })}
             >
-              Analyze session
+              {t("sessions.header.analyze")}
             </button>
           </Tip>
           <Menu
-            label="Export ▾"
-            ariaLabel="Export session"
+            label={t("sessions.export.menu")}
+            ariaLabel={t("sessions.export.label")}
             className="btn px-3 py-[5px] text-[11.5px]"
             disabled={s.lap_count === 0}
             items={[
               {
-                label: "Session ZIP",
-                hint: "Every lap as a lap file, with the session's details",
+                label: t("sessions.export.zip"),
+                hint: t("sessions.export.zipHint"),
                 href: api.sessionZipUrl(s.id),
                 download: true,
               },
               {
-                label: "Session analysis",
-                hint: "Every lap measured corner by corner against the session's best — braking points, minimum speeds, throttle and time lost — as one small JSON file",
+                label: t("sessions.export.analysis"),
+                hint: t("sessions.export.analysisHint"),
                 href: api.sessionAnalysisUrl(s.id),
                 download: `gt7-session-${s.id}-analysis.json`,
               },
               {
-                label: "All laps · CSV",
-                hint: "One MoTeC-compatible CSV per lap",
+                label: t("sessions.export.csv"),
+                hint: t("sessions.export.csvHint"),
                 onSelect: onExportCsvs,
                 disabled: !laps || laps.length === 0,
               },
@@ -1023,19 +1038,21 @@ function SessionHeader({
           />
           <Menu
             label="⋯"
-            ariaLabel="More session actions"
+            ariaLabel={t("sessions.more.label")}
             className="btn px-2.5 py-[5px] text-[11.5px]"
             items={[
               {
-                label: s.bests_excluded ? "Include in bests" : "Exclude from bests",
-                hint: "Replay recordings and other drivers' laps are indistinguishable from your own driving in telemetry — keeping them off the Bests board is a manual call.",
+                label: s.bests_excluded
+                  ? t("sessions.includeInBests")
+                  : t("sessions.excludeFromBests"),
+                hint: t("sessions.more.excludeHint"),
                 onSelect: onToggleExcluded,
               },
               ...(!s.track_name && s.lap_count > 0
-                ? [{ label: "Name track…", onSelect: onNameTrack }]
+                ? [{ label: t("sessions.more.nameTrack"), onSelect: onNameTrack }]
                 : []),
               "separator" as const,
-              { label: "Delete session…", danger: true, onSelect: onDelete },
+              { label: t("sessions.more.delete"), danger: true, onSelect: onDelete },
             ]}
           />
         </div>
@@ -1047,6 +1064,7 @@ function SessionHeader({
 }
 
 function StatStrip({ laps, recording }: { laps: LapSummary[]; recording: boolean }) {
+  const t = useT();
   const counting = countingLaps(laps);
   const bestId = bestLapId(laps);
   const best = laps.find((l) => l.id === bestId) ?? null;
@@ -1068,34 +1086,36 @@ function StatStrip({ laps, recording }: { laps: LapSummary[]; recording: boolean
 
   const stats: { k: string; v: string; m: string; color?: string }[] = [
     {
-      k: "Best",
+      k: t("common.best"),
       v: best ? formatLapTime(best.time_ms) : "–",
-      m: best ? `lap ${best.number}` : "",
+      m: best ? t("sessions.stat.bestLap", { n: String(best.number) }) : "",
       color: FASTEST_COLOR,
     },
     {
-      k: "Average",
+      k: t("sessions.stat.average"),
       v: mean != null ? formatLapTime(mean) : "–",
-      m: `${counting.length} counting lap${counting.length === 1 ? "" : "s"}`,
+      m: t("sessions.stat.counting", { count: counting.length }),
     },
     {
-      k: "Consistency",
+      k: t("sessions.stat.consistency"),
       v: consistency ? formatSpread(consistency.stdMs).replace("±", "± ") : "–",
-      m: consistency ? "σ, counting laps only" : "needs three counting laps",
+      m: consistency ? t("sessions.stat.consistencySigma") : t("sessions.stat.consistencyNeeds"),
     },
     {
-      k: "Within 0.5 s",
+      k: t("sessions.stat.within"),
       v: nearBest != null ? String(nearBest) : "–",
-      m: "laps near best",
+      m: t("sessions.stat.withinSub"),
       color: "var(--color-throttle)",
     },
     {
-      k: "Fuel",
+      k: t("common.fuel"),
       v: fuelPerLap != null ? `${fuelPerLap.toFixed(2)} L` : "–",
       m:
         fuelPerLap == null
-          ? "no fuel use recorded"
-          : `per lap${fuelLeft != null ? ` · ${fuelLeft.toFixed(1)} L left` : ""}`,
+          ? t("sessions.stat.fuelNone")
+          : fuelLeft != null
+            ? t("sessions.stat.fuelPerLapLeft", { left: fuelLeft.toFixed(1) })
+            : t("sessions.stat.fuelPerLap"),
     },
   ];
 
@@ -1118,20 +1138,20 @@ function StatStrip({ laps, recording }: { laps: LapSummary[]; recording: boolean
 // Lap table
 
 /** Tooltip for a lap's bests ruling, in words: what decided it. */
-function countsHint(lap: LapSummary): string {
+function countsHint(lap: LapSummary, t: Translate): string {
   if (lap.best_override === false && lap.exclude_reason === "race-start") {
-    return "Race opening lap — excluded from bests and consistency because of its starting conditions; count it again to include it";
+    return t("sessions.counts.raceStart");
   }
   if (lap.best_override === false) {
-    return "Excluded from bests by hand — count it again to put it back";
+    return t("sessions.counts.excluded");
   }
   if (lap.best_override === true && lap.full_lap === false) {
-    return "Counted by hand, although its distance says it is a partial lap — exclude it to leave it to the distance check";
+    return t("sessions.counts.kept");
   }
   if (lap.full_lap === false) {
-    return "Partial lap — a pit out-lap, or a race's first lap from the grid — so its time is not a lap time; count it anyway if it is one";
+    return t("sessions.counts.partial");
   }
-  return "Counts toward session and personal bests — exclude it for an off-track, contact…";
+  return t("sessions.counts.counts");
 }
 
 const EVENT_COLORS: Record<string, string> = {
@@ -1173,6 +1193,7 @@ function LapTable({
   // This is the session being recorded right now: pin the lap in progress.
   live: boolean;
 }) {
+  const t = useT();
   const bestId = bestLapId(laps);
   const best = laps.find((l) => l.id === bestId);
   // The session's quickest lap takes purple, and no other lap in the table can
@@ -1207,30 +1228,29 @@ function LapTable({
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 px-4 py-2">
         <SegmentedControl
           size="sm"
-          ariaLabel="Lap order"
+          ariaLabel={t("sessions.laps.order")}
           value={sort}
           onValueChange={onSort}
           options={[
-            { value: "newest", label: "Newest first" },
-            { value: "fastest", label: "Fastest first" },
+            { value: "newest", label: t("sessions.laps.newest") },
+            { value: "fastest", label: t("sessions.laps.fastest") },
           ]}
         />
         <span className="text-[11px] text-ink-faint">
-          Tick laps to export, exclude or delete them. Analysis always opens the whole session —
-          pick laps to compare there.
+          {t("sessions.laps.hint")}
         </span>
         <Menu
-          label="Columns…"
-          ariaLabel="Choose lap table columns"
+          label={t("sessions.columns.menu")}
+          ariaLabel={t("sessions.columns.label")}
           className="ml-auto text-[11px] text-accent hover:text-accent-300"
           items={[
             ...LAP_COLUMNS.filter((c) => !silent(c) || columnPrefs[c.id])
               .map((c) => ({
                 label: (
                   <span className="flex flex-1 items-center gap-3">
-                    <span className="flex-1">{c.label}</span>
+                    <span className="flex-1">{t(c.labelKey)}</span>
                     {columnPrefs[c.id] === undefined && !empty.has(c.id) && constant.has(c.id) && (
-                      <span className="text-[10px] text-ink-ghost">same on every lap</span>
+                      <span className="text-[10px] text-ink-ghost">{t("sessions.columns.same")}</span>
                     )}
                   </span>
                 ),
@@ -1240,7 +1260,7 @@ function LapTable({
               })),
             "separator" as const,
             {
-              label: "Automatic — hide what never changes",
+              label: t("sessions.columns.auto"),
               disabled: Object.keys(columnPrefs).length === 0,
               onSelect: () => LAP_COLUMNS.forEach((c) => onColumn(c.id, undefined)),
             },
@@ -1248,13 +1268,14 @@ function LapTable({
         />
         {autoHidden.length > 0 && (
           <span className="w-full font-tabular text-[11px] text-ink-faint">
-            Same on every lap, hidden:{" "}
-            {autoHidden
-              .map((c) => {
-                const v = constant.get(c.id)!;
-                return `${c.short} ${c.id === "speed" ? formatSpeed(Number(v), units) : v}`;
-              })
-              .join(" · ")}
+            {t("sessions.columns.sameHidden", {
+              list: autoHidden
+                .map((c) => {
+                  const v = constant.get(c.id)!;
+                  return `${t(c.shortKey)} ${c.id === "speed" ? formatSpeed(Number(v), units) : v}`;
+                })
+                .join(" · "),
+            })}
           </span>
         )}
       </div>
@@ -1271,33 +1292,37 @@ function LapTable({
                     if (el) el.indeterminate = someTicked;
                   }}
                   onChange={() => onSelectAll(selected.size > 0 ? [] : laps.map((l) => l.id))}
-                  aria-label={selected.size > 0 ? "Untick all laps" : "Tick all laps"}
+                  aria-label={
+                    selected.size > 0 ? t("sessions.laps.untickAll") : t("sessions.laps.tickAll")
+                  }
                   className="h-[13px] w-[13px] cursor-pointer accent-accent align-middle"
                 />
               </th>
-              <th className="p-2 font-normal">Lap</th>
-              <th className="p-2 font-normal">Time</th>
-              <th className="p-2 font-normal">Δ best</th>
+              <th className="p-2 font-normal">{t("common.lap")}</th>
+              <th className="p-2 font-normal">{t("common.time")}</th>
+              <th className="p-2 font-normal">{t("sessions.laps.deltaBest")}</th>
               {columns.map((c) => (
                 <th
                   key={c.id}
-                  title={c.title}
+                  title={c.titleKey ? t(c.titleKey) : undefined}
                   className={`whitespace-nowrap p-2 font-normal ${c.id === "speed" ? "text-right" : ""}`}
                 >
-                  {c.label}
+                  {t(c.labelKey)}
                   {c.id === "events" && (
                     <span className="text-ink-ghost">
                       {" · "}
-                      <span className="text-brake">L</span>ockup{" "}
-                      <span className="text-warn">S</span>pin{" "}
-                      <span className="text-coast">B</span>ottom{" "}
-                      <span className="text-ink-dim">K</span>erb
+                      {rich(t("sessions.events.legend"), {
+                        L: <span className="text-brake">L</span>,
+                        S: <span className="text-warn">S</span>,
+                        B: <span className="text-coast">B</span>,
+                        K: <span className="text-ink-dim">K</span>,
+                      })}
                     </span>
                   )}
                 </th>
               ))}
               <th className="px-4 py-2">
-                <span className="sr-only">Actions</span>
+                <span className="sr-only">{t("sessions.laps.actions")}</span>
               </th>
             </tr>
           </thead>
@@ -1324,7 +1349,7 @@ function LapTable({
                       checked={on}
                       onClick={(e) => e.stopPropagation()}
                       onChange={() => onToggle(lap.id)}
-                      aria-label={`Tick lap ${lap.number}`}
+                      aria-label={t("sessions.laps.tick", { n: String(lap.number) })}
                       className="h-[13px] w-[13px] cursor-pointer accent-accent align-middle"
                     />
                   </td>
@@ -1333,13 +1358,13 @@ function LapTable({
                       <span
                         className="h-1.5 w-1.5 shrink-0 rounded-full"
                         style={{ backgroundColor: colors.get(lap.id) }}
-                        title="This lap's color in charts and maps"
+                        title={t("sessions.laps.colorHint")}
                       />
                       {lap.number}
                       {lap.salvaged && (
                         <span
                           className="text-ink-faint"
-                          title="Salvaged from a stream that ended at the line (replay ending) — the time is GT7's own"
+                          title={t("sessions.laps.salvagedHint")}
                         >
                           ⟲
                         </span>
@@ -1352,19 +1377,19 @@ function LapTable({
                             borderColor: `color-mix(in srgb, ${FASTEST_COLOR} 50%, transparent)`,
                           }}
                         >
-                          best
+                          {t("sessions.best")}
                         </span>
                       ) : lap.best_override === false ? (
                         // Why it was ruled out: kept in the row so the reason
                         // can still be given after the fact.
                         <span onClick={(e) => e.stopPropagation()}>
                           <Select
-                            ariaLabel={`Why lap ${lap.number} is excluded`}
+                            ariaLabel={t("sessions.laps.whyExcluded", { n: String(lap.number) })}
                             value={lap.exclude_reason ?? ""}
-                            placeholder="excluded · why?"
+                            placeholder={t("sessions.laps.excludedWhy")}
                             options={EXCLUDE_REASONS.map((r) => ({
                               value: r,
-                              label: `excluded · ${excludeReasonLabel(r)}`,
+                              label: excludedLabel(r),
                             }))}
                             onValueChange={(r) =>
                               onRule(lap, {
@@ -1376,9 +1401,9 @@ function LapTable({
                           />
                         </span>
                       ) : why || kept ? (
-                        <Tip content={countsHint(lap)}>
+                        <Tip content={countsHint(lap, t)}>
                           <span className="rounded-lg border border-edge px-1.5 text-[10px] text-ink-faint">
-                            {kept ? "kept" : why}
+                            {kept ? t("sessions.laps.kept") : why}
                           </span>
                         </Tip>
                       ) : null}
@@ -1403,7 +1428,7 @@ function LapTable({
                     {!counts || diff == null
                       ? "—"
                       : isBest
-                        ? "best"
+                        ? t("sessions.best")
                         : `+${(Math.max(0, diff) / 1000).toFixed(3)}`}
                   </td>
                   {columns.map((c) => (
@@ -1428,12 +1453,12 @@ function LapTable({
                   >
                     <Menu
                       label="⋯"
-                      ariaLabel={`Lap ${lap.number} actions`}
+                      ariaLabel={t("sessions.lapMenu.label", { n: String(lap.number) })}
                       className="btn px-2 py-0.5"
                       items={[
                         {
-                          label: "Open in Analysis",
-                          hint: "Compare against the session's best lap in Analysis",
+                          label: t("sessions.lapMenu.open"),
+                          hint: t("sessions.lapMenu.openHint"),
                           onSelect: () =>
                             openInAnalysis({
                               session: session.id,
@@ -1443,25 +1468,31 @@ function LapTable({
                             }),
                         },
                         {
-                          label: "Set as reference",
-                          hint: "Open Analysis with this lap as the reference",
+                          label: t("sessions.lapMenu.reference"),
+                          hint: t("sessions.lapMenu.referenceHint"),
                           onSelect: () =>
                             openInAnalysis({ session: session.id, laps: [lap.id], ref: lap.id }),
                         },
-                        { label: "Export JSON", onSelect: () => onExport(lap.id) },
+                        { label: t("sessions.lapMenu.json"), onSelect: () => onExport(lap.id) },
                         {
-                          label: "Export CSV",
-                          hint: "MoTeC-compatible CSV",
+                          label: t("sessions.lapMenu.csv"),
+                          hint: t("sessions.lapMenu.csvHint"),
                           href: api.lapCsvUrl(lap.id),
                           download: true,
                         },
                         "separator",
                         {
-                          label: counts ? "Exclude from bests" : "Count for bests",
-                          hint: countsHint(lap),
+                          label: counts
+                            ? t("sessions.excludeFromBests")
+                            : t("sessions.lapMenu.count"),
+                          hint: countsHint(lap, t),
                           onSelect: () => onRule(lap, flipRuling(lap)),
                         },
-                        { label: "Delete…", danger: true, onSelect: () => onDelete(lap.id) },
+                        {
+                          label: t("sessions.deleteEllipsis"),
+                          danger: true,
+                          onSelect: () => onDelete(lap.id),
+                        },
                       ]}
                     />
                   </td>
@@ -1491,6 +1522,7 @@ const IN_PROGRESS_STALL_MS = 5000;
 // that brings the completed lap in hands the row on to the next one, and a
 // finished race (GT7 stops counting laps) leaves nothing to pin.
 function InProgressRow({ laps, trailing }: { laps: LapSummary[]; trailing: number }) {
+  const t = useT();
   const lastDone = laps.reduce((n, l) => Math.max(n, l.number), 0);
   const [lap, setLap] = useState<number | null>(null);
   const timeRef = useRef<HTMLTableCellElement>(null);
@@ -1529,7 +1561,7 @@ function InProgressRow({ laps, trailing }: { laps: LapSummary[]; trailing: numbe
   return (
     <tr
       className="rule-row bg-accent/5"
-      title="The lap being driven — it joins the table when it completes"
+      title={t("sessions.inProgress.title")}
     >
       <td className="py-[7px] pl-4 pr-0" />
       <td className="whitespace-nowrap px-2 py-[7px]">
@@ -1537,7 +1569,7 @@ function InProgressRow({ laps, trailing }: { laps: LapSummary[]; trailing: numbe
           <span className="h-1.5 w-1.5 shrink-0 animate-pulse-dot rounded-full bg-accent" />
           {lap}
           <span className="rounded-lg border border-edge px-1.5 text-[10px] text-ink-faint">
-            in progress
+            {t("sessions.inProgress")}
           </span>
         </span>
       </td>
@@ -1561,15 +1593,18 @@ function liveDeltaColor(ms: number | null): string {
 // Off-track excursions ride along with the event code — they are the same
 // kind of "what went wrong this lap" count, and the tooltip spells them out.
 function EventCell({ lap }: { lap: LapSummary }) {
+  const t = useT();
   const parts = eventParts(lap.event_counts);
   const offTrack = lap.off_track_count ?? -1;
   const offSurvey = lap.off_survey_count ?? -1;
   return (
     <span
       className="inline-flex gap-2"
-      title={`${formatEventCounts(lap.event_counts)}${
-        offTrack > 0 ? ` · ${offTrack} off-track` : ""
-      }${offSurvey > 0 ? ` · ${offSurvey} beyond the surveyed edge` : ""} — lockups · spins · bottoming · kerbs`}
+      title={`${[
+        formatEventCounts(lap.event_counts),
+        ...(offTrack > 0 ? [t("sessions.events.offTrack", { count: offTrack })] : []),
+        ...(offSurvey > 0 ? [t("sessions.events.offSurvey", { count: offSurvey })] : []),
+      ].join(" · ")} — ${t("sessions.events.legendTitle")}`}
     >
       {parts.length === 0 && <span className="text-ink-ghost">–</span>}
       {parts.map((p) => (
@@ -1600,36 +1635,37 @@ function BulkBar({
   onExport: () => void;
   onDelete: () => void;
 }) {
+  const t = useT();
   const numbers = laps.map((l) => l.number).sort((a, b) => b - a);
   return (
     <div className="fixed bottom-[18px] left-1/2 z-30 w-[min(760px,calc(100%-40px))] -translate-x-1/2">
       <div
         className="elevated flex flex-wrap items-center gap-2.5 rounded-lg bg-panel px-3.5 py-2.5"
         role="region"
-        aria-label="Selected laps"
+        aria-label={t("sessions.bulk.label")}
       >
         <span className="font-tabular text-[12.5px]">
-          {laps.length === 1 ? "1 lap selected" : `${laps.length} laps selected`}
+          {t("sessions.bulk.selected", { count: laps.length })}
         </span>
         <span className="min-w-0 truncate font-tabular text-[11px] text-ink-faint">
           {numbers
             .slice(0, 6)
-            .map((n) => `L${n}`)
+            .map((n) => t("sessions.bulk.lapRef", { n: String(n) }))
             .join(" · ")}
           {numbers.length > 6 ? " …" : ""}
         </span>
         <span className="ml-auto flex flex-wrap gap-1.5">
           <button className="btn" onClick={onClear}>
-            Clear
+            {t("common.clear")}
           </button>
           <button className="btn" onClick={onExclude}>
-            Exclude from bests
+            {t("sessions.excludeFromBests")}
           </button>
           <button className="btn btn-primary" onClick={onExport}>
-            Export laps
+            {t("sessions.bulk.export")}
           </button>
           <button className="btn btn-danger" onClick={onDelete}>
-            Delete…
+            {t("sessions.deleteEllipsis")}
           </button>
         </span>
       </div>

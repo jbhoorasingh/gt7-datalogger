@@ -1,18 +1,20 @@
 import { useEffect, useState } from "react";
+import { LanguagePicker } from "@/components/LanguagePicker";
 import { Tip } from "@/components/ui/Tooltip";
+import { useT, type MessageKey } from "@/i18n";
 import { api } from "@/lib/api";
 import { navigate, openSettings, type View } from "@/lib/router";
 import { useSettings } from "@/store/settings";
 import { useTelemetry } from "@/store/telemetry";
 
-const TABS: { id: View; label: string }[] = [
-  { id: "live", label: "Live" },
-  { id: "analysis", label: "Analysis" },
-  { id: "sessions", label: "Sessions" },
-  { id: "tracks", label: "Tracks" },
-  { id: "survey", label: "Survey" },
-  { id: "overlays", label: "Overlays" },
-  { id: "settings", label: "Settings" },
+const TABS: { id: View; label: MessageKey }[] = [
+  { id: "live", label: "nav.live" },
+  { id: "analysis", label: "nav.analysis" },
+  { id: "sessions", label: "nav.sessions" },
+  { id: "tracks", label: "nav.tracks" },
+  { id: "survey", label: "nav.survey" },
+  { id: "overlays", label: "nav.overlays" },
+  { id: "settings", label: "nav.settings" },
 ];
 
 // How often the Settings tab re-checks the sync service for an error.
@@ -48,6 +50,7 @@ function useSettingsAttention(framesDropped: number): boolean {
 }
 
 export function StatusBar({ view }: { view: View }) {
+  const t = useT();
   const { status, wsConnected, setStatus } = useTelemetry();
   const { units, setUnits } = useSettings();
 
@@ -61,23 +64,26 @@ export function StatusBar({ view }: { view: View }) {
   // A labelled dot, not colour alone: the words carry the state.
   const telemetry = telemetryUp
     ? {
-        label: status?.source === "sim" ? "Receiving · simulated" : "Receiving",
+        label: status?.source === "sim" ? t("nav.status.receivingSim") : t("nav.status.receiving"),
         dot: "bg-throttle",
         text: "text-throttle",
-        title: `Receiving telemetry from ${status?.source === "sim" ? "the simulator" : status?.console_ip}`,
+        title:
+          status?.source === "sim"
+            ? t("nav.status.receivingSimTitle")
+            : t("nav.status.receivingTitle", { ip: status?.console_ip ?? "" }),
       }
     : wsConnected
       ? {
-          label: "No telemetry",
+          label: t("nav.status.noTelemetry"),
           dot: "bg-warn",
           text: "text-warn",
-          title: "Server up, no telemetry — check console IP / UDP 33740",
+          title: t("nav.status.noTelemetryTitle"),
         }
       : {
-          label: "Offline",
+          label: t("nav.status.offline"),
           dot: "bg-brake",
           text: "text-brake",
-          title: "Disconnected from the datalogger server",
+          title: t("nav.status.offlineTitle"),
         };
 
   return (
@@ -97,21 +103,21 @@ export function StatusBar({ view }: { view: View }) {
         </div>
 
         <nav className="order-last flex w-full gap-0.5 self-stretch overflow-x-auto sm:order-none sm:w-auto">
-          {TABS.map((t) => (
+          {TABS.map((tab) => (
             <button
-              key={t.id}
-              onClick={() => navigate(t.id)}
-              aria-current={view === t.id ? "page" : undefined}
+              key={tab.id}
+              onClick={() => navigate(tab.id)}
+              aria-current={view === tab.id ? "page" : undefined}
               className={`shrink-0 border-y-2 border-transparent px-3 text-[12.5px] transition-colors ${
-                view === t.id
+                view === tab.id
                   ? "border-b-accent text-ink"
                   : "text-ink-faint hover:text-ink"
               }`}
             >
-              {t.label}
-              {t.id === "settings" && settingsAttention && (
+              {t(tab.label)}
+              {tab.id === "settings" && settingsAttention && (
                 <span
-                  aria-label="needs attention"
+                  aria-label={t("nav.needsAttention")}
                   className="ml-1.5 inline-block h-[5px] w-[5px] -translate-y-px rounded-full bg-warn align-middle"
                 />
               )}
@@ -120,7 +126,7 @@ export function StatusBar({ view }: { view: View }) {
         </nav>
 
         <div className="ml-auto flex items-center gap-2.5">
-          <Tip content={`${telemetry.title} — open Settings › Connection`}>
+          <Tip content={t("nav.status.openConnection", { status: telemetry.title })}>
             <button
               onClick={() => openSettings("connection")}
               className={`inline-flex items-center gap-1.5 text-[11px] ${telemetry.text} hover:underline`}
@@ -131,7 +137,7 @@ export function StatusBar({ view }: { view: View }) {
           </Tip>
           {status && (
             <>
-              <Tip content="Toggle lap recording">
+              <Tip content={t("nav.recording.toggle")}>
                 <button
                   onClick={() =>
                     api.setRecording(!status.recording).then(setStatus).catch(() => {})
@@ -145,16 +151,16 @@ export function StatusBar({ view }: { view: View }) {
                   {status.recording ? (
                     <>
                       <span className="h-1.5 w-1.5 animate-pulse-dot rounded-full bg-brake" />
-                      REC
+                      {t("nav.recording.on")}
                     </>
                   ) : (
-                    "paused"
+                    t("nav.recording.paused")
                   )}
                 </button>
               </Tip>
             </>
           )}
-          <Tip content="Toggle speed units">
+          <Tip content={t("nav.units.toggle")}>
             <button
               onClick={() => setUnits(units === "metric" ? "imperial" : "metric")}
               className="rounded border border-edge px-2.5 py-0.5 text-[11px] text-ink-muted transition-colors hover:border-edge-bright hover:text-ink"
@@ -162,6 +168,7 @@ export function StatusBar({ view }: { view: View }) {
               {units === "metric" ? "km/h" : "mph"}
             </button>
           </Tip>
+          <LanguagePicker />
         </div>
       </header>
       <div className="rule" />

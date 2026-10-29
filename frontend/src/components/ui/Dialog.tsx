@@ -3,6 +3,7 @@
 
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { useEffect, useId, useState } from "react";
+import { useT } from "@/i18n";
 
 function Dialog({
   open,
@@ -53,6 +54,7 @@ export function LargeDialog({
   children: React.ReactNode;
   size?: keyof typeof FRAMED_SIZES;
 }) {
+  const t = useT();
   return (
     <DialogPrimitive.Root open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogPrimitive.Portal>
@@ -67,9 +69,9 @@ export function LargeDialog({
             </DialogPrimitive.Title>
             <DialogPrimitive.Close
               className="ml-auto rounded border border-edge px-2 py-0.5 text-xs text-ink-dim transition-colors hover:border-edge-bright hover:text-ink"
-              aria-label="Close"
+              aria-label={t("common.close")}
             >
-              Close ⎋
+              {t("common.close")} ⎋
             </DialogPrimitive.Close>
           </div>
           <div className="min-h-0 flex-1">{children}</div>
@@ -83,7 +85,7 @@ export function ConfirmDialog({
   open,
   title,
   body,
-  confirmLabel = "Confirm",
+  confirmLabel,
   danger = false,
   onConfirm,
   onCancel,
@@ -96,6 +98,7 @@ export function ConfirmDialog({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const t = useT();
   return (
     <Dialog open={open} title={title} onClose={onCancel}>
       {body && (
@@ -105,10 +108,10 @@ export function ConfirmDialog({
       )}
       <div className="flex justify-end gap-2">
         <button className="btn" onClick={onCancel}>
-          Cancel
+          {t("common.cancel")}
         </button>
         <button className={danger ? "btn-danger" : "btn"} onClick={onConfirm}>
-          {confirmLabel}
+          {confirmLabel ?? t("common.confirm")}
         </button>
       </div>
     </Dialog>
@@ -120,7 +123,7 @@ export function PromptDialog({
   title,
   label,
   placeholder,
-  submitLabel = "Save",
+  submitLabel,
   initialValue = "",
   suggestions,
   onSubmit,
@@ -140,6 +143,7 @@ export function PromptDialog({
   onSubmit: (value: string) => void;
   onCancel: () => void;
 }) {
+  const t = useT();
   const [value, setValue] = useState(initialValue);
   // Reset the field each time the dialog opens.
   useEffect(() => {
@@ -177,10 +181,10 @@ export function PromptDialog({
       )}
       <div className="flex justify-end gap-2">
         <button className="btn" onClick={onCancel}>
-          Cancel
+          {t("common.cancel")}
         </button>
         <button className="btn" disabled={!value.trim()} onClick={submit}>
-          {submitLabel}
+          {submitLabel ?? t("common.save")}
         </button>
       </div>
     </Dialog>

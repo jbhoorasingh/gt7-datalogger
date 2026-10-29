@@ -126,7 +126,12 @@ class CoachingDetector(Detector):
                     f"{spoken_distance(abs(worst_delta), ctx.units)}."
                 ),
                 message_key=f"coaching.braking_{'early' if early else 'late'}",
-                message_args={"corner": worst_corner, "meters": round(abs(worst_delta))},
+                message_args={
+                    "corner": worst_corner,
+                    "corner_name": ctx.corner_name(worst_corner),
+                    "meters": round(abs(worst_delta)),
+                    "units": ctx.units,
+                },
                 dedupe_key=f"braking:{ctx.session_seq}:{worst_corner}",
                 metadata={
                     "corner": worst_corner,
@@ -211,7 +216,12 @@ class CoachingDetector(Detector):
                 event_type=event_type,
                 text=text,
                 message_key=f"coaching.{event_type}",
-                message_args={"wheel": wheel, "corner": corner, "count": len(hits)},
+                message_args={
+                    "wheel": wheel,
+                    "corner": corner,
+                    "corner_name": ctx.corner_name(corner),
+                    "count": len(hits),
+                },
                 dedupe_key=f"{event_type}:{ctx.session_seq}:{dedupe}",
                 metadata={
                     "count": len(hits),
@@ -264,8 +274,20 @@ class CoachingDetector(Detector):
         exit_ = float(worst_corner["exit_dist"])
         mine = placed.measures(ctx.corners).get(number)
         theirs = ctx.reference_measures().get(number)
-        brake_delta = brake_point_delta(mine, theirs)
-        apex_delta = min_speed_delta(mine, theirs)
+        brake_raw = brake_point_delta(mine, theirs)
+        apex_raw = min_speed_delta(mine, theirs)
+        # Only differences past the noise floor are worth a clause; the
+        # metadata keeps the measurement either way.
+        brake_delta = (
+            brake_raw
+            if brake_raw is not None and abs(brake_raw) >= CORNER_BRAKE_DIFF_MIN_M
+            else None
+        )
+        apex_delta = (
+            apex_raw
+            if apex_raw is not None and abs(apex_raw) >= CORNER_APEX_SPEED_DIFF_MIN_KMH
+            else None
+        )
         detail = _detail_phrase(brake_delta, apex_delta, ctx.units)
 
         if detail:
@@ -283,19 +305,22 @@ class CoachingDetector(Detector):
                 event_type="corner_time_loss",
                 text=text,
                 message_key="coaching.corner_time_loss",
+                # The deltas are None when the sentence leaves them out.
                 message_args={
                     "corner": number,
+                    "corner_name": ctx.corner_name(number),
                     "loss_ms": round(worst_loss),
                     "brake_delta_m": round(brake_delta, 1) if brake_delta is not None else None,
                     "apex_delta_kmh": round(apex_delta, 1) if apex_delta is not None else None,
+                    "units": ctx.units,
                 },
                 dedupe_key=f"corner_time_loss:{ctx.session_seq}:{lap.number}",
                 metadata={
                     "corner": number,
                     "loss_ms": round(worst_loss),
                     "apex_dist": worst_corner.get("apex_dist"),
-                    "brake_delta_m": round(brake_delta, 1) if brake_delta is not None else None,
-                    "apex_delta_kmh": round(apex_delta, 1) if apex_delta is not None else None,
+                    "brake_delta_m": round(brake_raw, 1) if brake_raw is not None else None,
+                    "apex_delta_kmh": round(apex_raw, 1) if apex_raw is not None else None,
                 },
             )
         ]
@@ -310,13 +335,14 @@ def _detail_phrase(
     """The "you braked X earlier and carried Y less" half of the callout.
 
     Empty when neither difference clears the noise floor — the plain wording
-    is better than inventing a cause for the time loss.
+    is better than inventing a cause for the time loss. The caller has
+    already dropped a difference below it (to None), so its arguments match.
     """
     clauses: list[str] = []
-    if brake_delta is not None and abs(brake_delta) >= CORNER_BRAKE_DIFF_MIN_M:
+    if brake_delta is not None:
         when = "earlier" if brake_delta < 0 else "later"
         clauses.append(f"braked {spoken_distance(abs(brake_delta), units)} {when}")
-    if apex_delta is not None and abs(apex_delta) >= CORNER_APEX_SPEED_DIFF_MIN_KMH:
+    if apex_delta is not None:
         more = "less" if apex_delta < 0 else "more"
         clauses.append(
             f"carried {spoken_speed(abs(apex_delta), units)} {more} at the apex"

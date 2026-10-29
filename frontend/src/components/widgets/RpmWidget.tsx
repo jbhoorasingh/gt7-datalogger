@@ -1,3 +1,5 @@
+import { useT } from "@/i18n";
+import { formatInt } from "@/lib/format";
 import type { WidgetRenderProps } from "@/lib/widgetMeta";
 import { Caption, Gauge } from "./shared";
 
@@ -6,6 +8,7 @@ const LED_COUNT = 10;
 const LED_START = 0.55;
 
 export function RpmWidget(props: WidgetRenderProps) {
+  const t = useT();
   const { frame, variant } = props;
   const alert = Math.max(1, frame.rpm_alert);
   const frac = frame.rpm / alert;
@@ -33,8 +36,8 @@ export function RpmWidget(props: WidgetRenderProps) {
           })}
         </div>
         <div className="flex w-full justify-between text-[10px] text-ink-dim">
-          <span>{frame.rpm.toLocaleString()} rpm</span>
-          {nearLimit && <span className="text-brake">SHIFT</span>}
+          <span>{formatInt(frame.rpm)} rpm</span>
+          {nearLimit && <span className="text-brake">{t("widget.rpm.shift")}</span>}
         </div>
       </div>
     );
@@ -59,7 +62,7 @@ export function RpmWidget(props: WidgetRenderProps) {
         <div
           className={`text-3xl font-bold leading-none ${nearLimit ? "text-brake" : ""}`}
         >
-          {frame.rpm.toLocaleString()}
+          {formatInt(frame.rpm)}
         </div>
         <Caption>rpm</Caption>
       </div>
@@ -76,8 +79,8 @@ export function RpmWidget(props: WidgetRenderProps) {
         />
       </div>
       <div className="flex justify-between text-[10px] text-ink-dim">
-        <span>{frame.rpm.toLocaleString()} rpm</span>
-        {nearLimit && <span className="text-brake">SHIFT</span>}
+        <span>{formatInt(frame.rpm)} rpm</span>
+        {nearLimit && <span className="text-brake">{t("widget.rpm.shift")}</span>}
       </div>
     </div>
   );

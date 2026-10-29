@@ -10,6 +10,7 @@
 // charge. The drift itself is not touched by any of this: it is the
 // server's, a median of slopes, and one slow lap does not move a median.
 
+import { t } from "@/i18n";
 import { median } from "@/lib/consistency";
 import type { Stint, StintLap } from "@/lib/types";
 
@@ -66,22 +67,22 @@ export function formatDrift(msPerLap: number): string {
   const digits = Math.abs(s) < 1 ? 2 : 1;
   const text = Math.abs(s).toFixed(digits);
   // A drift that rounds to nothing has no direction.
-  if (Number(text) === 0) return `±${text} s/lap`;
-  return `${s > 0 ? "+" : "−"}${text} s/lap`;
+  if (Number(text) === 0) return t("stint.drift", { value: `±${text}` });
+  return t("stint.drift", { value: `${s > 0 ? "+" : "−"}${text}` });
 }
 
 /** "+1.2 °C/lap" */
 export function formatWarming(perLap: number): string {
   const text = Math.abs(perLap).toFixed(1);
-  if (Number(text) === 0) return `±${text} °C/lap`;
-  return `${perLap > 0 ? "+" : "−"}${text} °C/lap`;
+  if (Number(text) === 0) return t("stint.warming", { value: `±${text}` });
+  return t("stint.warming", { value: `${perLap > 0 ? "+" : "−"}${text}` });
 }
 
 /** "L3–L14", or "L3" for a stint of one lap. */
 export function stintSpan(stint: Stint): string {
   return stint.first_lap === stint.last_lap
-    ? `L${stint.first_lap}`
-    : `L${stint.first_lap}–L${stint.last_lap}`;
+    ? t("stint.spanOne", { lap: String(stint.first_lap) })
+    : t("stint.span", { first: String(stint.first_lap), last: String(stint.last_lap) });
 }
 
 /** Whether the session has anything a trend can be read from: two laps that

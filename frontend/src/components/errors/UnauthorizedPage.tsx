@@ -3,6 +3,7 @@
 // Access uses, is checked against the admin API, and the caller retries.
 
 import { useState } from "react";
+import { useT } from "@/i18n";
 import { ApiError, api, getAdminToken, setAdminToken } from "@/lib/api";
 import { navigate } from "@/lib/router";
 import { ADMIN_TOKEN_DOCS_URL, ErrorPage } from "./ErrorPage";
@@ -22,6 +23,7 @@ export function UnauthorizedPage({
   request = "GET /api/admin/settings",
   status = 401,
 }: UnauthorizedPageProps) {
+  const t = useT();
   const [token, setToken] = useState(getAdminToken);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,7 +42,7 @@ export function UnauthorizedPage({
     } catch (e) {
       setError(
         e instanceof ApiError && (e.status === 401 || e.status === 403)
-          ? "The server rejected that token. Check it and try again."
+          ? t("error.auth.rejected")
           : e instanceof Error
             ? e.message
             : String(e),
@@ -54,13 +56,13 @@ export function UnauthorizedPage({
   return (
     <ErrorPage
       flag={FLAGS.black}
-      kicker="Black flag · report to the stewards"
+      kicker={t("error.auth.kicker")}
       code={String(status)}
-      title="Settings are locked on this server."
-      body="Whoever runs this logger set an admin token. Enter it once and this browser remembers it. Live, overlays and /dash never need it."
-      primary={{ label: "Back to Live", onClick: () => navigate("live") }}
-      secondary={{ label: "Where do I find it?", href: ADMIN_TOKEN_DOCS_URL }}
-      diag={`${request} → ${status} · X-API-Key ${sent ? "rejected" : "missing"}`}
+      title={t("error.auth.title")}
+      body={t("error.auth.body")}
+      primary={{ label: t("error.auth.backToLive"), onClick: () => navigate("live") }}
+      secondary={{ label: t("error.auth.whereToFind"), href: ADMIN_TOKEN_DOCS_URL }}
+      diag={`${request} → ${status} · X-API-Key ${sent ? t("error.auth.keyRejected") : t("error.auth.keyMissing")}`}
       art={<BlackFlagArt />}
     >
       <form
@@ -77,7 +79,7 @@ export function UnauthorizedPage({
             onChange={(e) => setToken(e.target.value)}
             placeholder="GT7_ADMIN_TOKEN"
             autoComplete="off"
-            aria-label="Admin token"
+            aria-label={t("settings.access.token")}
             className="min-w-0 flex-1 rounded-md border border-edge bg-panel-2 px-3 py-[7px] font-tabular text-[13px] text-ink placeholder:text-ink-ghost focus:border-edge-bright focus:outline-none"
           />
           <button
@@ -85,7 +87,7 @@ export function UnauthorizedPage({
             className="btn btn-primary px-3.5 py-1.5 text-xs"
             disabled={busy || token.trim() === ""}
           >
-            {busy ? "Checking…" : "Unlock settings"}
+            {busy ? t("error.auth.checking") : t("error.auth.unlock")}
           </button>
         </div>
         {error && <span className="text-[11.5px] text-brake">{error}</span>}

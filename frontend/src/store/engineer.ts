@@ -4,13 +4,19 @@
 // receives the same events but must never speak (several open browser sources
 // would otherwise all talk at once).
 
+import { useCallback } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { useI18n, useLanguage, type MessageKey, type Vars } from "@/i18n";
+import { enabledPhrase, wordCallout, type Worded } from "@/i18n/callouts";
+import { speechTag, type Language } from "@/i18n/languages";
 import {
   MAX_QUEUE,
   VoiceQueue,
+  getVoices,
   speakTest,
   speechSupported,
+  voicesFor,
   type QueuedCallout,
   type SpeechOptions,
 } from "@/lib/speech";
@@ -29,7 +35,9 @@ import { liveFrameRef } from "@/store/telemetry";
 
 const CLIENT_ID_KEY = "gt7.clientId";
 export const ENGINEER_SETTINGS_KEY = "gt7-race-engineer-settings-v1";
-export const TEST_PHRASE = "Race engineer enabled.";
+
+/** Callouts in the interface's language, or one of their own. */
+export type CalloutLanguage = Language | "ui";
 
 /** Stable per-browser identity, so a refresh keeps the active-speaker claim. */
 export function clientId(): string {
@@ -73,7 +81,8 @@ export interface CalloutReceipt {
   receivedAt: number;
   lap: number | null;
   status: CalloutAckStatus | null;
-  note: string | null;
+  /** A message id, so the feed reads in whatever language is shown now. */
+  note: { key: MessageKey; vars?: Vars } | null;
 }
 
 interface EngineerState {
@@ -81,7 +90,8 @@ interface EngineerState {
   /** The user's stored preference. Speech also needs `audioReady`. */
   enabled: boolean;
   voiceURI: string;
-  lang: string;
+  /** What language callouts are said and captioned in. */
+  calloutLanguage: CalloutLanguage;
   volume: number;
   rate: number;
   pitch: number;
@@ -119,7 +129,8 @@ interface EngineerState {
   receivedCount: number;
 
   setEnabled: (on: boolean) => void;
-  setVoice: (voiceURI: string, lang: string) => void;
+  setVoice: (voiceURI: string) => void;
+  setCalloutLanguage: (language: CalloutLanguage) => void;
   setAudio: (patch: Partial<Pick<EngineerState, "volume" | "rate" | "pitch">>) => void;
   setVerbosity: (v: Verbosity) => void;
   toggleCategory: (c: CalloutCategory, on: boolean) => void;
@@ -140,14 +151,50 @@ interface EngineerState {
   isActiveSpeaker: () => boolean;
 }
 
+/** The language callouts are in on this device right now. */
+export function spokenLanguage(choice: CalloutLanguage, ui: Language): Language {
+  return choice === "ui" ? ui : choice;
+}
+
+function currentLanguage(s: EngineerState): Language {
+  return spokenLanguage(s.calloutLanguage, useI18n.getState().language);
+}
+
 function speechOptions(s: EngineerState): SpeechOptions {
   return {
     voiceURI: s.voiceURI,
-    lang: s.lang,
+    lang: speechTag(currentLanguage(s)),
     volume: s.volume,
     rate: s.rate,
     pitch: s.pitch,
   };
+}
+
+/**
+ * What to say aloud for a translation, and in which voice language. A
+ * device with no voice for the language says the English instead (the
+ * captions stay translated): a Japanese sentence handed to an English voice
+ * comes out as noise or silence, and the panel says why it fell back. An
+ * empty voice list is not proof of anything — browsers fill it late.
+ */
+export function speakableWording(
+  worded: Worded,
+  english: string,
+  voices: Pick<SpeechSynthesisVoice, "lang">[],
+): { text: string; lang: string } {
+  const tag = speechTag(worded.language);
+  if (worded.language !== "en" && voices.length > 0 && voicesFor(voices, tag).length === 0) {
+    return { text: english, lang: speechTag("en") };
+  }
+  return { text: worded.text, lang: tag };
+}
+
+function sayCallout(s: EngineerState, callout: VoiceCallout): { text: string; lang: string } {
+  return speakableWording(wordCallout(callout, currentLanguage(s)), callout.text, getVoices());
+}
+
+function sayEnabled(s: EngineerState): { text: string; lang: string } {
+  return speakableWording(enabledPhrase(currentLanguage(s)), enabledPhrase("en").text, getVoices());
 }
 
 /** The single queue instance, reachable from the disconnect path. */
@@ -168,6 +215,7 @@ export const useEngineer = create<EngineerState>()(
           VERBOSITY_CATEGORIES[get().verbosity].includes(c),
         muted: () => get().muteWhenHidden && document.hidden,
         options: () => speechOptions(get()),
+        word: (callout) => sayCallout(get(), callout),
         onAck: (calloutId, status, reason) => {
           sendWs({
             type: "voice_callout_ack",
@@ -217,7 +265,7 @@ export const useEngineer = create<EngineerState>()(
       return {
         enabled: false,
         voiceURI: "",
-        lang: "en-US",
+        calloutLanguage: "ui",
         volume: 1,
         rate: 1.05,
         pitch: 1,
@@ -251,7 +299,8 @@ export const useEngineer = create<EngineerState>()(
           }
           get().sendCapabilities();
         },
-        setVoice: (voiceURI, lang) => set({ voiceURI, lang }),
+        setVoice: (voiceURI) => set({ voiceURI }),
+        setCalloutLanguage: (calloutLanguage) => set({ calloutLanguage }),
         setAudio: (patch) => set(patch),
         setVerbosity: (verbosity) => set({ verbosity }),
         toggleCategory: (c, on) =>
@@ -277,14 +326,16 @@ export const useEngineer = create<EngineerState>()(
         testVoice: () => {
           set({ speechError: null });
           queue.resetFailures();
-          speakTest(TEST_PHRASE, speechOptions(get()), {
+          const said = sayEnabled(get());
+          speakTest(said.text, { ...speechOptions(get()), lang: said.lang }, {
             onStart: () => set({ speechError: null, audioReady: true }),
             onError: (reason) => set({ speechError: reason }),
           });
         },
 
         replay: (callout) => {
-          speakTest(callout.text, speechOptions(get()), {
+          const said = sayCallout(get(), callout);
+          speakTest(said.text, { ...speechOptions(get()), lang: said.lang }, {
             onError: (reason) => set({ speechError: reason }),
           });
         },
@@ -300,7 +351,8 @@ export const useEngineer = create<EngineerState>()(
             // silent setup impossible to diagnose.
             set({ speechError: null, audioReady: true });
             queue.resetFailures();
-            speakTest(TEST_PHRASE, speechOptions(get()), {
+            const said = sayEnabled(get());
+            speakTest(said.text, { ...speechOptions(get()), lang: said.lang }, {
               onStart: () => {
                 set({ speechError: null });
                 get().sendCapabilities();
@@ -367,7 +419,7 @@ export const useEngineer = create<EngineerState>()(
       partialize: (s) => ({
         enabled: s.enabled,
         voiceURI: s.voiceURI,
-        lang: s.lang,
+        calloutLanguage: s.calloutLanguage,
         volume: s.volume,
         rate: s.rate,
         pitch: s.pitch,
@@ -380,6 +432,17 @@ export const useEngineer = create<EngineerState>()(
     },
   ),
 );
+
+/**
+ * A callout's words as this device shows them (captions, the feed, Last
+ * spoken). Re-renders the caller when either language changes.
+ */
+export function useCalloutWording(): (callout: VoiceCallout) => string {
+  const ui = useLanguage();
+  const choice = useEngineer((s) => s.calloutLanguage);
+  const language = spokenLanguage(choice, ui);
+  return useCallback((callout: VoiceCallout) => wordCallout(callout, language).text, [language]);
+}
 
 export { MAX_QUEUE };
 export type { CalloutAckStatus };
