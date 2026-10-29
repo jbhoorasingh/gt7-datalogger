@@ -148,6 +148,72 @@ describe("callout phrasebooks", () => {
     );
   });
 
+  describe("round a gap before choosing tenths or seconds", () => {
+    // 950–999 ms is ten tenths once rounded: one second, as the explicit
+    // precision carries it, never "コンマ10秒" / "10 décimas".
+    const cases = [
+      { ms: 949, ja: "コンマ9秒", es: "9 décimas", pt: "9 décimos" },
+      { ms: 950, ja: "1秒", es: "un segundo", pt: "um segundo" },
+      { ms: 980, ja: "1秒", es: "un segundo", pt: "um segundo" },
+      { ms: 999, ja: "1秒", es: "un segundo", pt: "um segundo" },
+      { ms: 1000, ja: "1秒", es: "un segundo", pt: "um segundo" },
+    ];
+    const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+    const loss = (loss_ms: number, brake_delta_m: number | null = null) => ({
+      corner: 6,
+      corner_name: "",
+      loss_ms,
+      brake_delta_m,
+      apex_delta_kmh: null,
+      units: "metric",
+    });
+
+    it.each(cases)("a lap time $ms ms slower", ({ ms, ja, es, pt }) => {
+      const lap = { time_ms: 92_487, delta_ms: ms };
+      expect(wordMessage("lap.time", lap, "ja")).toBe(`ラップタイム、1分32秒5。${ja}遅いです。`);
+      expect(wordMessage("lap.time", lap, "es")).toBe(
+        `Tiempo de vuelta, un minuto 32,5. ${cap(es)} más lento.`,
+      );
+      expect(wordMessage("lap.time", lap, "pt-BR")).toBe(
+        `Tempo de volta, um minuto e 32,5. ${cap(pt)} mais lento.`,
+      );
+    });
+
+    it.each(cases)("a corner that cost $ms ms", ({ ms, ja, es, pt }) => {
+      expect(wordMessage("coaching.corner_time_loss", loss(ms), "ja")).toBe(
+        `最もタイムを失ったのはターン6です。${ja}遅れました。`,
+      );
+      expect(wordMessage("coaching.corner_time_loss", loss(ms, -18), "ja")).toBe(
+        `ターン6で${ja}ロスしました。ブレーキが18メートル早かったです。`,
+      );
+      expect(wordMessage("coaching.corner_time_loss", loss(ms), "es")).toBe(
+        `Donde más tiempo perdiste fue en la curva 6. Fuiste ${es} más lento.`,
+      );
+      expect(wordMessage("coaching.corner_time_loss", loss(ms), "pt-BR")).toBe(
+        `Você perdeu mais tempo na curva 6. Foi ${pt} mais lento.`,
+      );
+    });
+
+    it("carry the same way the explicit precision does", () => {
+      const lap = { time_ms: 92_487, delta_ms: 980 };
+      expect(wordMessage("lap.time", { ...lap, places: 1, rounding: "round" }, "ja")).toBe(
+        "ラップタイム、1分32秒5。1.0秒遅いです。",
+      );
+    });
+
+    it("caption and speak the carried wording", () => {
+      const callout = {
+        text: "Lap time, one minute thirty-two point five. Ten tenths slower.",
+        message_key: "lap.time",
+        message_args: { time_ms: 92_487, delta_ms: 980 },
+      };
+      expect(wordCallout(callout, "ja")).toEqual({
+        text: "ラップタイム、1分32秒5。1秒遅いです。",
+        language: "ja",
+      });
+    });
+  });
+
   it("name a labelled corner, and say feet and mph for imperial", () => {
     const braking = { corner: 1, corner_name: "Parabolica", meters: 15, units: "imperial" };
     expect(wordMessage("coaching.braking_late", braking, "es")).toBe(

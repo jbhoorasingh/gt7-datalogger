@@ -1,7 +1,7 @@
 // Brazilian Portuguese callouts. Plurals follow CLDR (and the Brazilian
 // norm): a quantity under two takes the singular, "1,5 volta".
 
-import { decimal, feet, fixed, mph, pluralOf, quantize, splitTime, tenths } from "./numbers";
+import { decimal, feet, fixed, mph, pluralOf, quantize, spokenGap, splitTime } from "./numbers";
 import type { CalloutArgs, Phrasebook, Places, Rounding, Units, Wheel } from "./types";
 
 const L = "pt-BR";
@@ -33,9 +33,10 @@ function gap(ms: number, places?: Places, rounding: Rounding = "round"): string 
     const value = quantize(ms, places, rounding);
     return seconds(fixed(L, value, places), value);
   }
-  const s = Math.abs(ms) / 1000;
-  if (s < 1) return count(tenths(ms), "décimo", "décimos");
-  return count(Math.round(s * 10) / 10, "segundo", "segundos");
+  const g = spokenGap(ms);
+  return g.unit === "tenths"
+    ? count(g.value, "décimo", "décimos")
+    : count(g.value, "segundo", "segundos");
 }
 
 function distance(meters: number, units: Units): string {

@@ -1,7 +1,7 @@
 // Japanese callouts, in the register of a race engineer on the radio: lap
 // times as "1分32秒5", sub-second gaps as "コンマ3秒".
 
-import { decimal, feet, fixed, mph, quantize, splitTime, tenths } from "./numbers";
+import { decimal, feet, fixed, mph, quantize, spokenGap, splitTime } from "./numbers";
 import type { CalloutArgs, Phrasebook, Places, Rounding, Units, Wheel } from "./types";
 
 const L = "ja";
@@ -12,16 +12,15 @@ function lapTime(ms: number, places: Places = 1, rounding: Rounding = "round"): 
   return t.minutes ? `${t.minutes}分${secs}` : secs;
 }
 
-/** "コンマ3秒" under a second, "1.2秒" from one up. */
+/** "コンマ3秒" under a second once rounded, "1秒" / "1.2秒" from one up. */
 function gap(ms: number, places?: Places, rounding: Rounding = "round"): string {
   if (places) {
     const value = quantize(ms, places, rounding);
     const text = fixed(L, value, places);
     return value < 1 ? `コンマ${text.split(".")[1]}秒` : `${text}秒`;
   }
-  const s = Math.abs(ms) / 1000;
-  if (s < 1) return `コンマ${tenths(ms)}秒`;
-  return `${decimal(L, s)}秒`;
+  const g = spokenGap(ms);
+  return g.unit === "tenths" ? `コンマ${g.value}秒` : `${decimal(L, g.value)}秒`;
 }
 
 function distance(meters: number, units: Units): string {

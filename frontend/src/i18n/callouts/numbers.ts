@@ -70,6 +70,17 @@ export function tenths(ms: number): number {
   return Math.max(1, Math.round(Math.abs(ms) / 100));
 }
 
+/**
+ * A gap said without a set precision: whole tenths under a second, else
+ * seconds to one decimal. It is rounded before the unit is chosen, so 970 ms
+ * is ten tenths and carries to one second — the way quantize() carries for
+ * the sector-voice precision — rather than coming out as "10 tenths".
+ */
+export function spokenGap(ms: number): { unit: "tenths" | "seconds"; value: number } {
+  const n = tenths(ms);
+  return n < 10 ? { unit: "tenths", value: n } : { unit: "seconds", value: n / 10 };
+}
+
 export function feet(meters: number): number {
   return Math.round(meters / METERS_PER_FOOT);
 }

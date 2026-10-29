@@ -1,7 +1,7 @@
 // Spanish callouts. Neutral Spanish: understood in Spain and Latin America,
 // and avoiding words that differ between them (coche/carro/auto).
 
-import { decimal, feet, fixed, mph, pluralOf, quantize, splitTime, tenths } from "./numbers";
+import { decimal, feet, fixed, mph, pluralOf, quantize, spokenGap, splitTime } from "./numbers";
 import type { CalloutArgs, Phrasebook, Places, Rounding, Units, Wheel } from "./types";
 
 const L = "es";
@@ -26,9 +26,10 @@ function lapTime(ms: number, places: Places = 1, rounding: Rounding = "round"): 
 /** A gap as a driver hears it: "tres décimas", "1,2 segundos". */
 function gap(ms: number, places?: Places, rounding: Rounding = "round"): string {
   if (places) return `${fixed(L, quantize(ms, places, rounding), places)} segundos`;
-  const seconds = Math.abs(ms) / 1000;
-  if (seconds < 1) return count(tenths(ms), "décima", "décimas", true);
-  return count(Math.round(seconds * 10) / 10, "segundo", "segundos");
+  const g = spokenGap(ms);
+  return g.unit === "tenths"
+    ? count(g.value, "décima", "décimas", true)
+    : count(g.value, "segundo", "segundos");
 }
 
 function distance(meters: number, units: Units): string {
