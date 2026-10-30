@@ -87,7 +87,9 @@ Notable changes to GT7 Datalogger. The format follows
   only through replay salvage, so GT7's own lap time has to vouch for it, and the
   sessions it opens are excluded from bests. Turn it on before the replay starts and
   off before driving; it applies to new sessions, not the one already open
-  (`POST /api/control/replay-recording`, admin). Contributed by @Marstiphal (#171, #87).
+  (`POST /api/control/replay-recording`, admin). The switch is translated, and a toggle
+  the server refuses (a protected server without the admin token) shows why in a toast.
+  Contributed by @Marstiphal (#171, #87).
 
 ### Fixed
 

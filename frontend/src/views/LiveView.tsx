@@ -3,12 +3,12 @@
 // instead of once per animation frame. The input trace samples liveFrameRef
 // on its own animation loop and never re-renders at all.
 
-import { api } from "../lib/api";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { NoTelemetryPage } from "@/components/errors";
 import { rich, useT, type MessageKey, type Translate } from "@/i18n";
 import { lastVsPrevBest, liveDelta } from "@/components/widgets/shared";
 import { computeAlerts, THRESHOLDS, type DashAlert } from "@/lib/alerts";
+import { api } from "@/lib/api";
 import { FASTEST_COLOR } from "@/lib/colors";
 import { countingLaps, lapConsistency } from "@/lib/consistency";
 import { useEngineerStatus } from "@/lib/engineerStatus";
@@ -35,6 +35,7 @@ import { STALE_AFTER_MS, useLiveFrame } from "@/lib/useLiveFrame";
 import { clientId } from "@/store/engineer";
 import { useSettings } from "@/store/settings";
 import { liveFrameRef, useTelemetry } from "@/store/telemetry";
+import { toast } from "@/store/toasts";
 
 // No frame for this long and the view hands over to the no-telemetry page.
 const SILENT_AFTER_MS = 5000;
@@ -125,16 +126,18 @@ function Dashboard({ frame }: { frame: LiveFrame }) {
             onClick={() => {
               api.setReplayRecording(!replayRecording)
                 .then((status) => useTelemetry.setState({ status }))
-                .catch((err) => console.error("Replay recording toggle failed:", err));
+                .catch((e) =>
+                  toast(e instanceof Error ? e.message : t("live.replayRecording.failed"), "error"),
+                );
             }}
             className={`rounded border px-3 py-1.5 text-xs font-semibold transition-colors ${
               replayRecording
                 ? "border-amber-500 bg-amber-500/20 text-amber-300"
                 : "border-edge text-ink-faint hover:text-ink"
             }`}
-            title="Enable when recording GT7 leaderboard replays. Leave OFF for normal driving."
+            title={t("live.replayRecording.tip")}
           >
-            Replay Recording: {replayRecording ? "ON" : "OFF"}
+            {replayRecording ? t("live.replayRecording.on") : t("live.replayRecording.off")}
           </button>
           <a className="btn no-underline" href="#/dash">
             {t("live.driverDash")}
