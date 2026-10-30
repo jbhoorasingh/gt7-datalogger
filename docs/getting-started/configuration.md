@@ -42,6 +42,7 @@ The **Applies** column says when a change takes effect:
 | --- | --- | --- | --- |
 | `GT7_WS_RATE` | `30` | live | Live stream rate (Hz) for clients that do not ask for their own — the browser UI. Capture stays at ~60 Hz; a client can request up to 60 Hz in its [hello](../reference/client-protocol.md) |
 | `GT7_MDNS` | `true` | live | Advertise this server over mDNS as `_gt7dl._tcp` so the phone app finds it without an address. Multicast does not leave a Docker bridge network: in a container it needs `network_mode: host` |
+| `GT7_LAN_ACCESS` | `true` | live | Let phones, tablets and other computers on the network use this server. Off, only this computer can, and mDNS stops announcing it. Reads and the live stream need no token; with an admin token set, changes from another device need it |
 | `GT7_CORS_ORIGINS` | *(empty)* | live | Comma-separated origins allowed for cross-origin API use. Empty sends no CORS headers — the bundled UI is same-origin and needs none, and so does a native app |
 | `GT7_TRUSTED_HOSTS` | *(empty)* | live | Comma-separated host names requests may be addressed to, beyond the ones always accepted: IP addresses, `localhost`, single-label names, this machine's hostname and names ending `.local`, `.lan`, `.home.arpa`, `.internal`, `.localdomain`, `.localhost` or `.test`. Set it to the public name of a reverse proxy in front of the server; `*.example.com` takes a whole domain and `*` turns the check off. A page served under a listed name may also make changes, as the server's own pages do |
 

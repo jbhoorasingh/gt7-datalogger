@@ -131,6 +131,14 @@ ENTRIES: tuple[Entry, ...] = (
         kind="bool",
     ),
     Entry(
+        "lan_access", "Live stream", "LAN access",
+        "Let phones, tablets and other computers on the network use this server. "
+        "Off, only this computer can, and mDNS stops announcing it. Reads and the "
+        "live stream need no token; with an admin token set, changes from another "
+        "device need it",
+        kind="bool",
+    ),
+    Entry(
         "cors_origins", "Live stream", "CORS origins",
         "Comma-separated origins allowed for cross-origin API use. Empty sends no "
         "CORS headers — the bundled UI is same-origin and needs none, and so does a "

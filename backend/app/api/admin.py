@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import secrets
 import time
 from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Any, Literal
@@ -252,7 +253,7 @@ async def _apply_generic(service: TelemetryService, key: str, value: Any) -> Non
             ) from exc
     elif key == "sim_scenario" and settings.source == "sim":
         await service.restart_source()
-    elif key == "mdns":
+    elif key in ("mdns", "lan_access"):
         await service.discovery.apply()
     log.info("setting %s changed", key)
 
@@ -577,14 +578,34 @@ async def get_setup(request: Request) -> dict[str, Any]:
     return await setup_state.state(service, reachable)
 
 
+class SetupComplete(BaseModel):
+    # The wizard's last question (#195): may phones and tablets connect?
+    # None leaves LAN access as it is (a Docker install's wizard).
+    lan_access: bool | None = None
+
+
 @router.post("/setup/complete")
-async def complete_setup(request: Request) -> dict[str, Any]:
-    """Store the marker and start recording: the end of first-run mode."""
+async def complete_setup(
+    request: Request, body: SetupComplete | None = None
+) -> dict[str, Any]:
+    """Store the marker and start recording: the end of first-run mode.
+
+    Turning LAN access on here also creates an admin token when there is
+    none, so changes from another device need it while reads stay open;
+    the wizard shows it once. It is stored like any admin token.
+    """
     service = svc(request)
+    created = ""
+    if body is not None and body.lan_access is not None:
+        values: dict[str, Any] = {"lan_access": body.lan_access}
+        if body.lan_access and not service.settings.admin_token:
+            created = secrets.token_urlsafe(24)
+            values["admin_token"] = created
+        await apply_config(service, ConfigPatch(values=values))
     await service.repo.set_setting(setup_state.SETUP_KEY, datetime.now(UTC).isoformat())
     if not service.recording:
         await service.set_recording(True)
-    return await get_setup(request)
+    return {**await get_setup(request), "admin_token": created or None}
 
 
 @router.get("/stats")
@@ -615,6 +636,11 @@ async def stats(request: Request) -> dict[str, Any]:
         # {name, ip, port} while announced over mDNS, null otherwise.
         "mdns": service.discovery.advertised,
         "mdns_enabled": service.settings.mdns,
+        # Whether another device can use this server right now (#186, #195):
+        # false on a loopback bind or with LAN access off, where the UI shows
+        # "LAN access is off" instead of a URL nothing can reach.
+        "lan_access": service.settings.lan_access,
+        "lan_reachable": service.settings.lan_access and not loopback_only,
     }
 
 

@@ -131,7 +131,23 @@ Notable changes to GT7 Datalogger. The format follows
   with mDNS and recording off until then, so no network prompt appears before the
   first-run wizard explains it (#184).
 
+- **LAN access is one live switch (`GT7_LAN_ACCESS`).** Off, only the computer
+  running the server can use it (other devices get 403 `lan_off`) and mDNS stops
+  announcing it; on — the default, as before — phones and tablets connect. It is
+  checked on every request, so changing it restarts nothing and drops no lap. Finishing
+  first-run setup with LAN access on creates an admin token when there is none, which
+  other devices then need for changes; reads and the live stream stay open. In the
+  desktop app the computer's own browser needs no token (#195).
+
 ### Fixed
+
+- **mDNS no longer broadcasts this computer's name, and retries.** The advertisement
+  carried the hostname — on a Mac usually its owner's name — in two places on every
+  network joined; it now uses a random per-install label. It is sent on the one
+  interface it names, chooses that address from the interfaces rather than the route a
+  full-tunnel VPN takes over, and a failed registration is retried (5 s, 15 s, 60 s,
+  then every five minutes) instead of given up on. `/api/admin/stats` adds
+  `lan_access` and `lan_reachable` (#186).
 
 - **Shutdown always closes the database.** The teardown was four awaits in a row, so a
   step that failed or was cancelled skipped the rest and left the SQLite connections

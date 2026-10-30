@@ -97,6 +97,11 @@ class Settings(BaseSettings):
     # Announce this server on the LAN over mDNS (_gt7dl._tcp), so the phone
     # app finds it without an address typed in (#142).
     mdns: bool = True
+    # Whether other devices on the network may use this server at all (#195).
+    # Checked on every request, so turning it off or on never restarts the
+    # server or drops the lap in progress. Docker and source keep today's
+    # open default; the desktop app starts with it off until setup is done.
+    lan_access: bool = True
 
     # Client stream rate (Hz). Raw capture is ~60 Hz; the UI does not need all of it.
     ws_rate: int = 30

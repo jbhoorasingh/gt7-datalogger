@@ -64,5 +64,6 @@ async def state(service: TelemetryService, lan_reachable: bool | None) -> dict[s
         "listening": service.listener_error is None and running,
         "listener_error": service.listener_error,
         "heartbeat_error": status.get("heartbeat_error"),
-        "lan_reachable": lan_reachable,
+        "lan_reachable": lan_reachable and service.settings.lan_access,
+        "lan_access": service.settings.lan_access,
     }

@@ -17,6 +17,8 @@ from typing import Annotated
 
 from fastapi import Header, HTTPException, Request
 
+from app.api.guard import peer_is_loopback
+
 
 async def require_admin(
     request: Request,
@@ -24,8 +26,14 @@ async def require_admin(
 ) -> None:
     # Via app.state, not the lru-cached get_settings(): tests and the admin
     # API mutate the live Settings object the service holds.
-    token: str = request.app.state.service.settings.admin_token
+    settings = request.app.state.service.settings
+    token: str = settings.admin_token
     if not token:
+        return
+    # The desktop app's own browser (#195): a loopback peer that passed the
+    # guard's Host and Origin checks is the person at this computer, who
+    # owns the install. The token is for the phone and the tablet.
+    if settings.desktop and peer_is_loopback(request.scope):
         return
     if x_api_key is None:
         raise HTTPException(401, "admin token required (X-API-Key header)")

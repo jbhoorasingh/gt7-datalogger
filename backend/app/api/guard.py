@@ -209,7 +209,39 @@ def check_origin(request: Request) -> Refusal | None:
     )
 
 
-CHECKS: tuple[Check, ...] = (check_host, check_origin)
+LAN_OFF = "lan_off"
+
+
+def peer_is_loopback(scope: Scope) -> bool:
+    """Whether the TCP peer is this machine.
+
+    The socket's own peer, never a forwarded header: the desktop server runs
+    uvicorn with proxy_headers off for exactly this reason (#195).
+    """
+    client = scope.get("client")
+    if not client:
+        return True  # an in-process client (tests, ASGI transports) has none
+    host = str(client[0]).split("%", 1)[0]
+    if host in ("testclient", "localhost"):
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def check_peer(request: Request) -> Refusal | None:
+    """LAN access off: only this machine may use the server (#195)."""
+    if request.settings.lan_access or peer_is_loopback(request.scope):
+        return None
+    return Refusal(
+        LAN_OFF,
+        "LAN access is off: only the computer running GT7 Datalogger can use it. "
+        "Turn on \"Let my phone/tablet connect\" there (Settings › Phone).",
+    )
+
+
+CHECKS: tuple[Check, ...] = (check_peer, check_host, check_origin)
 
 
 def _settings(scope: Scope) -> Settings:

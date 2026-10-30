@@ -806,6 +806,23 @@
         "title": "SettingsPayload",
         "type": "object"
       },
+      "SetupComplete": {
+        "properties": {
+          "lan_access": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lan Access"
+          }
+        },
+        "title": "SetupComplete",
+        "type": "object"
+      },
       "SurveyDiscardPayload": {
         "properties": {
           "scope": {
@@ -1938,7 +1955,7 @@
     },
     "/api/admin/setup/complete": {
       "post": {
-        "description": "Store the marker and start recording: the end of first-run mode.",
+        "description": "Store the marker and start recording: the end of first-run mode.\n\nTurning LAN access on here also creates an admin token when there is\nnone, so changes from another device need it while reads stay open;\nthe wizard shows it once. It is stored like any admin token.",
         "operationId": "complete_setup_api_admin_setup_complete_post",
         "parameters": [
           {
@@ -1958,6 +1975,23 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/SetupComplete"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "content": {

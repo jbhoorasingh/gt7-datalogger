@@ -19,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.ext.asyncio import AsyncEngine
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from app import protocol, settings_registry, setup_state
+from app import discovery, protocol, settings_registry, setup_state
 from app.api import admin, backup, layouts, restore, routes, tracks, ws
 from app.api.guard import RequestGuard
 from app.config import Settings, get_settings
@@ -280,6 +280,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if first_run:
         settings.source = "sim"
         settings.mdns = False
+        settings.lan_access = False
         log.info("first run: simulator, no mDNS, not recording until setup completes")
 
     await sync_track_seed(settings, repo, stored, log)
@@ -292,6 +293,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     service.recording = not first_run
     app.state.service = service
     await service.start()
+    label = stored.get(discovery.LABEL_KEY) or discovery.new_label()
+    if label != stored.get(discovery.LABEL_KEY):
+        await repo.set_setting(discovery.LABEL_KEY, label)
+    service.discovery.label = label
     await service.discovery.start()
 
     # Deliberately not awaited: startup must not wait on gran-turismo.com, and
