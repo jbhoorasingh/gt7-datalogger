@@ -4,6 +4,7 @@ bearer header and nothing else; the server's answers — accepted, refused,
 type disabled, unreachable — each land the adapter where the spec says."""
 
 import json
+import time
 
 import httpx
 import pytest
@@ -856,3 +857,23 @@ def test_the_digest_of_a_bundle_without_sectors_is_what_it_always_was() -> None:
     )
     assert with_key == before
     assert dropped == before
+
+
+async def test_wait_idle_waits_for_the_bundle_being_loaded(
+    sync, fake, tmp_path, monkeypatch
+) -> None:
+    """The last bundle leaves the queue before its upload starts: loading and
+    serialising it happen in between, off the event loop. wait_idle used to
+    return in that gap, one upload early, on a slow runner."""
+    _bundle(tmp_path, track="Ring")
+    _bundle(tmp_path, track="Oval")
+    load = track_bundle.load_slug
+
+    def slow_load(*args, **kwargs):
+        time.sleep(0.1)
+        return load(*args, **kwargs)
+
+    monkeypatch.setattr(track_bundle, "load_slug", slow_load)
+    await sync.tracks.sweep()
+    await sync.tracks.wait_idle()
+    assert len(fake.uploads) == 2
