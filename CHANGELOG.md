@@ -20,6 +20,7 @@ Notable changes to GT7 Datalogger. The format follows
   not ask again, is silent when it fails, and waits for GitHub's rate limit to reset
   when it is told to. The configuration docs now list everything the app fetches on
   its own: the car list, the first-start track pull and this.
+
 - **A first-run wizard explains the network prompts before they appear (#191).**
   Opening the app with setup not yet completed (the desktop app, or any install
   that has recorded nothing) lands on `#/welcome`; a bookmark or a deep link is
@@ -54,102 +55,6 @@ Notable changes to GT7 Datalogger. The format follows
   refuses (LAN access off, an untrusted Host, a cross-site request) shows the
   server's reason instead of "admin token rejected", and on the desktop app
   Settings › Access says the computer's own browser never needs the token.
-
-- **A synced session gets its circuit even when its first lap was not a whole
-  one.** The session is announced to the sync service with its first lap, and the
-  circuit is identified from a whole lap; a race's grid start, a pit-out lap or
-  logging that began mid-lap is not one, so the summary went without the circuit
-  and the session stayed unnamed on the service even after the next lap named it.
-  The circuit is now owed once it is known: it goes on its own straight away to a
-  service that takes that (`track_on_patch` among its `sessions` hints, from
-  gt7-sync-service #37), and always with the drive's totals, which an older
-  service ignores. The service fills a session's circuit only while it has none,
-  and so does the logger, so a session keeps the circuit it opened with. A server
-  that refuses the circuit costs the session nothing: the laps and totals still go.
-
-- **Sportsland SUGO is recognised.** GT7 added SUGO International Racing Course in
-  its October update, after the shipped catalog was generated, so sessions there stayed
-  unnamed. The catalog now carries it (42 tracks, 122 configurations) and the shipped
-  signatures include it, built from the lap zetetos/gt-telemetry published; the
-  re-vendored file also brings the surveys gt7-datalogger-track-data has merged since
-  the last copy: 26 configurations now take their geometry from a surveyed road
-  instead of one captured lap, and 80 are recognised in all.
-
-- **Spanish, Brazilian Portuguese and Japanese.** A language menu in the status bar
-  (and on `/engineer`) sets this device's language; *Auto* follows the browser. The
-  Race Engineer speaks and captions its callouts in it, with that language's own
-  wording rather than a translated English sentence ("*Tiempo de vuelta, un minuto
-  32,5*", "*ラップタイム、1分32秒5*"), and its Voice panel can pick a different
-  **Callout language** from the interface's. Voices are listed for the callout
-  language; a device with none for it speaks the English and keeps the captions
-  translated. The whole interface is translated — every view, the dash and the OBS
-  overlays — except the setting names in **Settings › Advanced**, which the server
-  sends in English; dates follow the language too. A copied overlay or dash URL
-  carries the language (`&lang=es`), since an OBS source has no menu. Callout
-  `message_args` now describe the English sentence exactly — `null` for a clause it
-  leaves out, plus the sector-voice precision, corner names and spoken units — which is
-  what the browser words a translation from; the Analysis coaching notes carry the same
-  `message_key`/`message_args`, and a Tracks layout suggestion its reasoning as
-  `match` (#85).
-
-- **Backup: one file for a whole install.** Settings › Data › **Back up** makes
-  `gt7-backup-<date>.zip` from the parts you pick: **Data** (every session and lap, as
-  a copy of the database), **Surveys** (track bundles, corrections, survey logs, car
-  widths and the install's source id), **Config** (saved settings, without
-  credentials), **Dash/OBS** (overlay and dash layouts) and **Tokens** (the webhook URL
-  and sync token, off by default). A `manifest.json` records the app version, the
-  database's schema revision and what each part holds. The database is copied a few
-  megabytes at a time, so the recorder keeps saving laps while a backup is made, and
-  compacted, so deleted laps do not travel with it. The archive is laid out like the
-  data folder, so it can also go back by hand. The lap exports that used to sit under
-  Back up are now **Export laps** (#161).
-- **Restore a backup.** Settings › Data › **Restore** uploads a backup, lists the
-  parts it holds with what each would do here, and applies only the ones ticked.
-  **Data** replaces the recordings: the backup's database is unpacked, checked,
-  upgraded if an older version made it, and swapped in with the recorder paused only
-  for the swap; the replaced database is kept as `gt7.db.before-restore-<time>`, and
-  this install's saved settings and layouts stay. A backup from a newer version is
-  refused for Data, with the version it came from. **Surveys** merge as an import
-  does, adding corrections, survey logs and car widths where this install has none;
-  **Install identity** (`source-id.json`) is its own switch, on by default only for
-  an install with no recordings yet. **Config** merges through the same checks as
-  Settings › Advanced, with the per-machine settings (source, console IP, ports,
-  simulator scenario, LAN announcement) listed but off by default. **Dash/OBS**
-  merges by name, and **Tokens** go into `secrets.json` only when ticked. Laps are
-  then re-judged against the surveys here in the background (#161).
-- **Sector times from the Race Engineer.** With **Sector announcements** on
-  (Settings › Race Engineer, off by default), the engineer calls each sector as
-  you complete it, against the coaching reference: the delta, the sector time
-  or both, sector by sector or cumulative. It needs the circuit's sector
-  boundaries, authored in Tracks, where the checklist now has a **Sectors**
-  row. The same switch sets how many decimals (1 to 3) and whether rounded or
-  truncated, for sector and lap time announcements alike. Contributed by
-  @Marstiphal (#165).
-- **Sector times on the Analysis lap strip.** Each sector on the lap strip shows its
-  time, for the compared lap or the reference when none is compared, with the delta
-  to the reference beside it; zoomed to a sector, the map's callout shows the same.
-  The times run the lap's own clock from the line to the line, so they add up to the
-  lap time. A lap whose clock did not run the whole lap (a recording joined part way
-  round, a stop the logger skipped) shows none, and a circuit without authored sectors
-  is timed in thirds of the lap, marked `~`. Contributed by @Marstiphal (#166).
-- **Sector comparison and theoretical best.** A new Analysis panel beside Sector times
-  sets the reference lap's sectors against the session's best of each, with the time
-  the reference lost to the best in every sector, and adds the best sectors up into a
-  theoretical best lap and how far it is under the reference. Bests come only from laps
-  that count; a reference from another session has no comparison, since the bests are
-  this session's. Contributed by @Marstiphal (#167).
-- **Replay Recording for leaderboard replays.** Some GT7 leaderboard replays stream
-  without the on-track flag, so the recorder skipped every packet and the lap never
-  reached replay salvage. A **Replay Recording** switch on the Live dashboard (off by
-  default, and off again after a restart) records them anyway: replay packets are
-  sampled while the car is moving, a stop in the replay keeps its time, and paused,
-  loading and idle-menu packets are still skipped. While it is on, every lap completes
-  only through replay salvage, so GT7's own lap time has to vouch for it, and the
-  sessions it opens are excluded from bests. Turn it on before the replay starts and
-  off before driving; it applies to new sessions, not the one already open
-  (`POST /api/control/replay-recording`, admin). The switch is translated, and a toggle
-  the server refuses (a protected server without the admin token) shows why in a toast.
-  Contributed by @Marstiphal (#171, #87).
 
 - **One data folder for everything the app writes (`GT7_DATA_DIR`).** The database,
   track bundles, survey logs, sync state, backups and the installation's identity all
@@ -198,6 +103,12 @@ Notable changes to GT7 Datalogger. The format follows
   database's size free, the start logs how much is needed and stops rather than
   upgrade with no way back (#182).
 
+- **Setup asks about units and background requests.** The first-run wizard has a
+  Preferences step: Race Engineer units, chosen from the browser's region (miles in the
+  US, UK, Liberia and Myanmar), and switches for the daily update check and the car-list
+  refresh. The car-list refresh had no off switch at all; `GT7_CAR_REFRESH=false` (Settings
+  › Advanced) now keeps the bundled inventory until you press Update car database (#191).
+
 - **The desktop app's launcher and build (`desktop/`).** One executable in three
   modes: a supervisor with a menu-bar item (macOS) or tray icon (Windows) that holds
   the port and runs the server as a child of itself, restarting it if it crashes or
@@ -222,6 +133,7 @@ Notable changes to GT7 Datalogger. The format follows
   delta-update information and a `.zsync`, and a tarball of the same build; with
   `--sign`, a gpg signature in the AppImage and a detached `.asc` beside each file.
   `desktop/release-assets.txt` names every release download (#199, #200).
+
 - **Docs for the desktop app and the new release procedure (#201).** A *Desktop app*
   page (download links for the first desktop release, the Gatekeeper and SmartScreen
   screens, the firewall and Local Network prompts and how to undo a refusal, the data
@@ -231,11 +143,6 @@ Notable changes to GT7 Datalogger. The format follows
   release. The README gains a Download section and the unofficial-tool notice; the
   stale `0.1.0` image tags are now `0.8.1`, and the client protocol lists the
   `lan_off` refusal.
-- **Setup asks about units and background requests.** The first-run wizard has a
-  Preferences step: Race Engineer units, chosen from the browser's region (miles in the
-  US, UK, Liberia and Myanmar), and switches for the daily update check and the car-list
-  refresh. The car-list refresh had no off switch at all; `GT7_CAR_REFRESH=false` (Settings
-  › Advanced) now keeps the bundled inventory until you press Update car database (#191).
 
 - **Privacy and code-signing pages, and installer switches for background requests.**
   [Privacy](docs/reference/privacy.md) lists everything the app sends, where to, and how
@@ -243,6 +150,18 @@ Notable changes to GT7 Datalogger. The format follows
   says how desktop downloads are built, signed and approved. The Windows installer offers
   the car-list refresh and the shared track surveys as tasks beside the update check, and
   the launcher passes an unticked one to the server as its default (#199, #201).
+
+### Changed
+
+- **The backend tests run on macOS, Windows and Python 3.14.** CI ran them on Ubuntu
+  with Python 3.12 only, what the Docker image runs; the desktop builds will be frozen
+  with CPython 3.14 on all three platforms, and nothing had run on Windows. The backend
+  job is now four legs that report separately: Ubuntu 24.04 on 3.12 (which also lints
+  and type-checks), and Ubuntu 24.04, macOS 26 and Windows Server 2025 on 3.14. The
+  Windows leg reports without blocking until it has been green for a while. Ubuntu is
+  pinned to 24.04 because `ubuntu-latest` moves to 26.04 in November. Every action the
+  workflows use is pinned to a commit rather than a movable tag, and Dependabot proposes
+  the updates weekly (#177).
 
 ### Fixed
 
@@ -333,20 +252,6 @@ Notable changes to GT7 Datalogger. The format follows
   lock, rather than five, before giving up on a write, so a lap ending during a backup's
   copy waits it out (#188, #182).
 
-- **Sector times put time the recording missed into the last sector.** Analysis ›
-  Sector times shares GT7's lap time out by the lap's own clock, and the last sector
-  takes the remainder. A lap the logger joined part way round, or whose clock froze
-  through a stop or an outage it skipped, has a clock that falls short of the lap time,
-  so the sectors where it lost time read short and the last sector long by everything
-  missed — up to six minutes on recorded laps. A lap whose clock does not agree with its lap
-  time, within the window a salvaged lap has to meet (500 ms, or 0.5 % of the lap),
-  now shows no sector times. Partial laps timed line to line keep theirs.
-
-- **The Race Engineer said "ten tenths" for a gap of 950–999 ms.** A lap delta,
-  personal-best gain, pace drop or corner loss chose tenths before rounding, so just
-  under a second came out as "ten tenths slower". It now rounds first and says "one
-  second", like a lap time carries 59.96 s to the next minute.
-
 - **The UI no longer renders blank where Windows calls JavaScript plain text.** The
   server took a file's type from the system's table, and a common Windows registry
   entry maps `.js` to `text/plain`, which the browser refuses to run as a module.
@@ -363,18 +268,6 @@ Notable changes to GT7 Datalogger. The format follows
   `wss://` stream used the interpreter's compiled-in CA path, which some Python
   builds do not have, and then failed every handshake while uploads, which go
   through httpx and certifi, worked. Both now trust the same CAs (#183).
-
-### Changed
-
-- **The backend tests run on macOS, Windows and Python 3.14.** CI ran them on Ubuntu
-  with Python 3.12 only, what the Docker image runs; the desktop builds will be frozen
-  with CPython 3.14 on all three platforms, and nothing had run on Windows. The backend
-  job is now four legs that report separately: Ubuntu 24.04 on 3.12 (which also lints
-  and type-checks), and Ubuntu 24.04, macOS 26 and Windows Server 2025 on 3.14. The
-  Windows leg reports without blocking until it has been green for a while. Ubuntu is
-  pinned to 24.04 because `ubuntu-latest` moves to 26.04 in November. Every action the
-  workflows use is pinned to a commit rather than a movable tag, and Dependabot proposes
-  the updates weekly (#177).
 
 ### Security
 
@@ -402,6 +295,122 @@ Notable changes to GT7 Datalogger. The format follows
   proxy is refused. A listed name also counts as the server's own origin, so saving
   settings keeps working through a proxy that rewrites `Host`, as nginx does by
   default.
+
+## [0.9.0] - 2026-10-30
+
+### Added
+
+- **A synced session gets its circuit even when its first lap was not a whole
+  one.** The session is announced to the sync service with its first lap, and the
+  circuit is identified from a whole lap; a race's grid start, a pit-out lap or
+  logging that began mid-lap is not one, so the summary went without the circuit
+  and the session stayed unnamed on the service even after the next lap named it.
+  The circuit is now owed once it is known: it goes on its own straight away to a
+  service that takes that (`track_on_patch` among its `sessions` hints, from
+  gt7-sync-service #37), and always with the drive's totals, which an older
+  service ignores. The service fills a session's circuit only while it has none,
+  and so does the logger, so a session keeps the circuit it opened with. A server
+  that refuses the circuit costs the session nothing: the laps and totals still go.
+
+- **Sportsland SUGO is recognised.** GT7 added SUGO International Racing Course in
+  its October update, after the shipped catalog was generated, so sessions there stayed
+  unnamed. The catalog now carries it (42 tracks, 122 configurations) and the shipped
+  signatures include it, built from the lap zetetos/gt-telemetry published; the
+  re-vendored file also brings the surveys gt7-datalogger-track-data has merged since
+  the last copy: 26 configurations now take their geometry from a surveyed road
+  instead of one captured lap, and 80 are recognised in all (#170).
+
+- **Spanish, Brazilian Portuguese and Japanese.** A language menu in the status bar
+  (and on `/engineer`) sets this device's language; *Auto* follows the browser. The
+  Race Engineer speaks and captions its callouts in it, with that language's own
+  wording rather than a translated English sentence ("*Tiempo de vuelta, un minuto
+  32,5*", "*ラップタイム、1分32秒5*"), and its Voice panel can pick a different
+  **Callout language** from the interface's. Voices are listed for the callout
+  language; a device with none for it speaks the English and keeps the captions
+  translated. The whole interface is translated — every view, the dash and the OBS
+  overlays — except the setting names in **Settings › Advanced**, which the server
+  sends in English; dates follow the language too. A copied overlay or dash URL
+  carries the language (`&lang=es`), since an OBS source has no menu. Callout
+  `message_args` now describe the English sentence exactly — `null` for a clause it
+  leaves out, plus the sector-voice precision, corner names and spoken units — which is
+  what the browser words a translation from; the Analysis coaching notes carry the same
+  `message_key`/`message_args`, and a Tracks layout suggestion its reasoning as
+  `match` (#85).
+
+- **Backup: one file for a whole install.** Settings › Data › **Back up** makes
+  `gt7-backup-<date>.zip` from the parts you pick: **Data** (every session and lap, as
+  a copy of the database), **Surveys** (track bundles, corrections, survey logs, car
+  widths and the install's source id), **Config** (saved settings, without
+  credentials), **Dash/OBS** (overlay and dash layouts) and **Tokens** (the webhook URL
+  and sync token, off by default). A `manifest.json` records the app version, the
+  database's schema revision and what each part holds. The database is copied a few
+  megabytes at a time, so the recorder keeps saving laps while a backup is made, and
+  compacted, so deleted laps do not travel with it. The archive is laid out like the
+  data folder, so it can also go back by hand. The lap exports that used to sit under
+  Back up are now **Export laps** (#161).
+- **Restore a backup.** Settings › Data › **Restore** uploads a backup, lists the
+  parts it holds with what each would do here, and applies only the ones ticked.
+  **Data** replaces the recordings: the backup's database is unpacked, checked,
+  upgraded if an older version made it, and swapped in with the recorder paused only
+  for the swap; the replaced database is kept as `gt7.db.before-restore-<time>`, and
+  this install's saved settings and layouts stay. A backup from a newer version is
+  refused for Data, with the version it came from. **Surveys** merge as an import
+  does, adding corrections, survey logs and car widths where this install has none;
+  **Install identity** (`source-id.json`) is its own switch, on by default only for
+  an install with no recordings yet. **Config** merges through the same checks as
+  Settings › Advanced, with the per-machine settings (source, console IP, ports,
+  simulator scenario, LAN announcement) listed but off by default. **Dash/OBS**
+  merges by name, and **Tokens** go into `secrets.json` only when ticked. Laps are
+  then re-judged against the surveys here in the background (#161).
+- **Sector times from the Race Engineer.** With **Sector announcements** on
+  (Settings › Race Engineer, off by default), the engineer calls each sector as
+  you complete it, against the coaching reference: the delta, the sector time
+  or both, sector by sector or cumulative. It needs the circuit's sector
+  boundaries, authored in Tracks, where the checklist now has a **Sectors**
+  row. The same switch sets how many decimals (1 to 3) and whether rounded or
+  truncated, for sector and lap time announcements alike. Contributed by
+  @Marstiphal (#165).
+- **Sector times on the Analysis lap strip.** Each sector on the lap strip shows its
+  time, for the compared lap or the reference when none is compared, with the delta
+  to the reference beside it; zoomed to a sector, the map's callout shows the same.
+  The times run the lap's own clock from the line to the line, so they add up to the
+  lap time. A lap whose clock did not run the whole lap (a recording joined part way
+  round, a stop the logger skipped) shows none, and a circuit without authored sectors
+  is timed in thirds of the lap, marked `~`. Contributed by @Marstiphal (#166).
+- **Sector comparison and theoretical best.** A new Analysis panel beside Sector times
+  sets the reference lap's sectors against the session's best of each, with the time
+  the reference lost to the best in every sector, and adds the best sectors up into a
+  theoretical best lap and how far it is under the reference. Bests come only from laps
+  that count; a reference from another session has no comparison, since the bests are
+  this session's. Contributed by @Marstiphal (#167).
+- **Replay Recording for leaderboard replays.** Some GT7 leaderboard replays stream
+  without the on-track flag, so the recorder skipped every packet and the lap never
+  reached replay salvage. A **Replay Recording** switch on the Live dashboard (off by
+  default, and off again after a restart) records them anyway: replay packets are
+  sampled while the car is moving, a stop in the replay keeps its time, and paused,
+  loading and idle-menu packets are still skipped. While it is on, every lap completes
+  only through replay salvage, so GT7's own lap time has to vouch for it, and the
+  sessions it opens are excluded from bests. Turn it on before the replay starts and
+  off before driving; it applies to new sessions, not the one already open
+  (`POST /api/control/replay-recording`, admin). The switch is translated, and a toggle
+  the server refuses (a protected server without the admin token) shows why in a toast.
+  Contributed by @Marstiphal (#171, #87).
+
+### Fixed
+
+- **Sector times put time the recording missed into the last sector.** Analysis ›
+  Sector times shares GT7's lap time out by the lap's own clock, and the last sector
+  takes the remainder. A lap the logger joined part way round, or whose clock froze
+  through a stop or an outage it skipped, has a clock that falls short of the lap time,
+  so the sectors where it lost time read short and the last sector long by everything
+  missed — up to six minutes on recorded laps. A lap whose clock does not agree with its lap
+  time, within the window a salvaged lap has to meet (500 ms, or 0.5 % of the lap),
+  now shows no sector times. Partial laps timed line to line keep theirs (#168).
+
+- **The Race Engineer said "ten tenths" for a gap of 950–999 ms.** A lap delta,
+  personal-best gain, pace drop or corner loss chose tenths before rounding, so just
+  under a second came out as "ten tenths slower". It now rounds first and says "one
+  second", like a lap time carries 59.96 s to the next minute.
 
 ## [0.8.1] - 2026-10-21
 

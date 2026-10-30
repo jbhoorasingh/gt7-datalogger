@@ -2,7 +2,6 @@
 
 [![CI](https://github.com/jbhoorasingh/gt7-datalogger/actions/workflows/ci.yml/badge.svg)](https://github.com/jbhoorasingh/gt7-datalogger/actions/workflows/ci.yml)
 [![Publish](https://github.com/jbhoorasingh/gt7-datalogger/actions/workflows/publish.yml/badge.svg)](https://github.com/jbhoorasingh/gt7-datalogger/actions/workflows/publish.yml)
-[![Release](https://img.shields.io/github/v/release/jbhoorasingh/gt7-datalogger?label=release)](https://github.com/jbhoorasingh/gt7-datalogger/releases/latest)
 [![ghcr.io](https://img.shields.io/badge/ghcr.io-gt7--datalogger-2496ED?logo=docker&logoColor=white)](https://github.com/jbhoorasingh/gt7-datalogger/pkgs/container/gt7-datalogger)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
@@ -13,10 +12,6 @@ PlayStation's live telemetry stream, records every lap, and serves a modern dark
 web dashboard for live driving, lap comparison, and session management.
 
 Maintained by [u/Rfc6878](https://www.reddit.com/user/Rfc6878/) on Reddit.
-
-GT7 Datalogger is an unofficial tool. It is not affiliated with, endorsed by or sponsored
-by Sony Interactive Entertainment or Polyphony Digital. Gran Turismo is a trademark of
-Sony Interactive Entertainment Inc.
 
 Full feature parity with [snipem/gt7dashboard](https://github.com/snipem/gt7dashboard) —
 plus additional features like the lens-coloured race line map, sector times, the corner
@@ -248,23 +243,6 @@ Pydantic gives typed models and settings; the Python ecosystem has mature Salsa2
 The storage layer is behind SQLAlchemy's async engine, so SQLite can be swapped for
 Postgres by changing one URL.
 
-## Download
-
-From version **1.0.0**, GT7 Datalogger comes as a desktop app for macOS, Windows and
-Linux: one download, no Docker, Python or terminal. **The first desktop release is not
-out yet**; until it is, these links lead nowhere and the way to run it is
-[Docker](#quick-start-docker) or [a Raspberry Pi](#running-on-a-raspberry-pi-native-no-docker).
-
-| System | Download |
-| --- | --- |
-| macOS 13+, Apple silicon | [GT7-Datalogger-macOS-arm64.dmg](https://github.com/jbhoorasingh/gt7-datalogger/releases/latest/download/GT7-Datalogger-macOS-arm64.dmg) |
-| Windows 10/11, x64 | [GT7-Datalogger-Windows-x64-Setup.exe](https://github.com/jbhoorasingh/gt7-datalogger/releases/latest/download/GT7-Datalogger-Windows-x64-Setup.exe) · [portable .zip](https://github.com/jbhoorasingh/gt7-datalogger/releases/latest/download/GT7-Datalogger-Windows-x64-Portable.zip) |
-| Linux x86_64 | [GT7-Datalogger-Linux-x86_64.AppImage](https://github.com/jbhoorasingh/gt7-datalogger/releases/latest/download/GT7-Datalogger-Linux-x86_64.AppImage) · [.tar.gz](https://github.com/jbhoorasingh/gt7-datalogger/releases/latest/download/GT7-Datalogger-Linux-x86_64.tar.gz) |
-
-The [desktop app guide](https://jbhoorasingh.github.io/gt7-datalogger/getting-started/desktop/)
-covers the first start, the firewall and Local Network prompts, connecting a phone or
-tablet, where your data lives, updating and moving over from Docker.
-
 ## Quick start (Docker)
 
 ```bash
@@ -284,7 +262,7 @@ GT7_SOURCE=sim docker compose up --build
 Images are published to GitHub Container Registry, so you can skip the build:
 
 ```bash
-TAG=latest  # amd64 (use a release tag like 0.8.1 on arm64)
+TAG=latest  # amd64 (use a release tag like 0.9.0 on arm64)
 
 docker pull ghcr.io/jbhoorasingh/gt7-datalogger:${TAG}
 
@@ -329,7 +307,7 @@ serve a **pre-built** frontend. The capture workload itself is light (decrypt + 
 
 > **Prefer Docker on a 64-bit Pi.** Tagged releases publish an `arm64` image, so on a
 > Pi Zero 2 W / 4 / 5 running 64-bit Raspberry Pi OS you can pull a release tag
-> (`ghcr.io/jbhoorasingh/gt7-datalogger:0.8.1`, **not** `:latest` — see
+> (`ghcr.io/jbhoorasingh/gt7-datalogger:0.9.0`, **not** `:latest` — see
 > [Use the prebuilt image](#use-the-prebuilt-image)) and skip this section entirely.
 > The native route below stays the right answer for ARMv6 (Zero W) and for anyone who'd
 > rather not run Docker.
@@ -483,11 +461,6 @@ cd backend
 ruff check app tests scripts
 pytest
 ```
-
-To build the desktop app for the system you are on, see
-[Building the desktop app locally](https://jbhoorasingh.github.io/gt7-datalogger/getting-started/local-development/#building-the-desktop-app-locally).
-Cutting a release is described in
-[Releasing](https://jbhoorasingh.github.io/gt7-datalogger/internals/releasing/).
 
 ## Configuration
 

@@ -10,16 +10,14 @@ so even a Pi Zero W handles it comfortably. There are two routes:
 
 ## Docker route (Pi Zero 2 W / 4 / 5, 64-bit OS)
 
-Tagged releases publish an `arm64` image. Pull a **release tag**, not `latest`. The
-example uses `0.8.1`; take the latest from the
-[releases page](https://github.com/jbhoorasingh/gt7-datalogger/releases):
+Tagged releases publish an `arm64` image. Pull a **release tag**, not `latest`:
 
 ```bash
 docker run -d --name gt7-datalogger \
   -p 8000:8000 -p 33740:33740/udp \
   -e GT7_PS_IP=<your playstation ip> \
   -v gt7-data:/data \
-  ghcr.io/jbhoorasingh/gt7-datalogger:0.8.1
+  ghcr.io/jbhoorasingh/gt7-datalogger:0.9.0
 ```
 
 That's it. The rest of this page covers the native route.
