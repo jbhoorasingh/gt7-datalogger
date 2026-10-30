@@ -135,7 +135,11 @@ async def apply_settings_payload(service: TelemetryService, payload: SettingsPay
         await service.set_ps_ip(ip)
         await service.repo.set_setting("ps_ip", ip)
     if payload.source is not None and payload.source != service.settings.source:
-        await service.switch_source(payload.source)
+        try:
+            await service.switch_source(payload.source)
+        except OSError as exc:
+            # switch_source put the previous source back (#181).
+            raise HTTPException(400, service.bind_error(exc)) from exc
         await service.repo.set_setting("source", payload.source)
     if payload.log_level is not None:
         logging.getLogger().setLevel(payload.log_level)

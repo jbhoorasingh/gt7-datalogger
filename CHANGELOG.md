@@ -122,6 +122,35 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Fixed
 
+- **The server no longer exits when UDP 33740 is taken.** A Docker container, a second
+  copy or another telemetry tool holding the port took the whole app down at start,
+  after migrating the database. The UI now stays up and Settings, the Live view and
+  `/api/status` say what holds the port (`listener_error`). Switching to the PlayStation
+  while the port is taken answers 400 and keeps the simulator running, instead of
+  leaving no source at all (#181).
+
+- **Heartbeat and receive errors are shown, not swallowed.** asyncio reports UDP
+  errors to a callback nothing implemented, so a macOS Local Network denial — every
+  heartbeat refused — looked like a console that never answered. Status now carries
+  `heartbeat_error` with the reason in words, and on Windows a receive error reopens
+  the socket with backoff instead of ending reading for good (#181).
+
+- **A stray datagram can no longer take over the heartbeat.** The console's address
+  was adopted from any packet on UDP 33740 before it was decrypted, so one junk
+  datagram redirected the heartbeat away from the PlayStation and read as
+  "connected". Only a packet that decrypts adopts it now; with a console IP saved,
+  other senders are dropped unread (Find console still hears everyone). A hostname is
+  resolved once instead of on every heartbeat, and decode warnings are limited to one a
+  minute per sender (#185).
+
+- **A lap that fails to save is counted where you can see it.** A locked or full
+  disk lost the lap with only a log line; status now has `save_errors` and
+  `last_save_error`. A wake from sleep is logged as such (#207).
+
+- **Quitting closes the open session.** A stop left it for the next session's start
+  to close: an empty one stayed behind as a 0-lap row, and one with laps never sent
+  its summary webhook (#184).
+
 - **A database under a folder named with `?` or `#` opened the wrong file.** The
   SQLite URL was formatted as text, so `?` started its query string and the path was
   cut short there. It is now built from parts (#178).
