@@ -59,6 +59,7 @@ from pathlib import Path
 from typing import Any
 
 from app.processing import track_bundle, track_corrections
+from app.storage.atomic import atomic_write_text
 from app.version import version
 
 log = logging.getLogger(__name__)
@@ -1153,7 +1154,7 @@ def app_version() -> str:
 
 
 def _compiled_path(data_dir: Path, slug: str) -> Path:
-    return data_dir / track_bundle.BUNDLE_DIR / COMPILED_DIR / f"{slug}.json"
+    return data_dir / track_bundle.BUNDLE_DIR / COMPILED_DIR / track_bundle.slug_filename(slug)
 
 
 def for_track(data_dir: Path, track: str) -> dict[str, Any] | None:
@@ -1171,7 +1172,7 @@ def for_track(data_dir: Path, track: str) -> dict[str, Any] | None:
     if not track:
         return None
     slug = track_bundle.slugify(track)
-    bundle = data_dir / track_bundle.BUNDLE_DIR / f"{slug}.json"
+    bundle = data_dir / track_bundle.BUNDLE_DIR / track_bundle.slug_filename(slug)
     try:
         stat = bundle.stat()
     except OSError:
@@ -1210,9 +1211,7 @@ def for_track(data_dir: Path, track: str) -> dict[str, Any] | None:
         compiled["_corrections_identity"] = corrected
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = path.with_suffix(".json.tmp")
-            tmp.write_text(json.dumps(compiled, separators=(",", ":")), encoding="utf-8")
-            tmp.replace(path)
+            atomic_write_text(path, json.dumps(compiled, separators=(",", ":")))
         except OSError as exc:  # a read-only data dir still gets geometry
             log.warning("could not persist compiled track %s: %s", slug, exc)
         log.info(

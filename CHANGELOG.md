@@ -178,6 +178,18 @@ Notable changes to GT7 Datalogger. The format follows
 - **The Database setting no longer claims to take a SQLAlchemy URL.** It is a file path;
   a URL became a strangely named SQLite file (#178).
 
+- **Files beside the database are written in a way Windows allows.** Every file kept
+  there — bundles, corrections, compiled tracks, car widths, the car inventory, the
+  sync state, the secrets — is written to a temp file and moved over the old one. On
+  Windows that move fails while Defender, the Search indexer or OneDrive has the file
+  open for a look, and most writers did not expect it; it is now retried for about half
+  a second before the error stands. An uploaded or restored survey log is claimed with
+  a hard link so it never lands over another; where the filesystem has none (FAT32,
+  exFAT, many network shares) it now takes the name with an exclusive create and copies
+  in, with the same guarantee. A circuit whose name slugs to one Windows reserves
+  (`con`, `aux`, `nul`, `prn`, `com1`–`com9`, `lpt1`–`lpt9`) is kept in `con_.json`
+  and so on, on every platform, and still lists, syncs and backs up as `con` (#187).
+
 - **Sector times put time the recording missed into the last sector.** Analysis ›
   Sector times shares GT7's lap time out by the lap's own clock, and the last sector
   takes the remainder. A lap the logger joined part way round, or whose clock froze
@@ -191,6 +203,18 @@ Notable changes to GT7 Datalogger. The format follows
   personal-best gain, pace drop or corner loss chose tenths before rounding, so just
   under a second came out as "ten tenths slower". It now rounds first and says "one
   second", like a lap time carries 59.96 s to the next minute.
+
+### Changed
+
+- **The backend tests run on macOS, Windows and Python 3.14.** CI ran them on Ubuntu
+  with Python 3.12 only, what the Docker image runs; the desktop builds will be frozen
+  with CPython 3.14 on all three platforms, and nothing had run on Windows. The backend
+  job is now four legs that report separately: Ubuntu 24.04 on 3.12 (which also lints
+  and type-checks), and Ubuntu 24.04, macOS 26 and Windows Server 2025 on 3.14. The
+  Windows leg reports without blocking until it has been green for a while. Ubuntu is
+  pinned to 24.04 because `ubuntu-latest` moves to 26.04 in November. Every action the
+  workflows use is pinned to a commit rather than a movable tag, and Dependabot proposes
+  the updates weekly (#177).
 
 ## [0.8.1] - 2026-10-21
 

@@ -1,0 +1,8 @@
+version: 2
+updates:
+  # The workflows pin every action to a commit SHA (with the release in a
+  # trailing comment); Dependabot bumps both together.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

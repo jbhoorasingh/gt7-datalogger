@@ -30,7 +30,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import re
 import secrets
 import shutil
@@ -55,7 +54,7 @@ from app.processing import (
     track_corrections,
 )
 from app.processing.track_compile import app_version
-from app.storage import backup, secret_store
+from app.storage import atomic, backup, secret_store
 from app.storage.db import alembic_config, init_db, make_engine
 
 log = logging.getLogger(__name__)
@@ -437,7 +436,7 @@ class Restores:
             if size == 0:
                 raise RestoreError("the upload was empty")
             found = await asyncio.to_thread(inspect, part)
-            part.replace(path)
+            atomic.replace(part, path)
         except BaseException:
             part.unlink(missing_ok=True)
             raise
@@ -629,19 +628,19 @@ def install_database(live: Path, staged: Path, kept: Path) -> None:
             top = db.execute("SELECT coalesce(max(revision), 0) FROM here.sessions").fetchone()[0]
             db.execute("UPDATE main.sessions SET revision = revision + ?", (top + 1,))
         db.execute("DETACH DATABASE here")
-    os.replace(live, kept)
+    atomic.replace(live, kept)
     try:
-        os.replace(staged, live)
+        atomic.replace(staged, live)
     except BaseException:
-        os.replace(kept, live)
+        atomic.replace(kept, live)
         raise
 
 
 def uninstall_database(live: Path, kept: Path) -> None:
     """Put the kept database back where the restored one went, which goes."""
     failed = live.with_name(f".restore-failed-{secrets.token_hex(4)}.db")
-    os.replace(live, failed)
-    os.replace(kept, live)
+    atomic.replace(live, failed)
+    atomic.replace(kept, live)
     failed.unlink(missing_ok=True)
 
 
@@ -748,20 +747,16 @@ def _add_corrections(data_dir: Path, slug: str, raw: bytes) -> str:
 
 def _add_file(zf: zipfile.ZipFile, name: str, dest: Path) -> bool:
     """Unpack a member to `dest` unless something is there already. Claimed
-    with a link, as an uploaded survey log is: never over an existing file."""
+    as an uploaded survey log is (atomic.claim): never over an existing file."""
     if dest.exists():
         return False
     part = dest.with_name(f".restore-{secrets.token_hex(6)}.part")
     try:
         with zf.open(name) as src, part.open("wb") as out:
             shutil.copyfileobj(src, out, CHUNK)
-        try:
-            os.link(part, dest)
-        except FileExistsError:
-            return False
+        return atomic.claim(part, dest)
     finally:
         part.unlink(missing_ok=True)
-    return True
 
 
 @track_bundle.serialized
