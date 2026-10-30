@@ -12,7 +12,14 @@ console discovery, GT7 in a session) re-run every 5 s, with **Set console IP** a
   reservation). **Find console** there broadcasts on your network and fills in the IP
   of the console that answers.
 - Make sure the PlayStation and the server are on the **same network / subnet**.
-- Check that UDP port **33740** is not blocked by a firewall on the server.
+- Check that UDP port **33740** is not blocked by a firewall on the server. In the
+  desktop app, a refused macOS **Local Network** prompt or Windows **Firewall** prompt
+  blocks it too: see [Firewall and local
+  network](../getting-started/desktop.md#firewall-and-local-network) for undoing it.
+- *UDP 33740 in use* (the desktop app's tray, or the listener alert in the UI):
+  another program holds the telemetry port, most often another copy of GT7
+  Datalogger or its Docker container. Stop it and restart the telemetry source in
+  **Settings › Health**.
 - If you rely on broadcast auto-discovery inside Docker, note that the default bridge
   network cannot see LAN broadcasts — set `GT7_PS_IP` explicitly or use
   `network_mode: host` (Linux only).
@@ -54,7 +61,19 @@ fixes it).
 
 The web UI shows this page (and the status bar says **Offline**) when the browser
 cannot reach the backend. Check that the backend is running and reachable at the same
-host/port you loaded the page from.
+host/port you loaded the page from. In the desktop app, check that its icon is still
+in the menu bar or the notification area (on Linux, run the app again); `launcher.log`
+and `gt7-datalogger.log` in its [log
+folder](../getting-started/desktop.md#where-your-data-lives) say why it stopped.
+
+## 403 "LAN access is off" on a phone or tablet
+
+The desktop app answers only its own computer until LAN access is on. Turn on **Let my
+phone/tablet connect** in its tray menu or in **Settings › Phone app** on that
+computer. See [Phones, tablets and other
+computers](../getting-started/desktop.md#phones-tablets-and-other-computers).
+On Windows, a portable or per-user install also needs **Repair firewall** before
+another device can connect.
 
 ## Overlay or dash shows placeholder data
 
@@ -101,7 +120,8 @@ The server has `GT7_ADMIN_TOKEN` set. Enter the same token under **Settings › 
 Admin token in this browser** (once per browser); while Settings is locked, its
 sections show an **Unlock settings** field that does the same. 403 means the entered
 token doesn't match the server's. Read-only pages (Live, overlays, `/dash`) never need
-the token.
+the token. In the desktop app, the computer it runs on never needs one; the token
+the setup wizard showed is for other devices.
 
 ## 403 "is not a name this server trusts" behind a reverse proxy
 
@@ -138,4 +158,6 @@ built a separate app that calls this API from another origin, set
   for the copy, the upgrade is not started and the log says how much is needed.
 
 Still stuck? [Open an issue](https://github.com/jbhoorasingh/gt7-datalogger/issues) with
-your setup (Docker/native, network layout) and the output of `/api/status`.
+your setup (desktop app, Docker or native, network layout) and the output of
+`/api/status`. From the desktop app, attach the logs from **Open logs** in its tray
+menu.
