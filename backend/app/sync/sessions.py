@@ -596,13 +596,19 @@ class SessionsAdapter:
         if best > 0:
             totals["best_lap_ms"] = best
         # Whatever the server: it fills a circuit the session has not got,
-        # or (predating that) ignores the keys.
-        totals.update(_circuit(rec))
+        # or (predating that) ignores the keys. A circuit learnt during an
+        # outage that outlasted the drive goes here first, never alone, so
+        # its refusal is read as the circuit's: the totals go again without
+        # it rather than being lost, and the analysis behind them with them.
+        circuit = _circuit(rec)
+        totals.update(circuit)
         body = json.dumps(totals, separators=(",", ":")).encode("utf-8")
         path = f"{SESSIONS_PATH}/{rec.remote_id}"
-        reply = await self._call(rec, f"session {rec.local_id} totals", "PATCH", path, body)
+        reply = await self._call(
+            rec, f"session {rec.local_id} totals", "PATCH", path, body, circuit=bool(circuit),
+        )
         if reply is None:
-            if rec.closed:
+            if rec.closed or rec.track_error:
                 self._write_state()
             return
         rec.end_pending = False
@@ -733,9 +739,11 @@ class SessionsAdapter:
             log.warning("sync: %s refused by the server: %s", what, exc.message)
             return
         if exc.kind in ("rejected", "conflict") and circuit and exc.status != 404:
-            # About the circuit alone: the session, its laps and its totals
-            # are as they were. Not sent again, with the totals either —
-            # the same answer would refuse those and close the session.
+            # A request that named the circuit — on its own, or with the
+            # totals — refused: read as the circuit's refusal. It is not
+            # sent again, so totals still owed (`end_pending` is untouched)
+            # go once more without it; refused then, they close the session
+            # as any refused totals do. The laps are as they were.
             rec.track_pending = False
             rec.track_error = exc.message or "refused"
             log.warning("sync: %s refused by the server: %s", what, exc.message)

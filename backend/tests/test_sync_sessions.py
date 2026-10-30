@@ -642,6 +642,51 @@ async def test_the_owed_circuit_survives_a_restart(service, fake, monkeypatch, t
     assert (rec.track_pending, rec.official_id, rec.track_name) == (True, "ring-gp", "Ring")
 
 
+def refuses_the_circuit(request: httpx.Request) -> httpx.Response:
+    """A server that will not have this circuit, whatever comes with it."""
+    body = json.loads(request.content)
+    if "official_id" in body:
+        return httpx.Response(
+            400, json={"error": "invalid_request", "reason": "official_id is not a layout id"},
+        )
+    return httpx.Response(200, json={"session_id": request.url.path.split("/")[3], **body})
+
+
+async def test_a_circuit_refused_with_the_totals_costs_them_nothing(
+    service, fake, monkeypatch,
+) -> None:
+    """Named during an outage that outlasted the drive, the circuit never got
+    to go on its own: it rides on the totals. Its refusal must not cost the
+    totals, or the analysis behind them — they go again without it."""
+    takes_track_on_patch(fake)
+    takes_analysis(fake)
+    await service.sync.check()
+    local_id = await drive(service, laps=1)
+    await service.sync.sessions.wait_idle()
+
+    fake.down = True
+    identify(service, monkeypatch)
+    await service._on_lap(make_lap(2, 88_000))
+    await end_drive(service)
+    rec = service.sync.sessions._sessions[local_id]
+    assert (rec.track_pending, rec.end_pending) == (True, True)
+    # The circuit-only request was tried, and failed with the connection.
+    tried = len(fake.calls("PATCH"))
+
+    fake.answer["*PATCH /v1/sessions/"] = refuses_the_circuit
+    fake.down = False
+    service.sync.sessions.clear_backoff()
+    await service.sync.sessions.wait_idle()
+
+    patches = [json.loads(r.content) for r in fake.calls("PATCH")[tried:]]
+    assert [("official_id" in p, "ended_at" in p) for p in patches] == [
+        (True, True), (False, True),
+    ]
+    assert (rec.closed, rec.end_pending, rec.track_pending) == ("", False, False)
+    assert rec.track_error
+    assert rec.analysis_status == "synced"
+
+
 # --- through the API ------------------------------------------------------------
 
 
