@@ -119,6 +119,50 @@ Notable changes to GT7 Datalogger. The format follows
   under a second came out as "ten tenths slower". It now rounds first and says "one
   second", like a lap time carries 59.96 s to the next minute.
 
+- **The UI no longer renders blank where Windows calls JavaScript plain text.** The
+  server took a file's type from the system's table, and a common Windows registry
+  entry maps `.js` to `text/plain`, which the browser refuses to run as a module.
+  `.js` and `.mjs` are now always served as `text/javascript`, `.css` as `text/css`
+  and `.svg` as `image/svg+xml` (#183).
+
+- **Downloads save as files.** A session's lap analysis
+  (`/api/sessions/{id}/analysis.json`) and a track bundle
+  (`/api/track-bundles/{slug}`) are sent with `Content-Disposition: attachment` and
+  a filename, so a browser that ignores the link's own `download` name still saves
+  the file instead of opening it in the tab (#183).
+
+- **Live sync checks the service's certificate against certifi's CA bundle.** The
+  `wss://` stream used the interpreter's compiled-in CA path, which some Python
+  builds do not have, and then failed every handshake while uploads, which go
+  through httpx and certifi, worked. Both now trust the same CAs (#183).
+
+### Security
+
+- **Other web pages can no longer change the server.** Any page open in the
+  browser could send a request to the logger at `127.0.0.1:8000` or its LAN address,
+  and a POST without a body — clearing the data, importing a bundle — needs no CORS
+  preflight, so it went through even though the page could not read the answer. A
+  write (any method but GET, HEAD and OPTIONS) or a live WebSocket handshake that
+  carries another site's `Origin`, or says `Sec-Fetch-Site: cross-site`, is now
+  refused with 403. The server's own pages, origins listed in `GT7_CORS_ORIGINS`
+  and native clients (the phone app, curl, OBS), which send no `Origin`, are
+  unaffected (#183).
+
+- **DNS rebinding no longer reaches the API.** A request must be addressed to an IP
+  address, `localhost`, a single-label name, this machine's hostname, a LAN name
+  (`.local`, `.lan`, `.home.arpa`, `.internal`, `.localdomain`, `.localhost`, `.test`)
+  or a name listed in the new live setting `GT7_TRUSTED_HOSTS`; anything else gets a
+  403 that names the setting. `*.example.com` takes a whole domain and `*` turns the
+  check off. The refusals carry a `reason` (`untrusted_host`, `cross_site`),
+  documented in the client protocol (#183).
+
+  **Upgrading behind a reverse proxy:** if you reach the logger by a public DNS name
+  (`gt7.example.com` through Traefik, Caddy or nginx), set
+  `GT7_TRUSTED_HOSTS=gt7.example.com` before upgrading, or every request through the
+  proxy is refused. A listed name also counts as the server's own origin, so saving
+  settings keeps working through a proxy that rewrites `Host`, as nginx does by
+  default.
+
 ## [0.8.1] - 2026-10-21
 
 ### Added

@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
@@ -736,11 +736,13 @@ async def pull_all_shared_bundles(request: Request) -> dict[str, Any]:
 
 
 @router.get("/track-bundles/{slug}")
-async def download(request: Request, slug: str) -> dict[str, Any]:
+async def download(request: Request, response: Response, slug: str) -> dict[str, Any]:
     """One bundle document — the export unit, and what import consumes."""
     doc = track_bundle.load_slug(data_dir(request), _slug(slug))
     if doc is None:
         raise HTTPException(404, "no bundle for this track")
+    # The slug is already checked to be its own slugify(): no quotes, no path.
+    response.headers["Content-Disposition"] = f'attachment; filename="{slug}.json"'
     return doc
 
 

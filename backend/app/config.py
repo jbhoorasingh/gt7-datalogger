@@ -67,6 +67,10 @@ class Settings(BaseSettings):
     # Comma-separated origins allowed for cross-origin API use. Empty = no
     # CORS headers at all — the bundled UI is same-origin and needs none.
     cors_origins: str = ""
+    # Comma-separated host names, beyond the LAN ones always accepted, that
+    # requests may be addressed to (#183): a reverse proxy's public name, a
+    # DNS name of your own. `*` turns the Host check off.
+    trusted_hosts: str = ""
 
     # Announce this server on the LAN over mDNS (_gt7dl._tcp), so the phone
     # app finds it without an address typed in (#142).

@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import datetime
 import logging
+import mimetypes
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -18,6 +19,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app import logbuffer, protocol, settings_registry
 from app.api import admin, backup, layouts, restore, routes, tracks, ws
+from app.api.guard import RequestGuard
 from app.config import Settings, get_settings
 from app.processing import car_refresh, shared_pull, shared_repo, track_seed
 from app.processing.cars import CarDatabase
@@ -27,6 +29,18 @@ from app.storage.repository import Repository
 from app.storage.secret_store import SecretStore, move_out_of_database
 
 FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+
+# StaticFiles takes a file's type from `mimetypes`, which on Windows reads the
+# registry, where a common entry maps .js to text/plain: the browser then
+# refuses the bundle as a module script and the UI renders blank (#183).
+# Registered before anything is served, so the registry cannot win.
+for _ext, _type in (
+    (".js", "text/javascript"),
+    (".mjs", "text/javascript"),
+    (".css", "text/css"),
+    (".svg", "image/svg+xml"),
+):
+    mimetypes.add_type(_type, _ext)
 
 
 def configure_logging(level: str) -> None:
@@ -412,6 +426,7 @@ def create_app() -> FastAPI:
     # /ws) and a native app needs none.
     app.add_middleware(DrainForRestore)
     app.add_middleware(LiveCORSMiddleware)
+    app.add_middleware(RequestGuard)  # outermost: Host and Origin checks (#183)
     app.include_router(routes.router)
     app.include_router(admin.router)
     app.include_router(backup.router)
