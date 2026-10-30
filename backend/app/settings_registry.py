@@ -311,6 +311,13 @@ ENTRIES: tuple[Entry, ...] = (
         apply="restart", kind="path", doc_default="*(bundled)*",
     ),
     Entry(
+        "car_refresh", "Tracks & cars", "Refresh the car list",
+        "Check GT7's own car list on `gran-turismo.com` in the background, on the "
+        "first start and then at most weekly, for cars added since this release. "
+        "Off, the bundled inventory is used until you press Update car database",
+        kind="bool",
+    ),
+    Entry(
         "cars_csv", "Tracks & cars", "Legacy car CSV",
         "Deprecated pre-0.6 `id,name` CSV. Set = read cars from here instead, names "
         "only. Kept for one release",

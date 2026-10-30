@@ -96,6 +96,7 @@ The **Applies** column says when a change takes effect:
 | `GT7_TRACKS_JSON` | *(bundled)* | live | Official GT7 track and layout metadata |
 | `GT7_TRACK_SIGNATURES_JSON` | *(bundled)* | next start | Shipped track signatures, synced into the `tracks` table at startup so a fresh install [identifies circuits](../internals/track-identification.md#the-shipped-signatures) it has never seen driven. Defaults to the copy inside the package. Set it blank to turn seeding off and identify only what you have named and surveyed |
 | `GT7_CARS_JSON` | *(bundled)* | next start | Car inventory: id → name, manufacturer, year, category, drivetrain, aspiration and the published figures. Resolves from the package, so it works whatever directory you start from |
+| `GT7_CAR_REFRESH` | `true` | live | Check GT7's own car list on `gran-turismo.com` in the background, on the first start and then at most weekly, for cars added since this release. Off, the bundled inventory is used until you press Update car database |
 | `GT7_CARS_CSV` | *(empty)* | next start | Deprecated pre-0.6 `id,name` CSV. Set = read cars from here instead, names only. Kept for one release |
 
 ### Server
@@ -152,7 +153,7 @@ info level and tried again later — and none of them sends your recordings anyw
 
 | What | From | When | Turn it off |
 |---|---|---|---|
-| **Car list refresh** | GT7's own car list on `gran-turismo.com` | first run, then weekly | — (the bundled inventory is used whenever it fails) |
+| **Car list refresh** | GT7's own car list on `gran-turismo.com` | first run, then weekly | `GT7_CAR_REFRESH=false` (the bundled inventory is used whenever it fails) |
 | **Shared track pull** | the [track-data repo](https://jbhoorasingh.github.io/gt7-datalogger-track-data/) (`GT7_SHARED_BUNDLES_URL`) | once, on the first start of an installation holding no bundles | set `GT7_SHARED_BUNDLES_URL` empty |
 | **Update check** | GitHub Releases, `api.github.com/repos/jbhoorasingh/gt7-datalogger/releases` | once a day, and when you click *Check for updates* | `GT7_UPDATE_CHECK=false` (the default, except in the desktop app) |
 

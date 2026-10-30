@@ -73,6 +73,29 @@ export function classifyProblem(
  * the phone question: a Docker or source install already serves the LAN, and
  * answering for it would change who may connect (and create a token).
  */
+// Countries whose roads are signed in miles: the Race Engineer speaks
+// distances and speeds, so these get imperial by default (#191).
+const IMPERIAL_REGIONS = new Set(["US", "GB", "LR", "MM"]);
+
+/** Spoken units the browser's locale suggests: "en-US" → imperial, "de-DE" → metric. */
+export function unitsForLocale(locale: string | undefined): "metric" | "imperial" {
+  const region = (locale ?? "").split(/[-_]/)[1]?.toUpperCase();
+  return region && IMPERIAL_REGIONS.has(region) ? "imperial" : "metric";
+}
+
+/** The settings the wizard's Preferences step writes, as a config patch. */
+export function preferencesPatch(p: {
+  units: "metric" | "imperial";
+  updateCheck: boolean;
+  carRefresh: boolean;
+}): Record<string, string | boolean> {
+  return {
+    race_engineer_units: p.units,
+    update_check: p.updateCheck,
+    car_refresh: p.carRefresh,
+  };
+}
+
 export function completionBody(
   installKind: InstallKind | null,
   lanAccess: boolean,

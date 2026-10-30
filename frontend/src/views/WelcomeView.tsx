@@ -7,16 +7,26 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { phoneUrl, qrPath } from "@/components/settings/qr";
+import { SegmentedControl } from "@/components/ui/SegmentedControl";
+import { Toggle } from "@/components/ui/Toggle";
 import { useT, type MessageKey } from "@/i18n";
 import { api } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { useInstallKind } from "@/lib/health";
 import { navigate } from "@/lib/router";
 import type { AdminStats, ConnectionStatus, SetupCompleted, SetupState } from "@/lib/types";
-import { classifyProblem, completionBody, detectOs, type Os, type Problem } from "@/lib/welcome";
+import {
+  classifyProblem,
+  completionBody,
+  detectOs,
+  preferencesPatch,
+  unitsForLocale,
+  type Os,
+  type Problem,
+} from "@/lib/welcome";
 import { toast } from "@/store/toasts";
 
-type Step = "start" | "demo" | "os" | "find" | "live" | "phone" | "done";
+type Step = "start" | "demo" | "os" | "find" | "live" | "prefs" | "phone" | "done";
 
 const POLL_MS = 1000;
 
@@ -62,6 +72,13 @@ export function WelcomeView() {
   const [path, setPath] = useState<"ps" | "demo">("ps");
   const [setup, setSetup] = useState<SetupState | null>(null);
   const [lanChoice, setLanChoice] = useState(true);
+  const [units, setUnits] = useState<"metric" | "imperial">(() =>
+    unitsForLocale(typeof navigator === "undefined" ? undefined : navigator.language),
+  );
+  // The background requests, each with its own switch (#191). The update
+  // check is on by default only in the desktop app, as on the server.
+  const [updateCheck, setUpdateCheck] = useState<boolean | null>(null);
+  const [carRefresh, setCarRefresh] = useState(true);
   const [finishing, setFinishing] = useState(false);
   const [result, setResult] = useState<SetupCompleted | null>(null);
   const [stats, setStats] = useState<AdminStats | null>(null);
@@ -73,6 +90,11 @@ export function WelcomeView() {
   async function finish(skip = false) {
     setFinishing(true);
     try {
+      if (!skip) {
+        await api.admin.updateConfig({
+          values: preferencesPatch({ units, updateCheck: updateCheck ?? desktop, carRefresh }),
+        });
+      }
       const done = await api.admin.completeSetup(skip ? undefined : completionBody(installKind, lanChoice));
       if (skip) {
         navigate("live");
@@ -90,9 +112,10 @@ export function WelcomeView() {
 
   // After the console (or the demo), the phone question — only the desktop
   // app asks it: Docker and source installs already serve the LAN.
-  const afterCapture = () => (desktop ? setStep("phone") : void finish());
+  const afterCapture = () => setStep("prefs");
+  const afterPrefs = () => (desktop ? setStep("phone") : void finish());
 
-  const tail: Step[] = desktop ? ["phone"] : [];
+  const tail: Step[] = desktop ? ["prefs", "phone"] : ["prefs"];
   const steps: Step[] = path === "demo" ? ["start", "demo", ...tail] : ["start", "os", "find", "live", ...tail];
 
   return (
@@ -158,6 +181,44 @@ export function WelcomeView() {
             />
           )}
           {step === "live" && <LiveStep onBack={() => setStep("find")} onNext={afterCapture} busy={finishing} />}
+          {step === "prefs" && (
+            <Section title={t("welcome.prefs.title")}>
+              <p className="text-[13px] text-ink-dim">{t("welcome.prefs.body")}</p>
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[12.5px] text-ink">{t("welcome.prefs.units")}</span>
+                <SegmentedControl
+                  ariaLabel={t("welcome.prefs.units")}
+                  value={units}
+                  onValueChange={setUnits}
+                  options={[
+                    { value: "metric", label: t("welcome.prefs.metric") },
+                    { value: "imperial", label: t("welcome.prefs.imperial") },
+                  ]}
+                />
+              </div>
+              <PrefSwitch
+                title={t("welcome.prefs.updateCheck")}
+                desc={t("welcome.prefs.updateCheckDesc")}
+                checked={updateCheck ?? desktop}
+                onChange={setUpdateCheck}
+              />
+              <PrefSwitch
+                title={t("welcome.prefs.carRefresh")}
+                desc={t("welcome.prefs.carRefreshDesc")}
+                checked={carRefresh}
+                onChange={setCarRefresh}
+              />
+              <p className="text-[11.5px] text-ink-faint">{t("welcome.prefs.later")}</p>
+              <Nav
+                onBack={() => setStep(path === "demo" ? "demo" : "live")}
+                onNext={afterPrefs}
+                next={
+                  desktop ? t("common.next") : finishing ? t("welcome.finishing") : t("welcome.finish")
+                }
+                disabled={finishing}
+              />
+            </Section>
+          )}
           {step === "phone" && (
             <Section title={t("welcome.phone.title")}>
               <p className="text-[13px] text-ink-dim">{t("welcome.phone.body")}</p>
@@ -176,7 +237,7 @@ export function WelcomeView() {
                 />
               </div>
               <Nav
-                onBack={() => setStep(path === "demo" ? "demo" : "live")}
+                onBack={() => setStep("prefs")}
                 onNext={() => void finish()}
                 next={finishing ? t("welcome.finishing") : t("welcome.finish")}
                 disabled={finishing}
@@ -224,6 +285,28 @@ function Nav({
       <button className="btn btn-primary ml-auto" onClick={onNext} disabled={disabled}>
         {next}
       </button>
+    </div>
+  );
+}
+
+function PrefSwitch({
+  title,
+  desc,
+  checked,
+  onChange,
+}: {
+  title: string;
+  desc: string;
+  checked: boolean;
+  onChange: (on: boolean) => void;
+}) {
+  return (
+    <div className="flex items-start gap-3 rounded-md border border-edge px-3.5 py-2.5">
+      <div className="flex flex-1 flex-col gap-1">
+        <span className="text-[13px] text-ink">{title}</span>
+        <span className="text-[11.5px] text-ink-dim">{desc}</span>
+      </div>
+      <Toggle checked={checked} onCheckedChange={onChange} ariaLabel={title} />
     </div>
   );
 }

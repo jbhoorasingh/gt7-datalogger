@@ -231,6 +231,11 @@ Notable changes to GT7 Datalogger. The format follows
   release. The README gains a Download section and the unofficial-tool notice; the
   stale `0.1.0` image tags are now `0.8.1`, and the client protocol lists the
   `lan_off` refusal.
+- **Setup asks about units and background requests.** The first-run wizard has a
+  Preferences step: Race Engineer units, chosen from the browser's region (miles in the
+  US, UK, Liberia and Myanmar), and switches for the daily update check and the car-list
+  refresh. The car-list refresh had no off switch at all; `GT7_CAR_REFRESH=false` (Settings
+  › Advanced) now keeps the bundled inventory until you press Update car database (#191).
 
 ### Fixed
 

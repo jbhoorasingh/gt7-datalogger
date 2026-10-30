@@ -412,6 +412,20 @@ async def test_a_fresh_marker_skips_the_fetch_entirely(tmp_path, repo) -> None:
     assert called is False
 
 
+
+async def test_car_refresh_off_never_fetches(tmp_path, repo, monkeypatch) -> None:
+    """GT7_CAR_REFRESH=false, or the wizard's switch (#191): no request at all."""
+    settings = Settings(db_path=tmp_path / "gt7.db", car_refresh=False)
+    called = False
+
+    async def record(*args, **kwargs):
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr(car_refresh, "fetch_and_store", record)
+    await refresh_cars_if_stale(settings, repo, CarDatabase(), {}, logging.getLogger("t"))
+    assert called is False
+
 # --- the session rows ---------------------------------------------------------
 
 
