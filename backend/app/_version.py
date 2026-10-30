@@ -2,4 +2,4 @@
 bump` rewrites it together with pyproject.toml and package.json, and CI's
 `scripts/version.py check` fails when they disagree."""
 
-__version__ = "0.8.1"
+__version__ = "0.9.0"

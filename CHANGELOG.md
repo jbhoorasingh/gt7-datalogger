@@ -5,8 +5,6 @@ Notable changes to GT7 Datalogger. The format follows
 
 ## [Unreleased]
 
-## [0.9.0] - 2026-10-30
-
 ### Added
 
 - **The app can tell you a newer release is out (#196).** With *Check for updates*
@@ -22,6 +20,7 @@ Notable changes to GT7 Datalogger. The format follows
   not ask again, is silent when it fails, and waits for GitHub's rate limit to reset
   when it is told to. The configuration docs now list everything the app fetches on
   its own: the car list, the first-start track pull and this.
+
 - **A first-run wizard explains the network prompts before they appear (#191).**
   Opening the app with setup not yet completed (the desktop app, or any install
   that has recorded nothing) lands on `#/welcome`; a bookmark or a deep link is
@@ -56,6 +55,208 @@ Notable changes to GT7 Datalogger. The format follows
   refuses (LAN access off, an untrusted Host, a cross-site request) shows the
   server's reason instead of "admin token rejected", and on the desktop app
   Settings › Access says the computer's own browser never needs the token.
+
+- **One data folder for everything the app writes (`GT7_DATA_DIR`).** The database,
+  track bundles, survey logs, sync state, backups and the installation's identity all
+  sit in one folder; unset, that is the database's own folder, exactly as before. With
+  it set the database defaults to `gt7.db` inside it, so a launcher can place an
+  install with one variable instead of a working directory (#178).
+
+- **One version, read the same way everywhere.** The version the server reports over
+  mDNS, sends the sync service and stamps into compiled track documents now comes from
+  a committed `backend/app/_version.py`; the three readers it replaces disagreed in a
+  dev venv. `python scripts/version.py bump X.Y.Z` rewrites the five places a release
+  touches and `check` fails when they drift apart (#179).
+
+- **A log file, when you ask for one (`GT7_LOG_FILE`).** Lines go to a file as well,
+  rotated at 5 MB with four old files kept, uvicorn's own lines — a port already in
+  use, a failed start — included. Docker users can set
+  `GT7_LOG_FILE=/data/logs/gt7.log` (#180).
+
+- **`/api/health` says what is answering.** It returned only `{"status": "ok"}`, so a
+  launcher, a phone or a second copy could not tell this server from anything else on
+  port 8000. It now adds `app`, `version`, `install_kind` (`desktop`, `docker` or
+  `source`) and the database's schema revision beside the newest this build knows (#184).
+
+- **A first-run setup marker.** `GET /api/admin/setup` reports where setup stands and
+  `POST /api/admin/setup/complete` stores the marker and starts recording. With
+  `GT7_FORCE_SIM=firstrun` (set by the desktop app) the server starts on the simulator
+  with mDNS and recording off until then, so no network prompt appears before the
+  first-run wizard explains it (#184).
+
+- **LAN access is one live switch (`GT7_LAN_ACCESS`).** Off, only the computer
+  running the server can use it (other devices get 403 `lan_off`) and mDNS stops
+  announcing it; on — the default, as before — phones and tablets connect. It is
+  checked on every request, so changing it restarts nothing and drops no lap. Finishing
+  first-run setup with LAN access on creates an admin token when there is none, which
+  other devices then need for changes; reads and the live stream stay open. In the
+  desktop app the computer's own browser needs no token (#195).
+
+- **The database is copied before a new version upgrades it.** When a start finds the
+  schema behind this build's, it first copies the database, with SQLite's backup API,
+  to `backups/pre-upgrade-<time>-<revision>/` in the data folder, beside a
+  `manifest.json` saying which version made the copy, the revisions it goes from and
+  to, how many sessions, laps, tracks, settings and layouts it holds, and its
+  `quick_check` verdict. The copy is written as `.partial` and takes its name only once
+  the manifest is in it, so a start killed half way never leaves something that looks
+  like a good backup. One copy is kept, three on the desktop app. Without 2.2 times the
+  database's size free, the start logs how much is needed and stops rather than
+  upgrade with no way back (#182).
+
+- **Setup asks about units and background requests.** The first-run wizard has a
+  Preferences step: Race Engineer units, chosen from the browser's region (miles in the
+  US, UK, Liberia and Myanmar), and switches for the daily update check and the car-list
+  refresh. The car-list refresh had no off switch at all; `GT7_CAR_REFRESH=false` (Settings
+  › Advanced) now keeps the bundled inventory until you press Update car database (#191).
+
+### Changed
+
+- **The backend tests run on macOS, Windows and Python 3.14.** CI ran them on Ubuntu
+  with Python 3.12 only, what the Docker image runs; the desktop builds will be frozen
+  with CPython 3.14 on all three platforms, and nothing had run on Windows. The backend
+  job is now four legs that report separately: Ubuntu 24.04 on 3.12 (which also lints
+  and type-checks), and Ubuntu 24.04, macOS 26 and Windows Server 2025 on 3.14. The
+  Windows leg reports without blocking until it has been green for a while. Ubuntu is
+  pinned to 24.04 because `ubuntu-latest` moves to 26.04 in November. Every action the
+  workflows use is pinned to a commit rather than a movable tag, and Dependabot proposes
+  the updates weekly (#177).
+
+### Fixed
+
+- **mDNS no longer broadcasts this computer's name, and retries.** The advertisement
+  carried the hostname — on a Mac usually its owner's name — in two places on every
+  network joined; it now uses a random per-install label. It is sent on the one
+  interface it names, chooses that address from the interfaces rather than the route a
+  full-tunnel VPN takes over, and a failed registration is retried (5 s, 15 s, 60 s,
+  then every five minutes) instead of given up on. `/api/admin/stats` adds
+  `lan_access` and `lan_reachable` (#186).
+
+- **Shutdown always closes the database.** The teardown was four awaits in a row, so a
+  step that failed or was cancelled skipped the rest and left the SQLite connections
+  open. Each step now runs whatever the one before did, with a time limit (#184).
+
+- **The server no longer exits when UDP 33740 is taken.** A Docker container, a second
+  copy or another telemetry tool holding the port took the whole app down at start,
+  after migrating the database. The UI now stays up and Settings, the Live view and
+  `/api/status` say what holds the port (`listener_error`). Switching to the PlayStation
+  while the port is taken answers 400 and keeps the simulator running, instead of
+  leaving no source at all (#181).
+
+- **Heartbeat and receive errors are shown, not swallowed.** asyncio reports UDP
+  errors to a callback nothing implemented, so a macOS Local Network denial — every
+  heartbeat refused — looked like a console that never answered. Status now carries
+  `heartbeat_error` with the reason in words, and on Windows a receive error reopens
+  the socket with backoff instead of ending reading for good (#181).
+
+- **A stray datagram can no longer take over the heartbeat.** The console's address
+  was adopted from any packet on UDP 33740 before it was decrypted, so one junk
+  datagram redirected the heartbeat away from the PlayStation and read as
+  "connected". Only a packet that decrypts adopts it now; with a console IP saved,
+  other senders are dropped unread (Find console still hears everyone). A hostname is
+  resolved once instead of on every heartbeat, and decode warnings are limited to one a
+  minute per sender (#185).
+
+- **A lap that fails to save is counted where you can see it.** A locked or full
+  disk lost the lap with only a log line; status now has `save_errors` and
+  `last_save_error`. A wake from sleep is logged as such (#207).
+
+- **Quitting closes the open session.** A stop left it for the next session's start
+  to close: an empty one stayed behind as a 0-lap row, and one with laps never sent
+  its summary webhook (#184).
+
+- **A database under a folder named with `?` or `#` opened the wrong file.** The
+  SQLite URL was formatted as text, so `?` started its query string and the path was
+  cut short there. It is now built from parts (#178).
+
+- **The weekly car-list refresh could write inside the installed package.** A
+  `GT7_CARS_JSON` or saved Car inventory pointing at the bundled copy made the refresh
+  overwrite it; it now writes beside the database whenever the configured file is the
+  package's own (#178).
+
+- **The Database setting no longer claims to take a SQLAlchemy URL.** It is a file path;
+  a URL became a strangely named SQLite file (#178).
+
+- **Files beside the database are written in a way Windows allows.** Every file kept
+  there — bundles, corrections, compiled tracks, car widths, the car inventory, the
+  sync state, the secrets — is written to a temp file and moved over the old one. On
+  Windows that move fails while Defender, the Search indexer or OneDrive has the file
+  open for a look, and most writers did not expect it; it is now retried for about half
+  a second before the error stands. An uploaded or restored survey log is claimed with
+  a hard link so it never lands over another; where the filesystem has none (FAT32,
+  exFAT, many network shares) it now takes the name with an exclusive create and copies
+  in, with the same guarantee. A circuit whose name slugs to one Windows reserves
+  (`con`, `aux`, `nul`, `prn`, `com1`–`com9`, `lpt1`–`lpt9`) is kept in `con_.json`
+  and so on, on every platform, and still lists, syncs and backs up as `con` (#187).
+
+- **An older version started on a newer database now says so and changes nothing.**
+  It stopped with a traceback ending in `Can't locate revision`, which an older Docker
+  tag pulled onto a volume `latest` had upgraded would do. It now checks the schema
+  before touching the file and stops with one line naming the version that wrote the
+  data (every upgrade now records it in the `schema_written_by` setting), and the
+  server exits non-zero, as before (#182).
+
+- **A migration that fails is rolled back whole.** SQLite's Python driver issues no
+  BEGIN before a schema change, so each statement of a migration committed as it ran,
+  and one that failed half way left a database every later start refused with
+  `duplicate column name`. Migrations now run on a connection of their own that really
+  begins a transaction, so a failure leaves the database at the revision it was at,
+  including any earlier revisions the same start applied. Compact's `VACUUM`, which
+  cannot run in a transaction, gets its own connection too (#182).
+
+- **Compact is refused while recording, and a busy database is waited for.** Compact
+  holds the database for the whole rewrite, minutes on a large one, and a lap that
+  ended meanwhile failed to save and was lost. It now answers 409 while a session is
+  recording or a survey is running. Every connection also waits up to 30 seconds for a
+  lock, rather than five, before giving up on a write, so a lap ending during a backup's
+  copy waits it out (#188, #182).
+
+- **The UI no longer renders blank where Windows calls JavaScript plain text.** The
+  server took a file's type from the system's table, and a common Windows registry
+  entry maps `.js` to `text/plain`, which the browser refuses to run as a module.
+  `.js` and `.mjs` are now always served as `text/javascript`, `.css` as `text/css`
+  and `.svg` as `image/svg+xml` (#183).
+
+- **Downloads save as files.** A session's lap analysis
+  (`/api/sessions/{id}/analysis.json`) and a track bundle
+  (`/api/track-bundles/{slug}`) are sent with `Content-Disposition: attachment` and
+  a filename, so a browser that ignores the link's own `download` name still saves
+  the file instead of opening it in the tab (#183).
+
+- **Live sync checks the service's certificate against certifi's CA bundle.** The
+  `wss://` stream used the interpreter's compiled-in CA path, which some Python
+  builds do not have, and then failed every handshake while uploads, which go
+  through httpx and certifi, worked. Both now trust the same CAs (#183).
+
+### Security
+
+- **Other web pages can no longer change the server.** Any page open in the
+  browser could send a request to the logger at `127.0.0.1:8000` or its LAN address,
+  and a POST without a body — clearing the data, importing a bundle — needs no CORS
+  preflight, so it went through even though the page could not read the answer. A
+  write (any method but GET, HEAD and OPTIONS) or a live WebSocket handshake that
+  carries another site's `Origin`, or says `Sec-Fetch-Site: cross-site`, is now
+  refused with 403. The server's own pages, origins listed in `GT7_CORS_ORIGINS`
+  and native clients (the phone app, curl, OBS), which send no `Origin`, are
+  unaffected (#183).
+
+- **DNS rebinding no longer reaches the API.** A request must be addressed to an IP
+  address, `localhost`, a single-label name, this machine's hostname, a LAN name
+  (`.local`, `.lan`, `.home.arpa`, `.internal`, `.localdomain`, `.localhost`, `.test`)
+  or a name listed in the new live setting `GT7_TRUSTED_HOSTS`; anything else gets a
+  403 that names the setting. `*.example.com` takes a whole domain and `*` turns the
+  check off. The refusals carry a `reason` (`untrusted_host`, `cross_site`),
+  documented in the client protocol (#183).
+
+  **Upgrading behind a reverse proxy:** if you reach the logger by a public DNS name
+  (`gt7.example.com` through Traefik, Caddy or nginx), set
+  `GT7_TRUSTED_HOSTS=gt7.example.com` before upgrading, or every request through the
+  proxy is refused. A listed name also counts as the server's own origin, so saving
+  settings keeps working through a proxy that rewrites `Host`, as nginx does by
+  default.
+
+## [0.9.0] - 2026-10-30
+
+### Added
 
 - **A synced session gets its circuit even when its first lap was not a whole
   one.** The session is announced to the sync service with its first lap, and the
@@ -153,147 +354,7 @@ Notable changes to GT7 Datalogger. The format follows
   the server refuses (a protected server without the admin token) shows why in a toast.
   Contributed by @Marstiphal (#171, #87).
 
-- **One data folder for everything the app writes (`GT7_DATA_DIR`).** The database,
-  track bundles, survey logs, sync state, backups and the installation's identity all
-  sit in one folder; unset, that is the database's own folder, exactly as before. With
-  it set the database defaults to `gt7.db` inside it, so a launcher can place an
-  install with one variable instead of a working directory (#178).
-
-- **One version, read the same way everywhere.** The version the server reports over
-  mDNS, sends the sync service and stamps into compiled track documents now comes from
-  a committed `backend/app/_version.py`; the three readers it replaces disagreed in a
-  dev venv. `python scripts/version.py bump X.Y.Z` rewrites the five places a release
-  touches and `check` fails when they drift apart (#179).
-
-- **A log file, when you ask for one (`GT7_LOG_FILE`).** Lines go to a file as well,
-  rotated at 5 MB with four old files kept, uvicorn's own lines — a port already in
-  use, a failed start — included. Docker users can set
-  `GT7_LOG_FILE=/data/logs/gt7.log` (#180).
-
-- **`/api/health` says what is answering.** It returned only `{"status": "ok"}`, so a
-  launcher, a phone or a second copy could not tell this server from anything else on
-  port 8000. It now adds `app`, `version`, `install_kind` (`desktop`, `docker` or
-  `source`) and the database's schema revision beside the newest this build knows (#184).
-
-- **A first-run setup marker.** `GET /api/admin/setup` reports where setup stands and
-  `POST /api/admin/setup/complete` stores the marker and starts recording. With
-  `GT7_FORCE_SIM=firstrun` (set by the desktop app) the server starts on the simulator
-  with mDNS and recording off until then, so no network prompt appears before the
-  first-run wizard explains it (#184).
-
-- **LAN access is one live switch (`GT7_LAN_ACCESS`).** Off, only the computer
-  running the server can use it (other devices get 403 `lan_off`) and mDNS stops
-  announcing it; on — the default, as before — phones and tablets connect. It is
-  checked on every request, so changing it restarts nothing and drops no lap. Finishing
-  first-run setup with LAN access on creates an admin token when there is none, which
-  other devices then need for changes; reads and the live stream stay open. In the
-  desktop app the computer's own browser needs no token (#195).
-
-- **The database is copied before a new version upgrades it.** When a start finds the
-  schema behind this build's, it first copies the database, with SQLite's backup API,
-  to `backups/pre-upgrade-<time>-<revision>/` in the data folder, beside a
-  `manifest.json` saying which version made the copy, the revisions it goes from and
-  to, how many sessions, laps, tracks, settings and layouts it holds, and its
-  `quick_check` verdict. The copy is written as `.partial` and takes its name only once
-  the manifest is in it, so a start killed half way never leaves something that looks
-  like a good backup. One copy is kept, three on the desktop app. Without 2.2 times the
-  database's size free, the start logs how much is needed and stops rather than
-  upgrade with no way back (#182).
-
-- **Setup asks about units and background requests.** The first-run wizard has a
-  Preferences step: Race Engineer units, chosen from the browser's region (miles in the
-  US, UK, Liberia and Myanmar), and switches for the daily update check and the car-list
-  refresh. The car-list refresh had no off switch at all; `GT7_CAR_REFRESH=false` (Settings
-  › Advanced) now keeps the bundled inventory until you press Update car database (#191).
-
 ### Fixed
-
-- **mDNS no longer broadcasts this computer's name, and retries.** The advertisement
-  carried the hostname — on a Mac usually its owner's name — in two places on every
-  network joined; it now uses a random per-install label. It is sent on the one
-  interface it names, chooses that address from the interfaces rather than the route a
-  full-tunnel VPN takes over, and a failed registration is retried (5 s, 15 s, 60 s,
-  then every five minutes) instead of given up on. `/api/admin/stats` adds
-  `lan_access` and `lan_reachable` (#186).
-
-- **Shutdown always closes the database.** The teardown was four awaits in a row, so a
-  step that failed or was cancelled skipped the rest and left the SQLite connections
-  open. Each step now runs whatever the one before did, with a time limit (#184).
-
-- **The server no longer exits when UDP 33740 is taken.** A Docker container, a second
-  copy or another telemetry tool holding the port took the whole app down at start,
-  after migrating the database. The UI now stays up and Settings, the Live view and
-  `/api/status` say what holds the port (`listener_error`). Switching to the PlayStation
-  while the port is taken answers 400 and keeps the simulator running, instead of
-  leaving no source at all (#181).
-
-- **Heartbeat and receive errors are shown, not swallowed.** asyncio reports UDP
-  errors to a callback nothing implemented, so a macOS Local Network denial — every
-  heartbeat refused — looked like a console that never answered. Status now carries
-  `heartbeat_error` with the reason in words, and on Windows a receive error reopens
-  the socket with backoff instead of ending reading for good (#181).
-
-- **A stray datagram can no longer take over the heartbeat.** The console's address
-  was adopted from any packet on UDP 33740 before it was decrypted, so one junk
-  datagram redirected the heartbeat away from the PlayStation and read as
-  "connected". Only a packet that decrypts adopts it now; with a console IP saved,
-  other senders are dropped unread (Find console still hears everyone). A hostname is
-  resolved once instead of on every heartbeat, and decode warnings are limited to one a
-  minute per sender (#185).
-
-- **A lap that fails to save is counted where you can see it.** A locked or full
-  disk lost the lap with only a log line; status now has `save_errors` and
-  `last_save_error`. A wake from sleep is logged as such (#207).
-
-- **Quitting closes the open session.** A stop left it for the next session's start
-  to close: an empty one stayed behind as a 0-lap row, and one with laps never sent
-  its summary webhook (#184).
-
-- **A database under a folder named with `?` or `#` opened the wrong file.** The
-  SQLite URL was formatted as text, so `?` started its query string and the path was
-  cut short there. It is now built from parts (#178).
-
-- **The weekly car-list refresh could write inside the installed package.** A
-  `GT7_CARS_JSON` or saved Car inventory pointing at the bundled copy made the refresh
-  overwrite it; it now writes beside the database whenever the configured file is the
-  package's own (#178).
-
-- **The Database setting no longer claims to take a SQLAlchemy URL.** It is a file path;
-  a URL became a strangely named SQLite file (#178).
-
-- **Files beside the database are written in a way Windows allows.** Every file kept
-  there — bundles, corrections, compiled tracks, car widths, the car inventory, the
-  sync state, the secrets — is written to a temp file and moved over the old one. On
-  Windows that move fails while Defender, the Search indexer or OneDrive has the file
-  open for a look, and most writers did not expect it; it is now retried for about half
-  a second before the error stands. An uploaded or restored survey log is claimed with
-  a hard link so it never lands over another; where the filesystem has none (FAT32,
-  exFAT, many network shares) it now takes the name with an exclusive create and copies
-  in, with the same guarantee. A circuit whose name slugs to one Windows reserves
-  (`con`, `aux`, `nul`, `prn`, `com1`–`com9`, `lpt1`–`lpt9`) is kept in `con_.json`
-  and so on, on every platform, and still lists, syncs and backs up as `con` (#187).
-
-- **An older version started on a newer database now says so and changes nothing.**
-  It stopped with a traceback ending in `Can't locate revision`, which an older Docker
-  tag pulled onto a volume `latest` had upgraded would do. It now checks the schema
-  before touching the file and stops with one line naming the version that wrote the
-  data (every upgrade now records it in the `schema_written_by` setting), and the
-  server exits non-zero, as before (#182).
-
-- **A migration that fails is rolled back whole.** SQLite's Python driver issues no
-  BEGIN before a schema change, so each statement of a migration committed as it ran,
-  and one that failed half way left a database every later start refused with
-  `duplicate column name`. Migrations now run on a connection of their own that really
-  begins a transaction, so a failure leaves the database at the revision it was at,
-  including any earlier revisions the same start applied. Compact's `VACUUM`, which
-  cannot run in a transaction, gets its own connection too (#182).
-
-- **Compact is refused while recording, and a busy database is waited for.** Compact
-  holds the database for the whole rewrite, minutes on a large one, and a lap that
-  ended meanwhile failed to save and was lost. It now answers 409 while a session is
-  recording or a survey is running. Every connection also waits up to 30 seconds for a
-  lock, rather than five, before giving up on a write, so a lap ending during a backup's
-  copy waits it out (#188, #182).
 
 - **Sector times put time the recording missed into the last sector.** Analysis ›
   Sector times shares GT7's lap time out by the lap's own clock, and the last sector
@@ -308,62 +369,6 @@ Notable changes to GT7 Datalogger. The format follows
   personal-best gain, pace drop or corner loss chose tenths before rounding, so just
   under a second came out as "ten tenths slower". It now rounds first and says "one
   second", like a lap time carries 59.96 s to the next minute.
-
-- **The UI no longer renders blank where Windows calls JavaScript plain text.** The
-  server took a file's type from the system's table, and a common Windows registry
-  entry maps `.js` to `text/plain`, which the browser refuses to run as a module.
-  `.js` and `.mjs` are now always served as `text/javascript`, `.css` as `text/css`
-  and `.svg` as `image/svg+xml` (#183).
-
-- **Downloads save as files.** A session's lap analysis
-  (`/api/sessions/{id}/analysis.json`) and a track bundle
-  (`/api/track-bundles/{slug}`) are sent with `Content-Disposition: attachment` and
-  a filename, so a browser that ignores the link's own `download` name still saves
-  the file instead of opening it in the tab (#183).
-
-- **Live sync checks the service's certificate against certifi's CA bundle.** The
-  `wss://` stream used the interpreter's compiled-in CA path, which some Python
-  builds do not have, and then failed every handshake while uploads, which go
-  through httpx and certifi, worked. Both now trust the same CAs (#183).
-
-### Changed
-
-- **The backend tests run on macOS, Windows and Python 3.14.** CI ran them on Ubuntu
-  with Python 3.12 only, what the Docker image runs; the desktop builds will be frozen
-  with CPython 3.14 on all three platforms, and nothing had run on Windows. The backend
-  job is now four legs that report separately: Ubuntu 24.04 on 3.12 (which also lints
-  and type-checks), and Ubuntu 24.04, macOS 26 and Windows Server 2025 on 3.14. The
-  Windows leg reports without blocking until it has been green for a while. Ubuntu is
-  pinned to 24.04 because `ubuntu-latest` moves to 26.04 in November. Every action the
-  workflows use is pinned to a commit rather than a movable tag, and Dependabot proposes
-  the updates weekly (#177).
-
-### Security
-
-- **Other web pages can no longer change the server.** Any page open in the
-  browser could send a request to the logger at `127.0.0.1:8000` or its LAN address,
-  and a POST without a body — clearing the data, importing a bundle — needs no CORS
-  preflight, so it went through even though the page could not read the answer. A
-  write (any method but GET, HEAD and OPTIONS) or a live WebSocket handshake that
-  carries another site's `Origin`, or says `Sec-Fetch-Site: cross-site`, is now
-  refused with 403. The server's own pages, origins listed in `GT7_CORS_ORIGINS`
-  and native clients (the phone app, curl, OBS), which send no `Origin`, are
-  unaffected (#183).
-
-- **DNS rebinding no longer reaches the API.** A request must be addressed to an IP
-  address, `localhost`, a single-label name, this machine's hostname, a LAN name
-  (`.local`, `.lan`, `.home.arpa`, `.internal`, `.localdomain`, `.localhost`, `.test`)
-  or a name listed in the new live setting `GT7_TRUSTED_HOSTS`; anything else gets a
-  403 that names the setting. `*.example.com` takes a whole domain and `*` turns the
-  check off. The refusals carry a `reason` (`untrusted_host`, `cross_site`),
-  documented in the client protocol (#183).
-
-  **Upgrading behind a reverse proxy:** if you reach the logger by a public DNS name
-  (`gt7.example.com` through Traefik, Caddy or nginx), set
-  `GT7_TRUSTED_HOSTS=gt7.example.com` before upgrading, or every request through the
-  proxy is refused. A listed name also counts as the server's own origin, so saving
-  settings keeps working through a proxy that rewrites `Host`, as nginx does by
-  default.
 
 ## [0.8.1] - 2026-10-21
 
