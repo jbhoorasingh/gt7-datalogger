@@ -255,6 +255,8 @@ async def _apply_generic(service: TelemetryService, key: str, value: Any) -> Non
         await service.restart_source()
     elif key in ("mdns", "lan_access"):
         await service.discovery.apply()
+    elif key in ("update_check", "update_channel"):
+        service.updates.wake()
     log.info("setting %s changed", key)
 
 
@@ -641,10 +643,26 @@ async def stats(request: Request) -> dict[str, Any]:
         # "LAN access is off" instead of a URL nothing can reach.
         "lan_access": service.settings.lan_access,
         "lan_reachable": service.settings.lan_access and not loopback_only,
+        # A newer release, from the daily check (#196): {available, version,
+        # url, checked_at}, always present; available is false while the
+        # check is off or has not found one.
+        "update": service.updates.status(),
     }
 
 
 # --- actions ----------------------------------------------------------------
+
+
+@router.post("/update-check")
+async def update_check(request: Request) -> dict[str, Any]:
+    """Check for a newer release now: the "Check for updates" button.
+
+    Runs whether or not the daily check is on (it is the user asking), and
+    answers with the same object /stats carries. A failed check is not an
+    error here either: the answer is just the last one known. While GitHub's
+    rate limit is in force it is not asked at all.
+    """
+    return await svc(request).updates.check()
 
 
 @router.post("/restart-source")

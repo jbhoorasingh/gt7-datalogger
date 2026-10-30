@@ -48,6 +48,7 @@ from app.storage.secret_store import SecretStore
 from app.sync import SyncClient
 from app.telemetry.listener import UdpTelemetrySource
 from app.telemetry.simulator import SimTelemetrySource, scenario_for
+from app.updates import UpdateChecker
 
 log = logging.getLogger(__name__)
 
@@ -245,6 +246,9 @@ class TelemetryService:
         self.env_settings = settings.model_copy()
         # mDNS announcement (#142); inert until main.lifespan starts it.
         self.discovery = Advertiser(settings)
+        # The daily "is there a newer release" check (#196); main.lifespan
+        # loads its state and runs its schedule.
+        self.updates = UpdateChecker(settings, repo)
         # Authored corners per circuit slug, read out of the track bundle
         # (#48). Cached because the bundle is a multi-megabyte document and
         # the corners in it are a few hundred bytes — parsing the whole thing

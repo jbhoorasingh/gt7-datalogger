@@ -323,6 +323,18 @@ ENTRIES: tuple[Entry, ...] = (
         choices=("DEBUG", "INFO", "WARNING", "ERROR"),
     ),
     Entry(
+        "update_check", "Server", "Check for updates",
+        "Once a day, ask GitHub Releases whether a newer version is out and show it "
+        "in Settings (and the desktop tray). Notify only: nothing is downloaded. "
+        "One request to `api.github.com` a day; on by default in the desktop app",
+        kind="bool",
+    ),
+    Entry(
+        "update_channel", "Server", "Update channel",
+        "`stable` offers releases only; `prerelease` also offers release candidates",
+        choices=("stable", "prerelease"),
+    ),
+    Entry(
         "admin_token", "Server", "Admin token",
         "When set, the Settings pages and all destructive/mutating API calls require "
         "this token via the `X-API-Key` header; overlay/dash/read endpoints and the "

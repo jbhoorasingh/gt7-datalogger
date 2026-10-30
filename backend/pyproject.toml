@@ -19,6 +19,8 @@ dependencies = [
     # already brings it, named so a change there cannot take it away.
     "certifi>=2024.2.2",
     "zeroconf>=0.132",
+    # Release precedence for the update check (#196): 0.9.0rc1 < 0.9.0rc2 < 0.9.0.
+    "packaging>=23.0",
 ]
 
 [project.optional-dependencies]

@@ -7,6 +7,20 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Added
 
+- **The app can tell you a newer release is out (#196).** With *Check for updates*
+  on, the server asks GitHub Releases once a day which release is the latest and, if
+  it is above the running version, reports it (version and link) in
+  `/api/admin/stats` under `update`; `POST /api/admin/update-check` asks straight
+  away. Notify only: nothing is downloaded. Versions are compared by full release
+  precedence, so `0.9.0-rc.1` < `0.9.0-rc.2` < `0.9.0` and a lower or equal version is
+  never offered; `update_channel` `stable` asks for the latest release only, and
+  `prerelease` takes the highest of the last twenty, release candidates included.
+  The check is off by default (the desktop launcher turns it on), applies the moment
+  it is switched, remembers its answer and its ETag across restarts so a restart does
+  not ask again, is silent when it fails, and waits for GitHub's rate limit to reset
+  when it is told to. The configuration docs now list everything the app fetches on
+  its own: the car list, the first-start track pull and this.
+
 - **A synced session gets its circuit even when its first lap was not a whole
   one.** The session is announced to the sync service with its first lap, and the
   circuit is identified from a whole lap; a race's grid start, a pit-out lap or
