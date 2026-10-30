@@ -2326,6 +2326,55 @@
         "summary": "Update Cars"
       }
     },
+    "/api/admin/update-check": {
+      "post": {
+        "description": "Check for a newer release now: the \"Check for updates\" button.\n\nRuns whether or not the daily check is on (it is the user asking), and\nanswers with the same object /stats carries. A failed check is not an\nerror here either: the answer is just the last one known. While GitHub's\nrate limit is in force it is not asked at all.",
+        "operationId": "update_check_api_admin_update_check_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Update Check Api Admin Update Check Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Check"
+      }
+    },
     "/api/admin/vacuum": {
       "post": {
         "description": "Compact the database. Refused (409) while anything records (#188): the\nrewrite holds the file for minutes on a large one, and a lap that ends\nmeanwhile would fail to save once the busy timeout ran out.",

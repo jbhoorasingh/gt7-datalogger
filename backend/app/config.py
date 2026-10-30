@@ -122,6 +122,12 @@ class Settings(BaseSettings):
     # The built SPA to serve. Unset, a source checkout's frontend/dist, or the
     # copy a frozen desktop bundle carries; see frontend_root().
     frontend_dist: Path | None = None
+    # Ask GitHub Releases once a day whether a newer version is out (#196).
+    # Notify only: nothing is downloaded. Off for Docker and source installs
+    # until someone turns it on; the desktop launcher sets it on.
+    update_check: bool = False
+    # "stable" asks for the latest release; "prerelease" also offers rcs.
+    update_channel: str = "stable"
 
     # A shared repository of contributed track bundles (#47): the URL of its
     # index document, or of the directory holding one ("/index.json" is

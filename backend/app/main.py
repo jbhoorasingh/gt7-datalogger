@@ -316,6 +316,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     first_pull = asyncio.create_task(
         pull_shared_on_first_start(settings, repo, service, stored, log)
     )
+    # The daily update check (#196). Always running, idle while update_check
+    # is off, so turning it on in Settings needs no restart; what the last
+    # run found and when the next check is due come from the settings rows.
+    service.updates.load(stored)
+    update_check = asyncio.create_task(service.updates.run())
 
     def recheck(saved: dict[str, str]) -> None:
         # Kept on the service: a restore cancels it, as its work is on laps
@@ -332,6 +337,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         restored = await repo.get_settings()
         await sync_track_seed(settings, repo, restored, log)
         await sync_car_inventory(settings, repo, cars, restored, log)
+        service.updates.load(restored)
         recheck(restored)
 
     service.database_replaced = database_replaced
@@ -346,7 +352,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Cancelled AND awaited: a task dropped while still pending logs a
     # "Task was destroyed but it is pending" warning on the way out, which
     # looks like a fault in a shutdown that is working correctly.
-    await shut_down(service, engine, (refresh, first_pull, *service.data_tasks), log)
+    await shut_down(service, engine, (refresh, first_pull, update_check, *service.data_tasks), log)
 
 
 # Per step: a logout gives a desktop app well under a second, and a stuck

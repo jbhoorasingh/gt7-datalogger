@@ -94,6 +94,8 @@ The **Applies** column says when a change takes effect:
 | Variable | Default | Applies | Description |
 | --- | --- | --- | --- |
 | `GT7_LOG_LEVEL` | `INFO` | live | Root log level |
+| `GT7_UPDATE_CHECK` | `false` | live | Once a day, ask GitHub Releases whether a newer version is out and show it in Settings (and the desktop tray). Notify only: nothing is downloaded. One request to `api.github.com` a day; on by default in the desktop app |
+| `GT7_UPDATE_CHANNEL` | `stable` | live | `stable` offers releases only; `prerelease` also offers release candidates |
 | `GT7_ADMIN_TOKEN` | *(empty)* | live | When set, the Settings pages and all destructive/mutating API calls require this token via the `X-API-Key` header; overlay/dash/read endpoints and the live WebSocket stay open. Empty = fully open (LAN-trusted) |
 | `GT7_HTTP_HOST` | `0.0.0.0` | environment only | HTTP bind host. Read before the database opens, so environment only |
 | `GT7_HTTP_PORT` | `8000` | environment only | HTTP port. Read before the database opens — and a Docker install maps it from outside — so environment only |
@@ -132,6 +134,28 @@ regenerates the copy committed to the repository, for cutting a release.
 
 Cars GT7 stops publishing are never dropped — a refresh only ever adds and updates, so
 sessions you recorded years ago keep their car names.
+
+## What the app fetches on its own
+
+The datalogger works with no internet at all. When it has some, three things are fetched
+in the background without anyone asking, each one best-effort — a failure is logged at
+info level and tried again later — and none of them sends your recordings anywhere:
+
+| What | From | When | Turn it off |
+|---|---|---|---|
+| **Car list refresh** | GT7's own car list on `gran-turismo.com` | first run, then weekly | — (the bundled inventory is used whenever it fails) |
+| **Shared track pull** | the [track-data repo](https://jbhoorasingh.github.io/gt7-datalogger-track-data/) (`GT7_SHARED_BUNDLES_URL`) | once, on the first start of an installation holding no bundles | set `GT7_SHARED_BUNDLES_URL` empty |
+| **Update check** | GitHub Releases, `api.github.com/repos/jbhoorasingh/gt7-datalogger/releases` | once a day, and when you click *Check for updates* | `GT7_UPDATE_CHECK=false` (the default, except in the desktop app) |
+
+The update check is notify-only: it asks which release is the latest (with `update_channel`
+`prerelease`, the latest twenty, release candidates included), compares it with the running
+version and, if it is newer, shows the version and a link. Nothing is downloaded or
+installed. The request carries the app's version in its `User-Agent` and nothing else about
+you; like any request, it tells GitHub your IP address. If GitHub's rate limit answers, it
+waits until the limit resets before asking again.
+
+The [sync client](../guide/settings.md#sync) also talks to a server, but only once you have
+pasted a connection string and turned it on.
 
 ## Units & browser settings
 
