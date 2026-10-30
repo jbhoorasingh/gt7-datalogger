@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { SetupState } from "./types";
-import { classifyProblem, completionBody, detectOs, wantsWelcome } from "./welcome";
+import {
+  classifyProblem,
+  completionBody,
+  detectOs,
+  preferencesPatch,
+  unitsForLocale,
+  wantsWelcome,
+} from "./welcome";
 
 const fresh: SetupState = {
   completed: false,
@@ -103,5 +110,24 @@ describe("completionBody", () => {
     expect(completionBody("docker", true)).toBeUndefined();
     expect(completionBody("source", false)).toBeUndefined();
     expect(completionBody(null, true)).toBeUndefined();
+  });
+});
+
+describe("preferences (#191)", () => {
+  it("picks spoken units from the browser's region", () => {
+    expect(unitsForLocale("en-US")).toBe("imperial");
+    expect(unitsForLocale("en-GB")).toBe("imperial");
+    expect(unitsForLocale("en-AU")).toBe("metric");
+    expect(unitsForLocale("de-DE")).toBe("metric");
+    expect(unitsForLocale("ja")).toBe("metric");
+    expect(unitsForLocale(undefined)).toBe("metric");
+  });
+
+  it("writes the three settings the step shows", () => {
+    expect(preferencesPatch({ units: "imperial", updateCheck: false, carRefresh: true })).toEqual({
+      race_engineer_units: "imperial",
+      update_check: false,
+      car_refresh: true,
+    });
   });
 });

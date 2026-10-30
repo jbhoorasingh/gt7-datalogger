@@ -65,6 +65,10 @@ class Settings(BaseSettings):
     # Shipped with the package so a fresh install names cars on its first
     # packet, then refreshed in the background against GT7's own list (#57).
     cars_json: Path = PACKAGE_DATA / "cars.json"
+    # Check GT7's own car list in the background (at most weekly, at start)
+    # for cars added since the release (#191). Off, the bundled inventory is
+    # all there is until someone presses Update car database.
+    car_refresh: bool = True
     # Pre-#57 two-column id,name CSV. Empty unless an existing install pinned
     # GT7_CARS_CSV, in which case it still wins and is still read — names only,
     # none of the richer fields. Kept for one release so an upgrade cannot

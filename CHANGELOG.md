@@ -198,6 +198,12 @@ Notable changes to GT7 Datalogger. The format follows
   database's size free, the start logs how much is needed and stops rather than
   upgrade with no way back (#182).
 
+- **Setup asks about units and background requests.** The first-run wizard has a
+  Preferences step: Race Engineer units, chosen from the browser's region (miles in the
+  US, UK, Liberia and Myanmar), and switches for the daily update check and the car-list
+  refresh. The car-list refresh had no off switch at all; `GT7_CAR_REFRESH=false` (Settings
+  › Advanced) now keeps the bundled inventory until you press Update car database (#191).
+
 ### Fixed
 
 - **mDNS no longer broadcasts this computer's name, and retries.** The advertisement

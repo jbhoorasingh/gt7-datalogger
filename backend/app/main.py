@@ -186,7 +186,7 @@ async def refresh_cars_if_stale(
     # One clock read for the whole run: the date that decided the refresh is
     # the date recorded as its result, even for a task that spans midnight.
     today = datetime.date.today()
-    if not car_refresh.is_stale(stored, today):
+    if not settings.car_refresh or not car_refresh.is_stale(stored, today):
         return
     try:
         await car_refresh.fetch_and_store(cars, settings.refreshed_car_inventory())
