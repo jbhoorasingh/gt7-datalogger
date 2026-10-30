@@ -185,12 +185,61 @@ def _quiet_probes(record: logging.LogRecord) -> bool:
     )
 
 
+_STOP_SIGNALS = tuple(
+    s for s in (signal.SIGINT, signal.SIGTERM, getattr(signal, "SIGBREAK", None)) if s is not None
+)
+
+
+def _make_server_class() -> Any:
+    import uvicorn
+
+    class Server(uvicorn.Server):
+        """uvicorn's server without the signal re-raise at the end.
+
+        uvicorn re-raises a SIGTERM it handled once it has shut down, so a
+        clean stop still ends the process "killed by signal": -15 to a
+        parent, 143 to a shell, and 127 from an AppImage's runtime. A stop
+        asked for is a stop done, so this exits 0.
+        """
+
+        @contextlib.contextmanager
+        def capture_signals(self) -> Iterator[None]:
+            if threading.current_thread() is not threading.main_thread():
+                yield
+                return
+            previous = {sig: signal.signal(sig, self.handle_exit) for sig in _STOP_SIGNALS}
+            try:
+                yield
+            finally:
+                for sig, handler in previous.items():
+                    signal.signal(sig, handler)
+
+    return Server
+
+
+def _watch_quit_file(path: Path, server: Any) -> None:
+    path.unlink(missing_ok=True)
+
+    def watch() -> None:
+        while not server.should_exit:
+            if path.exists():
+                path.unlink(missing_ok=True)
+                server.should_exit = True
+                return
+            threading.Event().wait(0.5)
+
+    threading.Thread(target=watch, name="gt7-quit-file", daemon=True).start()
+
+
 def parse(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="gt7-datalogger --server")
     parser.add_argument("--supervised", action="store_true")
     parser.add_argument("--fd", type=int, default=None)
     parser.add_argument("--host", default=None)
     parser.add_argument("--port", type=int, default=None)
+    # Headless on Windows: `--quit` asks by creating this file, since there
+    # is no SIGTERM to send and taskkill without /F only closes windows.
+    parser.add_argument("--quit-file", type=Path, default=None)
     return parser.parse_args(argv)
 
 
@@ -237,11 +286,13 @@ def run(argv: list[str]) -> int:
                 timeout_graceful_shutdown=1,
                 log_config=LOG_CONFIG,
             )
-            server = uvicorn.Server(config)
+            server = _make_server_class()(config)
             logging.getLogger("uvicorn.access").addFilter(_quiet_probes)
             control = Control(server)
             if args.supervised:
                 control.start()
+            if args.quit_file is not None:
+                _watch_quit_file(args.quit_file, server)
             server.run(sockets=[sock])
             if not server.started:
                 return EXIT_STARTUP_FAILED

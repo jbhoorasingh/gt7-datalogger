@@ -198,7 +198,7 @@ def run_headless(args: argparse.Namespace, folders: paths.Folders) -> int:
     from app.serve import run
 
     try:
-        return run(["--host", host, "--port", str(port)])
+        return run(["--host", host, "--port", str(port), "--quit-file", str(folders.quit_request)])
     finally:
         lock.release()
 
@@ -223,9 +223,11 @@ def quit_running(folders: paths.Folders, timeout: float) -> int:
         return EXIT_OK
     try:
         if os.name == "nt":
-            import subprocess
-
-            subprocess.run(["taskkill", "/PID", str(pid)], capture_output=True, check=False)
+            # No SIGTERM on Windows, and taskkill without /F only asks a
+            # process's windows to close — the tray's hidden one included,
+            # which is not a request to quit. The running app watches for
+            # this file instead.
+            folders.quit_request.touch()
         else:
             os.kill(pid, signal.SIGTERM)
     except ProcessLookupError:
@@ -369,6 +371,8 @@ class DesktopApp:
                         state="starting", started_at=time.time())
         self.supervisor.start()
         threading.Thread(target=self._after_ready, name="gt7-ready", daemon=True).start()
+        threading.Thread(target=self._watch_quit_request, name="gt7-quit-file",
+                         daemon=True).start()
         return EXIT_OK
 
     def _after_ready(self) -> None:
@@ -385,6 +389,21 @@ class DesktopApp:
         if first:
             self.prefs.opened_once = True
             prefs.save(self.folders.prefs, self.prefs)
+
+    def _watch_quit_request(self) -> None:
+        """`--quit` on Windows creates the request file; quit as the tray would."""
+        path = self.folders.quit_request
+        path.unlink(missing_ok=True)
+        while not self._quit_once.locked():
+            if path.exists():
+                path.unlink(missing_ok=True)
+                log.info("quit requested")
+                if self.tray is not None:
+                    self.tray.request_quit()
+                else:
+                    self.quit()
+                return
+            time.sleep(0.5)
 
     def _changed(self, state: Any) -> None:
         if state.phase == "failed":

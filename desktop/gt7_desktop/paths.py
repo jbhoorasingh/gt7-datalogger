@@ -30,6 +30,11 @@ class Folders:
         return self.data / "gt7.lock"
 
     @property
+    def quit_request(self) -> Path:
+        """Created by `--quit` on Windows, where there is no SIGTERM to send."""
+        return self.data / "quit-request"
+
+    @property
     def log_file(self) -> Path:
         return self.logs / f"{EXE_NAME}.log"
 
