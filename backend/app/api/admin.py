@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import logging
+import secrets
 import time
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
-from app import discovery, logbuffer, settings_registry
+from app import discovery, logbuffer, settings_registry, setup_state
 from app.api.auth import require_admin
 from app.notify import ALL_EVENTS
 from app.processing import car_refresh
@@ -135,7 +136,11 @@ async def apply_settings_payload(service: TelemetryService, payload: SettingsPay
         await service.set_ps_ip(ip)
         await service.repo.set_setting("ps_ip", ip)
     if payload.source is not None and payload.source != service.settings.source:
-        await service.switch_source(payload.source)
+        try:
+            await service.switch_source(payload.source)
+        except OSError as exc:
+            # switch_source put the previous source back (#181).
+            raise HTTPException(400, service.bind_error(exc)) from exc
         await service.repo.set_setting("source", payload.source)
     if payload.log_level is not None:
         logging.getLogger().setLevel(payload.log_level)
@@ -248,8 +253,10 @@ async def _apply_generic(service: TelemetryService, key: str, value: Any) -> Non
             ) from exc
     elif key == "sim_scenario" and settings.source == "sim":
         await service.restart_source()
-    elif key == "mdns":
+    elif key in ("mdns", "lan_access"):
         await service.discovery.apply()
+    elif key in ("update_check", "update_channel"):
+        service.updates.wake()
     log.info("setting %s changed", key)
 
 
@@ -565,6 +572,44 @@ async def clear_logs() -> dict[str, str]:
 # --- diagnostics ------------------------------------------------------------
 
 
+@router.get("/setup")
+async def get_setup(request: Request) -> dict[str, Any]:
+    """Where first-run setup stands (#184); the wizard polls this."""
+    service = svc(request)
+    reachable = discovery.lan_address(service.settings) is not None
+    return await setup_state.state(service, reachable)
+
+
+class SetupComplete(BaseModel):
+    # The wizard's last question (#195): may phones and tablets connect?
+    # None leaves LAN access as it is (a Docker install's wizard).
+    lan_access: bool | None = None
+
+
+@router.post("/setup/complete")
+async def complete_setup(
+    request: Request, body: SetupComplete | None = None
+) -> dict[str, Any]:
+    """Store the marker and start recording: the end of first-run mode.
+
+    Turning LAN access on here also creates an admin token when there is
+    none, so changes from another device need it while reads stay open;
+    the wizard shows it once. It is stored like any admin token.
+    """
+    service = svc(request)
+    created = ""
+    if body is not None and body.lan_access is not None:
+        values: dict[str, Any] = {"lan_access": body.lan_access}
+        if body.lan_access and not service.settings.admin_token:
+            created = secrets.token_urlsafe(24)
+            values["admin_token"] = created
+        await apply_config(service, ConfigPatch(values=values))
+    await service.repo.set_setting(setup_state.SETUP_KEY, datetime.now(UTC).isoformat())
+    if not service.recording:
+        await service.set_recording(True)
+    return {**await get_setup(request), "admin_token": created or None}
+
+
 @router.get("/stats")
 async def stats(request: Request) -> dict[str, Any]:
     service = svc(request)
@@ -593,10 +638,31 @@ async def stats(request: Request) -> dict[str, Any]:
         # {name, ip, port} while announced over mDNS, null otherwise.
         "mdns": service.discovery.advertised,
         "mdns_enabled": service.settings.mdns,
+        # Whether another device can use this server right now (#186, #195):
+        # false on a loopback bind or with LAN access off, where the UI shows
+        # "LAN access is off" instead of a URL nothing can reach.
+        "lan_access": service.settings.lan_access,
+        "lan_reachable": service.settings.lan_access and not loopback_only,
+        # A newer release, from the daily check (#196): {available, version,
+        # url, checked_at}, always present; available is false while the
+        # check is off or has not found one.
+        "update": service.updates.status(),
     }
 
 
 # --- actions ----------------------------------------------------------------
+
+
+@router.post("/update-check")
+async def update_check(request: Request) -> dict[str, Any]:
+    """Check for a newer release now: the "Check for updates" button.
+
+    Runs whether or not the daily check is on (it is the user asking), and
+    answers with the same object /stats carries. A failed check is not an
+    error here either: the answer is just the last one known. While GitHub's
+    rate limit is in force it is not asked at all.
+    """
+    return await svc(request).updates.check()
 
 
 @router.post("/restart-source")
@@ -621,7 +687,16 @@ async def clear_data(request: Request) -> dict[str, str]:
 
 @router.post("/vacuum")
 async def vacuum(request: Request) -> dict[str, str]:
-    await svc(request).repo.vacuum()
+    """Compact the database. Refused (409) while anything records (#188): the
+    rewrite holds the file for minutes on a large one, and a lap that ends
+    meanwhile would fail to save once the busy timeout ran out."""
+    service = svc(request)
+    busy = service.recording_now()
+    if busy:
+        raise HTTPException(
+            409, f"{busy}; pause recording or stop the survey, then compact"
+        )
+    await service.repo.vacuum()
     return {"status": "ok"}
 
 

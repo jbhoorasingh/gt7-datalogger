@@ -12,8 +12,10 @@ anyway. Everywhere else the QR card in Settings is the fallback.
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import logging
+import secrets
 import socket
 import sys
 from pathlib import PurePath
@@ -25,6 +27,21 @@ from app.config import Settings
 log = logging.getLogger(__name__)
 
 SERVICE_TYPE = "_gt7dl._tcp.local."
+# Settings row holding this installation's random mDNS label (#186).
+LABEL_KEY = "mdns_label"
+# While enabled and not advertised: retry after these, then every five
+# minutes. On macOS the first multicast can be refused while the Local
+# Network alert is still on screen.
+RETRY_DELAYS = (5.0, 15.0, 60.0)
+RETRY_EVERY = 300.0
+
+# Set by the desktop server (app.serve) from the socket it was handed, before
+# uvicorn starts: the most direct answer to "where am I listening" (#186).
+BOUND: tuple[str, int] | None = None
+
+
+def new_label() -> str:
+    return secrets.token_hex(3)
 
 
 def served_port(settings: Settings, argv: list[str] | None = None) -> int:
@@ -34,6 +51,8 @@ def served_port(settings: Settings, argv: list[str] | None = None) -> int:
     launchers run uvicorn's own CLI with `--port`, which the app is never
     told about; reading it back is the only way to advertise the right one.
     """
+    if BOUND is not None and argv is None:
+        return BOUND[1]
     value = _cli_option("--port", sys.argv if argv is None else argv)
     if value is not None:
         try:
@@ -51,6 +70,8 @@ def served_host(settings: Settings, argv: list[str] | None = None) -> str:
     advertisement put the LAN address in front of its port. `python -m
     app.main` binds GT7_HTTP_HOST.
     """
+    if BOUND is not None and argv is None:
+        return BOUND[0]
     args = sys.argv if argv is None else argv
     value = _cli_option("--host", args)
     if value is not None:
@@ -108,12 +129,12 @@ def _is_uvicorn_cli(args: list[str]) -> bool:
     return path.name == "uvicorn" or (path.name == "__main__.py" and path.parent.name == "uvicorn")
 
 
-def _host_label() -> str:
-    return socket.gethostname().split(".")[0] or "gt7"
-
-
-def instance_name() -> str:
-    return f"GT7 Datalogger on {_host_label()}"
+def instance_name(label: str) -> str:
+    """The advertised name. Never the machine's hostname, which on a Mac
+    usually carries its owner's name and was broadcast on every network the
+    laptop joined (#186): a random per-install label tells two loggers apart.
+    """
+    return f"GT7 Datalogger {label}" if label else "GT7 Datalogger"
 
 
 def service_properties() -> dict[str, str]:
@@ -138,6 +159,9 @@ class Advertiser:
         self._zc: Any = None
         self._info: Any = None
         self.advertised: dict[str, Any] | None = None
+        # The installation's random label; main.lifespan loads or creates it.
+        self.label = ""
+        self._retry: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
         self._armed = True
@@ -145,18 +169,43 @@ class Advertiser:
 
     async def stop(self) -> None:
         self._armed = False
+        self._cancel_retry()
         await self._withdraw()
+
+    def _cancel_retry(self) -> None:
+        if self._retry is not None:
+            self._retry.cancel()
+            self._retry = None
+
+    def _schedule_retry(self) -> None:
+        if self._retry is None or self._retry.done():
+            self._retry = asyncio.create_task(self._retry_loop())
+
+    async def _retry_loop(self) -> None:
+        attempt = 0
+        while self._armed and self._zc is None and self._wanted():
+            delay = RETRY_DELAYS[attempt] if attempt < len(RETRY_DELAYS) else RETRY_EVERY
+            attempt += 1
+            await asyncio.sleep(delay)
+            if self._armed and self._zc is None and self._wanted():
+                await self._register(retrying=True)
+
+    def _wanted(self) -> bool:
+        return bool(self.settings.mdns and self.settings.lan_access)
 
     async def apply(self) -> None:
         """Bring the advertisement in line with the setting."""
         if not self._armed:
             return
-        if self.settings.mdns and self._zc is None:
+        wanted = self._wanted()
+        if wanted and self._zc is None:
             await self._register()
-        elif not self.settings.mdns and self._zc is not None:
-            await self._withdraw()
+        elif not wanted:
+            self._cancel_retry()
+            if self._zc is not None:
+                await self._withdraw()
 
-    async def _register(self) -> None:
+    async def _register(self, retrying: bool = False) -> None:
         host = served_host(self.settings)
         if is_loopback(host):
             log.warning(
@@ -167,13 +216,15 @@ class Advertiser:
             return
         ip = lan_address(self.settings)
         if not ip:
-            log.warning("mDNS: no LAN address found, not advertising")
+            if not retrying:
+                log.warning("mDNS: no LAN address found yet; will retry")
+            self._schedule_retry()
             return
         from zeroconf import IPVersion
         from zeroconf.asyncio import AsyncServiceInfo, AsyncZeroconf
 
         port = served_port(self.settings)
-        name = instance_name()
+        name = instance_name(self.label)
         info = AsyncServiceInfo(
             SERVICE_TYPE,
             f"{name}.{SERVICE_TYPE}",
@@ -183,16 +234,20 @@ class Advertiser:
             # Our own host name for the address record, never the machine's:
             # the OS responder (mDNSResponder, Avahi) already owns <host>.local
             # and two answerers for one name trigger conflict renaming.
-            server=f"gt7-datalogger-{_host_label()}.local.",
+            server=f"gt7-datalogger-{self.label or 'server'}.local.",
         )
-        zc = AsyncZeroconf(ip_version=IPVersion.V4Only)
+        # The one interface the advertised address is on, not every one:
+        # a VPN or a VM bridge has no phone on it to answer.
+        zc = AsyncZeroconf(ip_version=IPVersion.V4Only, interfaces=[ip])
         try:
             # The call returns the probe-and-announce task; awaiting that is
             # what makes "advertising" true when we log it.
             await (await zc.async_register_service(info, allow_name_change=True))
         except Exception as exc:  # noqa: BLE001 — never stop the app over this
-            log.warning("mDNS: could not advertise: %s", exc)
+            if not retrying:
+                log.warning("mDNS: could not advertise (%s); will retry", exc)
             await zc.async_close()
+            self._schedule_retry()
             return
         self._zc, self._info = zc, info
         self.advertised = {"name": info.name, "ip": ip, "port": port}

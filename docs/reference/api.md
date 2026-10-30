@@ -157,10 +157,11 @@ once, and gets the benefit of the doubt.
 | DELETE | `/api/admin/logs` | clear the ring buffer |
 | GET | `/api/admin/config` | every setting: value, default, environment variable, where the value comes from (`saved`, `env`, `default`), when a change applies (`live`, `restart`, `env`), and whether a restart is pending. Secrets come back as `is_set` and a hint, never the value |
 | PUT | `/api/admin/config` | `{values: {key: value}, reset: [key]}` — change settings and hand others back to the environment, validated as a whole (400 and nothing changed if any value is bad) |
-| GET | `/api/admin/stats` | uptime, DB stats, source stats, client count, LAN IP. `lan_ip` is where another device on the LAN reaches the server: empty when there is no LAN, and when `loopback_only` is true — the server listens on 127.0.0.1 only (uvicorn's CLI without `--host`), so the phone's QR code and the mDNS advertisement would point at a port that refuses it |
+| GET | `/api/admin/stats` | uptime, DB stats, source stats, client count, LAN IP. `lan_ip` is where another device on the LAN reaches the server: empty when there is no LAN, and when `loopback_only` is true — the server listens on 127.0.0.1 only (uvicorn's CLI without `--host`), so the phone's QR code and the mDNS advertisement would point at a port that refuses it. `update` is the daily [update check](../getting-started/configuration.md#what-the-app-fetches-on-its-own)'s answer, always present: `{available, version, url, checked_at}`, with `available` false (and the rest null) while `update_check` is off or no newer release is known; `version` is the release's tag without its `v`, `checked_at` when GitHub last answered |
+| POST | `/api/admin/update-check` | check GitHub Releases for a newer version now (the *Check for updates* button), whether or not the daily check is on → the same `update` object, with `available` judged as if it were on. Never an error: a failed check answers with the last known result, and while GitHub's rate limit is in force it is not asked at all |
 | POST | `/api/admin/restart-source` | stop/start the telemetry source |
 | POST | `/api/admin/clear-data` | delete **all** sessions and laps (settings/tracks kept) |
-| POST | `/api/admin/vacuum` | SQLite `VACUUM` |
+| POST | `/api/admin/vacuum` | SQLite `VACUUM`. **409** while a session is recording or a survey is running: it holds the database for the whole rewrite |
 | GET | `/api/admin/backup` | what each [backup](../guide/settings.md#back-up-and-move) part would hold now: `{data: {available, bytes, sessions, laps}, surveys: {available, bytes, bundles, corrections, logs, car_widths, source_id}, config: {available, settings}, layouts: {available, layouts}, tokens: {available, keys}, free_bytes}`. `tokens.keys` names the saved credentials, never their values |
 | POST | `/api/admin/backup` | `{parts: [data, surveys, config, layouts, tokens]}` (any non-empty subset) → `{id, name, url, parts, created_at, expires_in_s, database_bytes}`. Makes the backup: with `data`, a snapshot of the database is taken beside it, copied in short steps so the recorder keeps writing and then compacted, which needs about twice the database's size free (**507** when it is not). **409** when the database kept changing faster than it could be copied, or the copy took more than ten minutes. One backup at a time: a new one replaces the last, whose link stops working. With `data`, it waits for a restore upload or a restore in progress to finish before it measures the space it needs |
 | GET | `/api/backup/{id}/{name}` | the ZIP the POST made, streamed as it is written. **Not token-gated**, because a browser download cannot send `X-API-Key`: the unguessable `id` is the credential, and it lasts until the download completes or 15 minutes pass (404 after). See [Back up and move](../guide/settings.md#back-up-and-move) for what is inside |
@@ -237,5 +238,10 @@ every 2 s if the socket closes.
 
 !!! note "CORS and exposure"
     No CORS headers are sent unless `GT7_CORS_ORIGINS` lists origins: the bundled UI is
-    same-origin and native apps need none. The API is designed for a trusted home
-    network, not public exposure. Don't port-forward it to the internet.
+    same-origin and native apps need none. A write (any method but GET, HEAD and
+    OPTIONS) or a WebSocket handshake from another web page's origin is refused with
+    `403`, and so is any request addressed to a host name that is not a LAN one or
+    listed in `GT7_TRUSTED_HOSTS`; the
+    [client protocol](client-protocol.md#refused-requests) lists the reasons. The API
+    is designed for a trusted home network, not public exposure. Don't port-forward it
+    to the internet.

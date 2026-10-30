@@ -255,7 +255,7 @@ def load_fingerprints(data_dir: Path) -> list[Fingerprint]:
         return cached
     prints = []
     for name, _mtime, _size in key:
-        doc = track_bundle.load_slug(data_dir, Path(name).stem)
+        doc = track_bundle.load_slug(data_dir, track_bundle.filename_slug(Path(name).stem))
         if doc is not None:
             prints.append(fingerprint(doc))
     _PRINTS.clear()  # one installation, one bundle set; no need for true LRU

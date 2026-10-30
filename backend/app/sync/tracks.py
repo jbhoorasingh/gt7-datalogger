@@ -59,6 +59,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from app.processing import track_bundle
+from app.storage.atomic import atomic_write_text
 from app.sync.transport import SyncError
 
 if TYPE_CHECKING:
@@ -141,6 +142,9 @@ class TracksAdapter:
         self._not_before: dict[str, float] = {}
         self._last_upload: dict[str, float] = {}
         self._inflight: str | None = None
+        # The bundle the worker is on, from the moment it leaves the queue —
+        # wider than _inflight, which is only the upload itself.
+        self._working: str | None = None
         self._task: asyncio.Task[None] | None = None
         self._wake = asyncio.Event()
         # Type-level standing, distinct from any one track's: a rejected
@@ -236,15 +240,29 @@ class TracksAdapter:
                 for slug in due:
                     if not self.client.active(TYPE):
                         return
-                    await self._push(slug)
+                    self._working = slug
+                    try:
+                        await self._push(slug)
+                    finally:
+                        self._working = None
         finally:
             self._task = None
             self._inflight = None
+            self._working = None
 
     async def wait_idle(self, timeout: float = 5.0) -> None:
-        """Wait until nothing is due or in flight — the Admin push, and tests."""
+        """Wait until nothing is due or being worked on — the Admin push, and tests.
+
+        "Being worked on" starts when the bundle leaves the queue, not when
+        its upload starts: _push takes it off the queue and then loads and
+        serialises it off the event loop first, and a check in that gap saw
+        nothing queued and nothing in flight and returned one upload early
+        (seen on the slower macOS and Windows CI runners).
+        """
         deadline = time.monotonic() + timeout
-        while (self._due() or self._inflight is not None) and time.monotonic() < deadline:
+        while (self._due() or self._working is not None or self._inflight is not None) and (
+            time.monotonic() < deadline
+        ):
             await asyncio.sleep(0.01)
 
     # --- one bundle ---------------------------------------------------------
@@ -472,9 +490,7 @@ class TracksAdapter:
         }
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = path.with_suffix(".json.tmp")
-            tmp.write_text(json.dumps(doc, indent=1), encoding="utf-8")
-            tmp.replace(path)
+            atomic_write_text(path, json.dumps(doc, indent=1))
         except OSError as exc:  # pragma: no cover - a full disk must not stop uploads
             log.warning("sync: could not write %s: %s", path.name, exc)
 

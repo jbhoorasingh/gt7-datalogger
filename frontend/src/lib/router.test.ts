@@ -13,6 +13,7 @@ describe("parseHash", () => {
     expect(parseHash("#/analysis?session=3").params.get("session")).toBe("3");
     expect(parseHash("#/sessions/").view).toBe("sessions");
     expect(parseHash("#/overlays").view).toBe("overlays");
+    expect(parseHash("#/welcome").view).toBe("welcome");
   });
 
   it("keeps the old aliases working", () => {

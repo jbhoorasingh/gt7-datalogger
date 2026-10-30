@@ -330,7 +330,10 @@ The section header shows how many sessions and laps are stored and the size on d
   (all laps)** is the same with each lap's CSV export. These are for reading laps
   somewhere else, not for moving an install: nothing reads them back in bulk.
 - **Compact database** — SQLite `VACUUM` to reclaim space after deleting laps. The
-  space it would reclaim is shown next to **Compact** once it passes a megabyte.
+  space it would reclaim is shown next to **Compact** once it passes a megabyte. It
+  holds the database for the whole rewrite, minutes on a large one, so it is refused
+  while a session is recording or a survey is running: pause recording or stop the
+  survey first.
 - **Delete all recorded data** — removes **every session and lap**. Type `DELETE` to
   enable the button. Settings, tracks and layouts are kept; it cannot be undone, so
   back up first.

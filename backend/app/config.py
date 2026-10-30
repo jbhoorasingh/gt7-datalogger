@@ -1,8 +1,11 @@
 """Application configuration via environment variables."""
 
+import sys
 from functools import lru_cache
 from pathlib import Path
+from typing import Self
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Files shipped inside the package, addressed from the package rather than from
@@ -18,6 +21,17 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # db_path deliberately stays out: it is the user's recording, not shipped
 # content, and writing it inside site-packages would be wrong on every install.
 PACKAGE_DATA = Path(__file__).resolve().parent / "data"
+# The source tree's built frontend, three folders up from the package. Only a
+# checkout has it there; see Settings.frontend_root.
+REPO_FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+
+
+def _inside(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+    except (OSError, ValueError):
+        return False
+    return True
 
 
 class Settings(BaseSettings):
@@ -37,12 +51,24 @@ class Settings(BaseSettings):
     # they exist to exercise Race Engineer callouts without a console.
     sim_scenario: str = "practice"
 
+    # Where every file the app writes lives: the database, track bundles, the
+    # installation's identity, sync state, survey logs, backups (#178). Unset,
+    # that is the database's own folder, which is what it always was — and
+    # db_path's default is relative to the working directory, which Docker
+    # (WORKDIR + /data) and dev.sh rely on and a macOS app opened from Finder
+    # (working directory "/") cannot. Set, the database defaults to gt7.db
+    # inside it unless GT7_DB_PATH says otherwise.
+    data_dir: Path | None = None
     db_path: Path = Path("data/gt7.db")
     # The car inventory: id -> name, manufacturer, year, category, drivetrain,
     # aspiration and the published figures (see scripts/build_car_metadata.py).
     # Shipped with the package so a fresh install names cars on its first
     # packet, then refreshed in the background against GT7's own list (#57).
     cars_json: Path = PACKAGE_DATA / "cars.json"
+    # Check GT7's own car list in the background (at most weekly, at start)
+    # for cars added since the release (#191). Off, the bundled inventory is
+    # all there is until someone presses Update car database.
+    car_refresh: bool = True
     # Pre-#57 two-column id,name CSV. Empty unless an existing install pinned
     # GT7_CARS_CSV, in which case it still wins and is still read — names only,
     # none of the richer fields. Kept for one release so an upgrade cannot
@@ -67,15 +93,45 @@ class Settings(BaseSettings):
     # Comma-separated origins allowed for cross-origin API use. Empty = no
     # CORS headers at all — the bundled UI is same-origin and needs none.
     cors_origins: str = ""
+    # Comma-separated host names, beyond the LAN ones always accepted, that
+    # requests may be addressed to (#183): a reverse proxy's public name, a
+    # DNS name of your own. `*` turns the Host check off.
+    trusted_hosts: str = ""
 
     # Announce this server on the LAN over mDNS (_gt7dl._tcp), so the phone
     # app finds it without an address typed in (#142).
     mdns: bool = True
+    # Whether other devices on the network may use this server at all (#195).
+    # Checked on every request, so turning it off or on never restarts the
+    # server or drops the lap in progress. Docker and source keep today's
+    # open default; the desktop app starts with it off until setup is done.
+    lan_access: bool = True
 
     # Client stream rate (Hz). Raw capture is ~60 Hz; the UI does not need all of it.
     ws_rate: int = 30
 
     log_level: str = "INFO"
+    # Set by the desktop launcher (#192): this server is the desktop app's.
+    # Changes the install kind /api/health reports, and how much the
+    # pre-upgrade backups keep.
+    desktop: bool = False
+    # "firstrun" (set by the desktop launcher until setup is completed): start
+    # on the simulator with mDNS off and recording off, whatever is stored, so
+    # no firewall or Local Network prompt appears before the wizard explains
+    # it and no demo lap reaches the history (#184).
+    force_sim: str = ""
+    # Also write the log to this file, rotated at 5 MB with four old files
+    # kept (#180). Empty = stderr and the in-memory buffer only, as before.
+    log_file: Path | None = None
+    # The built SPA to serve. Unset, a source checkout's frontend/dist, or the
+    # copy a frozen desktop bundle carries; see frontend_root().
+    frontend_dist: Path | None = None
+    # Ask GitHub Releases once a day whether a newer version is out (#196).
+    # Notify only: nothing is downloaded. Off for Docker and source installs
+    # until someone turns it on; the desktop launcher sets it on.
+    update_check: bool = False
+    # "stable" asks for the latest release; "prerelease" also offers rcs.
+    update_channel: str = "stable"
 
     # A shared repository of contributed track bundles (#47): the URL of its
     # index document, or of the directory holding one ("/index.json" is
@@ -139,6 +195,37 @@ class Settings(BaseSettings):
     race_engineer_sector_voice_content: str = "delta"
     race_engineer_sector_voice_comparison: str = "individual"
 
+    @model_validator(mode="after")
+    def _database_in_data_dir(self) -> Self:
+        # A blank GT7_DATA_DIR reaches here as Path("."): unset, not "here".
+        if self.data_dir is not None and str(self.data_dir) in ("", "."):
+            self.data_dir = None
+        if self.data_dir is not None and "db_path" not in self.model_fields_set:
+            self.db_path = self.data_dir / "gt7.db"
+        return self
+
+    def data_root(self) -> Path:
+        """The folder every file beside the database is written to."""
+        return self.data_dir if self.data_dir is not None else self.db_path.parent
+
+    def frontend_root(self) -> Path | None:
+        """The built SPA, or None when there is none to serve.
+
+        An explicit GT7_FRONTEND_DIST first, then the copy a PyInstaller
+        bundle unpacks beside the code, then a source checkout's own build.
+        The checkout path is all there used to be, and in a signed macOS
+        bundle it resolves to Contents/frontend/dist, which a bundle cannot
+        hold — so the frozen app would have served no UI at all, silently.
+        """
+        candidates = []
+        if self.frontend_dist is not None and str(self.frontend_dist) not in ("", "."):
+            candidates.append(self.frontend_dist)
+        bundle = getattr(sys, "_MEIPASS", None)
+        if bundle is not None:
+            candidates.append(Path(bundle) / "frontend" / "dist")
+        candidates.append(REPO_FRONTEND_DIST)
+        return next((c for c in candidates if (c / "index.html").is_file()), None)
+
     def car_inventory(self) -> Path:
         """The car file to read, most specific first.
 
@@ -164,9 +251,12 @@ class Settings(BaseSettings):
         refreshes go there instead; otherwise the package copy stays pristine
         and the writable copy sits next to gt7.db.
         """
-        if "cars_json" in self.model_fields_set:
+        # Never inside the package, though: GT7_CARS_JSON pointed at the
+        # shipped copy (or a saved Admin value that is the default) would
+        # have the weekly refresh write into site-packages or a signed bundle.
+        if "cars_json" in self.model_fields_set and not _inside(self.cars_json, PACKAGE_DATA):
             return self.cars_json
-        return self.db_path.parent / "cars.json"
+        return self.data_root() / "cars.json"
 
     def enabled_webhook_events(self) -> set[str]:
         from app.notify import parse_events

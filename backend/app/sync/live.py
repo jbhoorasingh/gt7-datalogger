@@ -39,10 +39,13 @@ import asyncio
 import contextlib
 import json
 import logging
+import ssl
 import time
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Protocol
+
+import certifi
 
 from app.sync.transport import SyncError, classify_handshake
 
@@ -97,10 +100,19 @@ async def websockets_connect(url: str, headers: dict[str, str]) -> Socket:
         url,
         additional_headers=headers,
         user_agent_header=agent,
+        ssl=tls_context() if url.lower().startswith("wss://") else None,
         open_timeout=OPEN_TIMEOUT_S,
         compression=None,
         max_size=64 * 1024,
     )
+
+
+def tls_context() -> ssl.SSLContext:
+    """Certificates checked against certifi's CA bundle, as httpx checks the
+    uploads': the interpreter's compiled-in CA path is wherever the Python
+    that built it kept one, which in a frozen desktop binary or some Windows
+    and macOS installs is nowhere, and every wss:// handshake fails (#183)."""
+    return ssl.create_default_context(cafile=certifi.where())
 
 
 class LiveAdapter:

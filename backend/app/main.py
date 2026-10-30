@@ -3,38 +3,46 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import datetime
 import logging
-from collections.abc import AsyncIterator
+import mimetypes
+import sys
+from collections.abc import AsyncIterator, Awaitable, Callable, MutableMapping
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy.ext.asyncio import AsyncEngine
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from app import logbuffer, protocol, settings_registry
+from app import discovery, protocol, settings_registry, setup_state
 from app.api import admin, backup, layouts, restore, routes, tracks, ws
+from app.api.guard import RequestGuard
 from app.config import Settings, get_settings
+from app.logging_config import LOG_CONFIG, configure_logging
 from app.processing import car_refresh, shared_pull, shared_repo, track_seed
 from app.processing.cars import CarDatabase
 from app.service import TelemetryService
-from app.storage.db import init_db, make_engine, make_session_factory
+from app.storage import upgrade_backup
+from app.storage.db import DatabaseRefused, init_db, make_engine, make_session_factory
 from app.storage.repository import Repository
 from app.storage.secret_store import SecretStore, move_out_of_database
 
-FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
-
-
-def configure_logging(level: str) -> None:
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
-    )
-    logbuffer.install()
+# StaticFiles takes a file's type from `mimetypes`, which on Windows reads the
+# registry, where a common entry maps .js to text/plain: the browser then
+# refuses the bundle as a module script and the UI renders blank (#183).
+# Registered before anything is served, so the registry cannot win.
+for _ext, _type in (
+    (".js", "text/javascript"),
+    (".mjs", "text/javascript"),
+    (".css", "text/css"),
+    (".svg", "image/svg+xml"),
+):
+    mimetypes.add_type(_type, _ext)
 
 
 # Settings key holding the digest of the seed file the tracks table was last
@@ -178,7 +186,7 @@ async def refresh_cars_if_stale(
     # One clock read for the whole run: the date that decided the refresh is
     # the date recorded as its result, even for a task that spans midnight.
     today = datetime.date.today()
-    if not car_refresh.is_stale(stored, today):
+    if not settings.car_refresh or not car_refresh.is_stale(stored, today):
         return
     try:
         await car_refresh.fetch_and_store(cars, settings.refreshed_car_inventory())
@@ -227,7 +235,7 @@ async def pull_shared_on_first_start(
     configured = settings.shared_bundles_url.strip()
     if not configured:
         return
-    data_dir = settings.db_path.parent
+    data_dir = settings.data_root()
     if shared_pull.has_bundles(data_dir):
         await repo.set_setting(SHARED_FIRST_PULL_KEY, "not needed")
         return
@@ -249,11 +257,20 @@ async def pull_shared_on_first_start(
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
-    configure_logging(settings.log_level)
+    configure_logging(settings.log_level, settings.log_file)
     log = logging.getLogger("app")
 
     engine = make_engine(settings.db_path)
-    await init_db(engine)
+    try:
+        await init_db(engine, backups=settings.data_root() / upgrade_backup.DIRECTORY)
+    except DatabaseRefused as exc:
+        # A database from a newer version, or no room to copy it before an
+        # upgrade (#182): the user's to act on, so one line saying what to do,
+        # not a traceback. QuietRefusal keeps the server from printing one.
+        await engine.dispose()
+        log.error("%s", exc)
+        app.state.startup_refused = True
+        raise
     repo = Repository(make_session_factory(engine))
 
     # Settings changed via the admin page override env defaults. The copy
@@ -262,10 +279,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     baseline = settings.model_copy()
     # The webhook URL and sync token are saved beside the database, not in
     # it (#94); an older version's rows are moved out before anything reads.
-    secrets = SecretStore(settings.db_path.parent)
+    secrets = SecretStore(settings.data_root())
     await move_out_of_database(repo, secrets)
     stored = {**await repo.get_settings(), **secrets.read()}
     settings_registry.apply_stored(settings, stored)
+    # First-run mode (#184), after the stored values: an abandoned wizard's
+    # saved source=udp must not start the PlayStation path, and no prompt
+    # may appear before the wizard explains it. Recording waits too.
+    first_run = settings.force_sim == "firstrun" and not stored.get(setup_state.SETUP_KEY)
+    if first_run:
+        settings.source = "sim"
+        settings.mdns = False
+        settings.lan_access = False
+        log.info("first run: simulator, no mDNS, not recording until setup completes")
 
     await sync_track_seed(settings, repo, stored, log)
 
@@ -274,8 +300,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     service = TelemetryService(settings, repo, cars)
     service.env_settings = baseline
+    service.recording = not first_run
     app.state.service = service
     await service.start()
+    label = stored.get(discovery.LABEL_KEY) or discovery.new_label()
+    if label != stored.get(discovery.LABEL_KEY):
+        await repo.set_setting(discovery.LABEL_KEY, label)
+    service.discovery.label = label
     await service.discovery.start()
 
     # Deliberately not awaited: startup must not wait on gran-turismo.com, and
@@ -285,6 +316,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     first_pull = asyncio.create_task(
         pull_shared_on_first_start(settings, repo, service, stored, log)
     )
+    # The daily update check (#196). Always running, idle while update_check
+    # is off, so turning it on in Settings needs no restart; what the last
+    # run found and when the next check is due come from the settings rows.
+    service.updates.load(stored)
+    update_check = asyncio.create_task(service.updates.run())
 
     def recheck(saved: dict[str, str]) -> None:
         # Kept on the service: a restore cancels it, as its work is on laps
@@ -301,6 +337,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         restored = await repo.get_settings()
         await sync_track_seed(settings, repo, restored, log)
         await sync_car_inventory(settings, repo, cars, restored, log)
+        service.updates.load(restored)
         recheck(restored)
 
     service.database_replaced = database_replaced
@@ -315,13 +352,46 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Cancelled AND awaited: a task dropped while still pending logs a
     # "Task was destroyed but it is pending" warning on the way out, which
     # looks like a fault in a shutdown that is working correctly.
-    for task in (refresh, first_pull, *service.data_tasks):
+    await shut_down(service, engine, (refresh, first_pull, update_check, *service.data_tasks), log)
+
+
+# Per step: a logout gives a desktop app well under a second, and a stuck
+# step must not keep the next one — closing the database — from running.
+TEARDOWN_STEP_S = 5.0
+
+
+async def shut_down(
+    service: TelemetryService,
+    engine: AsyncEngine,
+    tasks: tuple[asyncio.Task[Any], ...],
+    log: logging.Logger,
+) -> None:
+    """The lifespan's teardown, every step attempted whatever the last did.
+
+    It used to be four awaits in a row: a cancelled or failing step skipped
+    service.stop and engine.dispose and orphaned the aiosqlite connections
+    (the desktop spike's lifespan-failure case). The order is service first,
+    so the open session is closed while the database is still there, then
+    the database, then the mDNS goodbye, which only touches the network.
+    """
+    # Cancelled AND awaited: a task dropped while still pending logs a
+    # "Task was destroyed but it is pending" warning on the way out, which
+    # looks like a fault in a shutdown that is working correctly.
+    for task in tasks:
         task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
-    await service.discovery.stop()
-    await service.stop()
-    await engine.dispose()
+    await asyncio.gather(*tasks, return_exceptions=True)
+    steps: tuple[tuple[str, Callable[[], Awaitable[None]]], ...] = (
+        ("telemetry service", service.stop),
+        ("database", engine.dispose),
+        ("mDNS", service.discovery.stop),
+    )
+    for name, step in steps:
+        try:
+            await asyncio.wait_for(step(), TEARDOWN_STEP_S)
+        except BaseException as exc:  # noqa: BLE001 - every step gets its turn
+            log.error("shutdown: %s did not stop cleanly: %r", name, exc)
+            if isinstance(exc, KeyboardInterrupt | SystemExit):
+                raise
 
 
 class LiveCORSMiddleware:
@@ -397,6 +467,53 @@ class DrainForRestore:
             await self.app(scope, receive, send)
 
 
+def frontend_dist() -> Path | None:
+    """The built SPA to mount, read when the app is created (#178).
+
+    Read here rather than at import, so GT7_FRONTEND_DIST set by whoever
+    starts the server is honoured. No UI to serve is normal for `npm run dev`
+    (Vite serves it and proxies the API), so that is one info line; a
+    configured folder or a frozen bundle without one is a broken install.
+    """
+    settings = Settings()
+    found = settings.frontend_root()
+    if found is None:
+        expected = settings.frontend_dist is not None or getattr(sys, "frozen", False)
+        logging.getLogger("app").log(
+            logging.ERROR if expected else logging.INFO,
+            "no built frontend found%s; serving the API only",
+            f" at {settings.frontend_dist}" if settings.frontend_dist is not None else "",
+        )
+    return found
+
+
+class QuietRefusal:
+    """A start the lifespan refused on purpose ends with its own log line.
+
+    Starlette reports any exception out of the lifespan to the server with
+    its traceback, which uvicorn prints before exiting. For a refusal the
+    lifespan has already explained (`app.state.startup_refused`), the report
+    goes without it: the server still logs "Application startup failed" and
+    exits non-zero (3), so Docker and the desktop launcher see a failed start.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "lifespan":
+            await self.app(scope, receive, send)
+            return
+
+        async def quiet(message: MutableMapping[str, Any]) -> None:
+            refused = getattr(scope["app"].state, "startup_refused", False)
+            if message["type"] == "lifespan.startup.failed" and refused:
+                message = {"type": message["type"], "message": ""}
+            await send(message)
+
+        await self.app(scope, receive, quiet)
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title="GT7 Datalogger",
@@ -412,6 +529,8 @@ def create_app() -> FastAPI:
     # /ws) and a native app needs none.
     app.add_middleware(DrainForRestore)
     app.add_middleware(LiveCORSMiddleware)
+    app.add_middleware(QuietRefusal)
+    app.add_middleware(RequestGuard)  # outermost: Host and Origin checks (#183)
     app.include_router(routes.router)
     app.include_router(admin.router)
     app.include_router(backup.router)
@@ -419,23 +538,24 @@ def create_app() -> FastAPI:
     app.include_router(layouts.router)
     app.include_router(tracks.router)
     app.include_router(ws.router)
-    if FRONTEND_DIST.exists():
+    dist = frontend_dist()
+    if dist is not None:
         # SPA deep links: /overlay?... and /dash?... must serve the app (the
         # static mount only resolves "/"). Plain paths keep strict URL
         # validators happy (some streaming apps reject /#overlay fragments).
         @app.get("/overlay", include_in_schema=False)
         async def overlay_page() -> FileResponse:
-            return FileResponse(FRONTEND_DIST / "index.html")
+            return FileResponse(dist / "index.html")
 
         @app.get("/dash", include_in_schema=False)
         async def dash_page() -> FileResponse:
-            return FileResponse(FRONTEND_DIST / "index.html")
+            return FileResponse(dist / "index.html")
 
         @app.get("/engineer", include_in_schema=False)
         async def engineer_page() -> FileResponse:
-            return FileResponse(FRONTEND_DIST / "index.html")
+            return FileResponse(dist / "index.html")
 
-        app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="spa")
+        app.mount("/", StaticFiles(directory=dist, html=True), name="spa")
     return app
 
 
@@ -445,4 +565,4 @@ if __name__ == "__main__":
     import uvicorn
 
     settings = get_settings()
-    uvicorn.run("app.main:app", host=settings.http_host, port=settings.http_port)
+    uvicorn.run(app, host=settings.http_host, port=settings.http_port, log_config=LOG_CONFIG)

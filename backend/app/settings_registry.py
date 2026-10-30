@@ -131,10 +131,29 @@ ENTRIES: tuple[Entry, ...] = (
         kind="bool",
     ),
     Entry(
+        "lan_access", "Live stream", "LAN access",
+        "Let phones, tablets and other computers on the network use this server. "
+        "Off, only this computer can, and mDNS stops announcing it. Reads and the "
+        "live stream need no token; with an admin token set, changes from another "
+        "device need it",
+        kind="bool",
+    ),
+    Entry(
         "cors_origins", "Live stream", "CORS origins",
         "Comma-separated origins allowed for cross-origin API use. Empty sends no "
         "CORS headers — the bundled UI is same-origin and needs none, and so does a "
         "native app",
+    ),
+    Entry(
+        "trusted_hosts", "Live stream", "Trusted host names",
+        "Comma-separated host names requests may be addressed to, beyond the ones "
+        "always accepted: IP addresses, `localhost`, single-label names, this "
+        "machine's hostname and names ending `.local`, `.lan`, `.home.arpa`, "
+        "`.internal`, `.localdomain`, `.localhost` or `.test`. Set it to the public "
+        "name of a reverse proxy in front of the server; `*.example.com` takes a "
+        "whole domain and `*` turns the check off. A page served under a listed name "
+        "may also make changes, as the server's own pages do",
+        doc_default="*(empty)*",
     ),
     # --- Race Engineer --------------------------------------------------------
     Entry(
@@ -292,6 +311,13 @@ ENTRIES: tuple[Entry, ...] = (
         apply="restart", kind="path", doc_default="*(bundled)*",
     ),
     Entry(
+        "car_refresh", "Tracks & cars", "Refresh the car list",
+        "Check GT7's own car list on `gran-turismo.com` in the background, on the "
+        "first start and then at most weekly, for cars added since this release. "
+        "Off, the bundled inventory is used until you press Update car database",
+        kind="bool",
+    ),
+    Entry(
         "cars_csv", "Tracks & cars", "Legacy car CSV",
         "Deprecated pre-0.6 `id,name` CSV. Set = read cars from here instead, names "
         "only. Kept for one release",
@@ -302,6 +328,18 @@ ENTRIES: tuple[Entry, ...] = (
         "log_level", "Server", "Log level",
         "Root log level",
         choices=("DEBUG", "INFO", "WARNING", "ERROR"),
+    ),
+    Entry(
+        "update_check", "Server", "Check for updates",
+        "Once a day, ask GitHub Releases whether a newer version is out and show it "
+        "in Settings (and the desktop tray). Notify only: nothing is downloaded. "
+        "One request to `api.github.com` a day; on by default in the desktop app",
+        kind="bool",
+    ),
+    Entry(
+        "update_channel", "Server", "Update channel",
+        "`stable` offers releases only; `prerelease` also offers release candidates",
+        choices=("stable", "prerelease"),
     ),
     Entry(
         "admin_token", "Server", "Admin token",
@@ -322,10 +360,44 @@ ENTRIES: tuple[Entry, ...] = (
         apply="env", kind="int", minimum=1, maximum=65535,
     ),
     Entry(
+        "data_dir", "Server", "Data folder",
+        "Folder for everything the app writes: the database (unless "
+        "`GT7_DB_PATH` names another), track bundles, survey logs, sync state, "
+        "backups and this installation's identity. Unset = the database's own "
+        "folder. Read before the database opens, so environment only",
+        apply="env", kind="path", doc_default="*(the database's folder)*",
+    ),
+    Entry(
         "db_path", "Server", "Database",
-        "SQLite database path — also accepts a full SQLAlchemy async URL (e.g. "
-        "Postgres). The database holds the other settings, so environment only",
+        "SQLite database file. Defaults to `gt7.db` in `GT7_DATA_DIR` when that is "
+        "set. The database holds the other settings, so environment only",
         apply="env", kind="path",
+    ),
+    Entry(
+        "log_file", "Server", "Log file",
+        "Also write the log to this file, rotated at 5 MB with four old files "
+        "kept (e.g. `/data/logs/gt7.log` in Docker). Empty = stderr and the "
+        "Settings › Advanced log view only. Environment only",
+        apply="env", kind="path", doc_default="*(empty)*",
+    ),
+    Entry(
+        "desktop", "Server", "Desktop app",
+        "Set by the desktop app's launcher; marks this server as the desktop "
+        "install in `/api/health`. Environment only",
+        apply="env", kind="bool",
+    ),
+    Entry(
+        "force_sim", "Server", "First-run mode",
+        "`firstrun`: until setup is completed, start on the simulator with mDNS "
+        "and recording off, whatever is stored. Set by the desktop launcher. "
+        "Environment only",
+        apply="env", choices=("", "firstrun"), doc_default="*(empty)*",
+    ),
+    Entry(
+        "frontend_dist", "Server", "Frontend folder",
+        "The built web UI to serve. Unset = the source checkout's "
+        "`frontend/dist`, or the copy inside a desktop build. Environment only",
+        apply="env", kind="path", doc_default="*(bundled)*",
     ),
 )
 
@@ -516,7 +588,9 @@ def _doc_default(entry: Entry) -> str:
         return entry.doc_default
     if entry.secret:
         return "*(empty)*"
-    value = to_api(entry, default_of(entry.key))
+    default = default_of(entry.key)
+    # The docs are the same table on every OS: data/gt7.db, not data\gt7.db.
+    value = default.as_posix() if isinstance(default, Path) else to_api(entry, default)
     if value in ("", []):
         return "*(empty)*"
     if isinstance(value, bool):

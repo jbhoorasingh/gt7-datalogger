@@ -51,6 +51,22 @@ ws://<datalogger>:8000/ws/live
 
 Every message, in both directions, is one JSON text frame: `{"type": ..., "data": {...}}`.
 
+### Refused requests
+
+Every REST request and the WebSocket handshake pass two checks first. A refused REST
+request is answered `403` with a JSON body whose `reason` says which check refused it
+and whose `detail` is a sentence naming the setting that would let it through; a
+refused handshake is closed before it is accepted (the server answers the upgrade with
+`403`; the close code is `1008` and its reason is the same `reason`).
+
+| `reason` | When | Allowed by |
+| --- | --- | --- |
+| `untrusted_host` | The `Host` header names something other than an IP address, `localhost`, a single-label name, this machine's hostname or a name ending `.local`, `.lan`, `.home.arpa`, `.internal`, `.localdomain`, `.localhost` or `.test`. Checked on every request, reads included. | `GT7_TRUSTED_HOSTS` |
+| `cross_site` | A request other than GET, HEAD or OPTIONS, or the handshake, carries an `Origin` that is not the server's own host and port, or says `Sec-Fetch-Site: cross-site`. | `GT7_CORS_ORIGINS` |
+
+A native client sends no `Origin` and connects by IP address or by the mDNS name, so
+neither check refuses it.
+
 ## Hello and welcome
 
 Send `hello` as the first message:

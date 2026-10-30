@@ -32,11 +32,12 @@ from __future__ import annotations
 
 import json
 import logging
-from importlib.metadata import PackageNotFoundError, version
 from typing import Any, Literal
 from urllib.parse import urlencode
 
 import httpx
+
+from app.version import version
 
 log = logging.getLogger(__name__)
 
@@ -61,10 +62,7 @@ DEFAULT_RETRY_AFTER_S = 60.0
 
 
 def _user_agent() -> str:
-    try:
-        return f"gt7-datalogger/{version('gt7-datalogger')}"
-    except PackageNotFoundError:  # pragma: no cover - a source checkout without install
-        return "gt7-datalogger/dev"
+    return f"gt7-datalogger/{version()}"
 
 
 class SyncError(Exception):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import errno
 import json
 import logging
 import time
@@ -47,6 +48,7 @@ from app.storage.secret_store import SecretStore
 from app.sync import SyncClient
 from app.telemetry.listener import UdpTelemetrySource
 from app.telemetry.simulator import SimTelemetrySource, scenario_for
+from app.updates import UpdateChecker
 
 log = logging.getLogger(__name__)
 
@@ -127,6 +129,13 @@ class TelemetryService:
             self.source = UdpTelemetrySource(settings, self._on_packet)
 
         self.recording = True
+        # Why the UDP listener is not running, in words, when it could not
+        # bind (#181): the server stays up for the UI and says so.
+        self.listener_error: str | None = None
+        # Laps that ended but could not be written (#207): the lap is lost,
+        # so it must at least be seen while the session is still running.
+        self.save_errors = 0
+        self.last_save_error: dict[str, Any] | None = None
         self.session_id: int | None = None
         # Deletion must wait for the whole packet/save, including callbacks
         # that still hold the old processor or session ID across an await.
@@ -135,7 +144,7 @@ class TelemetryService:
         self.latest_packet: TelemetryPacket | None = None
         # Where Admin saves the webhook URL and sync token: beside the
         # database, never in it (#94).
-        self.secrets = SecretStore(settings.db_path.parent)
+        self.secrets = SecretStore(settings.data_root())
         # The backup made in Settings › Data and waiting for its download, and
         # the one uploaded there to be restored (#161).
         # Every API request holds a place here (main.DrainForRestore), so a
@@ -144,8 +153,8 @@ class TelemetryService:
         self.requests = Gate("requests")
         # Both fill the disk beside the database, so they take turns on it.
         disk = DiskClaim()
-        self.backups = Backups(settings.db_path.parent, disk)
-        self.restores = Restores(settings.db_path.parent, disk)
+        self.backups = Backups(settings.data_root(), disk)
+        self.restores = Restores(settings.data_root(), disk)
         # Work going through the stored laps in the background (the startup
         # re-check of lap starts): a restored database makes it stale, so a
         # restore cancels it, and `database_replaced` runs it again.
@@ -168,7 +177,7 @@ class TelemetryService:
         # like any other admin setting.
         self.sync = SyncClient(
             settings,
-            settings.db_path.parent,
+            settings.data_root(),
             persist=repo.set_setting,
             load_lap=repo.export_lap,
             load_stats=repo.session_lap_stats,
@@ -182,7 +191,7 @@ class TelemetryService:
         # Re-judges a circuit's stored laps after its bundle changes (#91),
         # on its own task, once the writes have settled. Told about the
         # survey's writes here; the API tells it about the rest.
-        self.rejudge = SurveyRejudge(repo, settings.db_path.parent)
+        self.rejudge = SurveyRejudge(repo, settings.data_root())
         self.rejudge.on_changed = self._laps_rejudged
         self.survey.on_bundle_saved = self._bundle_saved
         self.engineer = RaceEngineerManager(
@@ -237,6 +246,9 @@ class TelemetryService:
         self.env_settings = settings.model_copy()
         # mDNS announcement (#142); inert until main.lifespan starts it.
         self.discovery = Advertiser(settings)
+        # The daily "is there a newer release" check (#196); main.lifespan
+        # loads its state and runs its schedule.
+        self.updates = UpdateChecker(settings, repo)
         # Authored corners per circuit slug, read out of the track bundle
         # (#48). Cached because the bundle is a multi-megabyte document and
         # the corners in it are a few hundred bytes — parsing the whole thing
@@ -293,7 +305,7 @@ class TelemetryService:
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
         """One parse of the bundle fills all three caches."""
         key = track_bundle.slugify(track)
-        doc = track_bundle.load(self.settings.db_path.parent, track)
+        doc = track_bundle.load(self.settings.data_root(), track)
         corners = list(doc.get("corners") or []) if doc else []
         sections = list(doc.get("sections") or []) if doc else []
         sectors = list(doc.get("sectors") or []) if doc else []
@@ -334,7 +346,7 @@ class TelemetryService:
             else None
         )
         official_id = await self.official_id_for(track)
-        data_dir = self.settings.db_path.parent
+        data_dir = self.settings.data_root()
 
         def _open() -> SessionAnalysis:
             circuit: dict[str, Any] = {"name": track}
@@ -404,7 +416,7 @@ class TelemetryService:
                 official_id = str(row["official_id"])
                 break
         if not official_id:
-            doc = await asyncio.to_thread(track_bundle.load, self.settings.db_path.parent, track)
+            doc = await asyncio.to_thread(track_bundle.load, self.settings.data_root(), track)
             official = (doc or {}).get("meta", {}).get("official") or {}
             official_id = str(official.get("official_id") or "")
         self._official_ids[track] = official_id
@@ -422,8 +434,24 @@ class TelemetryService:
         self._publish({"type": "session", "data": await self.status()})
 
     async def start(self) -> None:
-        await self.source.start()
+        try:
+            await self.source.start()
+            self.listener_error = None
+        except OSError as exc:
+            # UDP 33740 held by the Docker container, a second copy or another
+            # telemetry tool used to take the whole server down with it (exit
+            # 3, after migrating). The UI stays up and says what is wrong.
+            self.listener_error = self.bind_error(exc)
+            log.error("telemetry listener not started: %s", self.listener_error)
         await self.sync.start()
+
+    def bind_error(self, exc: OSError) -> str:
+        if exc.errno in (errno.EADDRINUSE, getattr(errno, "WSAEADDRINUSE", -1)):
+            return (
+                f"UDP {self.settings.telemetry_port} is in use by another program "
+                "(another copy of the datalogger, its Docker container, or another telemetry tool)"
+            )
+        return f"UDP {self.settings.telemetry_port}: {exc.strerror or exc}"
 
     async def stop(self) -> None:
         self._stopping = True
@@ -433,11 +461,16 @@ class TelemetryService:
         async with self.session_lock:
             if self.recording:
                 await self.processor.flush()
+            # Close the session now rather than leave it for the next one's
+            # start (#184): a quit used to leave a 0-lap row behind for good,
+            # and a session with laps never sent its summary webhook. Its
+            # totals are queued here and go with the next start's flush.
+            try:
+                await self._close_previous_session()
+            except Exception:  # noqa: BLE001 - a stop must finish
+                log.exception("open session not closed on stop")
+            self.session_id = None
         self.survey.stop()
-        # The drive is over as far as the service is concerned: its totals
-        # are queued now and go with the next start's flush.
-        if self.session_id is not None:
-            self.sync.sessions.session_ended(self.session_id)
         await self.sync.stop()
         await self.rejudge.stop()
         self.backups.discard_all()
@@ -450,17 +483,36 @@ class TelemetryService:
         await asyncio.gather(*tasks, return_exceptions=True)
         self._clients.clear()
 
+    def _make_source(self, kind: str) -> UdpTelemetrySource | SimTelemetrySource:
+        if kind == "sim":
+            return SimTelemetrySource(self._on_packet, scenario_for(self.settings.sim_scenario))
+        return UdpTelemetrySource(self.settings, self._on_packet)
+
     async def switch_source(self, kind: str) -> None:
-        """Swap between the UDP and simulated source at runtime."""
+        """Swap between the UDP and simulated source at runtime.
+
+        A bind that fails puts the previous source back before raising
+        (#181): switching to the PlayStation while UDP 33740 was taken used
+        to leave no source at all.
+        """
+        previous = self.settings.source
         await self.source.stop()
         self.settings.source = kind
-        if kind == "sim":
-            self.source = SimTelemetrySource(
-                self._on_packet, scenario_for(self.settings.sim_scenario)
-            )
-        else:
-            self.source = UdpTelemetrySource(self.settings, self._on_packet)
-        await self.source.start()
+        self.source = self._make_source(kind)
+        try:
+            await self.source.start()
+        except OSError as exc:
+            log.warning("telemetry source %s not started: %s", kind, exc)
+            self.settings.source = previous
+            self.source = self._make_source(previous)
+            try:
+                await self.source.start()
+                self.listener_error = None
+            except OSError as again:
+                self.listener_error = self.bind_error(again)
+            self._publish({"type": "status", "data": await self.status()})
+            raise
+        self.listener_error = None
         log.info("telemetry source switched to %s", kind)
         self._publish({"type": "status", "data": await self.status()})
 
@@ -612,7 +664,7 @@ class TelemetryService:
             car=car,
             car_id=info.car_id,
             started_at=info.started_at,
-            source_id=track_bundle.source_id(self.settings.db_path.parent),
+            source_id=track_bundle.source_id(self.settings.data_root()),
         )
         self.sync.live.set_meta(car=car, official_id="", track="")
         # A survey spanning a restart keeps labeling its records with the
@@ -666,7 +718,18 @@ class TelemetryService:
         # first lap is judged retroactively by _identify_track instead.
         if self.track_name:
             await self._judge_against_survey(lap)
-        lap_id = await self.repo.save_lap(self.session_id, lap)
+        try:
+            lap_id = await self.repo.save_lap(self.session_id, lap)
+        except Exception as exc:
+            # A locked or full disk loses the lap; count it where the Live
+            # view and the tray can show it, not only in the log (#207).
+            self.save_errors += 1
+            self.last_save_error = {
+                "lap": lap.number, "error": str(exc) or type(exc).__name__, "at": time.time(),
+            }
+            log.exception("lap %d could not be saved", lap.number)
+            self._publish({"type": "status", "data": await self.status()})
+            return
         log.info("lap %d saved (%d ms, id=%d)", lap.number, lap.time_ms, lap_id)
 
         # Which laps covered the whole track is re-judged on every lap (see
@@ -898,7 +961,7 @@ class TelemetryService:
         source = "signature"
         if not name:
             hit = await asyncio.to_thread(
-                tracks.identify_from_bundles, self.settings.db_path.parent, lap.samples
+                tracks.identify_from_bundles, self.settings.data_root(), lap.samples
             )
             if hit is not None:
                 name, cover = hit
@@ -929,7 +992,7 @@ class TelemetryService:
         document's identity, which makes the repeat call cheap."""
         return await asyncio.to_thread(
             track_limits.judge_for_track,
-            self.settings.db_path.parent, self.track_name,
+            self.settings.data_root(), self.track_name,
         )
 
     async def _judge_against_survey(self, lap: CompletedLap) -> None:
@@ -1073,6 +1136,9 @@ class TelemetryService:
             "lap_clock_drift_ms": self.processor.lap_clock_drift_ms,
             "lap_clock_drift_worst_ms": self.processor.lap_clock_drift_worst_ms,
             "lap_clock_samples": self.processor.lap_clock_samples,
+            "listener_error": self.listener_error,
+            "save_errors": self.save_errors,
+            "last_save_error": self.last_save_error,
             **self.source.stats,
         }
 
@@ -1429,6 +1495,16 @@ class TelemetryService:
             await _close_ws(client.ws)
 
     # --- controls -----------------------------------------------------------
+
+    def recording_now(self) -> str:
+        """What is recording into the database right now, as a refusal names
+        it, or ''. A session counts from its first packet until recording is
+        paused: a lap can end, and must save, at any moment in between."""
+        if self.survey.active:
+            return "a survey is running"
+        if self.recording and self.session_id is not None:
+            return "a session is recording"
+        return ""
 
     async def delete_session(self, session_id: int) -> bool:
         async with self.session_lock:

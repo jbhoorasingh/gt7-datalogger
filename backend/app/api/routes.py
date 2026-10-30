@@ -12,7 +12,7 @@ from collections.abc import Iterator
 from dataclasses import asdict
 from typing import IO, TYPE_CHECKING, Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
@@ -37,9 +37,31 @@ def svc(request: Request) -> TelemetryService:
     return service
 
 
-@router.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok"}
+class SchemaState(BaseModel):
+    current: str | None = Field(description="Alembic revision the database is at")
+    head: str | None = Field(description="Newest revision this build knows")
+
+
+class Health(BaseModel):
+    """Enough to tell this server apart from anything else on the port (#184)."""
+
+    status: Literal["ok"]
+    app: Literal["gt7-datalogger"]
+    version: str
+    install_kind: Literal["desktop", "docker", "source"]
+    schema_: SchemaState = Field(alias="schema")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+@router.get("/health", response_model=Health, response_model_by_alias=True)
+async def health(request: Request) -> dict[str, Any]:
+    from app import setup_state
+    from app.config import get_settings
+
+    service = getattr(request.app.state, "service", None)
+    settings = service.settings if service is not None else get_settings()
+    return await setup_state.health(service, settings)
 
 
 @router.get("/status")
@@ -202,7 +224,9 @@ async def export_session(request: Request, session_id: int) -> StreamingResponse
 
 
 @router.get("/sessions/{session_id}/analysis.json")
-async def session_analysis(request: Request, session_id: int) -> dict[str, Any]:
+async def session_analysis(
+    request: Request, response: Response, session_id: int
+) -> dict[str, Any]:
     """The session's lap analysis document (#115): each lap measured per
     corner against the session's best — braking, minimum speed, throttle,
     time lost, line — in a few hundred labelled numbers instead of the 60 Hz
@@ -213,6 +237,11 @@ async def session_analysis(request: Request, session_id: int) -> dict[str, Any]:
     document = await svc(request).lap_analysis(session_id)
     if document is None:
         raise HTTPException(404, "session not found")
+    # A download, not a page: opened from a link, the browser saves it under
+    # this name instead of rendering a few hundred KB of JSON in the tab.
+    response.headers["Content-Disposition"] = (
+        f'attachment; filename="gt7-session-{session_id}-analysis.json"'
+    )
     return document
 
 
@@ -1031,7 +1060,7 @@ async def survey_start(request: Request, payload: SurveyStartPayload) -> dict[st
         raise HTTPException(409, "survey already running — stop it first")
     user_track = payload.track.strip()
     service.survey.start(
-        service.settings.db_path.parent,
+        service.settings.data_root(),
         payload.track_width_m,
         track=user_track or service.track_name,
         track_user_set=bool(user_track),

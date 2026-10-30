@@ -6,14 +6,32 @@ Schema changes go through Alembic (`app/migrations/`), not through this file:
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from alembic import command
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
-from sqlalchemy import Boolean, Connection, ForeignKey, Index, Text, func, inspect
+from alembic.script import ScriptDirectory
+from sqlalchemy import (
+    Boolean,
+    Connection,
+    Engine,
+    ForeignKey,
+    Index,
+    Text,
+    delete,
+    event,
+    func,
+    insert,
+    inspect,
+    select,
+)
+from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -27,12 +45,25 @@ from sqlalchemy.orm import (
     mapped_column,
     relationship,
 )
+from sqlalchemy.pool import NullPool
+
+from app.netinfo import server_version
+from app.storage import upgrade_backup
 
 log = logging.getLogger(__name__)
 
 # The revision every pre-Alembic database is stamped at once it has been
 # brought up to that shape (see _catch_up_legacy).
 BASELINE_REVISION = "0001_baseline"
+
+# The settings row naming the app version that last migrated the database,
+# so a build too old to open it can say which version it needs.
+SCHEMA_WRITTEN_BY_KEY = "schema_written_by"
+
+# How long a connection waits for another's lock before "database is locked":
+# a lap saved while Compact or a backup holds the file waits it out rather
+# than being lost (#188).
+BUSY_TIMEOUT_MS = 30_000
 
 # Reasons shown beside excluded times, including automatic race-start exclusions.
 ExcludeReason = Literal["off-track", "contact", "restart", "dirty", "pit-out", "race-start"]
@@ -251,13 +282,77 @@ class LapRow(Base):
     session: Mapped[SessionRow] = relationship(back_populates="laps")
 
 
-def make_engine(db_path: Path | str) -> AsyncEngine:
+def _url(db_path: Path | str) -> str | URL:
     if isinstance(db_path, Path):
         db_path.parent.mkdir(parents=True, exist_ok=True)
-        url = f"sqlite+aiosqlite:///{db_path}"
-    else:
-        url = db_path  # full SQLAlchemy URL (e.g. postgresql+asyncpg://...)
-    return create_async_engine(url)
+        # Built, not formatted: in an f-string URL a "?" or "#" in a folder
+        # name starts the query or fragment and the path is cut short there
+        # ("100% Racing?/gt7.db" opened "100% Racing") (#178).
+        return URL.create("sqlite+aiosqlite", database=str(db_path))
+    return db_path  # full SQLAlchemy URL (e.g. postgresql+asyncpg://...)
+
+
+def make_engine(db_path: Path | str) -> AsyncEngine:
+    """The app's engine. Keeps the driver's own transaction handling — pysqlite
+    issues BEGIN before a write and not before a read — which everything
+    written against it relies on; only the busy timeout is added."""
+    engine = create_async_engine(_url(db_path))
+    wait_for_locks(engine.sync_engine)
+    return engine
+
+
+def make_migration_engine(url: Path | str | URL) -> AsyncEngine:
+    """The engine a migration runs on: never pooled, and on it BEGIN really
+    is BEGIN.
+
+    pysqlite (and aiosqlite over it) does not issue BEGIN before DDL, so on
+    the app's engine `engine.begin()` around a migration made nothing atomic:
+    each statement committed as it ran, and a migration that failed half way
+    left a file every later start failed on ("duplicate column name"). With
+    the driver's handling turned off and BEGIN emitted when SQLAlchemy
+    begins, the whole upgrade commits or rolls back as one (#182).
+    """
+    if isinstance(url, URL):
+        url = url.render_as_string(hide_password=False)
+    engine = create_async_engine(_url(url), poolclass=NullPool)
+    transactional_ddl(engine.sync_engine)
+    wait_for_locks(engine.sync_engine)
+    return engine
+
+
+def transactional_ddl(engine: Engine) -> None:
+    """SQLAlchemy's recipe for real transactions on pysqlite and aiosqlite:
+    the driver begins nothing itself, and BEGIN goes out when SQLAlchemy
+    begins. For migrations only — see make_migration_engine."""
+    if engine.dialect.name != "sqlite":
+        return
+
+    @event.listens_for(engine, "connect")
+    def _no_driver_transactions(dbapi_connection: Any, _record: Any) -> None:
+        dbapi_connection.isolation_level = None
+
+    @event.listens_for(engine, "begin")
+    def _begin(conn: Connection) -> None:
+        conn.exec_driver_sql("BEGIN")
+
+
+def wait_for_locks(engine: Engine) -> None:
+    """busy_timeout on every connection the engine opens (#188).
+
+    Every install keeps SQLite's rollback journal, where a commit waits for
+    readers to finish and a reader for a commit. Without a long wait, a lap
+    that ends while a backup copies fails with "database is locked" and is
+    lost. `foreign_keys` stays off, deliberately: 0011 rebuilds `sessions`,
+    which with it on cascades into deleting every lap (#182).
+    """
+    if engine.dialect.name != "sqlite":
+        return
+
+    @event.listens_for(engine, "connect")
+    def _busy_timeout(dbapi_connection: Any, _record: Any) -> None:
+        cursor = dbapi_connection.cursor()
+        cursor.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
+        cursor.close()
 
 
 def make_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
@@ -347,8 +442,99 @@ def _catch_up_legacy(conn: Connection) -> bool:
     return True
 
 
+class DatabaseRefused(Exception):
+    """A database this start will not open or upgrade. The message is the
+    whole explanation: the app logs it as one line and exits."""
+
+
+class DatabaseTooNew(DatabaseRefused):
+    """The database is at a schema revision this build has never heard of:
+    a newer version wrote it. Nothing in the file has been changed."""
+
+    def __init__(self, stored: str, written_by: str | None) -> None:
+        self.stored = stored
+        self.written_by = written_by
+        super().__init__(
+            "the database was written by a newer version of GT7 Datalogger "
+            f"({written_by or 'unknown'}, schema {stored}) than this one "
+            f"({server_version()}), which cannot open it; update to "
+            f"{written_by or 'that version'} or later, or restore a backup made "
+            "by this version. The database has not been changed."
+        )
+
+
+class NoRoomForBackup(DatabaseRefused):
+    """An upgrade is due and there is no room to copy the database first."""
+
+    def __init__(self, stored: str, head: str, problem: str) -> None:
+        self.stored = stored
+        self.head = head
+        super().__init__(
+            f"not upgrading the database from schema {stored} to {head} without "
+            f"a copy of it: {problem}. Free some space and start again; the "
+            "database has not been changed."
+        )
+
+
+@cache
+def _known_revisions(script_location: str) -> frozenset[str]:
+    cfg = Config()
+    cfg.set_main_option("script_location", script_location)
+    return frozenset(r.revision for r in ScriptDirectory.from_config(cfg).walk_revisions())
+
+
+@dataclass(frozen=True)
+class _Plan:
+    stored: str | None  # the revision the file is at; None: not stamped
+    head: str
+    legacy: bool  # tables from before Alembic, and no revision
+
+    @property
+    def pending(self) -> bool:
+        """An upgrade is due on a database that already holds something."""
+        return self.legacy or (self.stored is not None and self.stored != self.head)
+
+    @property
+    def label(self) -> str:
+        return self.stored or "pre-alembic"
+
+
+def _written_by(conn: Connection) -> str | None:
+    if "settings" not in inspect(conn).get_table_names():
+        return None
+    value = conn.execute(
+        select(SettingRow.value).where(SettingRow.key == SCHEMA_WRITTEN_BY_KEY)
+    ).scalar_one_or_none()
+    return str(value) if value is not None else None
+
+
+def _plan(conn: Connection) -> _Plan:
+    """What this start has to do to the database. Reads only; raises
+    DatabaseTooNew on a revision this build does not know."""
+    cfg = alembic_config()
+    location = cfg.get_main_option("script_location") or ""
+    head = ScriptDirectory.from_config(cfg).get_current_head()
+    if head is None:
+        raise RuntimeError(f"no migrations at {location}")
+    tables = set(inspect(conn).get_table_names())
+    if "alembic_version" not in tables:
+        return _Plan(None, head, legacy="sessions" in tables)
+    stored = MigrationContext.configure(conn).get_current_revision()
+    if stored is not None and stored not in _known_revisions(location):
+        raise DatabaseTooNew(stored, _written_by(conn))
+    return _Plan(stored, head, legacy=False)
+
+
+def _sqlite_file(engine: AsyncEngine) -> Path | None:
+    url = engine.url
+    if url.get_backend_name() != "sqlite" or url.database in (None, "", ":memory:"):
+        return None
+    return Path(url.database)
+
+
 def _upgrade(conn: Connection) -> None:
-    """Run migrations on an already-open (sync) connection."""
+    """Run migrations on an already-open (sync) connection, inside the
+    transaction its caller began, and record which version ran them."""
     cfg = alembic_config()
     cfg.attributes["connection"] = conn
     if _catch_up_legacy(conn):
@@ -356,11 +542,58 @@ def _upgrade(conn: Connection) -> None:
     before = MigrationContext.configure(conn).get_current_revision()
     command.upgrade(cfg, "head")
     after = MigrationContext.configure(conn).get_current_revision()
+    if before != after or _written_by(conn) is None:
+        # The version that migrated, or — the first start to keep this row —
+        # one that can open the schema the file is at: either way what a
+        # build too old for it should tell the user to update to.
+        conn.execute(delete(SettingRow).where(SettingRow.key == SCHEMA_WRITTEN_BY_KEY))
+        conn.execute(
+            insert(SettingRow).values(key=SCHEMA_WRITTEN_BY_KEY, value=server_version())
+        )
     if before != after:
         log.info("database schema %s -> %s", before or "empty", after)
 
 
-async def init_db(engine: AsyncEngine) -> None:
-    """Create or upgrade the schema. Safe to call on every startup."""
-    async with engine.begin() as conn:
-        await conn.run_sync(_upgrade)
+async def init_db(engine: AsyncEngine, *, backups: Path | None = None) -> None:
+    """Create or upgrade the schema. Safe to call on every startup.
+
+    A database at a revision this build does not know raises DatabaseTooNew
+    and is left exactly as it was. When an upgrade is due on an existing
+    SQLite file and `backups` is given, the file is copied there first
+    (upgrade_backup); with no room for the copy, NoRoomForBackup is raised
+    and nothing is upgraded. The upgrade itself runs on a migration engine
+    of its own, in one transaction: one that fails leaves the file at the
+    revision it was at.
+    """
+    migrator = make_migration_engine(engine.url)
+    try:
+        async with migrator.connect() as conn:
+            plan = await conn.run_sync(_plan)
+            await conn.rollback()
+            path = _sqlite_file(engine)
+            copy: Path | None = None
+            if plan.pending and backups is not None and path is not None:
+                problem = await asyncio.to_thread(upgrade_backup.room_problem, path, backups)
+                if problem:
+                    log.warning("%s", problem)
+                    raise NoRoomForBackup(plan.label, plan.head, problem)
+                copy = await asyncio.to_thread(
+                    upgrade_backup.back_up, path, backups, plan.label, plan.head
+                )
+                log.info("copied the database to %s before upgrading it", copy)
+            try:
+                async with conn.begin():
+                    await conn.run_sync(_upgrade)
+            except Exception:
+                if plan.pending:
+                    log.error(
+                        "upgrading the database from schema %s to %s failed and was "
+                        "rolled back: it is still at %s%s",
+                        plan.label,
+                        plan.head,
+                        plan.label,
+                        f", and a copy from before is in {copy}" if copy else "",
+                    )
+                raise
+    finally:
+        await migrator.dispose()
