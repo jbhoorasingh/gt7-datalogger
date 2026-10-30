@@ -20,10 +20,11 @@ from httpx import ASGITransport, AsyncClient
 
 from app.config import Settings
 from app.main import create_app
+from app.netinfo import server_version
 from app.processing.cars import CarDatabase
 from app.service import TelemetryService
 from app.storage import backup
-from app.storage.db import init_db, make_engine, make_session_factory
+from app.storage.db import SCHEMA_WRITTEN_BY_KEY, init_db, make_engine, make_session_factory
 from app.storage.repository import Repository
 from tests.test_api import drive_laps
 
@@ -149,7 +150,12 @@ async def test_a_full_backup_holds_every_part_laid_out_as_the_data_folder(
     db = open_snapshot(zf, tmp_path)
     assert db.execute("select count(*) from laps").fetchone() == (2,)
     assert db.execute("select count(*) from layouts").fetchone() == (0,)
-    assert dict(db.execute("select key, value from settings")) == {"lap_start_check": "1"}
+    # What has been done to the recordings stays with them: the lap re-check,
+    # and which version last migrated them (#182).
+    assert dict(db.execute("select key, value from settings")) == {
+        "lap_start_check": "1",
+        SCHEMA_WRITTEN_BY_KEY: server_version(),
+    }
     db.close()
 
     config = json.loads(zf.read("config.json"))

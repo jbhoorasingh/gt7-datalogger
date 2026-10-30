@@ -103,7 +103,40 @@ Notable changes to GT7 Datalogger. The format follows
   the server refuses (a protected server without the admin token) shows why in a toast.
   Contributed by @Marstiphal (#171, #87).
 
+- **The database is copied before a new version upgrades it.** When a start finds the
+  schema behind this build's, it first copies the database, with SQLite's backup API,
+  to `backups/pre-upgrade-<time>-<revision>/` in the data folder, beside a
+  `manifest.json` saying which version made the copy, the revisions it goes from and
+  to, how many sessions, laps, tracks, settings and layouts it holds, and its
+  `quick_check` verdict. The copy is written as `.partial` and takes its name only once
+  the manifest is in it, so a start killed half way never leaves something that looks
+  like a good backup. One copy is kept, three on the desktop app. Without 2.2 times the
+  database's size free, the start logs how much is needed and stops rather than
+  upgrade with no way back (#182).
+
 ### Fixed
+
+- **An older version started on a newer database now says so and changes nothing.**
+  It stopped with a traceback ending in `Can't locate revision`, which an older Docker
+  tag pulled onto a volume `latest` had upgraded would do. It now checks the schema
+  before touching the file and stops with one line naming the version that wrote the
+  data (every upgrade now records it in the `schema_written_by` setting), and the
+  server exits non-zero, as before (#182).
+
+- **A migration that fails is rolled back whole.** SQLite's Python driver issues no
+  BEGIN before a schema change, so each statement of a migration committed as it ran,
+  and one that failed half way left a database every later start refused with
+  `duplicate column name`. Migrations now run on a connection of their own that really
+  begins a transaction, so a failure leaves the database at the revision it was at,
+  including any earlier revisions the same start applied. Compact's `VACUUM`, which
+  cannot run in a transaction, gets its own connection too (#182).
+
+- **Compact is refused while recording, and a busy database is waited for.** Compact
+  holds the database for the whole rewrite, minutes on a large one, and a lap that
+  ended meanwhile failed to save and was lost. It now answers 409 while a session is
+  recording or a survey is running. Every connection also waits up to 30 seconds for a
+  lock, rather than five, before giving up on a write, so a lap ending during a backup's
+  copy waits it out (#188, #182).
 
 - **Sector times put time the recording missed into the last sector.** Analysis ›
   Sector times shares GT7's lap time out by the lap's own clock, and the last sector

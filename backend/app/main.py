@@ -6,9 +6,10 @@ import asyncio
 import contextlib
 import datetime
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, MutableMapping
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,7 +23,8 @@ from app.config import Settings, get_settings
 from app.processing import car_refresh, shared_pull, shared_repo, track_seed
 from app.processing.cars import CarDatabase
 from app.service import TelemetryService
-from app.storage.db import init_db, make_engine, make_session_factory
+from app.storage import upgrade_backup
+from app.storage.db import DatabaseRefused, init_db, make_engine, make_session_factory
 from app.storage.repository import Repository
 from app.storage.secret_store import SecretStore, move_out_of_database
 
@@ -253,7 +255,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     log = logging.getLogger("app")
 
     engine = make_engine(settings.db_path)
-    await init_db(engine)
+    try:
+        await init_db(engine, backups=settings.db_path.parent / upgrade_backup.DIRECTORY)
+    except DatabaseRefused as exc:
+        # A database from a newer version, or no room to copy it before an
+        # upgrade (#182): the user's to act on, so one line saying what to do,
+        # not a traceback. QuietRefusal keeps the server from printing one.
+        await engine.dispose()
+        log.error("%s", exc)
+        app.state.startup_refused = True
+        raise
     repo = Repository(make_session_factory(engine))
 
     # Settings changed via the admin page override env defaults. The copy
@@ -397,6 +408,33 @@ class DrainForRestore:
             await self.app(scope, receive, send)
 
 
+class QuietRefusal:
+    """A start the lifespan refused on purpose ends with its own log line.
+
+    Starlette reports any exception out of the lifespan to the server with
+    its traceback, which uvicorn prints before exiting. For a refusal the
+    lifespan has already explained (`app.state.startup_refused`), the report
+    goes without it: the server still logs "Application startup failed" and
+    exits non-zero (3), so Docker and the desktop launcher see a failed start.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "lifespan":
+            await self.app(scope, receive, send)
+            return
+
+        async def quiet(message: MutableMapping[str, Any]) -> None:
+            refused = getattr(scope["app"].state, "startup_refused", False)
+            if message["type"] == "lifespan.startup.failed" and refused:
+                message = {"type": message["type"], "message": ""}
+            await send(message)
+
+        await self.app(scope, receive, quiet)
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title="GT7 Datalogger",
@@ -412,6 +450,7 @@ def create_app() -> FastAPI:
     # /ws) and a native app needs none.
     app.add_middleware(DrainForRestore)
     app.add_middleware(LiveCORSMiddleware)
+    app.add_middleware(QuietRefusal)
     app.include_router(routes.router)
     app.include_router(admin.router)
     app.include_router(backup.router)
