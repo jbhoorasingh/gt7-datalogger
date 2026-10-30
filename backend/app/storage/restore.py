@@ -45,7 +45,7 @@ from typing import Any, Literal
 
 from alembic.script import ScriptDirectory
 
-from app import settings_registry
+from app import settings_registry, updates
 from app.processing import (
     car_refresh,
     car_width,
@@ -85,7 +85,9 @@ MACHINE_SETTINGS = frozenset(
 # every setting the registry describes: what this machine has done, not
 # what was done to the recordings. (The lap re-checks, the car backfill and
 # the track seed describe the recordings, and come with them.)
-MACHINE_STATE = (car_refresh.UPDATED_AT_KEY, shared_pull.FIRST_PULL_KEY)
+# The update check's rows (#196) are this machine's too: which release it
+# last saw and when it may ask GitHub again.
+MACHINE_STATE = (car_refresh.UPDATED_AT_KEY, shared_pull.FIRST_PULL_KEY, *updates.KEYS)
 
 _BUNDLE = re.compile(rf"{track_bundle.BUNDLE_DIR}/([a-z0-9-]{{1,120}})\.json")
 _CORRECTIONS = re.compile(
