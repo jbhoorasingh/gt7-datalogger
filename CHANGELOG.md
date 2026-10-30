@@ -7,6 +7,18 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Added
 
+- **A synced session gets its circuit even when its first lap was not a whole
+  one.** The session is announced to the sync service with its first lap, and the
+  circuit is identified from a whole lap; a race's grid start, a pit-out lap or
+  logging that began mid-lap is not one, so the summary went without the circuit
+  and the session stayed unnamed on the service even after the next lap named it.
+  The circuit is now owed once it is known: it goes on its own straight away to a
+  service that takes that (`track_on_patch` among its `sessions` hints, from
+  gt7-sync-service #37), and always with the drive's totals, which an older
+  service ignores. The service fills a session's circuit only while it has none,
+  and so does the logger, so a session keeps the circuit it opened with. A server
+  that refuses the circuit costs the session nothing: the laps and totals still go.
+
 - **Sportsland SUGO is recognised.** GT7 added SUGO International Racing Course in
   its October update, after the shipped catalog was generated, so sessions there stayed
   unnamed. The catalog now carries it (42 tracks, 122 configurations) and the shipped

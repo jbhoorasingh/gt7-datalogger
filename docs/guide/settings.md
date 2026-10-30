@@ -123,8 +123,14 @@ everybody sent and opens the pull requests, and GitHub stays the source of truth
       a session the service opens for the drive. The session is announced with its
       **first lap**, not at the start — a stint that never completes a lap is dropped
       here and never reaches the server, and the circuit is identified one lap in, so
-      the summary carries the track and its layout id. When the drive ends (the next
-      stint starts, or the logger stops) the totals go. Laps queue while the service
+      the summary carries the track and its layout id. When that first lap is not a
+      whole one (a grid start, a pit-out lap, logging that began mid-lap) the summary
+      goes without the circuit and the lap after names it: the circuit then follows
+      on its own straight away to a service that says it takes that
+      (`track_on_patch` among its `sessions` hints), and with the totals to any
+      service. Either way it only fills in a session that has no circuit yet; one
+      already named keeps its own. When the drive ends (the next stint starts, or
+      the logger stops) the totals go. Laps queue while the service
       is away and flush in order when it answers again, or at the next start; the
       queue is in `data/sync-sessions.json` and holds at most 500 laps (the local
       database keeps every lap regardless). A lap you rule in or out of the bests by

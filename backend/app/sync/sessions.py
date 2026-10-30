@@ -18,6 +18,17 @@ lap goes as soon as it is saved; the totals go when the drive ends (the
 next session starts, or the logger stops). Nothing waits to settle: a lap
 is finished the moment it is.
 
+The first lap is often not a whole one, though — a race's opening lap
+starts on the grid, a pit-out lap in the pit lane, capture can start
+mid-lap — and then the summary goes without the circuit and the lap after
+names it. That circuit is still owed. The totals always carry it: the
+service fills a session's circuit only while it has none, and a service
+that predates that ignores the keys. A service that says
+`track_on_patch` among its `sessions` hints is also sent it on its own as
+soon as it is known, so the session is named while the drive goes on. One
+without the hint is never sent that: it reads every PATCH as the totals,
+and would end the drive.
+
 After the totals goes the session's **lap analysis** (#115): the
 `gt7-datalogger-lap-analysis` document that GET
 /api/sessions/{id}/analysis.json serves — the drive as a few hundred
@@ -100,6 +111,9 @@ KEEP_DONE = 50
 ANALYSIS_VERSION_HINT = "analysis_version"
 ANALYSIS_MAX_BYTES_HINT = "analysis_max_bytes"
 DEFAULT_ANALYSIS_MAX_BYTES = 4 * 1024 * 1024
+# The hint that says a server takes a session's circuit on its own, after
+# the summary went without it, and does not read that as the end of the drive.
+TRACK_ON_PATCH_HINT = "track_on_patch"
 
 # Loads the export envelope for a lap id (the repo's export_lap), the
 # aggregate a session's totals are made of (the repo's session_lap_stats),
@@ -123,6 +137,12 @@ class SessionSync:
     track_name: str = ""
     started_at: str = ""
     source_id: str = ""
+    # The circuit was named after the summary went without it: owed to the
+    # server, on its own when it takes that and with the totals regardless.
+    track_pending: bool = False
+    # Why the server refused the circuit, when it did. It is not sent again,
+    # alone or with the totals: the same answer would refuse those too.
+    track_error: str = ""
     # (lap id, lap number) still to send, in driving order.
     queue: list[tuple[int, int]] = field(default_factory=list)
     # Laps the server has had its say on: lap id -> number, status, error.
@@ -155,6 +175,8 @@ class SessionSync:
             "track_name": self.track_name,
             "started_at": self.started_at,
             "source_id": self.source_id,
+            "track_pending": self.track_pending,
+            "track_error": self.track_error,
             "queue": [list(item) for item in self.queue],
             "laps": {str(lap_id): dict(v) for lap_id, v in self.laps.items()},
             "end_pending": self.end_pending,
@@ -241,10 +263,18 @@ class SessionsAdapter:
         if rec.closed:
             return
         # The circuit is known one lap late; whatever is known now goes on
-        # the summary if it has not been posted yet.
+        # the summary if it has not been posted yet. Once it has, a circuit
+        # it went without is owed — filling only what is empty, as the
+        # server does, so a session keeps the circuit it was opened with.
         if not rec.remote_id:
             rec.track_name = track_name or rec.track_name
             rec.official_id = official_id or rec.official_id
+        elif not rec.track_error and (
+            (official_id and not rec.official_id) or (track_name and not rec.track_name)
+        ):
+            rec.official_id = rec.official_id or official_id
+            rec.track_name = rec.track_name or track_name
+            rec.track_pending = True
         if all(item[0] != lap_id for item in rec.queue):
             rec.queue.append((lap_id, number))
         self._trim_queue()
@@ -360,13 +390,14 @@ class SessionsAdapter:
                 continue
             rec = SessionSync(local_id=local_id)
             for name in ("remote_id", "car", "official_id", "track_name",
-                         "started_at", "source_id", "ended_at", "closed"):
+                         "started_at", "source_id", "ended_at", "closed", "track_error"):
                 value = raw.get(name)
                 if isinstance(value, str):
                     setattr(rec, name, value)
             if isinstance(raw.get("car_id"), int):
                 rec.car_id = raw["car_id"]
             rec.end_pending = bool(raw.get("end_pending"))
+            rec.track_pending = bool(raw.get("track_pending"))
             # Absent from a file written before there was a document: such a
             # session owes none, and is not sent one after the fact.
             rec.analysis_pending = bool(raw.get("analysis_pending"))
@@ -415,9 +446,23 @@ class SessionsAdapter:
     def _next(self) -> SessionSync | None:
         for local_id in sorted(self._sessions):
             rec = self._sessions[local_id]
-            if rec.pending:
+            if rec.pending or self._names_now(rec):
                 return rec
         return None
+
+    def names_circuit(self) -> bool:
+        """Whether the server takes a session's circuit on its own, mid-drive.
+        One without the hint reads every PATCH as the totals."""
+        return self.client.hint(TYPE, TRACK_ON_PATCH_HINT, 0) > 0
+
+    def _names_now(self, rec: SessionSync) -> bool:
+        """The circuit is owed and can go on its own, ahead of the totals:
+        the server says it takes that, and the drive has not ended (the
+        totals carry it then)."""
+        return (
+            rec.track_pending and bool(rec.remote_id) and not rec.closed
+            and not rec.end_pending and self.names_circuit()
+        )
 
     def _due(self) -> bool:
         return self._next() is not None and self._not_before <= self._clock()
@@ -452,6 +497,10 @@ class SessionsAdapter:
         if not rec.remote_id:
             await self._start(rec)
             return
+        if self._names_now(rec):
+            # One small request, so the session is named while it is driven.
+            await self._name(rec)
+            return
         if rec.queue:
             lap_id, number = rec.queue[0]
             await self._send_lap(rec, lap_id, number)
@@ -465,7 +514,8 @@ class SessionsAdapter:
     # --- the four calls -----------------------------------------------------
 
     async def _start(self, rec: SessionSync) -> None:
-        body = json.dumps(_summary(rec), separators=(",", ":")).encode("utf-8")
+        summary = _summary(rec)
+        body = json.dumps(summary, separators=(",", ":")).encode("utf-8")
         reply = await self._call(rec, f"session {rec.local_id}", "POST", SESSIONS_PATH, body)
         if reply is None:
             return
@@ -474,6 +524,12 @@ class SessionsAdapter:
             self._transient(SyncError("protocol", "the server named no session id"))
             return
         rec.remote_id = remote_id
+        # A lap that named the circuit while the summary was on its way
+        # filled the record after the summary was written: still owed.
+        if (rec.official_id and not summary["official_id"]) or (
+            rec.track_name and not summary["track_name"]
+        ):
+            rec.track_pending = True
         self._write_state()
         log.info("sync: session %d opened on the server as %s", rec.local_id, remote_id)
 
@@ -510,6 +566,26 @@ class SessionsAdapter:
             " (replaced)" if reply.get("replaced") else "",
         )
 
+    async def _name(self, rec: SessionSync) -> None:
+        """The circuit on its own, to a server that takes it (`track_on_patch`).
+        It fills only what the session has not got; the reply says what the
+        session holds, which may be a circuit it was named with first."""
+        body = json.dumps(_circuit(rec), separators=(",", ":")).encode("utf-8")
+        path = f"{SESSIONS_PATH}/{rec.remote_id}"
+        reply = await self._call(
+            rec, f"session {rec.local_id} circuit", "PATCH", path, body, circuit=True,
+        )
+        if reply is None:
+            if rec.closed or rec.track_error:
+                self._write_state()
+            return
+        rec.track_pending = False
+        self._write_state()
+        log.info(
+            "sync: session %d named on the server: %s",
+            rec.local_id, reply.get("track_name") or rec.track_name,
+        )
+
     async def _end(self, rec: SessionSync) -> None:
         stats = await self._load_stats(rec.local_id) if self._load_stats else {}
         totals: dict[str, Any] = {"ended_at": rec.ended_at or _now()}
@@ -519,6 +595,9 @@ class SessionsAdapter:
             totals["laps"] = count
         if best > 0:
             totals["best_lap_ms"] = best
+        # Whatever the server: it fills a circuit the session has not got,
+        # or (predating that) ignores the keys.
+        totals.update(_circuit(rec))
         body = json.dumps(totals, separators=(",", ":")).encode("utf-8")
         path = f"{SESSIONS_PATH}/{rec.remote_id}"
         reply = await self._call(rec, f"session {rec.local_id} totals", "PATCH", path, body)
@@ -527,6 +606,7 @@ class SessionsAdapter:
                 self._write_state()
             return
         rec.end_pending = False
+        rec.track_pending = False
         self._write_state()
         log.info("sync: session %d closed on the server (%d laps)", rec.local_id, count)
 
@@ -603,6 +683,7 @@ class SessionsAdapter:
         body: bytes,
         lap: tuple[int, int] | None = None,
         analysis: bool = False,
+        circuit: bool = False,
     ) -> dict[str, Any] | None:
         """One request, with every failure sorted into the adapter's moves.
 
@@ -616,7 +697,7 @@ class SessionsAdapter:
         try:
             reply = await self.client.transport().request(method, path, body)
         except SyncError as exc:
-            await self._failed(rec, what, exc, lap, analysis)
+            await self._failed(rec, what, exc, lap, analysis, circuit)
             return None
         finally:
             self._inflight = ""
@@ -632,6 +713,7 @@ class SessionsAdapter:
         exc: SyncError,
         lap: tuple[int, int] | None,
         analysis: bool = False,
+        circuit: bool = False,
     ) -> None:
         if exc.kind == "type_disabled":
             self._error = self._switched_off = "server no longer accepts this"
@@ -648,6 +730,14 @@ class SessionsAdapter:
             # moment ago, so whatever it has against the analysis is not
             # that the session is gone.
             self._analysis_settled(rec, "rejected", exc.message)
+            log.warning("sync: %s refused by the server: %s", what, exc.message)
+            return
+        if exc.kind in ("rejected", "conflict") and circuit and exc.status != 404:
+            # About the circuit alone: the session, its laps and its totals
+            # are as they were. Not sent again, with the totals either —
+            # the same answer would refuse those and close the session.
+            rec.track_pending = False
+            rec.track_error = exc.message or "refused"
             log.warning("sync: %s refused by the server: %s", what, exc.message)
             return
         if exc.kind in ("rejected", "conflict"):
@@ -846,6 +936,18 @@ def _summary(rec: SessionSync) -> dict[str, Any]:
     if rec.source_id:
         body["source_id"] = rec.source_id
     return body
+
+
+def _circuit(rec: SessionSync) -> dict[str, str]:
+    """The circuit as a PATCH names it: only what is known, and nothing once
+    the server has refused it."""
+    if rec.track_error:
+        return {}
+    return {
+        key: value
+        for key, value in (("official_id", rec.official_id), ("track_name", rec.track_name))
+        if value
+    }
 
 
 def _is_time(text: str) -> bool:
