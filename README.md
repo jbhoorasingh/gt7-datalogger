@@ -262,7 +262,7 @@ GT7_SOURCE=sim docker compose up --build
 Images are published to GitHub Container Registry, so you can skip the build:
 
 ```bash
-TAG=latest  # amd64 (use a release tag like 0.1.0 on arm64)
+TAG=latest  # amd64 (use a release tag like 0.9.0 on arm64)
 
 docker pull ghcr.io/jbhoorasingh/gt7-datalogger:${TAG}
 
@@ -307,7 +307,7 @@ serve a **pre-built** frontend. The capture workload itself is light (decrypt + 
 
 > **Prefer Docker on a 64-bit Pi.** Tagged releases publish an `arm64` image, so on a
 > Pi Zero 2 W / 4 / 5 running 64-bit Raspberry Pi OS you can pull a release tag
-> (`ghcr.io/jbhoorasingh/gt7-datalogger:0.1.0`, **not** `:latest` — see
+> (`ghcr.io/jbhoorasingh/gt7-datalogger:0.9.0`, **not** `:latest` — see
 > [Use the prebuilt image](#use-the-prebuilt-image)) and skip this section entirely.
 > The native route below stays the right answer for ARMv6 (Zero W) and for anyone who'd
 > rather not run Docker.
