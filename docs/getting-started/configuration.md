@@ -98,6 +98,8 @@ The **Applies** column says when a change takes effect:
 | `GT7_DATA_DIR` | *(the database's folder)* | environment only | Folder for everything the app writes: the database (unless `GT7_DB_PATH` names another), track bundles, survey logs, sync state, backups and this installation's identity. Unset = the database's own folder. Read before the database opens, so environment only |
 | `GT7_DB_PATH` | `data/gt7.db` | environment only | SQLite database file. Defaults to `gt7.db` in `GT7_DATA_DIR` when that is set. The database holds the other settings, so environment only |
 | `GT7_LOG_FILE` | *(empty)* | environment only | Also write the log to this file, rotated at 5 MB with four old files kept (e.g. `/data/logs/gt7.log` in Docker). Empty = stderr and the Settings › Advanced log view only. Environment only |
+| `GT7_DESKTOP` | `false` | environment only | Set by the desktop app's launcher; marks this server as the desktop install in `/api/health`. Environment only |
+| `GT7_FORCE_SIM` | *(empty)* | environment only | `firstrun`: until setup is completed, start on the simulator with mDNS and recording off, whatever is stored. Set by the desktop launcher. Environment only |
 | `GT7_FRONTEND_DIST` | *(bundled)* | environment only | The built web UI to serve. Unset = the source checkout's `frontend/dist`, or the copy inside a desktop build. Environment only |
 
 <!-- settings-table:end -->

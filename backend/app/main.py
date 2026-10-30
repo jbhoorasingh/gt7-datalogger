@@ -3,21 +3,22 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import datetime
 import logging
 import sys
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy.ext.asyncio import AsyncEngine
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from app import protocol, settings_registry
+from app import protocol, settings_registry, setup_state
 from app.api import admin, backup, layouts, restore, routes, tracks, ws
 from app.config import Settings, get_settings
 from app.logging_config import LOG_CONFIG, configure_logging
@@ -257,6 +258,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await move_out_of_database(repo, secrets)
     stored = {**await repo.get_settings(), **secrets.read()}
     settings_registry.apply_stored(settings, stored)
+    # First-run mode (#184), after the stored values: an abandoned wizard's
+    # saved source=udp must not start the PlayStation path, and no prompt
+    # may appear before the wizard explains it. Recording waits too.
+    first_run = settings.force_sim == "firstrun" and not stored.get(setup_state.SETUP_KEY)
+    if first_run:
+        settings.source = "sim"
+        settings.mdns = False
+        log.info("first run: simulator, no mDNS, not recording until setup completes")
 
     await sync_track_seed(settings, repo, stored, log)
 
@@ -265,6 +274,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     service = TelemetryService(settings, repo, cars)
     service.env_settings = baseline
+    service.recording = not first_run
     app.state.service = service
     await service.start()
     await service.discovery.start()
@@ -306,13 +316,46 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Cancelled AND awaited: a task dropped while still pending logs a
     # "Task was destroyed but it is pending" warning on the way out, which
     # looks like a fault in a shutdown that is working correctly.
-    for task in (refresh, first_pull, *service.data_tasks):
+    await shut_down(service, engine, (refresh, first_pull, *service.data_tasks), log)
+
+
+# Per step: a logout gives a desktop app well under a second, and a stuck
+# step must not keep the next one — closing the database — from running.
+TEARDOWN_STEP_S = 5.0
+
+
+async def shut_down(
+    service: TelemetryService,
+    engine: AsyncEngine,
+    tasks: tuple[asyncio.Task[Any], ...],
+    log: logging.Logger,
+) -> None:
+    """The lifespan's teardown, every step attempted whatever the last did.
+
+    It used to be four awaits in a row: a cancelled or failing step skipped
+    service.stop and engine.dispose and orphaned the aiosqlite connections
+    (the desktop spike's lifespan-failure case). The order is service first,
+    so the open session is closed while the database is still there, then
+    the database, then the mDNS goodbye, which only touches the network.
+    """
+    # Cancelled AND awaited: a task dropped while still pending logs a
+    # "Task was destroyed but it is pending" warning on the way out, which
+    # looks like a fault in a shutdown that is working correctly.
+    for task in tasks:
         task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
-    await service.discovery.stop()
-    await service.stop()
-    await engine.dispose()
+    await asyncio.gather(*tasks, return_exceptions=True)
+    steps: tuple[tuple[str, Callable[[], Awaitable[None]]], ...] = (
+        ("telemetry service", service.stop),
+        ("database", engine.dispose),
+        ("mDNS", service.discovery.stop),
+    )
+    for name, step in steps:
+        try:
+            await asyncio.wait_for(step(), TEARDOWN_STEP_S)
+        except BaseException as exc:  # noqa: BLE001 - every step gets its turn
+            log.error("shutdown: %s did not stop cleanly: %r", name, exc)
+            if isinstance(exc, KeyboardInterrupt | SystemExit):
+                raise
 
 
 class LiveCORSMiddleware:

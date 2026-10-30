@@ -174,6 +174,46 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "Health": {
+        "description": "Enough to tell this server apart from anything else on the port (#184).",
+        "properties": {
+          "app": {
+            "const": "gt7-datalogger",
+            "title": "App",
+            "type": "string"
+          },
+          "install_kind": {
+            "enum": [
+              "desktop",
+              "docker",
+              "source"
+            ],
+            "title": "Install Kind",
+            "type": "string"
+          },
+          "schema": {
+            "$ref": "#/components/schemas/SchemaState"
+          },
+          "status": {
+            "const": "ok",
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "app",
+          "version",
+          "install_kind",
+          "schema"
+        ],
+        "title": "Health",
+        "type": "object"
+      },
       "ImportPayload": {
         "properties": {
           "format": {
@@ -390,6 +430,40 @@
           "items"
         ],
         "title": "RestoreRequest",
+        "type": "object"
+      },
+      "SchemaState": {
+        "properties": {
+          "current": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Alembic revision the database is at",
+            "title": "Current"
+          },
+          "head": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Newest revision this build knows",
+            "title": "Head"
+          }
+        },
+        "required": [
+          "current",
+          "head"
+        ],
+        "title": "SchemaState",
         "type": "object"
       },
       "SessionPatch": {
@@ -1813,6 +1887,104 @@
         "summary": "Put Settings"
       }
     },
+    "/api/admin/setup": {
+      "get": {
+        "description": "Where first-run setup stands (#184); the wizard polls this.",
+        "operationId": "get_setup_api_admin_setup_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Setup Api Admin Setup Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Setup"
+      }
+    },
+    "/api/admin/setup/complete": {
+      "post": {
+        "description": "Store the marker and start recording: the end of first-run mode.",
+        "operationId": "complete_setup_api_admin_setup_complete_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Complete Setup Api Admin Setup Complete Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Complete Setup"
+      }
+    },
     "/api/admin/stats": {
       "get": {
         "operationId": "stats_api_admin_stats_get",
@@ -2771,11 +2943,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Health Api Health Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/Health"
                 }
               }
             },

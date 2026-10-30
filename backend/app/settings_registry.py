@@ -343,6 +343,19 @@ ENTRIES: tuple[Entry, ...] = (
         apply="env", kind="path", doc_default="*(empty)*",
     ),
     Entry(
+        "desktop", "Server", "Desktop app",
+        "Set by the desktop app's launcher; marks this server as the desktop "
+        "install in `/api/health`. Environment only",
+        apply="env", kind="bool",
+    ),
+    Entry(
+        "force_sim", "Server", "First-run mode",
+        "`firstrun`: until setup is completed, start on the simulator with mDNS "
+        "and recording off, whatever is stored. Set by the desktop launcher. "
+        "Environment only",
+        apply="env", choices=("", "firstrun"), doc_default="*(empty)*",
+    ),
+    Entry(
         "frontend_dist", "Server", "Frontend folder",
         "The built web UI to serve. Unset = the source checkout's "
         "`frontend/dist`, or the copy inside a desktop build. Environment only",

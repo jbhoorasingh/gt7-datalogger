@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
-from app import discovery, logbuffer, settings_registry
+from app import discovery, logbuffer, settings_registry, setup_state
 from app.api.auth import require_admin
 from app.notify import ALL_EVENTS
 from app.processing import car_refresh
@@ -567,6 +567,24 @@ async def clear_logs() -> dict[str, str]:
 
 
 # --- diagnostics ------------------------------------------------------------
+
+
+@router.get("/setup")
+async def get_setup(request: Request) -> dict[str, Any]:
+    """Where first-run setup stands (#184); the wizard polls this."""
+    service = svc(request)
+    reachable = discovery.lan_address(service.settings) is not None
+    return await setup_state.state(service, reachable)
+
+
+@router.post("/setup/complete")
+async def complete_setup(request: Request) -> dict[str, Any]:
+    """Store the marker and start recording: the end of first-run mode."""
+    service = svc(request)
+    await service.repo.set_setting(setup_state.SETUP_KEY, datetime.now(UTC).isoformat())
+    if not service.recording:
+        await service.set_recording(True)
+    return await get_setup(request)
 
 
 @router.get("/stats")

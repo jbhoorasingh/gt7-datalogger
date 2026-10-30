@@ -120,7 +120,22 @@ Notable changes to GT7 Datalogger. The format follows
   use, a failed start — included. Docker users can set
   `GT7_LOG_FILE=/data/logs/gt7.log` (#180).
 
+- **`/api/health` says what is answering.** It returned only `{"status": "ok"}`, so a
+  launcher, a phone or a second copy could not tell this server from anything else on
+  port 8000. It now adds `app`, `version`, `install_kind` (`desktop`, `docker` or
+  `source`) and the database's schema revision beside the newest this build knows (#184).
+
+- **A first-run setup marker.** `GET /api/admin/setup` reports where setup stands and
+  `POST /api/admin/setup/complete` stores the marker and starts recording. With
+  `GT7_FORCE_SIM=firstrun` (set by the desktop app) the server starts on the simulator
+  with mDNS and recording off until then, so no network prompt appears before the
+  first-run wizard explains it (#184).
+
 ### Fixed
+
+- **Shutdown always closes the database.** The teardown was four awaits in a row, so a
+  step that failed or was cancelled skipped the rest and left the SQLite connections
+  open. Each step now runs whatever the one before did, with a time limit (#184).
 
 - **The server no longer exits when UDP 33740 is taken.** A Docker container, a second
   copy or another telemetry tool holding the port took the whole app down at start,

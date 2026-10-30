@@ -37,9 +37,31 @@ def svc(request: Request) -> TelemetryService:
     return service
 
 
-@router.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok"}
+class SchemaState(BaseModel):
+    current: str | None = Field(description="Alembic revision the database is at")
+    head: str | None = Field(description="Newest revision this build knows")
+
+
+class Health(BaseModel):
+    """Enough to tell this server apart from anything else on the port (#184)."""
+
+    status: Literal["ok"]
+    app: Literal["gt7-datalogger"]
+    version: str
+    install_kind: Literal["desktop", "docker", "source"]
+    schema_: SchemaState = Field(alias="schema")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+@router.get("/health", response_model=Health, response_model_by_alias=True)
+async def health(request: Request) -> dict[str, Any]:
+    from app import setup_state
+    from app.config import get_settings
+
+    service = getattr(request.app.state, "service", None)
+    settings = service.settings if service is not None else get_settings()
+    return await setup_state.health(service, settings)
 
 
 @router.get("/status")

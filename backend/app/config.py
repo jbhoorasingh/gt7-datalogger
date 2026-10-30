@@ -98,6 +98,15 @@ class Settings(BaseSettings):
     ws_rate: int = 30
 
     log_level: str = "INFO"
+    # Set by the desktop launcher (#192): this server is the desktop app's.
+    # Changes the install kind /api/health reports, and how much the
+    # pre-upgrade backups keep.
+    desktop: bool = False
+    # "firstrun" (set by the desktop launcher until setup is completed): start
+    # on the simulator with mDNS off and recording off, whatever is stored, so
+    # no firewall or Local Network prompt appears before the wizard explains
+    # it and no demo lap reaches the history (#184).
+    force_sim: str = ""
     # Also write the log to this file, rotated at 5 MB with four old files
     # kept (#180). Empty = stderr and the in-memory buffer only, as before.
     log_file: Path | None = None
