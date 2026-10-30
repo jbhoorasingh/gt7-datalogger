@@ -208,6 +208,16 @@ Notable changes to GT7 Datalogger. The format follows
   `desktop/ci/smoke.py` checks a build end to end; nothing of it reaches the Docker
   image (#192, #193, #194).
 
+- **Docs for the desktop app and the new release procedure (#201).** A *Desktop app*
+  page (download links for the first desktop release, the Gatekeeper and SmartScreen
+  screens, the firewall and Local Network prompts and how to undo a refusal, the data
+  and log folders, the port, LAN access and the admin token, updating, uninstalling,
+  moving from Docker, the AppImage FUSE fallback, the command line), *Building the
+  desktop app locally*, and a *Releasing* page for `scripts/version.py` and the draft
+  release. The README gains a Download section and the unofficial-tool notice; the
+  stale `0.1.0` image tags are now `0.8.1`, and the client protocol lists the
+  `lan_off` refusal.
+
 ### Fixed
 
 - **mDNS no longer broadcasts this computer's name, and retries.** The advertisement
