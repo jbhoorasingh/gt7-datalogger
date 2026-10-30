@@ -17,7 +17,7 @@ docker run -d --name gt7-datalogger \
   -p 8000:8000 -p 33740:33740/udp \
   -e GT7_PS_IP=<your playstation ip> \
   -v gt7-data:/data \
-  ghcr.io/jbhoorasingh/gt7-datalogger:0.1.0
+  ghcr.io/jbhoorasingh/gt7-datalogger:0.9.0
 ```
 
 That's it. The rest of this page covers the native route.
