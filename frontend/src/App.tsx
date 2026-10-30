@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { NotFoundPage, UnreachablePage, useServerReachability } from "@/components/errors";
+import { ServerAlerts } from "@/components/ServerAlerts";
 import { StatusBar } from "@/components/StatusBar";
 import { Toasts } from "@/components/ui/Toasts";
 import { TooltipProvider } from "@/components/ui/Tooltip";
@@ -8,8 +9,10 @@ import { api } from "@/lib/api";
 import { isDashLocation, parseDashParams } from "@/lib/dash";
 import { trackEngineerStatus } from "@/lib/engineerStatus";
 import { isEngineerLocation } from "@/lib/engineerRoute";
+import { loadHealth } from "@/lib/health";
 import { isOverlayLocation, parseOverlayRoute } from "@/lib/overlay";
 import { parseAnalysisParams, parseHash, type Route } from "@/lib/router";
+import { WELCOME_HASH, wantsWelcome } from "@/lib/welcome";
 import { useTelemetry } from "@/store/telemetry";
 
 // Caught from app start: the server sends it once per socket connect, before
@@ -29,6 +32,26 @@ const SettingsView = lazy(() => import("@/views/SettingsView").then((m) => ({ de
 const SessionsView = lazy(() => import("@/views/SessionsView").then((m) => ({ default: m.SessionsView })));
 const SurveyView = lazy(() => import("@/views/SurveyView").then((m) => ({ default: m.SurveyView })));
 const TracksView = lazy(() => import("@/views/TracksView").then((m) => ({ default: m.TracksView })));
+const WelcomeView = lazy(() => import("@/views/WelcomeView").then((m) => ({ default: m.WelcomeView })));
+
+// First run (#191): the bare origin goes to the wizard while setup is not
+// completed, on the desktop app or an install that has recorded nothing.
+// Asked once at start; a failed question (a locked server, an older one
+// without /api/admin/setup) never redirects.
+function useFirstRunRedirect(enabled: boolean): void {
+  useEffect(() => {
+    if (!enabled) return;
+    let alive = true;
+    void Promise.all([loadHealth(), api.admin.setup().catch(() => null)]).then(([health, setup]) => {
+      if (alive && wantsWelcome(window.location, setup, health?.install_kind ?? null)) {
+        window.location.replace(WELCOME_HASH);
+      }
+    });
+    return () => {
+      alive = false;
+    };
+  }, [enabled]);
+}
 
 function useRoute(): Route {
   const [route, setRoute] = useState<Route>(() => parseHash(window.location.hash));
@@ -76,6 +99,7 @@ export default function App() {
   const reach = useServerReachability(wsConnected, !chromeless);
 
   useEffect(() => connect(), [connect]);
+  useFirstRunRedirect(!chromeless);
 
   // Selection handed to Analysis via deep link / cross-view navigation.
   // Keyed on the serialized params so pasting a new URL re-applies it.
@@ -112,10 +136,25 @@ export default function App() {
     );
   }
 
+  // The wizard is a page of its own: no tabs to wander off into mid-setup.
+  if (route.view === "welcome") {
+    return (
+      <TooltipProvider delayDuration={300}>
+        <div className="h-full overflow-y-auto">
+          <Suspense fallback={null}>
+            <WelcomeView />
+          </Suspense>
+        </div>
+        <Toasts />
+      </TooltipProvider>
+    );
+  }
+
   return (
     <TooltipProvider delayDuration={300}>
       <div className="flex h-full flex-col">
         <StatusBar view={route.view} />
+        <ServerAlerts />
         <main className="min-h-0 flex-1 overflow-y-auto px-5 pb-7 pt-3.5">
           <Suspense
             fallback={<div className="p-6 text-sm text-ink-dim">{t("common.loading")}</div>}

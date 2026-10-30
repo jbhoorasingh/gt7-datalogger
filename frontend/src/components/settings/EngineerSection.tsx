@@ -3,6 +3,7 @@ import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Toggle } from "@/components/ui/Toggle";
 import { useT } from "@/i18n";
 import { api } from "@/lib/api";
+import { useInstallKind } from "@/lib/health";
 import {
   CALLOUT_CATEGORIES,
   type CalloutCategory,
@@ -14,6 +15,7 @@ import { SectionPanel, SettingRow, TONE_TEXT, type SectionProps, type Tone } fro
 
 export function EngineerSection({ draft, edit, busy, run }: SectionProps) {
   const t = useT();
+  const installKind = useInstallKind();
   const [diag, setDiag] = useState<RaceEngineerDiagnostics | null>(null);
 
   useEffect(() => {
@@ -70,7 +72,9 @@ export function EngineerSection({ draft, edit, busy, run }: SectionProps) {
           <a className="text-accent hover:underline" href="/engineer" target="_blank" rel="noreferrer">
             /engineer
           </a>
-          {t("settings.engineer.descAfter")}
+          {installKind === "desktop"
+            ? t("settings.engineer.descAfterDesktop")
+            : t("settings.engineer.descAfter")}
         </>
       }
       actions={
