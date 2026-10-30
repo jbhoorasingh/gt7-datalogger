@@ -1,0 +1,336 @@
+name: Desktop
+
+# The desktop app (#197): build and smoke-test on every OS; on a v*.*.* tag,
+# sign behind the desktop-release approval, verify the signed output, and
+# leave a DRAFT release for the maintainer to publish. publish.yml (Docker)
+# is untouched and runs on the same tags.
+#
+# Signing jobs install nothing and run no npm: they only download what the
+# unsigned build jobs uploaded. No job here publishes a release.
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "desktop/**"
+      - "backend/app/serve.py"
+      - "backend/pyproject.toml"
+      - ".github/workflows/desktop.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  PYTHON_VERSION: "3.14"
+  IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      expected: ${{ steps.v.outputs.expected }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Version
+        id: v
+        run: |
+          python3 scripts/version.py check
+          version=$(python3 scripts/version.py --print)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          expected="$version"
+          prerelease=false
+          if [[ "$IS_TAG" == "true" ]]; then
+            expected="${GITHUB_REF_NAME#v}"
+            [[ "$GITHUB_REF_NAME" == *-rc.* ]] && prerelease=true
+          fi
+          echo "expected=$expected" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+
+  frontend:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --no-fund --no-audit && npm run build
+        working-directory: frontend
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          retention-days: 1
+
+  build-macos:
+    needs: [plan, frontend]
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: frontend-dist, path: frontend/dist }
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with: { python-version: "${{ env.PYTHON_VERSION }}" }
+      - name: Build
+        run: |
+          python -m venv .build-venv
+          .build-venv/bin/python scripts/version.py stamp
+          .build-venv/bin/python desktop/scripts/build.py --install --skip-frontend --no-smoke
+          .build-venv/bin/python desktop/macos/check_uuid.py "desktop/dist/GT7 Datalogger.app/Contents/MacOS/gt7-datalogger"
+      - name: Smoke
+        run: python3 desktop/ci/smoke.py "desktop/dist/GT7 Datalogger.app/Contents/MacOS/gt7-datalogger" --version "${{ needs.plan.outputs.expected }}"
+      - name: Pack (unsigned)
+        run: ditto -c -k --keepParent "desktop/dist/GT7 Datalogger.app" desktop/dist/macos-app.zip
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: unsigned-macos
+          path: desktop/dist/macos-app.zip
+          retention-days: 3
+
+  build-windows:
+    needs: [plan, frontend]
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: frontend-dist, path: frontend/dist }
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with: { python-version: "${{ env.PYTHON_VERSION }}" }
+      - name: Build
+        shell: pwsh
+        env:
+          # A bootloader built here gets its own hash, not the one every
+          # PyInstaller app on the internet shares with Defender's heuristics.
+          PYINSTALLER_COMPILE_BOOTLOADER: "1"
+        run: |
+          python -m venv .build-venv
+          .build-venv\Scripts\python scripts/version.py stamp
+          .build-venv\Scripts\python -m pip install --no-binary pyinstaller -r desktop/requirements-build.txt
+          .build-venv\Scripts\python desktop/scripts/build.py --install --skip-frontend --no-smoke
+      - name: Smoke
+        run: python desktop/ci/smoke.py desktop/dist/gt7-datalogger/gt7-datalogger.exe --version "${{ needs.plan.outputs.expected }}"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: unsigned-windows
+          path: desktop/dist/gt7-datalogger
+          retention-days: 3
+
+  build-linux:
+    needs: [plan, frontend]
+    runs-on: ubuntu-24.04
+    container: quay.io/pypa/manylinux_2_28_x86_64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: frontend-dist, path: frontend/dist }
+      - name: Build onedir and AppImage (unsigned)
+        run: bash desktop/linux/build-in-manylinux.sh
+      - name: Smoke
+        run: python3 desktop/ci/smoke.py desktop/dist/gt7-datalogger/gt7-datalogger --headless --version "${{ needs.plan.outputs.expected }}"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: unsigned-linux
+          path: |
+            desktop/dist/gt7-datalogger
+            desktop/dist/GT7-Datalogger-Linux-x86_64.*
+          retention-days: 3
+
+  # The approval barrier: only v*.*.* tags reach it, and the environment
+  # requires the maintainer's review with no admin bypass.
+  gate:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-macos, build-windows, build-linux]
+    runs-on: ubuntu-24.04
+    environment: desktop-release
+    steps:
+      - run: echo "approved ${GITHUB_REF_NAME}"
+
+  sign-macos:
+    needs: [plan, gate]
+    runs-on: macos-26
+    environment: desktop-release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: unsigned-macos, path: unsigned }
+      - name: Keychain
+        env:
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_P12_PASSWORD: ${{ secrets.MACOS_CERT_P12_PASSWORD }}
+        run: |
+          KC="$RUNNER_TEMP/signing.keychain-db"; KP="$(uuidgen)"
+          security create-keychain -p "$KP" "$KC"
+          security set-keychain-settings -lut 3600 "$KC"
+          security unlock-keychain -p "$KP" "$KC"
+          echo "$MACOS_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KC" -P "$MACOS_CERT_P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KP" "$KC"
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/cert.p12"
+          ID=$(security find-identity -v -p codesigning "$KC" | grep "Developer ID Application" | head -1 | sed -E 's/.*"(.*)"/\1/')
+          echo "MACOS_SIGN_IDENTITY=$ID" >> "$GITHUB_ENV"
+      - name: Sign, notarize, DMG
+        env:
+          ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          export ASC_KEY_PATH="$RUNNER_TEMP/asc.p8"
+          echo "$ASC_KEY_P8_BASE64" | base64 --decode > "$ASC_KEY_PATH"
+          ditto -x -k unsigned/macos-app.zip out
+          desktop/macos/sign.sh "out/GT7 Datalogger.app"
+          desktop/macos/make-dmg.sh "out/GT7 Datalogger.app" out/GT7-Datalogger-macOS-arm64.dmg
+          rm -f "$ASC_KEY_PATH"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with: { name: signed-macos, path: out/GT7-Datalogger-macOS-arm64.dmg }
+
+  sign-windows:
+    needs: [plan, gate]
+    runs-on: windows-2025
+    environment: desktop-release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: unsigned-windows, path: desktop/dist/gt7-datalogger }
+      - name: Sign, package, scan
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING: ${{ vars.WINDOWS_SIGNING }}
+          AZURE_SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          AZURE_SIGNING_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          WINDOWS_PFX_BASE64: ${{ secrets.WINDOWS_PFX_BASE64 }}
+          WINDOWS_PFX_PASSWORD: ${{ secrets.WINDOWS_PFX_PASSWORD }}
+        run: |
+          choco install innosetup --no-progress -y
+          desktop/windows/package.ps1 -Version "${{ needs.plan.outputs.expected }}" -Sign
+          desktop/windows/defender-scan.ps1 -Path desktop/dist
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: signed-windows
+          path: |
+            desktop/dist/GT7-Datalogger-Windows-x64-Setup.exe
+            desktop/dist/GT7-Datalogger-Windows-x64-Portable.zip
+
+  sign-linux:
+    needs: [plan, gate]
+    runs-on: ubuntu-24.04
+    environment: desktop-release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: unsigned-linux, path: desktop/dist }
+      - name: Detached signatures
+        env:
+          LINUX_GPG_PRIVATE_KEY: ${{ secrets.LINUX_GPG_PRIVATE_KEY }}
+          LINUX_GPG_KEY_ID: ${{ vars.LINUX_GPG_KEY_ID }}
+        run: |
+          echo "$LINUX_GPG_PRIVATE_KEY" | gpg --batch --import
+          cd desktop/dist
+          for f in GT7-Datalogger-Linux-x86_64.AppImage GT7-Datalogger-Linux-x86_64.AppImage.zsync GT7-Datalogger-Linux-x86_64.tar.gz; do
+            gpg --batch --yes --local-user "$LINUX_GPG_KEY_ID" --armor --detach-sign "$f"
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: signed-linux
+          path: desktop/dist/GT7-Datalogger-Linux-x86_64.*
+
+  # Install what was signed, on a clean runner, and smoke it again.
+  verify-macos:
+    needs: [plan, sign-macos]
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: signed-macos, path: signed }
+      - run: |
+          xattr -w com.apple.quarantine "0081;$(printf %x $(date +%s));Safari;" signed/GT7-Datalogger-macOS-arm64.dmg
+          spctl --assess --type open --context context:primary-signature -vv signed/GT7-Datalogger-macOS-arm64.dmg
+          xcrun stapler validate signed/GT7-Datalogger-macOS-arm64.dmg
+          hdiutil attach -nobrowse -mountpoint /tmp/gt7 signed/GT7-Datalogger-macOS-arm64.dmg
+          ditto "/tmp/gt7/GT7 Datalogger.app" "/Applications/GT7 Datalogger.app"
+          hdiutil detach /tmp/gt7
+          spctl --assess --type execute -vv "/Applications/GT7 Datalogger.app"
+          python3 desktop/ci/smoke.py "/Applications/GT7 Datalogger.app/Contents/MacOS/gt7-datalogger" --version "${{ needs.plan.outputs.expected }}"
+
+  verify-windows:
+    needs: [plan, sign-windows]
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: signed-windows, path: signed }
+      - shell: pwsh
+        run: |
+          $sig = Get-AuthenticodeSignature signed/GT7-Datalogger-Windows-x64-Setup.exe
+          if ($sig.Status -ne 'Valid') { throw "Setup.exe signature: $($sig.Status)" }
+          Start-Process signed/GT7-Datalogger-Windows-x64-Setup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/ALLUSERS' -Wait
+          python desktop/ci/smoke.py "$env:ProgramFiles\GT7 Datalogger\gt7-datalogger.exe" --version "${{ needs.plan.outputs.expected }}"
+
+  release:
+    needs: [plan, verify-macos, verify-windows, sign-linux]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { pattern: "signed-*", path: assets, merge-multiple: true }
+      - name: Manifest and checksums
+        run: |
+          cd assets
+          sha256sum GT7-Datalogger-* > SHA256SUMS.txt
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib
+          files = sorted(p for p in pathlib.Path(".").iterdir() if p.name.startswith("GT7-Datalogger-"))
+          json.dump({
+              "version": os.environ["VERSION"], "tag": os.environ["GITHUB_REF_NAME"],
+              "commit": os.environ["GITHUB_SHA"],
+              "assets": [{"name": p.name, "size": p.stat().st_size,
+                          "sha256": hashlib.sha256(p.read_bytes()).hexdigest()} for p in files],
+          }, open("release-manifest.json", "w"), indent=2)
+          PY
+          # Every name in release-assets.txt must be here.
+          missing=0
+          while read -r name; do
+            [[ -z "$name" || "$name" == \#* ]] && continue
+            [[ -f "$name" ]] || { echo "missing asset: $name"; missing=1; }
+          done < ../desktop/release-assets.txt
+          exit $missing
+        env:
+          VERSION: ${{ needs.plan.outputs.expected }}
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: "assets/GT7-Datalogger-*"
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.plan.outputs.version }}
+          PRERELEASE: ${{ needs.plan.outputs.prerelease }}
+        run: |
+          # The CHANGELOG section for this version is the release notes.
+          awk -v v="$VERSION" '
+            $0 ~ "^## \\[" v "\\]" {on=1; next}
+            on && /^## \[/ {exit}
+            on {print}' CHANGELOG.md > notes.md
+          flags=(--draft --title "${GITHUB_REF_NAME#v}" --notes-file notes.md --verify-tag)
+          [[ "$PRERELEASE" == "true" ]] && flags+=(--prerelease)
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" assets/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "${flags[@]}" assets/*
+          fi
