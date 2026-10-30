@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 import logging
+import mimetypes
 import sys
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -20,6 +21,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app import protocol, settings_registry, setup_state
 from app.api import admin, backup, layouts, restore, routes, tracks, ws
+from app.api.guard import RequestGuard
 from app.config import Settings, get_settings
 from app.logging_config import LOG_CONFIG, configure_logging
 from app.processing import car_refresh, shared_pull, shared_repo, track_seed
@@ -28,6 +30,19 @@ from app.service import TelemetryService
 from app.storage.db import init_db, make_engine, make_session_factory
 from app.storage.repository import Repository
 from app.storage.secret_store import SecretStore, move_out_of_database
+
+# StaticFiles takes a file's type from `mimetypes`, which on Windows reads the
+# registry, where a common entry maps .js to text/plain: the browser then
+# refuses the bundle as a module script and the UI renders blank (#183).
+# Registered before anything is served, so the registry cannot win.
+for _ext, _type in (
+    (".js", "text/javascript"),
+    (".mjs", "text/javascript"),
+    (".css", "text/css"),
+    (".svg", "image/svg+xml"),
+):
+    mimetypes.add_type(_type, _ext)
+
 
 # Settings key holding the digest of the seed file the tracks table was last
 # built from. Same persisted key-value pattern the rest of lifespan uses.
@@ -466,6 +481,7 @@ def create_app() -> FastAPI:
     # /ws) and a native app needs none.
     app.add_middleware(DrainForRestore)
     app.add_middleware(LiveCORSMiddleware)
+    app.add_middleware(RequestGuard)  # outermost: Host and Origin checks (#183)
     app.include_router(routes.router)
     app.include_router(admin.router)
     app.include_router(backup.router)

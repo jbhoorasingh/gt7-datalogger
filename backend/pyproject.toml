@@ -15,6 +15,9 @@ dependencies = [
     "aiosqlite>=0.20",
     "websockets>=13.0",
     "httpx>=0.27",
+    # The CA bundle the live sync's wss:// handshake checks against; httpx
+    # already brings it, named so a change there cannot take it away.
+    "certifi>=2024.2.2",
     "zeroconf>=0.132",
 ]
 

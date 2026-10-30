@@ -12,7 +12,7 @@ from collections.abc import Iterator
 from dataclasses import asdict
 from typing import IO, TYPE_CHECKING, Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
@@ -224,7 +224,9 @@ async def export_session(request: Request, session_id: int) -> StreamingResponse
 
 
 @router.get("/sessions/{session_id}/analysis.json")
-async def session_analysis(request: Request, session_id: int) -> dict[str, Any]:
+async def session_analysis(
+    request: Request, response: Response, session_id: int
+) -> dict[str, Any]:
     """The session's lap analysis document (#115): each lap measured per
     corner against the session's best — braking, minimum speed, throttle,
     time lost, line — in a few hundred labelled numbers instead of the 60 Hz
@@ -235,6 +237,11 @@ async def session_analysis(request: Request, session_id: int) -> dict[str, Any]:
     document = await svc(request).lap_analysis(session_id)
     if document is None:
         raise HTTPException(404, "session not found")
+    # A download, not a page: opened from a link, the browser saves it under
+    # this name instead of rendering a few hundred KB of JSON in the tab.
+    response.headers["Content-Disposition"] = (
+        f'attachment; filename="gt7-session-{session_id}-analysis.json"'
+    )
     return document
 
 

@@ -632,6 +632,9 @@ async def test_the_document_is_served_for_a_session(client) -> None:
     resp = await c.get(f"/api/sessions/{session_id}/analysis.json")
     assert resp.status_code == 200
     assert resp.headers["content-type"] == "application/json"
+    assert resp.headers["content-disposition"] == (
+        f'attachment; filename="gt7-session-{session_id}-analysis.json"'
+    )
     document = resp.json()
     assert document["format"] == "gt7-datalogger-lap-analysis"
     assert document["version"] == 1

@@ -237,5 +237,10 @@ every 2 s if the socket closes.
 
 !!! note "CORS and exposure"
     No CORS headers are sent unless `GT7_CORS_ORIGINS` lists origins: the bundled UI is
-    same-origin and native apps need none. The API is designed for a trusted home
-    network, not public exposure. Don't port-forward it to the internet.
+    same-origin and native apps need none. A write (any method but GET, HEAD and
+    OPTIONS) or a WebSocket handshake from another web page's origin is refused with
+    `403`, and so is any request addressed to a host name that is not a LAN one or
+    listed in `GT7_TRUSTED_HOSTS`; the
+    [client protocol](client-protocol.md#refused-requests) lists the reasons. The API
+    is designed for a trusted home network, not public exposure. Don't port-forward it
+    to the internet.
