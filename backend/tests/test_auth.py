@@ -124,8 +124,9 @@ async def test_vacuum_with_token(secured) -> None:
 
 async def test_no_token_configured_is_fully_open(open_client) -> None:
     c, service = open_client
+    # Compact before driving: while a session records it is refused (#188).
+    assert (await c.post("/api/admin/vacuum")).status_code == 200
     await drive_laps(service, laps=1)
     lap_id = (await c.get("/api/laps")).json()[0]["id"]
     assert (await c.get("/api/admin/settings")).status_code == 200
-    assert (await c.post("/api/admin/vacuum")).status_code == 200
     assert (await c.delete(f"/api/laps/{lap_id}")).status_code == 200

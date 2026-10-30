@@ -669,7 +669,16 @@ async def clear_data(request: Request) -> dict[str, str]:
 
 @router.post("/vacuum")
 async def vacuum(request: Request) -> dict[str, str]:
-    await svc(request).repo.vacuum()
+    """Compact the database. Refused (409) while anything records (#188): the
+    rewrite holds the file for minutes on a large one, and a lap that ends
+    meanwhile would fail to save once the busy timeout ran out."""
+    service = svc(request)
+    busy = service.recording_now()
+    if busy:
+        raise HTTPException(
+            409, f"{busy}; pause recording or stop the survey, then compact"
+        )
+    await service.repo.vacuum()
     return {"status": "ok"}
 
 

@@ -1492,6 +1492,16 @@ class TelemetryService:
 
     # --- controls -----------------------------------------------------------
 
+    def recording_now(self) -> str:
+        """What is recording into the database right now, as a refusal names
+        it, or ''. A session counts from its first packet until recording is
+        paused: a lap can end, and must save, at any moment in between."""
+        if self.survey.active:
+            return "a survey is running"
+        if self.recording and self.session_id is not None:
+            return "a session is recording"
+        return ""
+
     async def delete_session(self, session_id: int) -> bool:
         async with self.session_lock:
             current = session_id == self.session_id

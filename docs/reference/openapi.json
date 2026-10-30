@@ -2328,6 +2328,7 @@
     },
     "/api/admin/vacuum": {
       "post": {
+        "description": "Compact the database. Refused (409) while anything records (#188): the\nrewrite holds the file for minutes on a large one, and a lap that ends\nmeanwhile would fail to save once the busy timeout ran out.",
         "operationId": "vacuum_api_admin_vacuum_post",
         "parameters": [
           {

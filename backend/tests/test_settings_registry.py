@@ -9,9 +9,10 @@ from httpx import ASGITransport, AsyncClient
 from app import settings_registry as registry
 from app.config import Settings
 from app.main import create_app
+from app.netinfo import server_version
 from app.processing.cars import CarDatabase
 from app.service import TelemetryService
-from app.storage.db import init_db, make_engine, make_session_factory
+from app.storage.db import SCHEMA_WRITTEN_BY_KEY, init_db, make_engine, make_session_factory
 from app.storage.repository import Repository
 
 DOC = Path(__file__).resolve().parents[2] / "docs" / "getting-started" / "configuration.md"
@@ -195,7 +196,7 @@ async def test_bad_patches_change_nothing(client, patch, fragment) -> None:
     assert resp.status_code == 400
     assert fragment in resp.json()["detail"]
     assert service.settings.ws_rate == 30
-    assert await service.repo.get_settings() == {}
+    assert await service.repo.get_settings() == {SCHEMA_WRITTEN_BY_KEY: server_version()}
 
 
 async def test_a_bad_value_rejects_the_whole_patch(client) -> None:
@@ -233,7 +234,7 @@ async def test_a_handled_setting_refused_late_changes_nothing(client) -> None:
     assert resp.status_code == 400
     assert service.settings.ps_ip == ""
     assert service.settings.ws_rate == 30
-    assert await service.repo.get_settings() == {}
+    assert await service.repo.get_settings() == {SCHEMA_WRITTEN_BY_KEY: server_version()}
 
 
 async def test_a_port_in_use_is_refused_and_the_listener_restored(client) -> None:
