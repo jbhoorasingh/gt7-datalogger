@@ -20,6 +20,40 @@ Notable changes to GT7 Datalogger. The format follows
   not ask again, is silent when it fails, and waits for GitHub's rate limit to reset
   when it is told to. The configuration docs now list everything the app fetches on
   its own: the car list, the first-start track pull and this.
+- **A first-run wizard explains the network prompts before they appear (#191).**
+  Opening the app with setup not yet completed (the desktop app, or any install
+  that has recorded nothing) lands on `#/welcome`; a bookmark or a deep link is
+  never taken over, and an existing install with sessions keeps its start page. It
+  asks PlayStation or *Try the demo*: the demo stays on the simulator and offers
+  its scenarios. The PlayStation path says what this computer will ask first (the
+  Windows Firewall prompt, the macOS Local Network alert, the firewalld/ufw hint on
+  Linux), then switches to the PlayStation source, which is what raises the prompt,
+  searches for the console and saves the address, with manual entry and the PS5
+  menu path when the search finds nothing. Listener and heartbeat errors become
+  specific help (another program on UDP 33740, Local Network denied, a firewall, GT7
+  not running). A live check waits for telemetry and offers packet format A when
+  packets arrive but do not decode. The desktop app then asks whether phones and
+  tablets may connect; finishing turns LAN access on or leaves it off, shows the
+  admin token it created and a QR code of the dashboard's LAN address. Finishing,
+  and *Skip setup*, complete setup, which starts recording.
+
+- **The UI knows how it is installed (#190).** Advice that assumed Docker now
+  follows the install kind from `/api/health`: the unreachable page, the mDNS and
+  127.0.0.1 help under Settings › Phone app, the Race Engineer note, and the
+  Advanced line for an environment-only setting (the desktop app restarts its
+  server by itself). A new Settings › About shows the version, how it runs, the
+  data folder and log file, the update status, and that the app is unofficial and
+  not affiliated with Sony Interactive Entertainment or Polyphony Digital. With LAN
+  access off, Settings › Phone app and the layout builder say so, with a *Let my
+  phone/tablet connect* switch, instead of showing an address nothing can reach.
+  Copy buttons work on a plain-HTTP LAN address, where the clipboard API does not
+  exist: they fall back to the old copy command, and failing that select the text.
+  A listener that could not start, a failing heartbeat and laps that could not be
+  saved show in a strip under the status bar on every view, and a banner says when
+  a newer version is out, once the server reports one. A request the server's guard
+  refuses (LAN access off, an untrusted Host, a cross-site request) shows the
+  server's reason instead of "admin token rejected", and on the desktop app
+  Settings › Access says the computer's own browser never needs the token.
 
 - **A synced session gets its circuit even when its first lap was not a whole
   one.** The session is announced to the sync service with its first lap, and the

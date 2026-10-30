@@ -9,6 +9,7 @@ import { Select } from "@/components/ui/Select";
 import { Toggle } from "@/components/ui/Toggle";
 import { t as translate, useT, type MessageKey } from "@/i18n";
 import { api } from "@/lib/api";
+import { useInstallKind } from "@/lib/health";
 import type { ConfigDoc, ConfigSetting, ConfigValue } from "@/lib/types";
 import { toast } from "@/store/toasts";
 import {
@@ -138,6 +139,7 @@ function Control({
 
 export function AdvancedSection({ onApplied }: { onApplied: () => void }) {
   const t = useT();
+  const installKind = useInstallKind();
   const [doc, setDoc] = useState<ConfigDoc | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [edits, setEdits] = useState<ConfigEdits>(NO_EDITS);
@@ -193,7 +195,11 @@ export function AdvancedSection({ onApplied }: { onApplied: () => void }) {
       {error && <div className="px-[18px] py-3 text-[12px] text-brake">{error}</div>}
       {waiting.length > 0 && (
         <div className="px-[18px] py-2.5 text-[12px] text-warn">
-          {t("advanced.restartToUse", { settings: waiting.map((r) => r.label).join(", ") })}
+          {/* The desktop app's supervisor restarts the server by itself when an
+              environment-only setting changes; elsewhere a person does. */}
+          {t(installKind === "desktop" ? "advanced.restartToUseDesktop" : "advanced.restartToUse", {
+            settings: waiting.map((r) => r.label).join(", "),
+          })}
         </div>
       )}
       {doc?.groups.map((group) => {

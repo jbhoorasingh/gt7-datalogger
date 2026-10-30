@@ -1,6 +1,7 @@
 import { useRef } from "react";
 import { t as translate, useT, withLanguage } from "@/i18n";
 import { api, ApiError } from "@/lib/api";
+import { copyText, selectText } from "@/lib/clipboard";
 import { migrateOverlayConfig, normalizeLayout, type LayoutConfig, type LayoutSummary } from "@/lib/layout";
 import { DEFAULT_CONFIG, type OverlayConfig } from "@/lib/overlay";
 import { toast } from "@/store/toasts";
@@ -120,17 +121,24 @@ export function OverlaysSection({
                     </td>
                     <td className="px-2 py-[9px] text-ink-dim">{canvas(l)}</td>
                     <td className="px-2 py-[9px] text-ink-dim">{l.config.cells.length}</td>
-                    <td className="whitespace-nowrap px-2 py-[9px] text-accent-300">{path}</td>
+                    <td data-url className="whitespace-nowrap px-2 py-[9px] text-accent-300">
+                      {path}
+                    </td>
                     <td className="whitespace-nowrap px-[18px] py-1.5 text-right">
                       <div className="inline-flex gap-1.5">
                         <button
                           className="btn"
-                          onClick={() =>
-                            navigator.clipboard
-                              .writeText(withLanguage(`${window.location.origin}${path}`))
-                              .then(() => toast(t("settings.overlays.copied"), "success"))
-                              .catch(() => toast(t("settings.overlays.copyFailed"), "error"))
-                          }
+                          onClick={(e) => {
+                            const url = withLanguage(`${window.location.origin}${path}`);
+                            const cell = e.currentTarget.closest("tr")?.querySelector("[data-url]");
+                            void copyText(url).then((ok) => {
+                              if (ok) return toast(t("settings.overlays.copied"), "success");
+                              // No clipboard (plain HTTP on a LAN address):
+                              // select the path and give the whole URL.
+                              selectText(cell);
+                              toast(t("clipboard.failedUrl", { url }), "error");
+                            });
+                          }}
                         >
                           {t("settings.overlays.copy")}
                         </button>

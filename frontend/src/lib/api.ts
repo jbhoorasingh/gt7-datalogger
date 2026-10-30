@@ -19,6 +19,7 @@ import type {
   ExcludeReason,
   FuelMapResult,
   GearChoice,
+  Health,
   LapSummary,
   LogRecord,
   OfficialMatch,
@@ -31,6 +32,8 @@ import type {
   RestoreUpload,
   SessionSummary,
   SectorTimes,
+  SetupCompleted,
+  SetupState,
   StintTrend,
   SharedPullAll,
   SuggestionRejections,
@@ -150,14 +153,44 @@ export type AdminSettingsPatch = Partial<
 
 // Error carrying the HTTP status, so callers can distinguish auth failures
 // (401/403 — a token problem) from an unreachable backend (502 from the proxy).
+// `reason` is set when the request guard refused the request (#183, #195):
+// lan_off, untrusted_host or cross_site. Those are not token problems, and no
+// token fixes them.
 export class ApiError extends Error {
-  constructor(message: string, public readonly status: number) {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly reason?: string,
+  ) {
     super(message);
     this.name = "ApiError";
   }
 }
 
+/** A 401/403 the admin token can fix (as opposed to a guard refusal). */
+export function isTokenError(e: unknown): e is ApiError {
+  return e instanceof ApiError && (e.status === 401 || e.status === 403) && !e.reason;
+}
+
 async function fail(url: string, resp: Response): Promise<never> {
+  if (resp.status === 403) {
+    // The request guard answers {detail, reason}: say what it said rather
+    // than blame a token that has nothing to do with it.
+    let body: unknown = null;
+    try {
+      body = await resp.json();
+    } catch {
+      // not JSON: an invalid token (FastAPI's own 403) or a proxy page
+    }
+    if (body && typeof body === "object" && "reason" in body) {
+      const { detail, reason } = body as { detail?: unknown; reason?: unknown };
+      throw new ApiError(
+        typeof detail === "string" && detail ? detail : t("error.api.refused"),
+        403,
+        String(reason),
+      );
+    }
+  }
   if (resp.status === 401 || resp.status === 403) {
     throw new ApiError(
       resp.status === 401 ? t("error.api.tokenRequired") : t("error.api.tokenRejected"),
@@ -188,6 +221,9 @@ async function send<T>(url: string, method: string, body?: unknown): Promise<T> 
 
 export const api = {
   status: () => get<ConnectionStatus>("/api/status"),
+  // Who answers and how it was installed (#184): the UI words a few things
+  // differently for the desktop app, Docker and a source checkout.
+  health: () => get<Health>("/api/health"),
   // `category` is the packet-C car class ("Gr.3", "N300"…); blank = every
   // session, which is also the only way to reach pre-packet-C recordings.
   sessions: (category = "") =>
@@ -435,6 +471,12 @@ export const api = {
   },
 
   admin: {
+    // First-run setup (#184, #191): where it stands, and the end of it. The
+    // body's lan_access answers the wizard's phone question (#195); without
+    // it LAN access stays as it is.
+    setup: () => get<SetupState>("/api/admin/setup"),
+    completeSetup: (body?: { lan_access: boolean }) =>
+      send<SetupCompleted>("/api/admin/setup/complete", "POST", body),
     settings: () => get<AdminSettings>("/api/admin/settings"),
     updateSettings: (patch: AdminSettingsPatch) =>
       send<AdminSettings>("/api/admin/settings", "PUT", patch),
