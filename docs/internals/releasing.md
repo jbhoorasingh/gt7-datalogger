@@ -12,9 +12,9 @@ The version is kept in five places in four files: `backend/pyproject.toml`,
 nobody edits them by hand:
 
 ```bash
-python scripts/version.py --print        # the version, e.g. 0.9.0
+python scripts/version.py --print        # the version, e.g. 1.0.0
 python scripts/version.py check          # every place agrees (CI runs this)
-python scripts/version.py bump 0.9.0     # rewrite all five places
+python scripts/version.py bump 1.0.0     # rewrite all five places
 ```
 
 It edits the lock file line by line and never re-serialises it, so npm's formatting

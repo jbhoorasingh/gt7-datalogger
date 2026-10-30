@@ -1,7 +1,7 @@
 # Quick start (Docker)
 
 !!! tip "No Docker?"
-    From version 0.9.0 there is a [desktop app](desktop.md) for macOS, Windows and
+    From version 1.0.0 there is a [desktop app](desktop.md) for macOS, Windows and
     Linux: one download, no Docker or Python. The first desktop release is not out yet.
 
 The fastest way to run GT7 Datalogger on a server is with Docker Compose. One container

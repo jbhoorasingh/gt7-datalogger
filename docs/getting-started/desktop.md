@@ -6,7 +6,7 @@ shows the same dashboard, in your own browser. On macOS and Windows it adds an i
 the menu bar or the notification area.
 
 !!! warning "Not released yet"
-    The first desktop release will be **0.9.0**. Until it is published, the download
+    The first desktop release will be **1.0.0**. Until it is published, the download
     links below lead nowhere, and the way to run GT7 Datalogger is
     [Docker](quick-start.md), a [Raspberry Pi](raspberry-pi.md) or
     [from source](local-development.md). This page describes the app as it is built

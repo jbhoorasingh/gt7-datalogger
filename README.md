@@ -250,7 +250,7 @@ Postgres by changing one URL.
 
 ## Download
 
-From version **0.9.0**, GT7 Datalogger comes as a desktop app for macOS, Windows and
+From version **1.0.0**, GT7 Datalogger comes as a desktop app for macOS, Windows and
 Linux: one download, no Docker, Python or terminal. **The first desktop release is not
 out yet**; until it is, these links lead nowhere and the way to run it is
 [Docker](#quick-start-docker) or [a Raspberry Pi](#running-on-a-raspberry-pi-native-no-docker).
