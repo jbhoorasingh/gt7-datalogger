@@ -103,6 +103,18 @@ Notable changes to GT7 Datalogger. The format follows
   the server refuses (a protected server without the admin token) shows why in a toast.
   Contributed by @Marstiphal (#171, #87).
 
+### Changed
+
+- **The backend tests run on macOS, Windows and Python 3.14.** CI ran them on Ubuntu
+  with Python 3.12 only, what the Docker image runs; the desktop builds will be frozen
+  with CPython 3.14 on all three platforms, and nothing had run on Windows. The backend
+  job is now four legs that report separately: Ubuntu 24.04 on 3.12 (which also lints
+  and type-checks), and Ubuntu 24.04, macOS 26 and Windows Server 2025 on 3.14. The
+  Windows leg reports without blocking until it has been green for a while. Ubuntu is
+  pinned to 24.04 because `ubuntu-latest` moves to 26.04 in November. Every action the
+  workflows use is pinned to a commit rather than a movable tag, and Dependabot proposes
+  the updates weekly (#177).
+
 ### Fixed
 
 - **Files beside the database are written in a way Windows allows.** Every file kept
