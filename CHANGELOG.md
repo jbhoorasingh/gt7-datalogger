@@ -103,7 +103,36 @@ Notable changes to GT7 Datalogger. The format follows
   the server refuses (a protected server without the admin token) shows why in a toast.
   Contributed by @Marstiphal (#171, #87).
 
+- **One data folder for everything the app writes (`GT7_DATA_DIR`).** The database,
+  track bundles, survey logs, sync state, backups and the installation's identity all
+  sit in one folder; unset, that is the database's own folder, exactly as before. With
+  it set the database defaults to `gt7.db` inside it, so a launcher can place an
+  install with one variable instead of a working directory (#178).
+
+- **One version, read the same way everywhere.** The version the server reports over
+  mDNS, sends the sync service and stamps into compiled track documents now comes from
+  a committed `backend/app/_version.py`; the three readers it replaces disagreed in a
+  dev venv. `python scripts/version.py bump X.Y.Z` rewrites the five places a release
+  touches and `check` fails when they drift apart (#179).
+
+- **A log file, when you ask for one (`GT7_LOG_FILE`).** Lines go to a file as well,
+  rotated at 5 MB with four old files kept, uvicorn's own lines — a port already in
+  use, a failed start — included. Docker users can set
+  `GT7_LOG_FILE=/data/logs/gt7.log` (#180).
+
 ### Fixed
+
+- **A database under a folder named with `?` or `#` opened the wrong file.** The
+  SQLite URL was formatted as text, so `?` started its query string and the path was
+  cut short there. It is now built from parts (#178).
+
+- **The weekly car-list refresh could write inside the installed package.** A
+  `GT7_CARS_JSON` or saved Car inventory pointing at the bundled copy made the refresh
+  overwrite it; it now writes beside the database whenever the configured file is the
+  package's own (#178).
+
+- **The Database setting no longer claims to take a SQLAlchemy URL.** It is a file path;
+  a URL became a strangely named SQLite file (#178).
 
 - **Sector times put time the recording missed into the last sector.** Analysis ›
   Sector times shares GT7's lap time out by the lap's own clock, and the last sector

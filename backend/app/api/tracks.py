@@ -71,7 +71,7 @@ def svc(request: Request) -> TelemetryService:
 
 
 def data_dir(request: Request) -> Path:
-    return svc(request).settings.db_path.parent
+    return svc(request).settings.data_root()
 
 
 def _bundle_changed(request: Request, track: str, road: bool = True) -> None:

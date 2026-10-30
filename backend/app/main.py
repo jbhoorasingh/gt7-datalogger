@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import datetime
 import logging
+import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -16,26 +17,16 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from app import logbuffer, protocol, settings_registry
+from app import protocol, settings_registry
 from app.api import admin, backup, layouts, restore, routes, tracks, ws
 from app.config import Settings, get_settings
+from app.logging_config import LOG_CONFIG, configure_logging
 from app.processing import car_refresh, shared_pull, shared_repo, track_seed
 from app.processing.cars import CarDatabase
 from app.service import TelemetryService
 from app.storage.db import init_db, make_engine, make_session_factory
 from app.storage.repository import Repository
 from app.storage.secret_store import SecretStore, move_out_of_database
-
-FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
-
-
-def configure_logging(level: str) -> None:
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
-    )
-    logbuffer.install()
-
 
 # Settings key holding the digest of the seed file the tracks table was last
 # built from. Same persisted key-value pattern the rest of lifespan uses.
@@ -227,7 +218,7 @@ async def pull_shared_on_first_start(
     configured = settings.shared_bundles_url.strip()
     if not configured:
         return
-    data_dir = settings.db_path.parent
+    data_dir = settings.data_root()
     if shared_pull.has_bundles(data_dir):
         await repo.set_setting(SHARED_FIRST_PULL_KEY, "not needed")
         return
@@ -249,7 +240,7 @@ async def pull_shared_on_first_start(
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
-    configure_logging(settings.log_level)
+    configure_logging(settings.log_level, settings.log_file)
     log = logging.getLogger("app")
 
     engine = make_engine(settings.db_path)
@@ -262,7 +253,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     baseline = settings.model_copy()
     # The webhook URL and sync token are saved beside the database, not in
     # it (#94); an older version's rows are moved out before anything reads.
-    secrets = SecretStore(settings.db_path.parent)
+    secrets = SecretStore(settings.data_root())
     await move_out_of_database(repo, secrets)
     stored = {**await repo.get_settings(), **secrets.read()}
     settings_registry.apply_stored(settings, stored)
@@ -397,6 +388,26 @@ class DrainForRestore:
             await self.app(scope, receive, send)
 
 
+def frontend_dist() -> Path | None:
+    """The built SPA to mount, read when the app is created (#178).
+
+    Read here rather than at import, so GT7_FRONTEND_DIST set by whoever
+    starts the server is honoured. No UI to serve is normal for `npm run dev`
+    (Vite serves it and proxies the API), so that is one info line; a
+    configured folder or a frozen bundle without one is a broken install.
+    """
+    settings = Settings()
+    found = settings.frontend_root()
+    if found is None:
+        expected = settings.frontend_dist is not None or getattr(sys, "frozen", False)
+        logging.getLogger("app").log(
+            logging.ERROR if expected else logging.INFO,
+            "no built frontend found%s; serving the API only",
+            f" at {settings.frontend_dist}" if settings.frontend_dist is not None else "",
+        )
+    return found
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title="GT7 Datalogger",
@@ -419,23 +430,24 @@ def create_app() -> FastAPI:
     app.include_router(layouts.router)
     app.include_router(tracks.router)
     app.include_router(ws.router)
-    if FRONTEND_DIST.exists():
+    dist = frontend_dist()
+    if dist is not None:
         # SPA deep links: /overlay?... and /dash?... must serve the app (the
         # static mount only resolves "/"). Plain paths keep strict URL
         # validators happy (some streaming apps reject /#overlay fragments).
         @app.get("/overlay", include_in_schema=False)
         async def overlay_page() -> FileResponse:
-            return FileResponse(FRONTEND_DIST / "index.html")
+            return FileResponse(dist / "index.html")
 
         @app.get("/dash", include_in_schema=False)
         async def dash_page() -> FileResponse:
-            return FileResponse(FRONTEND_DIST / "index.html")
+            return FileResponse(dist / "index.html")
 
         @app.get("/engineer", include_in_schema=False)
         async def engineer_page() -> FileResponse:
-            return FileResponse(FRONTEND_DIST / "index.html")
+            return FileResponse(dist / "index.html")
 
-        app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="spa")
+        app.mount("/", StaticFiles(directory=dist, html=True), name="spa")
     return app
 
 
@@ -445,4 +457,4 @@ if __name__ == "__main__":
     import uvicorn
 
     settings = get_settings()
-    uvicorn.run("app.main:app", host=settings.http_host, port=settings.http_port)
+    uvicorn.run(app, host=settings.http_host, port=settings.http_port, log_config=LOG_CONFIG)

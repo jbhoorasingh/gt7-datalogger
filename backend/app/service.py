@@ -135,7 +135,7 @@ class TelemetryService:
         self.latest_packet: TelemetryPacket | None = None
         # Where Admin saves the webhook URL and sync token: beside the
         # database, never in it (#94).
-        self.secrets = SecretStore(settings.db_path.parent)
+        self.secrets = SecretStore(settings.data_root())
         # The backup made in Settings › Data and waiting for its download, and
         # the one uploaded there to be restored (#161).
         # Every API request holds a place here (main.DrainForRestore), so a
@@ -144,8 +144,8 @@ class TelemetryService:
         self.requests = Gate("requests")
         # Both fill the disk beside the database, so they take turns on it.
         disk = DiskClaim()
-        self.backups = Backups(settings.db_path.parent, disk)
-        self.restores = Restores(settings.db_path.parent, disk)
+        self.backups = Backups(settings.data_root(), disk)
+        self.restores = Restores(settings.data_root(), disk)
         # Work going through the stored laps in the background (the startup
         # re-check of lap starts): a restored database makes it stale, so a
         # restore cancels it, and `database_replaced` runs it again.
@@ -168,7 +168,7 @@ class TelemetryService:
         # like any other admin setting.
         self.sync = SyncClient(
             settings,
-            settings.db_path.parent,
+            settings.data_root(),
             persist=repo.set_setting,
             load_lap=repo.export_lap,
             load_stats=repo.session_lap_stats,
@@ -182,7 +182,7 @@ class TelemetryService:
         # Re-judges a circuit's stored laps after its bundle changes (#91),
         # on its own task, once the writes have settled. Told about the
         # survey's writes here; the API tells it about the rest.
-        self.rejudge = SurveyRejudge(repo, settings.db_path.parent)
+        self.rejudge = SurveyRejudge(repo, settings.data_root())
         self.rejudge.on_changed = self._laps_rejudged
         self.survey.on_bundle_saved = self._bundle_saved
         self.engineer = RaceEngineerManager(
@@ -293,7 +293,7 @@ class TelemetryService:
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
         """One parse of the bundle fills all three caches."""
         key = track_bundle.slugify(track)
-        doc = track_bundle.load(self.settings.db_path.parent, track)
+        doc = track_bundle.load(self.settings.data_root(), track)
         corners = list(doc.get("corners") or []) if doc else []
         sections = list(doc.get("sections") or []) if doc else []
         sectors = list(doc.get("sectors") or []) if doc else []
@@ -334,7 +334,7 @@ class TelemetryService:
             else None
         )
         official_id = await self.official_id_for(track)
-        data_dir = self.settings.db_path.parent
+        data_dir = self.settings.data_root()
 
         def _open() -> SessionAnalysis:
             circuit: dict[str, Any] = {"name": track}
@@ -404,7 +404,7 @@ class TelemetryService:
                 official_id = str(row["official_id"])
                 break
         if not official_id:
-            doc = await asyncio.to_thread(track_bundle.load, self.settings.db_path.parent, track)
+            doc = await asyncio.to_thread(track_bundle.load, self.settings.data_root(), track)
             official = (doc or {}).get("meta", {}).get("official") or {}
             official_id = str(official.get("official_id") or "")
         self._official_ids[track] = official_id
@@ -612,7 +612,7 @@ class TelemetryService:
             car=car,
             car_id=info.car_id,
             started_at=info.started_at,
-            source_id=track_bundle.source_id(self.settings.db_path.parent),
+            source_id=track_bundle.source_id(self.settings.data_root()),
         )
         self.sync.live.set_meta(car=car, official_id="", track="")
         # A survey spanning a restart keeps labeling its records with the
@@ -898,7 +898,7 @@ class TelemetryService:
         source = "signature"
         if not name:
             hit = await asyncio.to_thread(
-                tracks.identify_from_bundles, self.settings.db_path.parent, lap.samples
+                tracks.identify_from_bundles, self.settings.data_root(), lap.samples
             )
             if hit is not None:
                 name, cover = hit
@@ -929,7 +929,7 @@ class TelemetryService:
         document's identity, which makes the repeat call cheap."""
         return await asyncio.to_thread(
             track_limits.judge_for_track,
-            self.settings.db_path.parent, self.track_name,
+            self.settings.data_root(), self.track_name,
         )
 
     async def _judge_against_survey(self, lap: CompletedLap) -> None:

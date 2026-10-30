@@ -41,7 +41,7 @@ async def backup_inventory(request: Request) -> dict[str, Any]:
     service = svc(request)
     db_path = service.settings.db_path
     return await backup.inventory(
-        service.repo, db_path.parent, db_path, service.secrets.read()
+        service.repo, service.settings.data_root(), db_path, service.secrets.read()
     )
 
 
@@ -70,7 +70,7 @@ async def download_backup(request: Request, backup_id: str, name: str) -> Stream
     if prepared is None or name != prepared.name:
         raise HTTPException(404, "no such backup — it may have expired; make it again")
     chunks = backup.write_archive(
-        prepared, service.settings.db_path.parent, service.repo, service.secrets.read()
+        prepared, service.settings.data_root(), service.repo, service.secrets.read()
     )
     return StreamingResponse(
         service.backups.stream(prepared, chunks),

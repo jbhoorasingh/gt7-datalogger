@@ -14,6 +14,7 @@ from alembic import command
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from sqlalchemy import Boolean, Connection, ForeignKey, Index, Text, func, inspect
+from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -254,7 +255,10 @@ class LapRow(Base):
 def make_engine(db_path: Path | str) -> AsyncEngine:
     if isinstance(db_path, Path):
         db_path.parent.mkdir(parents=True, exist_ok=True)
-        url = f"sqlite+aiosqlite:///{db_path}"
+        # Built, not formatted: in an f-string URL a "?" or "#" in a folder
+        # name starts the query or fragment and the path is cut short there
+        # ("100% Racing?/gt7.db" opened "100% Racing").
+        url: str | URL = URL.create("sqlite+aiosqlite", database=str(db_path))
     else:
         url = db_path  # full SQLAlchemy URL (e.g. postgresql+asyncpg://...)
     return create_async_engine(url)

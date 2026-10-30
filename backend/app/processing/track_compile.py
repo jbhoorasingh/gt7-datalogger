@@ -59,6 +59,7 @@ from pathlib import Path
 from typing import Any
 
 from app.processing import track_bundle, track_corrections
+from app.version import version
 
 log = logging.getLogger(__name__)
 
@@ -1109,7 +1110,7 @@ def compile_bundle(
             # (prune_pieces).
             "pieces_dropped": pieces_dropped,
             "bundle_updated_at": meta["updated_at"],
-            "app_version": _app_version(),
+            "app_version": version(),
         },
         "borders": {"L": left.polylines(), "R": right.polylines()},
         "gaps": {"L": left.gap_spans(), "R": right.gap_spans()},
@@ -1145,27 +1146,10 @@ def _wall_tick(e: dict[str, Any]) -> list[float]:
             round(e["x"] + hx, 1), round(e["z"] + hz, 1)]
 
 
-_VERSION: str | None = None
-
-
 def app_version() -> str:
     """The build that is running, as pyproject states it — stamped into every
     derived document so a reader knows what compiled it."""
-    return _app_version()
-
-
-def _app_version() -> str:
-    global _VERSION
-    if _VERSION is None:
-        try:
-            import tomllib
-
-            pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"
-            with open(pyproject, "rb") as fh:
-                _VERSION = str(tomllib.load(fh)["project"]["version"])
-        except (OSError, KeyError, ValueError):
-            _VERSION = "unknown"
-    return _VERSION
+    return version()
 
 
 def _compiled_path(data_dir: Path, slug: str) -> Path:

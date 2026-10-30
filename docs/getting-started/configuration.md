@@ -95,7 +95,10 @@ The **Applies** column says when a change takes effect:
 | `GT7_ADMIN_TOKEN` | *(empty)* | live | When set, the Settings pages and all destructive/mutating API calls require this token via the `X-API-Key` header; overlay/dash/read endpoints and the live WebSocket stay open. Empty = fully open (LAN-trusted) |
 | `GT7_HTTP_HOST` | `0.0.0.0` | environment only | HTTP bind host. Read before the database opens, so environment only |
 | `GT7_HTTP_PORT` | `8000` | environment only | HTTP port. Read before the database opens — and a Docker install maps it from outside — so environment only |
-| `GT7_DB_PATH` | `data/gt7.db` | environment only | SQLite database path — also accepts a full SQLAlchemy async URL (e.g. Postgres). The database holds the other settings, so environment only |
+| `GT7_DATA_DIR` | *(the database's folder)* | environment only | Folder for everything the app writes: the database (unless `GT7_DB_PATH` names another), track bundles, survey logs, sync state, backups and this installation's identity. Unset = the database's own folder. Read before the database opens, so environment only |
+| `GT7_DB_PATH` | `data/gt7.db` | environment only | SQLite database file. Defaults to `gt7.db` in `GT7_DATA_DIR` when that is set. The database holds the other settings, so environment only |
+| `GT7_LOG_FILE` | *(empty)* | environment only | Also write the log to this file, rotated at 5 MB with four old files kept (e.g. `/data/logs/gt7.log` in Docker). Empty = stderr and the Settings › Advanced log view only. Environment only |
+| `GT7_FRONTEND_DIST` | *(bundled)* | environment only | The built web UI to serve. Unset = the source checkout's `frontend/dist`, or the copy inside a desktop build. Environment only |
 
 <!-- settings-table:end -->
 

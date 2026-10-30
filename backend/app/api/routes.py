@@ -1031,7 +1031,7 @@ async def survey_start(request: Request, payload: SurveyStartPayload) -> dict[st
         raise HTTPException(409, "survey already running — stop it first")
     user_track = payload.track.strip()
     service.survey.start(
-        service.settings.db_path.parent,
+        service.settings.data_root(),
         payload.track_width_m,
         track=user_track or service.track_name,
         track_user_set=bool(user_track),

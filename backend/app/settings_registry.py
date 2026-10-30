@@ -322,10 +322,31 @@ ENTRIES: tuple[Entry, ...] = (
         apply="env", kind="int", minimum=1, maximum=65535,
     ),
     Entry(
+        "data_dir", "Server", "Data folder",
+        "Folder for everything the app writes: the database (unless "
+        "`GT7_DB_PATH` names another), track bundles, survey logs, sync state, "
+        "backups and this installation's identity. Unset = the database's own "
+        "folder. Read before the database opens, so environment only",
+        apply="env", kind="path", doc_default="*(the database's folder)*",
+    ),
+    Entry(
         "db_path", "Server", "Database",
-        "SQLite database path — also accepts a full SQLAlchemy async URL (e.g. "
-        "Postgres). The database holds the other settings, so environment only",
+        "SQLite database file. Defaults to `gt7.db` in `GT7_DATA_DIR` when that is "
+        "set. The database holds the other settings, so environment only",
         apply="env", kind="path",
+    ),
+    Entry(
+        "log_file", "Server", "Log file",
+        "Also write the log to this file, rotated at 5 MB with four old files "
+        "kept (e.g. `/data/logs/gt7.log` in Docker). Empty = stderr and the "
+        "Settings › Advanced log view only. Environment only",
+        apply="env", kind="path", doc_default="*(empty)*",
+    ),
+    Entry(
+        "frontend_dist", "Server", "Frontend folder",
+        "The built web UI to serve. Unset = the source checkout's "
+        "`frontend/dist`, or the copy inside a desktop build. Environment only",
+        apply="env", kind="path", doc_default="*(bundled)*",
     ),
 )
 
