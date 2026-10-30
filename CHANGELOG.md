@@ -237,6 +237,13 @@ Notable changes to GT7 Datalogger. The format follows
   refresh. The car-list refresh had no off switch at all; `GT7_CAR_REFRESH=false` (Settings
   › Advanced) now keeps the bundled inventory until you press Update car database (#191).
 
+- **Privacy and code-signing pages, and installer switches for background requests.**
+  [Privacy](docs/reference/privacy.md) lists everything the app sends, where to, and how
+  to turn each request off; the [code signing policy](docs/internals/code-signing.md)
+  says how desktop downloads are built, signed and approved. The Windows installer offers
+  the car-list refresh and the shared track surveys as tasks beside the update check, and
+  the launcher passes an unticked one to the server as its default (#199, #201).
+
 ### Fixed
 
 - **mDNS no longer broadcasts this computer's name, and retries.** The advertisement

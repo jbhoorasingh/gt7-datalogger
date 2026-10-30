@@ -97,10 +97,16 @@ def server_env(folders: paths.Folders, gui: bool) -> dict[str, str]:
         GT7_LOG_FILE=str(folders.log_file),
         GT7_DESKTOP="1",
     )
-    # The installer's "Check for updates daily" task is the baseline for the
-    # update check (#196); an explicit environment variable still wins.
-    update_check = read_install_defaults(install_defaults_path()).get("update_check")
-    env.setdefault("GT7_UPDATE_CHECK", "false" if update_check is False else "true")
+    # The installer's tasks are the baseline for the three requests the app
+    # makes on its own (#196, #199): the update check, the car-list refresh
+    # and the first-start shared track pull. An explicit environment
+    # variable still wins, and a saved setting wins over both.
+    defaults = read_install_defaults(install_defaults_path())
+    env.setdefault("GT7_UPDATE_CHECK", "false" if defaults.get("update_check") is False else "true")
+    if defaults.get("car_refresh") is False:
+        env.setdefault("GT7_CAR_REFRESH", "false")
+    if defaults.get("shared_tracks") is False:
+        env.setdefault("GT7_SHARED_BUNDLES_URL", "")
     dist = paths.frontend_dist()
     if dist is not None:
         env["GT7_FRONTEND_DIST"] = str(dist)

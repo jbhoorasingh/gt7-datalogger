@@ -319,8 +319,11 @@ The app records with no internet at all. When it has some, it makes three kinds 
 request without being asked: the GT7 car-list refresh (first start, then weekly), the
 shared track pull (once, on a first start) and the daily update check. None of them
 sends your recordings. [What the app fetches on its own](configuration.md#what-the-app-fetches-on-its-own)
-lists each one and how to turn it off. Sync with an online service stays off until
-you set it up.
+lists each one and how to turn it off, and [Privacy](../reference/privacy.md) covers
+everything the app sends. Sync with an online service stays off until you set it up.
+The setup wizard and the Windows installer ask about each background request before the
+app first records. How the downloads are signed is in the
+[code signing policy](../internals/code-signing.md).
 
 ## Linux: "Cannot mount AppImage"
 

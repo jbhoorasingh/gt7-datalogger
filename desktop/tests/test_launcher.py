@@ -154,3 +154,25 @@ def test_the_installer_task_sets_the_update_check_baseline(
     if os.name != "nt":
         monkeypatch.undo()
         assert main.install_defaults_path() is None
+
+
+def test_the_installer_tasks_turn_off_the_background_requests(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Unticked car-list and shared-track tasks reach the server as env (#199)."""
+    f = paths.folders(tmp_path / "data")
+    paths.create(f)
+    defaults = tmp_path / "install-defaults.json"
+    monkeypatch.setattr(main, "install_defaults_path", lambda: defaults)
+    for var in ("GT7_CAR_REFRESH", "GT7_SHARED_BUNDLES_URL"):
+        monkeypatch.delenv(var, raising=False)
+
+    env = main.server_env(f, gui=False)
+    assert "GT7_CAR_REFRESH" not in env and "GT7_SHARED_BUNDLES_URL" not in env
+    defaults.write_text('{"update_check": true, "car_refresh": false, "shared_tracks": false}')
+    env = main.server_env(f, gui=False)
+    assert env["GT7_CAR_REFRESH"] == "false"
+    assert env["GT7_SHARED_BUNDLES_URL"] == ""
+    defaults.write_text('{"car_refresh": true, "shared_tracks": true}')
+    env = main.server_env(f, gui=False)
+    assert "GT7_CAR_REFRESH" not in env and "GT7_SHARED_BUNDLES_URL" not in env

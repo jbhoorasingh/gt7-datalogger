@@ -85,6 +85,7 @@ nav:
       - Translations: internals/translations.md
       - Surface survey spike: internals/surface-survey.md
       - Releasing: internals/releasing.md
+      - Code signing policy: internals/code-signing.md
   - Reference:
       - REST & WebSocket API: reference/api.md
       - Live client protocol: reference/client-protocol.md
@@ -92,3 +93,4 @@ nav:
       - Lap analysis format: reference/lap-analysis-format.md
       - Track bundle format: reference/track-bundle-format.md
       - Troubleshooting: reference/troubleshooting.md
+      - Privacy: reference/privacy.md

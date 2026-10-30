@@ -90,7 +90,11 @@ WelcomeLabel2=This will install [name/ver] on your computer.%n%nGT7 Datalogger r
 
 [Tasks]
 Name: "startatlogin"; Description: "Start GT7 Datalogger when I sign in"; Flags: unchecked
+; The three requests the app makes on its own, each with a way to say no
+; before it runs (#199; SignPath's terms ask for exactly this).
 Name: "updatecheck"; Description: "Check for updates daily"
+Name: "carrefresh"; Description: "Keep the GT7 car list up to date (gran-turismo.com, weekly)"
+Name: "sharedtracks"; Description: "Use the shared track surveys (downloaded from GitHub Pages; off leaves the Shared track repository empty)"
 ; Per-user installs only: per-machine installs always add the rules. A silent
 ; per-user install skips it; the tray's "Repair firewall" (`--firewall repair`,
 ; elevated) adds them later.
@@ -185,6 +189,14 @@ begin
       'tray icon, then run Setup again.';
 end;
 
+function BoolJson(Value: Boolean): String;
+begin
+  if Value then
+    Result := 'true'
+  else
+    Result := 'false';
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   Json: String;
@@ -192,10 +204,9 @@ begin
   if CurStep = ssPostInstall then
   begin
     { The launcher's baseline for GT7_UPDATE_CHECK (#196); see server_env. }
-    if WizardIsTaskSelected('updatecheck') then
-      Json := '{"update_check": true}'
-    else
-      Json := '{"update_check": false}';
+    Json := '{"update_check": ' + BoolJson(WizardIsTaskSelected('updatecheck')) +
+      ', "car_refresh": ' + BoolJson(WizardIsTaskSelected('carrefresh')) +
+      ', "shared_tracks": ' + BoolJson(WizardIsTaskSelected('sharedtracks')) + '}';
     if not SaveStringToFile(ExpandConstant('{app}\install-defaults.json'), Json + #13#10, False) then
       Log('could not write install-defaults.json');
   end;
