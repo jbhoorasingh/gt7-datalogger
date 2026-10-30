@@ -5,6 +5,8 @@ Notable changes to GT7 Datalogger. The format follows
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-30
+
 ### Added
 
 - **A synced session gets its circuit even when its first lap was not a whole
@@ -25,7 +27,7 @@ Notable changes to GT7 Datalogger. The format follows
   signatures include it, built from the lap zetetos/gt-telemetry published; the
   re-vendored file also brings the surveys gt7-datalogger-track-data has merged since
   the last copy: 26 configurations now take their geometry from a surveyed road
-  instead of one captured lap, and 80 are recognised in all.
+  instead of one captured lap, and 80 are recognised in all (#170).
 
 - **Spanish, Brazilian Portuguese and Japanese.** A language menu in the status bar
   (and on `/engineer`) sets this device's language; *Auto* follows the browser. The
@@ -112,7 +114,7 @@ Notable changes to GT7 Datalogger. The format follows
   so the sectors where it lost time read short and the last sector long by everything
   missed — up to six minutes on recorded laps. A lap whose clock does not agree with its lap
   time, within the window a salvaged lap has to meet (500 ms, or 0.5 % of the lap),
-  now shows no sector times. Partial laps timed line to line keep theirs.
+  now shows no sector times. Partial laps timed line to line keep theirs (#168).
 
 - **The Race Engineer said "ten tenths" for a gap of 950–999 ms.** A lap delta,
   personal-best gain, pace drop or corner loss chose tenths before rounding, so just
