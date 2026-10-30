@@ -13,7 +13,9 @@ import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Select } from "@/components/ui/Select";
 import { Toggle } from "@/components/ui/Toggle";
 import { rich, t as translate, useT, withLanguage, type MessageKey, type Translate } from "@/i18n";
+import { LanOffNotice } from "@/components/settings/LanAccess";
 import { api } from "@/lib/api";
+import { copyText, selectText } from "@/lib/clipboard";
 import { DASH_PRESETS } from "@/lib/dashPresets";
 import {
   DEFAULT_LAYOUT,
@@ -196,12 +198,21 @@ export function useLayoutBuilder(requested: string | null) {
 
   // LAN URL for other devices (OBS on another PC, phone on the wall). Stats
   // needs the admin token when one is set; without it, this page's own host.
+  // With LAN access off (#195) no other device may connect: the URL stays
+  // this computer's own and the panel says why.
   const [lan, setLan] = useState<{ ip: string; port: number } | null>(null);
-  useEffect(() => {
+  const [lanOff, setLanOff] = useState(false);
+  const reloadLan = () =>
     api.admin
       .stats()
-      .then((s) => s.lan_ip && setLan({ ip: s.lan_ip, port: s.http_port }))
+      .then((s) => {
+        const off = s.lan_reachable === false && !s.loopback_only;
+        setLanOff(off);
+        setLan(s.lan_ip && !off ? { ip: s.lan_ip, port: s.http_port } : null);
+      })
       .catch(() => {});
+  useEffect(() => {
+    void reloadLan();
   }, []);
 
   const serverCopy = (id: number | null) =>
@@ -590,6 +601,8 @@ export function useLayoutBuilder(requested: string | null) {
     legacyPresets,
     importFile,
     shareUrl,
+    lanOff,
+    reloadLan,
     previewUrl,
     openSaved,
     openUnsaved,
@@ -921,8 +934,9 @@ export function CanvasPanel({ b }: { b: LayoutBuilderState }) {
 
 export function UsePanel({ b }: { b: LayoutBuilderState }) {
   const t = useT();
-  const { draft, layout, shareUrl, previewUrl } = b;
+  const { draft, layout, shareUrl, previewUrl, lanOff, reloadLan } = b;
   const [copied, setCopied] = useState(false);
+  const urlRef = useRef<HTMLSpanElement>(null);
   useEffect(() => {
     if (!copied) return;
     const timer = window.setTimeout(() => setCopied(false), 1500);
@@ -940,6 +954,7 @@ export function UsePanel({ b }: { b: LayoutBuilderState }) {
     <div className="panel flex flex-wrap items-center gap-2.5 px-3 py-2.5">
       <span className="section-header">{t("layout.use.title")}</span>
       <span
+        ref={urlRef}
         className={`min-w-[260px] flex-1 truncate rounded-md border border-edge bg-panel-2 px-2.5 py-[5px] font-tabular text-xs ${
           shareUrl ? "text-accent-300" : "text-ink-faint"
         }`}
@@ -951,10 +966,13 @@ export function UsePanel({ b }: { b: LayoutBuilderState }) {
         disabled={!shareUrl}
         onClick={() =>
           shareUrl &&
-          navigator.clipboard
-            .writeText(shareUrl)
-            .then(() => setCopied(true))
-            .catch(() => toast(t("settings.overlays.copyFailed"), "error"))
+          void copyText(shareUrl).then((ok) => {
+            if (ok) return setCopied(true);
+            // No clipboard here (plain HTTP on a LAN address): the URL is
+            // selected instead, one Ctrl/Cmd+C from copied.
+            selectText(urlRef.current);
+            toast(t("clipboard.selected"), "error");
+          })
         }
       >
         {copied ? t("common.copied") : t("settings.overlays.copy")}
@@ -969,6 +987,11 @@ export function UsePanel({ b }: { b: LayoutBuilderState }) {
         </button>
       )}
       <span className="w-full text-[11px] text-ink-faint">{hint}</span>
+      {lanOff && (
+        <div className="w-full">
+          <LanOffNotice onChanged={() => void reloadLan()} />
+        </div>
+      )}
     </div>
   );
 }
