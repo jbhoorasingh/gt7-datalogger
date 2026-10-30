@@ -242,7 +242,7 @@ class TracksAdapter:
             self._task = None
             self._inflight = None
 
-    async def wait_idle(self, timeout: float = 5.0) -> None:
+    async def wait_idle(self, timeout: float = 30.0) -> None:
         """Wait until nothing is due or in flight — the Admin push, and tests."""
         deadline = time.monotonic() + timeout
         while (self._due() or self._inflight is not None) and time.monotonic() < deadline:

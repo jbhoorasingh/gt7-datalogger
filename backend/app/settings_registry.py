@@ -581,7 +581,9 @@ def _doc_default(entry: Entry) -> str:
         return entry.doc_default
     if entry.secret:
         return "*(empty)*"
-    value = to_api(entry, default_of(entry.key))
+    default = default_of(entry.key)
+    # The docs are the same table on every OS: data/gt7.db, not data\gt7.db.
+    value = default.as_posix() if isinstance(default, Path) else to_api(entry, default)
     if value in ("", []):
         return "*(empty)*"
     if isinstance(value, bool):

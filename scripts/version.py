@@ -48,6 +48,10 @@ _LOCK_LINES = (
 )
 
 
+# Explicit, so a Windows runner does not read the files as cp1252.
+UTF8 = {"encoding": "utf-8"}
+
+
 class VersionError(Exception):
     pass
 
@@ -61,11 +65,11 @@ def _one(pattern: re.Pattern[str], text: str, where: Path, group: int = 1) -> st
 
 def read_all() -> dict[str, str]:
     """Each place's version, labelled by where it was read."""
-    lock = PACKAGE_LOCK.read_text()
+    lock = PACKAGE_LOCK.read_text(**UTF8)
     return {
-        "backend/pyproject.toml": _one(_PYPROJECT_LINE, PYPROJECT.read_text(), PYPROJECT),
-        "backend/app/_version.py": _one(_VERSION_PY_LINE, VERSION_PY.read_text(), VERSION_PY),
-        "frontend/package.json": _one(_JSON_LINE, PACKAGE_JSON.read_text(), PACKAGE_JSON, 2),
+        "backend/pyproject.toml": _one(_PYPROJECT_LINE, PYPROJECT.read_text(**UTF8), PYPROJECT),
+        "backend/app/_version.py": _one(_VERSION_PY_LINE, VERSION_PY.read_text(**UTF8), VERSION_PY),
+        "frontend/package.json": _one(_JSON_LINE, PACKAGE_JSON.read_text(**UTF8), PACKAGE_JSON, 2),
         "frontend/package-lock.json (lock)": _one(_LOCK_LINES[0], lock, PACKAGE_LOCK, 2),
         "frontend/package-lock.json (root package)": _one(_LOCK_LINES[1], lock, PACKAGE_LOCK, 2),
     }
@@ -119,13 +123,13 @@ def _replace(pattern: re.Pattern[str], text: str, new: str, where: Path) -> str:
 def bump(new: str) -> None:
     if not PLAIN.match(new):
         raise VersionError(f"{new!r} is not X.Y.Z")
-    PYPROJECT.write_text(_replace(_PYPROJECT_LINE, PYPROJECT.read_text(), new, PYPROJECT))
-    VERSION_PY.write_text(_replace(_VERSION_PY_LINE, VERSION_PY.read_text(), new, VERSION_PY))
-    PACKAGE_JSON.write_text(_replace(_JSON_LINE, PACKAGE_JSON.read_text(), new, PACKAGE_JSON))
-    lock = PACKAGE_LOCK.read_text()
+    PYPROJECT.write_text(_replace(_PYPROJECT_LINE, PYPROJECT.read_text(**UTF8), new, PYPROJECT))
+    VERSION_PY.write_text(_replace(_VERSION_PY_LINE, VERSION_PY.read_text(**UTF8), new, VERSION_PY))
+    PACKAGE_JSON.write_text(_replace(_JSON_LINE, PACKAGE_JSON.read_text(**UTF8), new, PACKAGE_JSON))
+    lock = PACKAGE_LOCK.read_text(**UTF8)
     for pattern in _LOCK_LINES:
         lock = _replace(pattern, lock, new, PACKAGE_LOCK)
-    PACKAGE_LOCK.write_text(lock)
+    PACKAGE_LOCK.write_text(lock, **UTF8)
 
 
 def _short_sha() -> str:
