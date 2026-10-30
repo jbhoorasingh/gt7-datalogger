@@ -1,0 +1,14 @@
+#!/bin/sh
+# The AppImage's entry point (#200; plan 07 §5.4).
+#
+# Started with no arguments (a double-click, the menu entry) it adds --open,
+# so the dashboard opens; any arguments pass through untouched, so the
+# autostart entry's `--background --login` stays in the background.
+# It sets no LD_LIBRARY_PATH: the frozen app finds its own libraries, and a
+# browser or xdg-open it starts must not inherit ours.
+set -e
+APPDIR="${APPDIR:-$(dirname "$(readlink -f "$0")")}"
+if [ "$#" -eq 0 ]; then
+    set -- --open
+fi
+exec "$APPDIR/usr/lib/gt7-datalogger/gt7-datalogger" "$@"

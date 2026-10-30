@@ -1,0 +1,8 @@
+GT7-Datalogger-macOS-arm64.dmg
+GT7-Datalogger-Windows-x64-Setup.exe
+GT7-Datalogger-Windows-x64-Portable.zip
+GT7-Datalogger-Linux-x86_64.AppImage
+GT7-Datalogger-Linux-x86_64.AppImage.zsync
+GT7-Datalogger-Linux-x86_64.tar.gz
+release-manifest.json
+SHA256SUMS.txt

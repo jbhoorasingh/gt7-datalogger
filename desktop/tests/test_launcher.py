@@ -129,3 +129,28 @@ def test_a_second_server_on_the_same_data_is_refused(tmp_path: Path) -> None:
     with serve.server_lock(tmp_path), pytest.raises(serve.ServerLockHeld):
         with serve.server_lock(tmp_path):
             pass
+
+
+def test_the_installer_task_sets_the_update_check_baseline(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    f = paths.folders(tmp_path / "data")
+    paths.create(f)
+    defaults = tmp_path / "install-defaults.json"
+    monkeypatch.setattr(main, "install_defaults_path", lambda: defaults)
+    monkeypatch.delenv("GT7_UPDATE_CHECK", raising=False)
+
+    assert main.server_env(f, gui=False)["GT7_UPDATE_CHECK"] == "true"  # no file
+    defaults.write_text('{"update_check": false}')
+    assert main.server_env(f, gui=False)["GT7_UPDATE_CHECK"] == "false"
+    # A file saved with a BOM (Notepad, PowerShell 5) still reads.
+    defaults.write_text('\ufeff{"update_check": true}', encoding="utf-8")
+    assert main.server_env(f, gui=False)["GT7_UPDATE_CHECK"] == "true"
+    defaults.write_text("not json")
+    assert main.server_env(f, gui=False)["GT7_UPDATE_CHECK"] == "true"
+    defaults.write_text('{"update_check": false}')
+    monkeypatch.setenv("GT7_UPDATE_CHECK", "true")
+    assert main.server_env(f, gui=False)["GT7_UPDATE_CHECK"] == "true"
+    if os.name != "nt":
+        monkeypatch.undo()
+        assert main.install_defaults_path() is None
