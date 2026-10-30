@@ -30,6 +30,17 @@ dev = [
     "ruff>=0.4",
 ]
 
+# The desktop app's launcher (desktop/gt7_desktop, #192): never installed in
+# the Docker image. PyInstaller itself is a build tool, pinned in
+# desktop/requirements-build.txt.
+desktop = [
+    "platformdirs>=4.2",
+    "pystray>=0.19; sys_platform == 'win32'",
+    "Pillow>=10.0; sys_platform == 'win32'",
+    "pyobjc-framework-Cocoa>=10.3; sys_platform == 'darwin'",
+    "pyobjc-framework-ServiceManagement>=10.3; sys_platform == 'darwin'",
+]
+
 [tool.setuptools.packages.find]
 include = ["app*"]
 
