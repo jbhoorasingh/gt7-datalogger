@@ -13,8 +13,8 @@
 # 2. CPython 3.14 from python-build-standalone via `uv python install`: the
 #    manylinux CPythons are linked statically and PyInstaller needs a shared
 #    libpython;
-# 3. a venv with wheels only (--only-binary :all: --require-hashes), from a
-#    lock uv compiles here for this interpreter and platform;
+# 3. a venv with wheels only (--only-binary :all: --require-hashes), from
+#    the committed lock desktop/locks/x86_64-manylinux_2_28.txt;
 # 4. desktop/scripts/build.py freezes it and runs the frozen --self-test;
 # 5. unless --no-appimage: zsync, then desktop/linux/build-appimage.sh
 #    (other arguments pass through, so --sign works here as there). CI
@@ -60,15 +60,11 @@ assert sysconfig.get_config_var("Py_ENABLE_SHARED"), "this Python has no shared 
 print("build-in-manylinux: python", sys.version.split()[0], sys.prefix)
 EOF
 
-# 3. Wheels only, every one hash-checked. The lock is compiled here, for this
-#    interpreter, from the backend's dependencies plus its desktop extra, the
-#    pinned build tools, and setuptools to build the backend itself.
-printf 'setuptools>=75\n' > "$WORK/build-backend.in"
-"${UV[@]}" pip compile --quiet --python "$PY" --only-binary :all: --generate-hashes \
-    --extra desktop backend/pyproject.toml desktop/requirements-build.txt \
-    "$WORK/build-backend.in" -o "$WORK/requirements.lock"
+# 3. Wheels only, every one hash-checked against the committed lock
+#    (desktop/locks/lock.sh writes it; #193), so the build installs what was
+#    reviewed rather than what a resolver picks on the day.
 "${UV[@]}" pip install --python "$PY" --only-binary :all: --require-hashes \
-    -r "$WORK/requirements.lock"
+    -r desktop/locks/x86_64-manylinux_2_28.txt
 "${UV[@]}" pip install --python "$PY" --no-deps --no-build-isolation ./backend
 
 # 4. Freeze, and the frozen app's own self-test.
