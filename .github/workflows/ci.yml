@@ -47,6 +47,11 @@ jobs:
       - name: Type-check
         if: matrix.lint
         run: mypy app
+      - name: Version is consistent
+        if: matrix.lint
+        # The five places a release bumps agree, and on a tag build the tag
+        # matches them (#179).
+        run: python ../scripts/version.py check
       - name: Test
         run: pytest -q
 
