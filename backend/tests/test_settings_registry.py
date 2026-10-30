@@ -50,7 +50,7 @@ def test_every_setting_is_registered() -> None:
 
 
 def test_documentation_table_is_current() -> None:
-    text = DOC.read_text()
+    text = DOC.read_text(encoding="utf-8")
     assert registry.splice_docs(text) == text, (
         "configuration.md is out of date: run python backend/scripts/gen_config_docs.py"
     )
@@ -144,7 +144,8 @@ async def test_restart_setting_is_stored_but_pending(client) -> None:
     row = by_key(resp.json())["cars_json"]
     assert row["restart_pending"] is True
     assert service.settings.cars_json == before
-    assert (await service.repo.get_settings())["cars_json"] == "/tmp/cars.json"
+    # Stored as the Path it validated to, so in this OS's spelling.
+    assert (await service.repo.get_settings())["cars_json"] == str(Path("/tmp/cars.json"))
     # Resetting it again leaves nothing pending.
     resp = await c.put("/api/admin/config", json={"reset": ["cars_json"]})
     assert by_key(resp.json())["cars_json"]["restart_pending"] is False

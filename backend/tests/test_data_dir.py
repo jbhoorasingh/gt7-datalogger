@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import sqlite3
+import sys
 from pathlib import Path
 
 import pytest
@@ -59,7 +60,7 @@ def test_nothing_recomputes_the_data_folder_from_the_database_path() -> None:
     offenders = [
         f"{path.relative_to(APP)}:{n}"
         for path in APP.rglob("*.py")
-        for n, line in enumerate(path.read_text().splitlines(), 1)
+        for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
         if re.search(r"db_path\.parent", line)
         # The definition itself, and make_engine creating the file's own folder.
         and path.name not in ("config.py", "db.py")
@@ -75,7 +76,9 @@ def test_the_car_refresh_never_writes_into_the_package(tmp_path: Path) -> None:
 
 
 async def test_a_database_under_an_awkward_folder_name_opens(tmp_path: Path) -> None:
-    db = tmp_path / "100%20 Racing?#é" / "gt7.db"
+    # "?" cannot be in a Windows file name at all; "#" and "%" can.
+    name = "100%20 Racing#é" if sys.platform == "win32" else "100%20 Racing?#é"
+    db = tmp_path / name / "gt7.db"
     engine = make_engine(db)
     async with engine.begin() as conn:
         await conn.exec_driver_sql("CREATE TABLE t (x INTEGER)")
