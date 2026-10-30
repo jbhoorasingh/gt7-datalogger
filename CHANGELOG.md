@@ -208,6 +208,21 @@ Notable changes to GT7 Datalogger. The format follows
   `desktop/ci/smoke.py` checks a build end to end; nothing of it reaches the Docker
   image (#192, #193, #194).
 
+- **Windows and Linux packaging for the desktop app.** Windows gets an Inno Setup
+  installer, `GT7-Datalogger-Windows-x64-Setup.exe`, which installs for everyone by
+  default (or "for me only") into the same folder every version, so the firewall
+  rules it adds for the app (UDP and TCP, local subnet, private and public networks)
+  survive updates. It closes a running copy before updating, after saying a session
+  being recorded will be closed; offers Start at login and Check for updates daily;
+  and leaves the data folder alone on uninstall. A portable zip ships beside it, and
+  `desktop/windows/package.ps1 -Sign` signs every .exe, .dll and .pyd and then the
+  installer and uninstaller, through Azure Artifact Signing, SignPath or a .pfx, with
+  a Defender scan that fails the build on any detection. Linux gets an AppImage
+  built on manylinux_2_28 (runs on RHEL 8+, Ubuntu 22.04+, Debian 12+), with
+  delta-update information and a `.zsync`, and a tarball of the same build; with
+  `--sign`, a gpg signature in the AppImage and a detached `.asc` beside each file.
+  `desktop/release-assets.txt` names every release download (#199, #200).
+
 ### Fixed
 
 - **mDNS no longer broadcasts this computer's name, and retries.** The advertisement

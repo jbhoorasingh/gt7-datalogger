@@ -68,6 +68,25 @@ def setup_completed(db_path: Path) -> bool:
     return bool(row and row[0])
 
 
+def install_defaults_path() -> Path | None:
+    """`install-defaults.json`, which the Windows installer writes next to
+    the exe from its tasks (#199). None elsewhere: only Windows has one."""
+    if os.name != "nt":
+        return None
+    return Path(sys.executable).resolve().parent / "install-defaults.json"
+
+
+def read_install_defaults(path: Path | None) -> dict[str, Any]:
+    """The installer's choices; {} when there are none or the file is unreadable."""
+    if path is None:
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def server_env(folders: paths.Folders, gui: bool) -> dict[str, str]:
     """The child's environment: the launcher owns where everything lives."""
     env = dict(os.environ)
@@ -78,7 +97,10 @@ def server_env(folders: paths.Folders, gui: bool) -> dict[str, str]:
         GT7_LOG_FILE=str(folders.log_file),
         GT7_DESKTOP="1",
     )
-    env.setdefault("GT7_UPDATE_CHECK", "true")
+    # The installer's "Check for updates daily" task is the baseline for the
+    # update check (#196); an explicit environment variable still wins.
+    update_check = read_install_defaults(install_defaults_path()).get("update_check")
+    env.setdefault("GT7_UPDATE_CHECK", "false" if update_check is False else "true")
     dist = paths.frontend_dist()
     if dist is not None:
         env["GT7_FRONTEND_DIST"] = str(dist)
