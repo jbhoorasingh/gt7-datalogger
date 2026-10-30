@@ -59,6 +59,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from app.processing import track_bundle
+from app.storage.atomic import atomic_write_text
 from app.sync.transport import SyncError
 
 if TYPE_CHECKING:
@@ -472,9 +473,7 @@ class TracksAdapter:
         }
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = path.with_suffix(".json.tmp")
-            tmp.write_text(json.dumps(doc, indent=1), encoding="utf-8")
-            tmp.replace(path)
+            atomic_write_text(path, json.dumps(doc, indent=1))
         except OSError as exc:  # pragma: no cover - a full disk must not stop uploads
             log.warning("sync: could not write %s: %s", path.name, exc)
 

@@ -29,6 +29,7 @@ import httpx
 
 from app.processing import car_source
 from app.processing.cars import SCHEMA_VERSION, CarDatabase, Inventory, dumps
+from app.storage.atomic import atomic_write_text
 
 if TYPE_CHECKING:  # a type annotation only: processing does not import storage
     from app.storage.repository import Repository
@@ -102,9 +103,7 @@ async def fetch_and_store(
     destination.parent.mkdir(parents=True, exist_ok=True)
     # Written whole, then moved into place: a half-written inventory that a
     # later start would read is worse than no refresh at all.
-    tmp = destination.with_suffix(destination.suffix + ".tmp")
-    tmp.write_text(dumps(merged) + "\n", encoding="utf-8")
-    tmp.replace(destination)
+    atomic_write_text(destination, dumps(merged) + "\n")
     cars.replace(merged)
     log.info(
         "car inventory refreshed: %d cars (%d from this fetch) -> %s",

@@ -25,7 +25,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import re
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -51,6 +50,7 @@ from app.processing import (
     tracks,
 )
 from app.processing.tracks import signature_from_samples
+from app.storage import atomic
 
 if TYPE_CHECKING:
     from app.service import TelemetryService
@@ -542,11 +542,12 @@ def _claim_upload_path(directory: Path, requested: str | None, part: Path) -> Pa
     never an existing file. Overwriting would silently replace one run's
     evidence with another's; a suffixed copy loses nothing.
 
-    Claimed with os.link, which fails with FileExistsError instead of
-    replacing — an exists()-then-rename gap would let two concurrent uploads
-    of the same name both "win". Same directory, so same filesystem, which is
-    what makes the link legal and atomic; the temp file is the caller's to
-    unlink."""
+    Claimed with atomic.claim — a hard link, or an exclusive create where
+    the filesystem has no links (FAT32, exFAT, many SMB shares) — which
+    fails on an existing name instead of replacing it: an exists()-then-rename
+    gap would let two concurrent uploads of the same name both "win". Same
+    directory, so same filesystem, which is what makes the link legal; the
+    temp file is the caller's to unlink."""
     name = (requested or "").strip().replace("\\", "/").rsplit("/", 1)[-1]
     if not _LOG_NAME.fullmatch(name):
         ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
@@ -555,12 +556,9 @@ def _claim_upload_path(directory: Path, requested: str | None, part: Path) -> Pa
     n = 1
     while True:
         path = directory / (name if n == 1 else f"{stem}_{n}.jsonl")
-        try:
-            os.link(part, path)
-        except FileExistsError:
-            n += 1
-            continue
-        return path
+        if atomic.claim(part, path):
+            return path
+        n += 1
 
 
 @router.post("/survey/logs/upload", dependencies=[Depends(require_admin)])
