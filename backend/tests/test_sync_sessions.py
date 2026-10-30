@@ -467,6 +467,226 @@ async def test_the_summary_carries_the_circuit_once_a_lap_named_it(service, fake
     assert svc.sync.live._meta == {"official_id": "ring-gp", "track": "Ring", "car": summary["car"]}
 
 
+# --- a circuit named after the session opened -----------------------------------
+
+
+def takes_track_on_patch(fake: FakeService) -> None:
+    """The fake becomes a server that takes the circuit on its own, and says so."""
+    fake.types["sessions"] = {**fake.types["sessions"], "track_on_patch": True}
+
+
+def identify(
+    svc: TelemetryService, monkeypatch, name: str = "Ring", official: str = "ring-gp",
+) -> None:
+    """The circuit becomes known, as identification makes it a lap in."""
+    svc.track_name = name
+
+    async def official_id_for(track: str) -> str:
+        return official if track == name else ""
+
+    monkeypatch.setattr(svc, "official_id_for", official_id_for)
+
+
+def calls_in_order(fake: FakeService) -> list[tuple[str, str]]:
+    return [(r.method, r.url.path.rsplit("/", 1)[-1]) for r in fake.calls()]
+
+
+async def test_a_circuit_named_a_lap_late_goes_at_once(service, fake, monkeypatch) -> None:
+    """The first lap was not a whole one (a grid start, a pit-out lap), so the
+    summary went without the circuit and the lap after named it. A server
+    that takes it on its own is told straight away, and the drive goes on."""
+    takes_track_on_patch(fake)
+    await service.sync.check()
+    local_id = await drive(service, laps=1)
+    await service.sync.sessions.wait_idle()
+    assert json.loads(fake.calls("POST")[0].content)["official_id"] == ""
+
+    identify(service, monkeypatch)
+    await service._on_lap(make_lap(2, 88_000))
+    await service.sync.sessions.wait_idle()
+
+    rec = service.sync.sessions._sessions[local_id]
+    assert calls_in_order(fake) == [
+        ("POST", "sessions"), ("POST", "laps"), ("PATCH", rec.remote_id), ("POST", "laps"),
+    ]
+    # The circuit and nothing else: nothing in it says the drive has ended.
+    assert json.loads(fake.calls("PATCH")[0].content) == {
+        "official_id": "ring-gp", "track_name": "Ring",
+    }
+    assert (rec.track_pending, rec.end_pending, rec.closed) == (False, False, "")
+
+    # The totals carry it as well; the server keeps whichever it had first.
+    await end_drive(service)
+    totals = json.loads(fake.calls("PATCH")[-1].content)
+    assert totals["ended_at"]
+    assert (totals["official_id"], totals["track_name"]) == ("ring-gp", "Ring")
+
+
+async def test_without_the_hint_the_circuit_goes_with_the_totals(
+    service, fake, monkeypatch,
+) -> None:
+    """A server that predates `track_on_patch` reads every PATCH as the totals,
+    so it is never sent the circuit alone: it gets it with the totals, and
+    keeps it or ignores the keys."""
+    assert "track_on_patch" not in fake.types["sessions"]
+    local_id = await drive(service, laps=1)
+    await service.sync.sessions.wait_idle()
+    identify(service, monkeypatch)
+    await service._on_lap(make_lap(2, 88_000))
+    await service.sync.sessions.wait_idle()
+
+    rec = service.sync.sessions._sessions[local_id]
+    assert fake.calls("PATCH") == []
+    assert rec.track_pending is True
+
+    await end_drive(service)
+    patches = fake.calls("PATCH")
+    assert len(patches) == 1
+    totals = json.loads(patches[0].content)
+    assert totals["ended_at"]
+    assert (totals["official_id"], totals["track_name"]) == ("ring-gp", "Ring")
+    assert rec.track_pending is False
+
+
+async def test_a_session_opened_with_its_circuit_is_not_named_again(
+    service, fake, monkeypatch,
+) -> None:
+    takes_track_on_patch(fake)
+    await service.sync.check()
+    await service._on_session(SessionInfo(car_id=3298, started_at="2026-09-17T14:00:00Z"))
+    identify(service, monkeypatch)
+    await service._on_lap(make_lap(1))
+    await service.sync.sessions.wait_idle()
+    assert json.loads(fake.calls("POST")[0].content)["official_id"] == "ring-gp"
+
+    # A later lap naming somewhere else changes nothing: the session keeps
+    # the circuit it opened with, here as on the server.
+    identify(service, monkeypatch, "Elsewhere", "else-1")
+    await service._on_lap(make_lap(2))
+    await service.sync.sessions.wait_idle()
+    assert fake.calls("PATCH") == []
+    rec = service.sync.sessions._sessions[service.session_id]
+    assert (rec.official_id, rec.track_pending) == ("ring-gp", False)
+
+
+async def test_a_circuit_named_while_the_summary_was_on_its_way_is_still_sent(
+    service, fake,
+) -> None:
+    takes_track_on_patch(fake)
+    await service.sync.check()
+    adapter = service.sync.sessions
+
+    def opened(request: httpx.Request) -> httpx.Response:
+        # The next lap lands, naming the circuit, before the reply does.
+        rec = adapter._sessions[service.session_id]
+        rec.official_id, rec.track_name = "ring-gp", "Ring"
+        return httpx.Response(201, json={"session_id": "ses_1", "expires_at": None})
+
+    fake.answer["POST /v1/sessions"] = opened
+    await drive(service, laps=1)
+    await adapter.wait_idle()
+
+    assert json.loads(fake.calls("POST")[0].content)["official_id"] == ""
+    assert [json.loads(r.content) for r in fake.calls("PATCH")] == [
+        {"official_id": "ring-gp", "track_name": "Ring"},
+    ]
+
+
+async def test_a_refused_circuit_costs_the_session_nothing(service, fake, monkeypatch) -> None:
+    takes_track_on_patch(fake)
+    await service.sync.check()
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        if "ended_at" not in body:
+            return httpx.Response(
+                400, json={"error": "invalid_request", "reason": "official_id is not a layout id"},
+            )
+        return httpx.Response(200, json={"session_id": request.url.path.split("/")[3], **body})
+
+    fake.answer["*PATCH /v1/sessions/"] = answer
+    local_id = await drive(service, laps=1)
+    await service.sync.sessions.wait_idle()
+    identify(service, monkeypatch)
+    await service._on_lap(make_lap(2, 88_000))
+    await service.sync.sessions.wait_idle()
+
+    rec = service.sync.sessions._sessions[local_id]
+    assert rec.closed == ""
+    assert rec.track_error
+    assert rec.track_pending is False
+    assert [v["status"] for v in rec.laps.values()] == ["synced", "synced"]
+
+    # Not offered again with the totals, which would collect the same answer.
+    await end_drive(service)
+    totals = json.loads(fake.calls("PATCH")[-1].content)
+    assert "official_id" not in totals and "track_name" not in totals
+    assert (rec.end_pending, rec.closed) == (False, "")
+
+
+async def test_the_owed_circuit_survives_a_restart(service, fake, monkeypatch, tmp_path) -> None:
+    local_id = await drive(service, laps=1)
+    await service.sync.sessions.wait_idle()
+    fake.down = True
+    identify(service, monkeypatch)
+    await service._on_lap(make_lap(2, 88_000))
+    state = json.loads((tmp_path / "data" / sessions_sync.STATE_FILE).read_text())
+    assert state["sessions"][str(local_id)]["track_pending"] is True
+
+    again = sessions_sync.SessionsAdapter(
+        service.sync, tmp_path / "data",
+        load_lap=service.repo.export_lap, load_stats=service.repo.session_lap_stats,
+        load_analysis=service.lap_analysis, clock=Clock(),
+    )
+    rec = again._sessions[local_id]
+    assert (rec.track_pending, rec.official_id, rec.track_name) == (True, "ring-gp", "Ring")
+
+
+def refuses_the_circuit(request: httpx.Request) -> httpx.Response:
+    """A server that will not have this circuit, whatever comes with it."""
+    body = json.loads(request.content)
+    if "official_id" in body:
+        return httpx.Response(
+            400, json={"error": "invalid_request", "reason": "official_id is not a layout id"},
+        )
+    return httpx.Response(200, json={"session_id": request.url.path.split("/")[3], **body})
+
+
+async def test_a_circuit_refused_with_the_totals_costs_them_nothing(
+    service, fake, monkeypatch,
+) -> None:
+    """Named during an outage that outlasted the drive, the circuit never got
+    to go on its own: it rides on the totals. Its refusal must not cost the
+    totals, or the analysis behind them — they go again without it."""
+    takes_track_on_patch(fake)
+    takes_analysis(fake)
+    await service.sync.check()
+    local_id = await drive(service, laps=1)
+    await service.sync.sessions.wait_idle()
+
+    fake.down = True
+    identify(service, monkeypatch)
+    await service._on_lap(make_lap(2, 88_000))
+    await end_drive(service)
+    rec = service.sync.sessions._sessions[local_id]
+    assert (rec.track_pending, rec.end_pending) == (True, True)
+    # The circuit-only request was tried, and failed with the connection.
+    tried = len(fake.calls("PATCH"))
+
+    fake.answer["*PATCH /v1/sessions/"] = refuses_the_circuit
+    fake.down = False
+    service.sync.sessions.clear_backoff()
+    await service.sync.sessions.wait_idle()
+
+    patches = [json.loads(r.content) for r in fake.calls("PATCH")[tried:]]
+    assert [("official_id" in p, "ended_at" in p) for p in patches] == [
+        (True, True), (False, True),
+    ]
+    assert (rec.closed, rec.end_pending, rec.track_pending) == ("", False, False)
+    assert rec.track_error
+    assert rec.analysis_status == "synced"
+
+
 # --- through the API ------------------------------------------------------------
 
 
