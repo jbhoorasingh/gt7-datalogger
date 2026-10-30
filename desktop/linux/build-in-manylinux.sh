@@ -16,8 +16,10 @@
 # 3. a venv with wheels only (--only-binary :all: --require-hashes), from a
 #    lock uv compiles here for this interpreter and platform;
 # 4. desktop/scripts/build.py freezes it and runs the frozen --self-test;
-# 5. zsync from EPEL, then desktop/linux/build-appimage.sh (arguments pass
-#    through, so --sign works here as there).
+# 5. unless --no-appimage: zsync, then desktop/linux/build-appimage.sh
+#    (other arguments pass through, so --sign works here as there). CI
+#    passes --no-appimage and packages on the Ubuntu host instead, because
+#    EPEL 8 has no zsync for this image.
 #
 # Outputs land in desktop/dist/, owned by root when run as root in Docker.
 set -euo pipefail
@@ -73,6 +75,9 @@ printf 'setuptools>=75\n' > "$WORK/build-backend.in"
 "$PY" desktop/scripts/build.py --skip-frontend
 
 # 5. The AppImage and the tarball.
+if [ "${1:-}" = "--no-appimage" ]; then
+    exit 0
+fi
 if ! command -v zsyncmake >/dev/null; then
     dnf install -y -q epel-release >/dev/null 2>&1 || true
     dnf install -y -q zsync || die "could not install zsync"

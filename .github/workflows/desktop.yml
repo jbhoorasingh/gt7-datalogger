@@ -132,23 +132,54 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: { name: frontend-dist, path: frontend/dist }
-      - name: Build onedir and AppImage (unsigned)
-        run: bash desktop/linux/build-in-manylinux.sh
+      - name: Build onedir
+        run: bash desktop/linux/build-in-manylinux.sh --no-appimage
       - name: Smoke
         run: python3 desktop/ci/smoke.py desktop/dist/gt7-datalogger/gt7-datalogger --headless --version "${{ needs.plan.outputs.expected }}"
+      - name: Pack onedir
+        # A tarball keeps the executable bits an artifact upload would drop.
+        run: tar -C desktop/dist -czf desktop/dist/linux-onedir.tar.gz gt7-datalogger
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-onedir
+          path: desktop/dist/linux-onedir.tar.gz
+          retention-days: 1
+
+  # The AppImage is assembled on the Ubuntu host: appimagetool's .zsync needs
+  # zsyncmake, which EPEL 8 (the manylinux_2_28 image) does not package. The
+  # onedir inside it is still the one built against glibc 2.28.
+  package-linux:
+    needs: [plan, build-linux]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: linux-onedir, path: desktop/dist }
+      - name: AppImage and tarball (unsigned)
+        run: |
+          tar -C desktop/dist -xzf desktop/dist/linux-onedir.tar.gz
+          rm desktop/dist/linux-onedir.tar.gz
+          sudo apt-get update -q && sudo apt-get install -y -q zsync
+          VERSION="${{ needs.plan.outputs.expected }}" PYTHON=python3 desktop/linux/build-appimage.sh
+      - name: Smoke the AppImage
+        env:
+          # The runner's FUSE is not guaranteed; the type2 runtime can unpack
+          # and run instead, which tests the same payload.
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: |
+          chmod +x desktop/dist/GT7-Datalogger-Linux-x86_64.AppImage
+          python3 desktop/ci/smoke.py desktop/dist/GT7-Datalogger-Linux-x86_64.AppImage --headless --version "${{ needs.plan.outputs.expected }}"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: unsigned-linux
-          path: |
-            desktop/dist/gt7-datalogger
-            desktop/dist/GT7-Datalogger-Linux-x86_64.*
+          path: desktop/dist/GT7-Datalogger-Linux-x86_64.*
           retention-days: 3
 
   # The approval barrier: only v*.*.* tags reach it, and the environment
   # requires the maintainer's review with no admin bypass.
   gate:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build-macos, build-windows, build-linux]
+    needs: [build-macos, build-windows, package-linux]
     runs-on: ubuntu-24.04
     environment: desktop-release
     steps:

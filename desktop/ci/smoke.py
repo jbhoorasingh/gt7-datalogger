@@ -97,7 +97,9 @@ def main(argv: list[str]) -> int:
         check(health["app"] == "gt7-datalogger" and health["install_kind"] == "desktop",
               "health says gt7-datalogger, desktop")
         if args.version:
-            check(health["version"] == args.version, f"version {health['version']}")
+            # An off-tag build carries +g<sha> after the version it was cut from.
+            reported = str(health["version"]).split("+", 1)[0]
+            check(reported == args.version, f"version {health['version']}")
         check(health["schema"]["current"] == health["schema"]["head"], "schema at head")
         status, body = get(f"http://127.0.0.1:{port}/")
         check(status == 200 and b"<div id=\"root\"" in body, "/ serves the SPA")
