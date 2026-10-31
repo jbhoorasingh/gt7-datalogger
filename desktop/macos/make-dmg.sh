@@ -22,9 +22,13 @@ if [[ "$ID" == "-" ]]; then
   exit 0
 fi
 codesign --force --timestamp --sign "$ID" "$OUT"
-if [[ -n "${ASC_KEY_PATH:-}" ]]; then
-  xcrun notarytool submit "$OUT" --key "$ASC_KEY_PATH" --key-id "$ASC_KEY_ID" \
-    --issuer "$ASC_ISSUER_ID" --wait --timeout 30m
+if [[ -n "${NOTARY_PROFILE:-}" ]]; then
+  NOTARY=(--keychain-profile "$NOTARY_PROFILE")
+elif [[ -n "${ASC_KEY_PATH:-}" ]]; then
+  NOTARY=(--key "$ASC_KEY_PATH" --key-id "$ASC_KEY_ID" --issuer "$ASC_ISSUER_ID")
+fi
+if [[ -n "${NOTARY+set}" ]]; then
+  xcrun notarytool submit "$OUT" "${NOTARY[@]}" --wait --timeout 30m
   xcrun stapler staple "$OUT"
   spctl --assess --type open --context context:primary-signature --verbose=4 "$OUT"
 fi
