@@ -127,8 +127,48 @@ stores (settings, telemetry, analysis); the current analysis view is fully encod
 the URL hash so links reproduce exact comparisons.
 
 In production the backend serves the built frontend from `frontend/dist` — one container,
-one port. `GET /overlay` returns the SPA directly (a plain path, because some streaming
+one port. The desktop app serves the copy frozen inside it (`GT7_FRONTEND_DIST`), the
+same way. `GET /overlay` returns the SPA directly (a plain path, because some streaming
 apps reject URLs with `#fragment`s).
+
+## The desktop app
+
+The [desktop app](../getting-started/desktop.md) is the same server, frozen with
+PyInstaller into one folder with its own CPython. There is no webview: the UI is the
+user's own browser at the server's address. One executable runs in three modes:
+
+- **The app** (no options) is a small **supervisor** with no event loop of its own. It
+  holds the single-instance lock (`gt7.lock` in the data folder), binds the
+  dashboard's port, owns the tray (`desktop/gt7_desktop/tray/`) and starts the
+  server as a child: the same executable with `--server`.
+- **`--server`** (`backend/app/serve.py`) runs uvicorn on its main thread with the
+  socket the supervisor handed down, exactly as Docker runs it. It holds
+  `gt7-server.lock` so a second server never opens the same database, and it stops
+  when its parent goes away. Exit code 75 asks the supervisor for a fresh child, to
+  pick up a *next start* setting; 3 means it could not start, and the supervisor
+  shows the log tail instead of retrying.
+- **`--headless`** is the server with no parent and no tray, for a systemd unit.
+
+Because the socket stays with the supervisor, a crashed or restarted server never
+drops a browser's connection to a refused port, and a tray that dies takes its
+server with it rather than leaving an orphan holding the database.
+
+The launcher, not the server, decides where things live (`desktop/gt7_desktop/paths.py`)
+and passes it down as environment: `GT7_DATA_DIR`, `GT7_DB_PATH`, `GT7_LOG_FILE`,
+`GT7_DESKTOP=1`, and `GT7_FORCE_SIM=firstrun` until setup is completed. Its own
+preferences, port and bind only, are in `desktop.json`; every app setting stays in
+the database, where the server and a restore see it.
+
+Exposure is a live setting, not a bind address. With `lan_access` off, a request from
+any peer other than loopback is refused (`lan_off`, see [Refused
+requests](../reference/client-protocol.md#refused-requests)), so turning it on or off
+never restarts the server. In desktop mode, a loopback peer that passed the host and
+origin checks is admin without a token; other devices need the admin token to change
+anything. uvicorn runs with `proxy_headers=False`, so a forwarded header cannot pass
+for loopback.
+
+The build is `desktop/gt7.spec`, driven by `desktop/scripts/build.py`;
+[Releasing](releasing.md) covers how the signed builds are made.
 
 ## The simulator
 

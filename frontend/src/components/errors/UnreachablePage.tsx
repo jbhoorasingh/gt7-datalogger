@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { currentLanguage, useT } from "@/i18n";
 import { formatDuration } from "@/lib/format";
 import { useInstallKind } from "@/lib/health";
+import { clearQuit, quitRequested } from "@/lib/quit";
 import { liveFrameRef } from "@/store/telemetry";
 import { ErrorPage, TROUBLESHOOTING_URL } from "./ErrorPage";
 import { FLAGS } from "./illustrations";
@@ -22,6 +23,10 @@ export function UnreachablePage({ reach }: { reach: Reachability }) {
     const id = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, []);
+  // Quit from Settings › About: the server went because it was asked to. The
+  // page goes once it answers again, and the mark with it.
+  const [stopped] = useState(quitRequested);
+  useEffect(() => clearQuit, []);
 
   const retryIn = reach.checking
     ? "…"
@@ -38,6 +43,23 @@ export function UnreachablePage({ reach }: { reach: Reachability }) {
           time: new Date(Date.now() - (performance.now() - liveFrameRef.at)).toLocaleTimeString(currentLanguage()),
         })
       : t("error.unreachable.noFrames");
+
+  if (stopped) {
+    return (
+      <ErrorPage
+        flag={FLAGS.chequered}
+        kicker={t("error.stopped.kicker")}
+        code="—"
+        title={t("error.stopped.title")}
+        body={t("error.stopped.body")}
+        primary={{
+          label: reach.checking ? t("error.unreachable.retrying") : t("error.stopped.check"),
+          onClick: reach.retryNow,
+          disabled: reach.checking,
+        }}
+      />
+    );
+  }
 
   return (
     <ErrorPage

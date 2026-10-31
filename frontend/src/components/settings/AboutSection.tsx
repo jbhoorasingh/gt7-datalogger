@@ -1,11 +1,15 @@
 // Settings › About (#190): which build this is, how it was installed, where
-// it keeps its data and its log, whether a newer version is out (#196), and
-// that it is nobody's official product.
+// it keeps its data and its log, whether a newer version is out (#196), that
+// it is nobody's official product, and, in the desktop app on its own
+// computer, Quit (Linux has no tray to quit from).
 
 import { useEffect, useState } from "react";
+import { ConfirmDialog } from "@/components/ui/Dialog";
 import { currentLanguage, useT, type MessageKey } from "@/i18n";
 import { api } from "@/lib/api";
 import { loadHealth, useHealth } from "@/lib/health";
+import { markQuit } from "@/lib/quit";
+import { toast } from "@/store/toasts";
 import type { AdminStats, ConfigDoc, InstallKind } from "@/lib/types";
 import { version as uiVersion } from "../../../package.json";
 import { Dot, SectionPanel, SettingRow } from "./parts";
@@ -46,6 +50,23 @@ export function AboutSection({ stats }: { stats: AdminStats | null }) {
   const logFile = configValue(doc, "log_file");
   const update = stats?.update;
   const when = checkedAt(update?.checked_at);
+  const recording = Boolean(
+    stats?.source.connected && stats.source.recording && stats.source.session_id != null,
+  );
+  const [confirming, setConfirming] = useState(false);
+  const [quitting, setQuitting] = useState(false);
+
+  async function quit() {
+    setConfirming(false);
+    setQuitting(true);
+    try {
+      await api.admin.quit();
+      markQuit();
+    } catch (e) {
+      setQuitting(false);
+      toast(e instanceof Error && e.message ? e.message : t("about.quitFailed"), "error");
+    }
+  }
 
   return (
     <SectionPanel title={t("settings.section.about")} description={t("about.desc")}>
@@ -90,9 +111,29 @@ export function AboutSection({ stats }: { stats: AdminStats | null }) {
           </span>
         )}
       </SettingRow>
-      <SettingRow label={t("about.legal")} last>
+      <SettingRow label={t("about.legal")} last={!stats?.can_quit}>
         <span className="text-[12px] text-ink-dim">{t("about.unofficial")}</span>
       </SettingRow>
+      {stats?.can_quit && (
+        <SettingRow label={t("about.quit")} help={t("about.quitHelp")} last>
+          <button
+            className="btn"
+            disabled={quitting}
+            onClick={() => (recording ? setConfirming(true) : void quit())}
+          >
+            {quitting ? t("about.quitting") : t("about.quitButton")}
+          </button>
+        </SettingRow>
+      )}
+      <ConfirmDialog
+        open={confirming}
+        title={t("about.quitRecordingTitle")}
+        body={t("about.quitRecordingBody")}
+        confirmLabel={t("about.quitButton")}
+        danger
+        onConfirm={() => void quit()}
+        onCancel={() => setConfirming(false)}
+      />
     </SectionPanel>
   );
 }
