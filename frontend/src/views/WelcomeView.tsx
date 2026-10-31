@@ -495,6 +495,17 @@ function FindStep({
   const problem = classifyProblem(setup?.listener_error, setup?.heartbeat_error);
   const busy = phase === "switching" || phase === "searching";
 
+  // A problem can clear on its own: the first heartbeat fails while macOS's
+  // Local Network prompt is still open, and works once it is allowed. Keep
+  // reading while one shows, so the warning goes when the cause does.
+  useEffect(() => {
+    if (!problem) return;
+    const id = window.setInterval(() => {
+      api.admin.setup().then(setSetup, () => {});
+    }, POLL_MS);
+    return () => window.clearInterval(id);
+  }, [problem, setSetup]);
+
   return (
     <Section title={t("welcome.find.title")}>
       <p className="text-[13px] text-ink-dim">{t("welcome.find.body")}</p>
