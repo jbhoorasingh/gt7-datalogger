@@ -73,7 +73,8 @@ sponsored by Sony Interactive Entertainment or Polyphony Digital.
     2. Your browser opens the dashboard at `http://127.0.0.1:8000/`.
 
     Linux has no tray icon in this release. Running the AppImage again opens the
-    dashboard. To stop the app, run it with `--quit`:
+    dashboard. To stop the app, use **Settings › About › Quit GT7 Datalogger** in
+    the dashboard on this computer, or run it with `--quit`:
 
     ```bash
     ./GT7-Datalogger-Linux-x86_64.AppImage --quit
@@ -175,6 +176,8 @@ On macOS (menu bar) and Windows (notification area) the icon's menu has:
 | **Quit GT7 Datalogger** | stops recording and the app. Laps already completed are saved |
 
 Opening the app again while it runs opens the dashboard; a second copy never starts.
+**Settings › About** in the dashboard has **Quit GT7 Datalogger** too, on the computer
+the app runs on only: a phone or tablet never sees it.
 
 ## Where your data lives
 
@@ -276,7 +279,8 @@ Uninstalling removes the app, not your data.
   GT7 Datalogger from Applications to the Bin.
 - **Windows:** **Settings › Apps › Installed apps › GT7 Datalogger › Uninstall**. It
   also removes the firewall rules. For the portable `.zip`, delete the folder.
-- **Linux:** quit the app with `--quit` and delete the AppImage.
+- **Linux:** quit the app (**Settings › About › Quit GT7 Datalogger**, or `--quit`)
+  and delete the AppImage.
 
 To remove your recordings and settings as well, delete the data and log folders
 listed in [Where your data lives](#where-your-data-lives). Back them up first if

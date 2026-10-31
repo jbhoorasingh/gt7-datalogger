@@ -1,7 +1,7 @@
 """No tray: Linux in v1, and any desktop without the native toolkit.
 
-Every launch of the .desktop entry opens the browser, and Quit lives in the
-dashboard's Settings (or `gt7-datalogger --quit`).
+Every launch opens the browser, and Quit lives in the dashboard's
+Settings › About (or `gt7-datalogger --quit`).
 """
 
 from __future__ import annotations

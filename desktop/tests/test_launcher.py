@@ -8,6 +8,7 @@ import signal
 import socket
 import sqlite3
 import sys
+import threading
 import time
 import urllib.request
 from pathlib import Path
@@ -120,6 +121,35 @@ def test_the_supervisor_starts_respawns_and_stops_a_real_server(tmp_path: Path) 
     probe = socket.socket()
     assert probe.connect_ex(("127.0.0.1", port)) != 0
     probe.close()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX fd hand-down; Windows runs in the frozen smoke")
+def test_quit_from_the_dashboard_stops_the_supervisor_for_good(tmp_path: Path) -> None:
+    f = paths.folders(tmp_path)
+    paths.create(f)
+    quiet = {"GT7_SHARED_BUNDLES_URL": "", "GT7_UPDATE_CHECK": "false", "GT7_CAR_REFRESH": "false"}
+    env = {**main.server_env(f, gui=True), **quiet}
+    sock, port = ports.choose("127.0.0.1", 0, explicit=True)
+    quit_called = threading.Event()
+    sup = Supervisor(sock, env, f.log_file, command=server_command(), on_quit=quit_called.set)
+    sup.start()
+    try:
+        assert sup.ready.wait(60)
+        assert _get(f"http://127.0.0.1:{port}/api/admin/stats")["can_quit"] is True
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/admin/quit", data=b"", method="POST"
+        )
+        with urllib.request.urlopen(request, timeout=5) as r:  # noqa: S310
+            assert r.status == 202
+        assert quit_called.wait(30)
+        assert sup.state.phase == "stopped"
+        child = sup._proc
+        assert child is not None and child.wait(5) == 76
+        time.sleep(1.5)  # a crash would be respawned within a second; a quit is not
+        assert sup._proc is child and sup.state.phase == "stopped"
+    finally:
+        sup.stop()
+        sock.close()
 
 
 @pytest.mark.skipif(os.name == "nt", reason="flock semantics")

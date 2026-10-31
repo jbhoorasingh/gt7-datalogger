@@ -371,7 +371,8 @@ class DesktopApp:
             self.prefs.port = port
             prefs.save(self.folders.prefs, self.prefs)
         env = server_env(self.folders, gui=True)
-        self.supervisor = Supervisor(sock, env, self.folders.log_file, on_change=self._changed)
+        self.supervisor = Supervisor(sock, env, self.folders.log_file, on_change=self._changed,
+                                     on_quit=self._quit_requested)
         self.lock.write(pid=os.getpid(), mode="tray", host=host, port=port,
                         url=self.supervisor.url, exe=sys.executable,
                         state="starting", started_at=time.time())
@@ -410,6 +411,13 @@ class DesktopApp:
                     self.quit()
                 return
             time.sleep(0.5)
+
+    def _quit_requested(self) -> None:
+        """Quit from the dashboard (the server exited 76): as the tray's Quit."""
+        if self.tray is not None:
+            self.tray.request_quit()
+        else:
+            self.quit()
 
     def _changed(self, state: Any) -> None:
         if state.phase == "failed":

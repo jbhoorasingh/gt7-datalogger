@@ -22,8 +22,12 @@ What it adds to plain uvicorn:
 - **One writer.** `gt7-server.lock` in the data folder is held for the life
   of the process; a second server on the same data exits 3 before touching
   the database.
+- **Quit from the dashboard.** `QUIT` stops this server for good: under the
+  supervisor it exits 76, and the supervisor quits the whole app; headless,
+  it just stops. Settings › About calls it (`POST /api/admin/quit`) for the
+  person at this computer, which on Linux, with no tray, is the only Quit.
 - **Exit codes:** 0 stopped, 3 could not start (the supervisor shows the log
-  tail instead of retrying), 75 restart requested.
+  tail instead of retrying), 75 restart requested, 76 quit requested.
 
 Inert in Docker and source installs: nothing imports it unless this mode is
 asked for.
@@ -40,13 +44,18 @@ import signal
 import socket
 import sys
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import IO, Any
 
 EXIT_OK = 0
 EXIT_STARTUP_FAILED = 3
 EXIT_RESTART = 75
+EXIT_QUIT = 76
+
+# Set by run() once the server exists: stops it, and under the supervisor
+# the app with it. None in Docker and source installs, which never run this.
+QUIT: Callable[[], None] | None = None
 
 SERVER_LOCK = "gt7-server.lock"
 
@@ -130,6 +139,7 @@ class Control:
     def __init__(self, server: Any) -> None:
         self.server = server
         self.restart = False
+        self.quit = False
 
     def start(self) -> None:
         threading.Thread(target=self._run, name="gt7-control", daemon=True).start()
@@ -244,6 +254,7 @@ def parse(argv: list[str]) -> argparse.Namespace:
 
 
 def run(argv: list[str]) -> int:
+    global QUIT
     args = parse(argv)
     _unblock_signals()
     assertion = _hold_power_assertion()  # noqa: F841 - held for the process's life
@@ -293,9 +304,17 @@ def run(argv: list[str]) -> int:
                 control.start()
             if args.quit_file is not None:
                 _watch_quit_file(args.quit_file, server)
+
+            def quit_app() -> None:
+                control.quit = True
+                server.should_exit = True
+
+            QUIT = quit_app
             server.run(sockets=[sock])
             if not server.started:
                 return EXIT_STARTUP_FAILED
+            if control.quit and args.supervised:
+                return EXIT_QUIT
             return EXIT_RESTART if control.restart else EXIT_OK
     except ServerLockHeld as exc:
         logging.getLogger("app").error(

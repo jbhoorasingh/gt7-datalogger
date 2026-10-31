@@ -498,6 +498,8 @@ export const api = {
       get<LogRecord[]>(`/api/admin/logs?limit=${limit}${level ? `&level=${level}` : ""}`),
     clearLogs: () => send<{ status: string }>("/api/admin/logs", "DELETE"),
     stats: () => get<AdminStats>("/api/admin/stats"),
+    // Stop the desktop app (Settings › About; Linux has no tray to quit from).
+    quit: () => send<{ quitting: boolean }>("/api/admin/quit", "POST"),
     // Every setting (Settings › Advanced): change some, hand others back to
     // the environment, in one validated write.
     config: () => get<ConfigDoc>("/api/admin/config"),

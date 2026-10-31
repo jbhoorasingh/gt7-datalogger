@@ -18,6 +18,8 @@ that exits or gets killed, and this class starts another.
   a newer version, no room for the pre-upgrade copy) and doing it again
   changes nothing, so the tray shows the log's last lines instead.
 - Exit 75 is a restart the server asked for, started at once.
+- Exit 76 is Quit from the dashboard: no new child, and `on_quit` tells the
+  app to quit as its tray's Quit would.
 """
 
 from __future__ import annotations
@@ -41,6 +43,7 @@ log = logging.getLogger(__name__)
 
 EXIT_STARTUP_FAILED = 3
 EXIT_RESTART = 75
+EXIT_QUIT = 76
 BACKOFF = (1.0, 2.0, 4.0, 8.0)
 GIVE_UP_AFTER = 5
 POLL_EVERY = 2.0
@@ -150,12 +153,14 @@ class Supervisor:
         log_file: Path,
         on_change: Callable[[State], None] | None = None,
         command: list[str] | None = None,
+        on_quit: Callable[[], None] | None = None,
     ) -> None:
         self.sock = sock
         self.port: int = sock.getsockname()[1]
         self.env = env
         self.log_file = log_file
         self.on_change = on_change
+        self.on_quit = on_quit
         self.command = command or server_command()
         self.state = State()
         self._proc: subprocess.Popen[bytes] | None = None
@@ -247,6 +252,12 @@ class Supervisor:
                 self.state.restarts += 1
                 crashes = 0
                 continue
+            if code == EXIT_QUIT:
+                log.info("the server asked to quit the app")
+                self._set(phase="stopped")
+                if self.on_quit is not None:
+                    self.on_quit()
+                return
             if code == EXIT_STARTUP_FAILED:
                 self.ready.set()
                 self._set(

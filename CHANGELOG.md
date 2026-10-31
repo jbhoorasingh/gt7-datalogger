@@ -157,6 +157,14 @@ Notable changes to GT7 Datalogger. The format follows
   the car-list refresh and the shared track surveys as tasks beside the update check, and
   the launcher passes an unticked one to the server as its default (#199, #201).
 
+- **Quit from the dashboard.** The desktop app's **Settings › About** has **Quit GT7
+  Datalogger** (asking first while a session is recording), which on Linux, with no
+  tray, was missing: only `gt7-datalogger --quit` in a terminal could stop it. Only
+  the computer the app runs on sees it (`POST /api/admin/quit` answers 403 to a phone
+  or tablet, admin token or not, and in Docker and source installs). The server
+  exits 76, the supervisor quits the app as the tray's Quit would, and the page that
+  follows says the app stopped rather than that it vanished.
+
 ### Changed
 
 - **The backend tests run on macOS, Windows and Python 3.14.** CI ran them on Ubuntu
