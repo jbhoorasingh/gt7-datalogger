@@ -160,7 +160,7 @@ jobs:
           tar -C desktop/dist -xzf desktop/dist/linux-onedir.tar.gz
           rm desktop/dist/linux-onedir.tar.gz
           sudo apt-get update -q && sudo apt-get install -y -q zsync
-          VERSION="${{ needs.plan.outputs.expected }}" PYTHON=python3 desktop/linux/build-appimage.sh
+          VERSION="${{ needs.plan.outputs.expected }}" desktop/linux/build-appimage.sh
       - name: Smoke the AppImage
         env:
           # The runner's FUSE is not guaranteed; the type2 runtime can unpack

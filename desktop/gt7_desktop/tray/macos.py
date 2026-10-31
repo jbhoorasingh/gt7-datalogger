@@ -18,6 +18,7 @@ from AppKit import (
     NSAlert,
     NSApplication,
     NSApplicationActivationPolicyRegular,
+    NSImage,
     NSMenu,
     NSMenuItem,
     NSStatusBar,
@@ -26,7 +27,7 @@ from AppKit import (
 from Foundation import NSObject, NSTimer
 from PyObjCTools import AppHelper
 
-from gt7_desktop import APP_NAME, autostart
+from gt7_desktop import APP_NAME, autostart, paths
 
 if TYPE_CHECKING:
     from gt7_desktop.main import DesktopApp
@@ -104,7 +105,7 @@ class MacTray:
         self.delegate.tray = self
         self.nsapp.setDelegate_(self.delegate)
         self.item = NSStatusBar.systemStatusBar().statusItemWithLength_(NSVariableStatusItemLength)
-        self.item.button().setTitle_("GT7")
+        self._set_menubar_image()
         menu = NSMenu.alloc().init()
         self.header = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Starting…", None, "")
         self.header.setEnabled_(False)
@@ -139,6 +140,18 @@ class MacTray:
 
     def refresh(self) -> None:
         AppHelper.callAfter(self._update)
+
+    def _set_menubar_image(self) -> None:
+        # A template image: macOS tints it for a light or dark menu bar.
+        image = NSImage.alloc().initWithContentsOfFile_(str(paths.icon("menubar.png")))
+        if image is None:
+            self.item.button().setTitle_("GT7")
+            return
+        width, height = image.size()
+        image.setSize_((width * 18 / height, 18))
+        image.setTemplate_(True)
+        self.item.button().setImage_(image)
+        self.item.button().setToolTip_(APP_NAME)
 
     def alert(self, title: str, message: str) -> None:
         def show() -> None:

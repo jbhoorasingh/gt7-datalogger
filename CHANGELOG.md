@@ -115,7 +115,9 @@ Notable changes to GT7 Datalogger. The format follows
   stops answering; `--headless` for systemd; and `--server`, the child. One app per data
   folder, a saved port with 8001–8009 as fallback, "already running" when Docker holds
   the port, Start at login, Open data folder and logs, a phone/tablet toggle, and
-  Windows firewall repair. `desktop/scripts/build.py` freezes it with PyInstaller and
+  Windows firewall repair. The app, its shortcuts, the macOS menu bar and the Windows
+  tray carry the GT7 Datalogger mark, made from `desktop/icons/source/` by
+  `desktop/icons/make_icons.py`. `desktop/scripts/build.py` freezes it with PyInstaller and
   `desktop/ci/smoke.py` checks a build end to end; nothing of it reaches the Docker
   image (#192, #193, #194).
 

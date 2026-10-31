@@ -8,9 +8,9 @@ import threading
 from typing import TYPE_CHECKING, Any
 
 import pystray
-from PIL import Image, ImageDraw
+from PIL import Image
 
-from gt7_desktop import APP_NAME, autostart, firewall
+from gt7_desktop import APP_NAME, autostart, firewall, paths
 
 if TYPE_CHECKING:
     from gt7_desktop.main import DesktopApp
@@ -19,11 +19,7 @@ log = logging.getLogger(__name__)
 
 
 def _icon_image() -> Any:
-    image = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(image)
-    draw.rounded_rectangle((4, 4, 60, 60), radius=12, fill=(220, 38, 38, 255))
-    draw.text((14, 22), "GT7", fill=(255, 255, 255, 255))
-    return image
+    return Image.open(paths.icon("tray.png"))
 
 
 class WindowsTray:

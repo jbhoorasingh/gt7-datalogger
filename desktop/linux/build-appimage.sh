@@ -19,7 +19,6 @@
 # one, and this script fails when the .zsync is missing. appimagetool 1.9.1
 # and the type2 runtime are downloaded once into desktop/build/tools and
 # checked against the sha256 pinned below; a mismatch stops the build.
-# PYTHON names the interpreter that draws the icon (default python3).
 set -euo pipefail
 
 SIGN=0
@@ -37,7 +36,6 @@ ROOT="$(dirname "$DESKTOP")"
 DIST="$DESKTOP/dist"
 ONEDIR="$DIST/gt7-datalogger"
 TOOLS="$DESKTOP/build/tools"
-PYTHON="${PYTHON:-python3}"
 
 APP_ID="io.github.jbhoorasingh.gt7-datalogger"
 NAME="GT7-Datalogger-Linux-x86_64"
@@ -101,7 +99,7 @@ install -m 0644 "$HERE/$APP_ID.desktop" "$APPDIR/$APP_ID.desktop"
 install -m 0644 "$HERE/$APP_ID.desktop" "$APPDIR/usr/share/applications/$APP_ID.desktop"
 install -m 0644 "$HERE/$APP_ID.metainfo.xml" "$APPDIR/usr/share/metainfo/$APP_ID.metainfo.xml"
 ICON="$APPDIR/usr/share/icons/hicolor/256x256/apps/$APP_ID.png"
-"$PYTHON" "$HERE/make-icon.py" "$ICON" --size 256
+install -m 0644 "$HERE/../icons/gt7.png" "$ICON"
 cp "$ICON" "$APPDIR/$APP_ID.png"
 ln -s "$APP_ID.png" "$APPDIR/.DirIcon"
 

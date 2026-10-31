@@ -16,6 +16,10 @@ sys.path[:0] = [str(ROOT / "desktop"), str(BACKEND)]
 
 from gt7_desktop import APP_NAME, BUNDLE_ID  # noqa: E402
 
+# The brand icons, made from desktop/icons/source/ by desktop/icons/make_icons.py.
+ICONS = ROOT / "desktop" / "icons"
+ICON = {"darwin": ICONS / "gt7.icns", "win32": ICONS / "gt7.ico"}.get(sys.platform)
+
 # Alembic loads env.py and each revision by path, so they ship as real files.
 datas = [
     (str(p), str(Path("app") / p.parent.relative_to(APP)))
@@ -24,6 +28,8 @@ datas = [
 ]
 datas += [(str(p), "app/data") for p in (APP / "data").glob("*.json")]
 datas += [(str(ROOT / "frontend" / "dist"), "frontend/dist")]
+# The tray's own pictures: the menu-bar template on macOS, the tray icon on Windows.
+datas += [(str(ICONS / name), "icons") for name in ("menubar.png", "tray.png")]
 datas += collect_data_files("certifi")
 datas += copy_metadata("gt7-datalogger")
 
@@ -67,7 +73,7 @@ exe = EXE(
     upx=False,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,
+    icon=str(ICON) if ICON else None,
 )
 coll = COLLECT(exe, a.binaries, a.datas, name=NAME, upx=False)
 
@@ -82,6 +88,7 @@ if sys.platform == "darwin":
         coll,
         name=f"{APP_NAME}.app",
         bundle_identifier=BUNDLE_ID,
+        icon=str(ICON),
         version=__version__,
         info_plist={
             "CFBundleName": APP_NAME,

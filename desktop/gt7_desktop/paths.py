@@ -72,6 +72,13 @@ def create(f: Folders) -> None:
             path.chmod(0o700)
 
 
+def icon(name: str) -> Path:
+    """One of desktop/icons/: from the bundle when frozen, else the checkout."""
+    bundle = getattr(sys, "_MEIPASS", None)
+    base = Path(bundle) / "icons" if bundle else Path(__file__).resolve().parents[1] / "icons"
+    return base / name
+
+
 def frontend_dist() -> Path | None:
     """The SPA inside a frozen bundle; None from a venv (the backend finds
     the checkout's frontend/dist itself)."""

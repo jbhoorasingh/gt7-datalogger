@@ -78,4 +78,4 @@ if ! command -v zsyncmake >/dev/null; then
     dnf install -y -q epel-release >/dev/null 2>&1 || true
     dnf install -y -q zsync || die "could not install zsync"
 fi
-PYTHON="$PY" desktop/linux/build-appimage.sh "$@"
+desktop/linux/build-appimage.sh "$@"
