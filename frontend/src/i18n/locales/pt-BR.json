@@ -2386,6 +2386,10 @@
   "welcome.start.demo": "Experimentar a demo",
   "welcome.start.demoDesc": "Fique no simulador: voltas inventadas, sem console. Você pode conectar um PlayStation depois em Configurações › Conexão.",
   "welcome.start.network": "Em segundo plano, ele baixa a lista de carros do GT7 e os levantamentos de pistas compartilhados. A sincronização com um serviço online fica desligada até você configurá-la.",
+  "welcome.start.howTitle": "Como funciona",
+  "welcome.start.background.mac": "O GT7 Datalogger grava em segundo plano, com o ícone na barra de menus, no alto da tela. Esta página é o painel dele, no seu navegador: feche quando quiser e a gravação continua. Para voltar, clique nesse ícone ou abra o GT7 Datalogger de novo.",
+  "welcome.start.background.windows": "O GT7 Datalogger grava em segundo plano, com o ícone na área de notificação, ao lado do relógio (pode estar atrás da seta ^). Esta página é o painel dele, no seu navegador: feche quando quiser e a gravação continua. Para voltar, clique nesse ícone ou abra o GT7 Datalogger de novo pelo menu Iniciar.",
+  "welcome.start.background.other": "O GT7 Datalogger grava em segundo plano. Esta página é o painel dele, no seu navegador: feche quando quiser e a gravação continua. Para voltar, abra o GT7 Datalogger de novo.",
   "welcome.demo.title": "Escolha uma demo",
   "welcome.demo.body": "Cada cenário monta uma situação, para ver os painéis e ouvir o engenheiro de corrida sem console.",
   "welcome.demo.later": "As voltas da demo são gravadas depois da configuração, como quaisquer outras. Troque de cenário quando quiser em Configurações › Avançado.",
@@ -2458,5 +2462,7 @@
   "welcome.done.token": "Token de administrador para dispositivos que mudam configurações",
   "welcome.done.tokenHelp": "Mostrado só desta vez. Digite em Configurações › Acesso num tablet que precise mudar configurações; este computador nunca precisa.",
   "welcome.done.lanOff": "Só este computador pode conectar. Libere um celular ou tablet quando quiser em Configurações › App do celular.",
+  "welcome.done.bookmark": "O endereço deste painel, para salvar nos favoritos:",
+  "welcome.done.closeAnyTime": "Fechar esta página não para a gravação.",
   "welcome.done.open": "Abrir o painel"
 }

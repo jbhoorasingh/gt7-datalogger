@@ -24,8 +24,11 @@ Notable changes to GT7 Datalogger. The format follows
 - **A first-run wizard explains the network prompts before they appear (#191).**
   Opening the app with setup not yet completed (the desktop app, or any install
   that has recorded nothing) lands on `#/welcome`; a bookmark or a deep link is
-  never taken over, and an existing install with sessions keeps its start page. It
-  asks PlayStation or *Try the demo*: the demo stays on the simulator and offers
+  never taken over, and an existing install with sessions keeps its start page. In
+  the desktop app it first says how the app works: it records in the background,
+  with its icon in the menu bar or the notification area, and this page is its
+  dashboard in the browser, which can be closed at any time. It asks PlayStation
+  or *Try the demo*: the demo stays on the simulator and offers
   its scenarios. The PlayStation path says what this computer will ask first (the
   Windows Firewall prompt, the macOS Local Network alert, the firewalld/ufw hint on
   Linux), then switches to the PlayStation source, which is what raises the prompt,
@@ -35,7 +38,8 @@ Notable changes to GT7 Datalogger. The format follows
   not running). A live check waits for telemetry and offers packet format A when
   packets arrive but do not decode. The desktop app then asks whether phones and
   tablets may connect; finishing turns LAN access on or leaves it off, shows the
-  admin token it created and a QR code of the dashboard's LAN address. Finishing,
+  admin token it created, a QR code of the dashboard's LAN address and this
+  computer's own address to bookmark. Finishing,
   and *Skip setup*, complete setup, which starts recording.
 
 - **The UI knows how it is installed (#190).** Advice that assumed Docker now
