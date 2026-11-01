@@ -1426,6 +1426,55 @@
         "summary": "Get Logs"
       }
     },
+    "/api/admin/quit": {
+      "post": {
+        "description": "Stop the desktop app: Settings \u203a About \u203a Quit. On Linux there is no\ntray, so without this only `gt7-datalogger --quit` in a terminal could.",
+        "operationId": "quit_app_api_admin_quit_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Quit App Api Admin Quit Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Quit App"
+      }
+    },
     "/api/admin/race-engineer": {
       "get": {
         "operationId": "race_engineer_api_admin_race_engineer_get",
