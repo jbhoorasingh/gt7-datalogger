@@ -15,7 +15,8 @@ export type View =
   | "survey"
   | "tracks"
   | "overlays"
-  | "settings";
+  | "settings"
+  | "welcome";
 
 const VIEWS: readonly Exclude<View, "notfound">[] = [
   "live",
@@ -25,6 +26,9 @@ const VIEWS: readonly Exclude<View, "notfound">[] = [
   "tracks",
   "overlays",
   "settings",
+  // The first-run wizard (#191): no tab; the bare origin redirects there
+  // until setup is completed (lib/welcome).
+  "welcome",
 ];
 
 export interface Route {

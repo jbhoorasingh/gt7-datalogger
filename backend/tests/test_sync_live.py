@@ -466,3 +466,15 @@ async def test_the_real_client_against_a_loopback_server(tmp_path) -> None:
     assert seen["agent"].startswith("gt7-datalogger/")
     assert seen["frame"]["lap_time"] == 12.5
     assert seen["frame"]["speed"] == 180.0
+
+
+def test_wss_checks_certificates_against_certifi() -> None:
+    # Not the interpreter's compiled-in CA path, which a frozen build lacks (#183).
+    import ssl
+
+    from app.sync.live import tls_context
+
+    ctx = tls_context()
+    assert ctx.verify_mode == ssl.CERT_REQUIRED
+    assert ctx.check_hostname
+    assert ctx.cert_store_stats()["x509_ca"] > 0

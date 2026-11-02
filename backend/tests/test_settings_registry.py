@@ -9,9 +9,10 @@ from httpx import ASGITransport, AsyncClient
 from app import settings_registry as registry
 from app.config import Settings
 from app.main import create_app
+from app.netinfo import server_version
 from app.processing.cars import CarDatabase
 from app.service import TelemetryService
-from app.storage.db import init_db, make_engine, make_session_factory
+from app.storage.db import SCHEMA_WRITTEN_BY_KEY, init_db, make_engine, make_session_factory
 from app.storage.repository import Repository
 
 DOC = Path(__file__).resolve().parents[2] / "docs" / "getting-started" / "configuration.md"
@@ -49,7 +50,7 @@ def test_every_setting_is_registered() -> None:
 
 
 def test_documentation_table_is_current() -> None:
-    text = DOC.read_text()
+    text = DOC.read_text(encoding="utf-8")
     assert registry.splice_docs(text) == text, (
         "configuration.md is out of date: run python backend/scripts/gen_config_docs.py"
     )
@@ -143,7 +144,8 @@ async def test_restart_setting_is_stored_but_pending(client) -> None:
     row = by_key(resp.json())["cars_json"]
     assert row["restart_pending"] is True
     assert service.settings.cars_json == before
-    assert (await service.repo.get_settings())["cars_json"] == "/tmp/cars.json"
+    # Stored as the Path it validated to, so in this OS's spelling.
+    assert (await service.repo.get_settings())["cars_json"] == str(Path("/tmp/cars.json"))
     # Resetting it again leaves nothing pending.
     resp = await c.put("/api/admin/config", json={"reset": ["cars_json"]})
     assert by_key(resp.json())["cars_json"]["restart_pending"] is False
@@ -195,7 +197,7 @@ async def test_bad_patches_change_nothing(client, patch, fragment) -> None:
     assert resp.status_code == 400
     assert fragment in resp.json()["detail"]
     assert service.settings.ws_rate == 30
-    assert await service.repo.get_settings() == {}
+    assert await service.repo.get_settings() == {SCHEMA_WRITTEN_BY_KEY: server_version()}
 
 
 async def test_a_bad_value_rejects_the_whole_patch(client) -> None:
@@ -233,7 +235,7 @@ async def test_a_handled_setting_refused_late_changes_nothing(client) -> None:
     assert resp.status_code == 400
     assert service.settings.ps_ip == ""
     assert service.settings.ws_rate == 30
-    assert await service.repo.get_settings() == {}
+    assert await service.repo.get_settings() == {SCHEMA_WRITTEN_BY_KEY: server_version()}
 
 
 async def test_a_port_in_use_is_refused_and_the_listener_restored(client) -> None:

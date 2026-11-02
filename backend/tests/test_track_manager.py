@@ -637,8 +637,11 @@ async def test_authored_corners_round_trip_and_are_renumbered(client) -> None:
     assert [c["name"] for c in got["corners"]] == ["Turn 1", "Hairpin"]
     # ...and they travel with the export, which is what makes a shared bundle
     # worth pulling (#47).
-    exported = (await c.get("/api/track-bundles/ring")).json()
+    resp = await c.get("/api/track-bundles/ring")
+    exported = resp.json()
     assert len(exported["corners"]) == 2
+    # Saved as a file from a link, not opened in the tab (#183).
+    assert resp.headers["content-disposition"] == 'attachment; filename="ring.json"'
 
 
 async def test_a_survey_run_never_overwrites_authored_corners(client) -> None:

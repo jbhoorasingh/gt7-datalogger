@@ -18,7 +18,8 @@ export type SectionId =
   | "access"
   | "data"
   | "advanced"
-  | "phone";
+  | "phone"
+  | "about";
 
 export interface SectionDef {
   id: SectionId;
@@ -46,7 +47,7 @@ export const SECTION_GROUPS: { group: MessageKey; items: SectionDef[] }[] = [
     group: "settings.group.streaming",
     items: [
       { id: "overlays", label: "settings.section.overlays", keywords: "overlay obs dash layout builder widget import" },
-      { id: "phone", label: "settings.section.phone", keywords: "phone mobile app qr code mdns bonjour discover network connect" },
+      { id: "phone", label: "settings.section.phone", keywords: "phone mobile tablet app qr code mdns bonjour discover network connect lan access" },
     ],
   },
   {
@@ -62,6 +63,7 @@ export const SECTION_GROUPS: { group: MessageKey; items: SectionDef[] }[] = [
         keywords:
           "environment variables env config all settings default port cors rate hz scenario cars tracks signatures restart",
       },
+      { id: "about", label: "settings.section.about", keywords: "about version update desktop docker data folder log file runtime" },
     ],
   },
 ];

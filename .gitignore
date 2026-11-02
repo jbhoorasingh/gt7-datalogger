@@ -50,3 +50,6 @@ reference-docs
 CLAUDE.md
 
 *.db
+
+# Written by `scripts/version.py stamp` in CI builds only (#179).
+backend/app/_build_info.py

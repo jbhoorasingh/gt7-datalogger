@@ -72,6 +72,30 @@ already-open connection through `AsyncConnection.run_sync`, so nothing opens a s
 writer against the SQLite file; `backend/alembic.ini` exists only for the CLI
 (`alembic revision --autogenerate`).
 
+Before it upgrades anything, `init_db` (#182):
+
+- **Refuses a database from a newer version.** A revision the script directory does not
+  know raises `DatabaseTooNew`, and the file is left alone. Every upgrade records the
+  version that ran it in the `schema_written_by` settings row, so the refusal names the
+  version to update to; the lifespan logs it as one line and the server exits with code 3,
+  without a traceback.
+- **Copies the database** when an upgrade is due on an existing file:
+  `<data>/backups/pre-upgrade-<UTC>-<revision>/` holds `gt7.db`, copied with SQLite's
+  backup API, and a `manifest.json` (app version, from and to revision, row counts,
+  `quick_check`). It is written as `.partial` and renamed once the manifest is in it.
+  With less than 2.2 times the database's size free, nothing is upgraded
+  (`NoRoomForBackup`). One copy is kept, three on the desktop app (`GT7_DESKTOP=1`).
+- **Upgrades in one transaction**, on a migration engine of its own
+  (`make_migration_engine`: no pool, and SQLAlchemy's pysqlite/aiosqlite recipe, so
+  BEGIN is really issued before DDL). A revision that fails rolls the whole upgrade
+  back, earlier revisions in the same start included. The app's engine keeps the
+  driver's own transaction handling, and Compact runs `VACUUM` on a `sqlite3`
+  connection of its own.
+
+Every connection sets `busy_timeout` to 30 s and keeps the rollback journal.
+`foreign_keys` stays off: with it on, 0011's rebuild of `sessions` cascades into
+deleting every lap.
+
 Before Alembic, schema changes were a hand-rolled list of `ALTER TABLE ADD COLUMN`
 statements applied at startup — which could only ever *add* columns, and grew by one
 entry per feature. That list survives, frozen, for exactly one job: a database predating

@@ -284,8 +284,12 @@ def survey_files(data_dir: Path) -> list[tuple[str, Path]]:
     corrections = bundles / track_corrections.DIRECTORY
     for folder in (bundles, corrections):
         if folder.is_dir():
+            # Archived by slug, not by file name, which differs for a name
+            # Windows reserves (track_bundle.slug_filename): the archive is
+            # restored on whatever platform, through the same mapping.
+            prefix = folder.relative_to(data_dir).as_posix()
             files += [
-                (p.relative_to(data_dir).as_posix(), p)
+                (f"{prefix}/{track_bundle.filename_slug(p.stem)}.json", p)
                 for p in sorted(folder.glob("*.json"))
                 if p.is_file()
             ]

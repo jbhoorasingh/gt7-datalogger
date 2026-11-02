@@ -5,8 +5,10 @@ Two entry paths, and both matter:
 * **In-process** — `app.storage.db.init_db` hands us a live connection through
   `config.attributes["connection"]`. The app's engine is async, and Alembic is
   synchronous, so the connection arrives already unwrapped by
-  `AsyncConnection.run_sync`. Nothing here may open its own engine in that
-  case, or SQLite would be asked for a second writer on the same file.
+  `AsyncConnection.run_sync`, from the migration engine (`make_migration_engine`),
+  inside a transaction that engine really began: the whole upgrade commits or
+  rolls back as one. Nothing here may open its own engine in that case, or
+  SQLite would be asked for a second writer on the same file.
 * **CLI** — `alembic upgrade head` from `backend/`, which reads the URL from
   `alembic.ini` (or `-x db=<path>`). Used to generate revisions and to inspect
   a database by hand; the app never depends on it.
@@ -23,7 +25,7 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from app.storage.db import Base
+from app.storage.db import Base, transactional_ddl, wait_for_locks
 
 config = context.config
 
@@ -77,6 +79,10 @@ def run_migrations_online() -> None:
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
+    # As the app's migration engine does, so a revision tried by hand is as
+    # atomic as it will be at startup.
+    transactional_ddl(engine)
+    wait_for_locks(engine)
     with engine.connect() as conn:
         context.configure(
             connection=conn, target_metadata=target_metadata, render_as_batch=True

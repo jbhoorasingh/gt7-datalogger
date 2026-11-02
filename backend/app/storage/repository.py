@@ -5,8 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import sqlite3
 from collections.abc import AsyncIterator, Mapping, Sequence
-from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from contextlib import AbstractAsyncContextManager, asynccontextmanager, closing
 from contextvars import ContextVar
 from datetime import UTC, datetime
 from typing import Any, cast
@@ -38,7 +39,14 @@ from app.processing.laps import (
 from app.processing.track_seed import SeedRow
 from app.processing.tracks import IDENTIFY_MIN_TICKS, TrackSignature, matches
 from app.storage import secret_store
-from app.storage.db import LapRow, LayoutRow, SessionRow, SettingRow, TrackRow
+from app.storage.db import (
+    BUSY_TIMEOUT_MS,
+    LapRow,
+    LayoutRow,
+    SessionRow,
+    SettingRow,
+    TrackRow,
+)
 
 # A result row of any shape. Since SQLAlchemy 2.1 `Row` is variadic over its
 # columns — a projection of five columns is `Row[int, int, int, bool, bool]`
@@ -205,6 +213,16 @@ def car_figures(car: Car | None) -> dict[str, Any]:
         "car_height_mm": c.height_mm,
         "car_performance_points": c.performance_points,
     }
+
+
+def _vacuum_file(path: str) -> None:
+    """VACUUM the SQLite file at `path` on a connection of its own, outside
+    any transaction (isolation_level None: the driver begins nothing).
+    Blocking; run it in a thread."""
+    with closing(
+        sqlite3.connect(path, timeout=BUSY_TIMEOUT_MS / 1000, isolation_level=None)
+    ) as db:
+        db.execute("VACUUM")
 
 
 class Gate:
@@ -1522,8 +1540,22 @@ class Repository:
             await db.commit()
 
     async def vacuum(self) -> None:
-        async with self._sf() as db:
-            await db.execute(text("VACUUM"))
+        """Compact the database file (Admin › Compact).
+
+        VACUUM cannot run inside a transaction, so on SQLite it gets a
+        connection of its own rather than one of the engine's, whose handling
+        of transactions is the driver's to decide (#182). It holds the file
+        for the whole rewrite, minutes on a large one: the caller refuses it
+        while anything is recording (#188). Inside the session gate, so a
+        restore never swaps the file out from under it."""
+        url = self.engine.url
+        if url.get_backend_name() != "sqlite" or url.database in (None, "", ":memory:"):
+            async with self._sf() as db:
+                await db.execute(text("VACUUM"))
+            return
+        path = str(url.database)
+        async with self.gate.entered():
+            await asyncio.to_thread(_vacuum_file, path)
 
     async def import_lap(self, payload: dict[str, Any], session_id: int) -> int:
         if payload.get("format") != "gt7-datalogger-lap":

@@ -174,6 +174,46 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "Health": {
+        "description": "Enough to tell this server apart from anything else on the port (#184).",
+        "properties": {
+          "app": {
+            "const": "gt7-datalogger",
+            "title": "App",
+            "type": "string"
+          },
+          "install_kind": {
+            "enum": [
+              "desktop",
+              "docker",
+              "source"
+            ],
+            "title": "Install Kind",
+            "type": "string"
+          },
+          "schema": {
+            "$ref": "#/components/schemas/SchemaState"
+          },
+          "status": {
+            "const": "ok",
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "app",
+          "version",
+          "install_kind",
+          "schema"
+        ],
+        "title": "Health",
+        "type": "object"
+      },
       "ImportPayload": {
         "properties": {
           "format": {
@@ -390,6 +430,40 @@
           "items"
         ],
         "title": "RestoreRequest",
+        "type": "object"
+      },
+      "SchemaState": {
+        "properties": {
+          "current": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Alembic revision the database is at",
+            "title": "Current"
+          },
+          "head": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Newest revision this build knows",
+            "title": "Head"
+          }
+        },
+        "required": [
+          "current",
+          "head"
+        ],
+        "title": "SchemaState",
         "type": "object"
       },
       "SessionPatch": {
@@ -730,6 +804,23 @@
           }
         },
         "title": "SettingsPayload",
+        "type": "object"
+      },
+      "SetupComplete": {
+        "properties": {
+          "lan_access": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lan Access"
+          }
+        },
+        "title": "SetupComplete",
         "type": "object"
       },
       "SurveyDiscardPayload": {
@@ -1813,6 +1904,121 @@
         "summary": "Put Settings"
       }
     },
+    "/api/admin/setup": {
+      "get": {
+        "description": "Where first-run setup stands (#184); the wizard polls this.",
+        "operationId": "get_setup_api_admin_setup_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Setup Api Admin Setup Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Setup"
+      }
+    },
+    "/api/admin/setup/complete": {
+      "post": {
+        "description": "Store the marker and start recording: the end of first-run mode.\n\nTurning LAN access on here also creates an admin token when there is\nnone, so changes from another device need it while reads stay open;\nthe wizard shows it once. It is stored like any admin token.",
+        "operationId": "complete_setup_api_admin_setup_complete_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/SetupComplete"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Complete Setup Api Admin Setup Complete Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Complete Setup"
+      }
+    },
     "/api/admin/stats": {
       "get": {
         "operationId": "stats_api_admin_stats_get",
@@ -2120,8 +2326,58 @@
         "summary": "Update Cars"
       }
     },
+    "/api/admin/update-check": {
+      "post": {
+        "description": "Check for a newer release now: the \"Check for updates\" button.\n\nRuns whether or not the daily check is on (it is the user asking), and\nanswers with the same object /stats carries. A failed check is not an\nerror here either: the answer is just the last one known. While GitHub's\nrate limit is in force it is not asked at all.",
+        "operationId": "update_check_api_admin_update_check_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Update Check Api Admin Update Check Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Check"
+      }
+    },
     "/api/admin/vacuum": {
       "post": {
+        "description": "Compact the database. Refused (409) while anything records (#188): the\nrewrite holds the file for minutes on a large one, and a lap that ends\nmeanwhile would fail to save once the busy timeout ran out.",
         "operationId": "vacuum_api_admin_vacuum_post",
         "parameters": [
           {
@@ -2771,11 +3027,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Health Api Health Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/Health"
                 }
               }
             },

@@ -89,6 +89,8 @@ from functools import wraps
 from pathlib import Path
 from typing import Any
 
+from app.storage.atomic import atomic_write_text
+
 log = logging.getLogger(__name__)
 
 # Every write to the survey files beside the database — the bundles, their
@@ -163,8 +165,35 @@ def slugify(track: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", track.lower()).strip("-") or "unnamed"
 
 
+# Names Windows will not open a file under, whatever its extension (#187):
+# `con.json` is the console. slugify can make every one of them, so a slug's
+# file is named apart from the slug, here and only here. The mapped stem
+# ends in "_", which slugify never writes, so the mapping cannot collide.
+_RESERVED_STEMS = frozenset(
+    {"con", "prn", "aux", "nul", *(f"com{n}" for n in range(1, 10)),
+     *(f"lpt{n}" for n in range(1, 10))}
+)
+
+
+def slug_filename(slug: str) -> str:
+    """The file name a slug's JSON is kept under — the bundle's, its
+    corrections', its compile's: `<slug>.json`, or `<slug>_.json` for a
+    name Windows reserves. On every platform, so a data dir moves between
+    them. The slug itself, the circuit's identity in sync and in bundles,
+    never changes."""
+    stem = f"{slug}_" if slug.lower() in _RESERVED_STEMS else slug
+    return f"{stem}.json"
+
+
+def filename_slug(stem: str) -> str:
+    """The slug a file stem names: slug_filename undone."""
+    if stem.endswith("_") and stem[:-1].lower() in _RESERVED_STEMS:
+        return stem[:-1]
+    return stem
+
+
 def bundle_path(data_dir: Path, track: str) -> Path:
-    return data_dir / BUNDLE_DIR / f"{slugify(track)}.json"
+    return data_dir / BUNDLE_DIR / slug_filename(slugify(track))
 
 
 def source_id(data_dir: Path) -> str:
@@ -189,12 +218,9 @@ def source_id(data_dir: Path) -> str:
         pass
     value = secrets.token_hex(SOURCE_ID_CHARS // 2)
     data_dir.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(
-        json.dumps({"source_id": value, "created_at": datetime.now(UTC).isoformat()}),
-        encoding="utf-8",
+    atomic_write_text(
+        path, json.dumps({"source_id": value, "created_at": datetime.now(UTC).isoformat()})
     )
-    tmp.replace(path)
     _source_cache[data_dir] = value
     log.info("installation source id created: %s", value)
     return value
@@ -209,12 +235,9 @@ def set_source_id(data_dir: Path, value: str) -> None:
         raise ValueError(f"not an installation id: {value!r}")
     data_dir.mkdir(parents=True, exist_ok=True)
     path = data_dir / SOURCE_FILE
-    tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(
-        json.dumps({"source_id": value, "created_at": datetime.now(UTC).isoformat()}),
-        encoding="utf-8",
+    atomic_write_text(
+        path, json.dumps({"source_id": value, "created_at": datetime.now(UTC).isoformat()})
     )
-    tmp.replace(path)
     _source_cache[data_dir] = value
     log.info("installation source id set: %s", value)
 
@@ -571,7 +594,7 @@ def load(data_dir: Path, track: str) -> dict[str, Any] | None:
 
 
 def load_slug(data_dir: Path, slug: str) -> dict[str, Any] | None:
-    path = data_dir / BUNDLE_DIR / f"{slug}.json"
+    path = data_dir / BUNDLE_DIR / slug_filename(slug)
     if not path.exists():
         return None
     try:
@@ -599,9 +622,8 @@ def load_slug(data_dir: Path, slug: str) -> dict[str, Any] | None:
 def _write(data_dir: Path, track: str, doc: dict[str, Any]) -> dict[str, Any]:
     path = bundle_path(data_dir, track)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(doc, separators=(",", ":")), encoding="utf-8")
-    tmp.replace(path)  # atomic: a crash never leaves a half-written bundle
+    # atomic: a crash never leaves a half-written bundle
+    atomic_write_text(path, json.dumps(doc, separators=(",", ":")))
     return {**doc["meta"], "points": len(doc["edges"])}
 
 
@@ -781,10 +803,11 @@ def list_bundles(data_dir: Path) -> list[dict[str, Any]]:
     for path in sorted(directory.glob("*.json")):
         # Through load(), so older files report their post-upgrade cell count
         # rather than a point count the app would never show again.
-        doc = load_slug(data_dir, path.stem)
+        slug = filename_slug(path.stem)
+        doc = load_slug(data_dir, slug)
         if doc is None:
             continue
-        out.append({**doc["meta"], "slug": path.stem, **stats(doc)})
+        out.append({**doc["meta"], "slug": slug, **stats(doc)})
     return out
 
 
@@ -1258,7 +1281,7 @@ def own_evidence(doc: dict[str, Any], source: str) -> dict[str, Any] | None:
 
 @serialized
 def delete(data_dir: Path, slug: str) -> bool:
-    path = data_dir / BUNDLE_DIR / f"{slug}.json"
+    path = data_dir / BUNDLE_DIR / slug_filename(slug)
     if not path.exists():
         return False
     path.unlink()

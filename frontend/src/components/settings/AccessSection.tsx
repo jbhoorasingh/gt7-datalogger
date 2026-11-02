@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useT } from "@/i18n";
 import { getAdminToken, setAdminToken } from "@/lib/api";
+import { useInstallKind } from "@/lib/health";
 import { Dot, INPUT_CLS, SectionPanel, SettingRow } from "./parts";
 
 export type Protection = "open" | "protected" | null;
@@ -48,13 +49,23 @@ export function TokenField({ label, placeholder }: { label?: string; placeholder
 
 export function AccessSection({ protection, locked }: { protection: Protection; locked: string | null }) {
   const t = useT();
+  // The desktop app's own browser is admin without a token (#195); the token
+  // is for a phone or tablet that changes settings, entered here once.
+  const desktop = useInstallKind() === "desktop";
   return (
-    <SectionPanel title={t("settings.section.access")} description={t("settings.access.desc")}>
+    <SectionPanel
+      title={t("settings.section.access")}
+      description={desktop ? t("settings.access.descDesktop") : t("settings.access.desc")}
+    >
       <SettingRow
         label={t("settings.access.protection")}
         help={t("settings.access.protectionHelp", { env: "GT7_ADMIN_TOKEN" })}
       >
-        {protection === "open" ? (
+        {desktop ? (
+          // The probe runs from this computer, which never needs the token:
+          // "open" would say nothing about the phone on the sofa.
+          <span className="text-xs text-ink-dim">{t("settings.access.desktopLocal")}</span>
+        ) : protection === "open" ? (
           <span className="flex items-center gap-1.5 text-xs text-warn">
             <Dot tone="warn" />
             {t("settings.access.open")}

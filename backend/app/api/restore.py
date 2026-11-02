@@ -134,7 +134,7 @@ async def describe(service: TelemetryService, upload: restore.Upload) -> dict[st
     found = upload.found
     manifest = upload.manifest
     parts = manifest["parts"]
-    data_dir = service.settings.db_path.parent
+    data_dir = service.settings.data_root()
     free = shutil.disk_usage(data_dir).free
     stats = await service.repo.stats()
     here_layouts = {layout["name"] for layout in await service.repo.list_layouts()}
@@ -293,7 +293,7 @@ async def apply_restore(
         async with service.restores.applying(upload):
             # Measured holding the disk, so no upload or snapshot can be
             # counting on the same free space.
-            free = shutil.disk_usage(service.settings.db_path.parent).free
+            free = shutil.disk_usage(service.settings.data_root()).free
             restore.check_room(upload.found, items, free)
             # To its end even when the request goes away (the browser closed,
             # the connection dropped): a restore abandoned halfway would let go
@@ -322,7 +322,7 @@ async def _apply(
     are then written into; the laps re-judged last, against the road as the
     surveys now have it. Only the data part can fail the request, and it
     fails before anything is changed."""
-    data_dir = service.settings.db_path.parent
+    data_dir = service.settings.data_root()
     report: dict[str, Any] = {}
     rejudge: list[str] = []
     if "data" in items:
@@ -362,7 +362,7 @@ async def _apply(
 
 
 async def _restore_data(service: TelemetryService, upload: restore.Upload) -> dict[str, Any]:
-    data_dir = service.settings.db_path.parent
+    data_dir = service.settings.data_root()
     needs = restore.database_bytes_needed(upload.found)
     free = shutil.disk_usage(data_dir).free
     if free < needs:

@@ -12,10 +12,11 @@ from httpx import ASGITransport, AsyncClient
 from app import settings_registry as registry
 from app.config import Settings
 from app.main import create_app
+from app.netinfo import server_version
 from app.processing.cars import CarDatabase
 from app.service import TelemetryService
 from app.storage import secret_store
-from app.storage.db import init_db, make_engine, make_session_factory
+from app.storage.db import SCHEMA_WRITTEN_BY_KEY, init_db, make_engine, make_session_factory
 from app.storage.repository import Repository
 from app.storage.secret_store import SecretStore, move_out_of_database
 
@@ -118,7 +119,11 @@ async def test_upgrade_moves_credentials_out_and_leaves_no_trace(repo, tmp_path)
     await move_out_of_database(repo, store)
 
     assert store.read() == {"sync_token": TOKEN, "webhook_url": HOOK}
-    assert await repo.get_settings() == {"source": "sim", "sync_url": "https://sync.test"}
+    assert await repo.get_settings() == {
+        "source": "sim",
+        "sync_url": "https://sync.test",
+        SCHEMA_WRITTEN_BY_KEY: server_version(),
+    }
     raw = db_file.read_bytes()
     for trace in [TOKEN, HOOK, "OLDTOKEN", "OLDHOOK"]:
         assert trace.encode() not in raw, trace

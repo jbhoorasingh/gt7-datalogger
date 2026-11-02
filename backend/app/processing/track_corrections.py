@@ -63,6 +63,8 @@ from typing import Any
 
 from app.processing import track_bundle
 from app.processing.track_bundle import BundleError, edge_key, same_level, serialized
+from app.storage import atomic
+from app.storage.atomic import atomic_write_text
 
 log = logging.getLogger(__name__)
 
@@ -389,7 +391,7 @@ def smooth_override(doc: dict[str, Any] | None) -> bool | None:
 
 
 def path(data_dir: Path, slug: str) -> Path:
-    return data_dir / track_bundle.BUNDLE_DIR / DIRECTORY / f"{slug}.json"
+    return data_dir / track_bundle.BUNDLE_DIR / DIRECTORY / track_bundle.slug_filename(slug)
 
 
 def identity(data_dir: Path, slug: str) -> list[int] | None:
@@ -429,9 +431,7 @@ def write(data_dir: Path, slug: str, doc: dict[str, Any]) -> Path:
     """Keep a validated document as the circuit's corrections, replacing any."""
     file = path(data_dir, slug)
     file.parent.mkdir(parents=True, exist_ok=True)
-    tmp = file.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(doc, separators=(",", ":")), encoding="utf-8")
-    tmp.replace(file)
+    atomic_write_text(file, json.dumps(doc, separators=(",", ":")))
     return file
 
 
@@ -458,5 +458,5 @@ def move(data_dir: Path, slug: str, new_slug: str) -> bool:
     if target.exists():
         source.unlink()
         return False
-    source.replace(target)
+    atomic.replace(source, target)
     return True

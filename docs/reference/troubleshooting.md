@@ -103,6 +103,16 @@ sections show an **Unlock settings** field that does the same. 403 means the ent
 token doesn't match the server's. Read-only pages (Live, overlays, `/dash`) never need
 the token.
 
+## 403 "is not a name this server trusts" behind a reverse proxy
+
+The server refuses requests addressed to a host name it does not know, which stops a
+web page from reaching it through DNS rebinding. IP addresses, `localhost`, `.local`
+and the other LAN names always work. If you reach it through a reverse proxy or a DNS
+name of your own, add that name to `GT7_TRUSTED_HOSTS` (for example
+`GT7_TRUSTED_HOSTS=gt7.example.com`, or `*.example.com` for a whole domain); `*`
+turns the check off. A listed name also counts as the server's own origin, so the UI
+served through the proxy can still save settings when the proxy rewrites `Host`.
+
 ## Cross-origin (CORS) errors after upgrading
 
 Wildcard CORS was removed — the bundled UI is same-origin and unaffected, but if you
@@ -117,6 +127,15 @@ built a separate app that calls this API from another origin, set
   when filing an issue.
 - Database growing large? **Settings › Data** shows its size, how much **Compact**
   would reclaim, and the backup, restore and delete-everything actions.
+- The datalogger stops at startup saying the database *was written by a newer
+  version*? An older build was started on data a newer one upgraded (an older Docker
+  tag, say). Nothing has been changed: start the version the message names, or a later
+  one.
+- Before a new version upgrades the database, it copies it to
+  `backups/pre-upgrade-<time>-<revision>/` in the data folder. To go back to the older
+  version, stop the datalogger, copy that folder's `gt7.db` over the one in the data
+  folder, and start the version its `manifest.json` names. With too little free space
+  for the copy, the upgrade is not started and the log says how much is needed.
 
 Still stuck? [Open an issue](https://github.com/jbhoorasingh/gt7-datalogger/issues) with
 your setup (Docker/native, network layout) and the output of `/api/status`.

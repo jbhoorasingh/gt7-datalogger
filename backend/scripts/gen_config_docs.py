@@ -22,14 +22,14 @@ DOC = ROOT.parent / "docs" / "getting-started" / "configuration.md"
 
 
 def main() -> int:
-    current = DOC.read_text()
+    current = DOC.read_text(encoding="utf-8")
     wanted = splice_docs(current)
     if "--check" in sys.argv:
         if wanted != current:
             print(f"{DOC} is out of date: run python scripts/gen_config_docs.py")
             return 1
         return 0
-    DOC.write_text(wanted)
+    DOC.write_text(wanted, encoding="utf-8", newline="\n")
     print(f"wrote {DOC}")
     return 0
 

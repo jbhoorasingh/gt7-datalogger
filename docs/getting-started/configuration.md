@@ -42,7 +42,9 @@ The **Applies** column says when a change takes effect:
 | --- | --- | --- | --- |
 | `GT7_WS_RATE` | `30` | live | Live stream rate (Hz) for clients that do not ask for their own — the browser UI. Capture stays at ~60 Hz; a client can request up to 60 Hz in its [hello](../reference/client-protocol.md) |
 | `GT7_MDNS` | `true` | live | Advertise this server over mDNS as `_gt7dl._tcp` so the phone app finds it without an address. Multicast does not leave a Docker bridge network: in a container it needs `network_mode: host` |
+| `GT7_LAN_ACCESS` | `true` | live | Let phones, tablets and other computers on the network use this server. Off, only this computer can, and mDNS stops announcing it. Reads and the live stream need no token; with an admin token set, changes from another device need it |
 | `GT7_CORS_ORIGINS` | *(empty)* | live | Comma-separated origins allowed for cross-origin API use. Empty sends no CORS headers — the bundled UI is same-origin and needs none, and so does a native app |
+| `GT7_TRUSTED_HOSTS` | *(empty)* | live | Comma-separated host names requests may be addressed to, beyond the ones always accepted: IP addresses, `localhost`, single-label names, this machine's hostname and names ending `.local`, `.lan`, `.home.arpa`, `.internal`, `.localdomain`, `.localhost` or `.test`. Set it to the public name of a reverse proxy in front of the server; `*.example.com` takes a whole domain and `*` turns the check off. A page served under a listed name may also make changes, as the server's own pages do |
 
 ### Race Engineer
 
@@ -85,6 +87,7 @@ The **Applies** column says when a change takes effect:
 | `GT7_TRACKS_JSON` | *(bundled)* | live | Official GT7 track and layout metadata |
 | `GT7_TRACK_SIGNATURES_JSON` | *(bundled)* | next start | Shipped track signatures, synced into the `tracks` table at startup so a fresh install [identifies circuits](../internals/track-identification.md#the-shipped-signatures) it has never seen driven. Defaults to the copy inside the package. Set it blank to turn seeding off and identify only what you have named and surveyed |
 | `GT7_CARS_JSON` | *(bundled)* | next start | Car inventory: id → name, manufacturer, year, category, drivetrain, aspiration and the published figures. Resolves from the package, so it works whatever directory you start from |
+| `GT7_CAR_REFRESH` | `true` | live | Check GT7's own car list on `gran-turismo.com` in the background, on the first start and then at most weekly, for cars added since this release. Off, the bundled inventory is used until you press Update car database |
 | `GT7_CARS_CSV` | *(empty)* | next start | Deprecated pre-0.6 `id,name` CSV. Set = read cars from here instead, names only. Kept for one release |
 
 ### Server
@@ -92,10 +95,17 @@ The **Applies** column says when a change takes effect:
 | Variable | Default | Applies | Description |
 | --- | --- | --- | --- |
 | `GT7_LOG_LEVEL` | `INFO` | live | Root log level |
+| `GT7_UPDATE_CHECK` | `false` | live | Once a day, ask GitHub Releases whether a newer version is out and show it in Settings (and the desktop tray). Notify only: nothing is downloaded. One request to `api.github.com` a day; on by default in the desktop app |
+| `GT7_UPDATE_CHANNEL` | `stable` | live | `stable` offers releases only; `prerelease` also offers release candidates |
 | `GT7_ADMIN_TOKEN` | *(empty)* | live | When set, the Settings pages and all destructive/mutating API calls require this token via the `X-API-Key` header; overlay/dash/read endpoints and the live WebSocket stay open. Empty = fully open (LAN-trusted) |
 | `GT7_HTTP_HOST` | `0.0.0.0` | environment only | HTTP bind host. Read before the database opens, so environment only |
 | `GT7_HTTP_PORT` | `8000` | environment only | HTTP port. Read before the database opens — and a Docker install maps it from outside — so environment only |
-| `GT7_DB_PATH` | `data/gt7.db` | environment only | SQLite database path — also accepts a full SQLAlchemy async URL (e.g. Postgres). The database holds the other settings, so environment only |
+| `GT7_DATA_DIR` | *(the database's folder)* | environment only | Folder for everything the app writes: the database (unless `GT7_DB_PATH` names another), track bundles, survey logs, sync state, backups and this installation's identity. Unset = the database's own folder. Read before the database opens, so environment only |
+| `GT7_DB_PATH` | `data/gt7.db` | environment only | SQLite database file. Defaults to `gt7.db` in `GT7_DATA_DIR` when that is set. The database holds the other settings, so environment only |
+| `GT7_LOG_FILE` | *(empty)* | environment only | Also write the log to this file, rotated at 5 MB with four old files kept (e.g. `/data/logs/gt7.log` in Docker). Empty = stderr and the Settings › Advanced log view only. Environment only |
+| `GT7_DESKTOP` | `false` | environment only | Set by the desktop app's launcher; marks this server as the desktop install in `/api/health`. Environment only |
+| `GT7_FORCE_SIM` | *(empty)* | environment only | `firstrun`: until setup is completed, start on the simulator with mDNS and recording off, whatever is stored. Set by the desktop launcher. Environment only |
+| `GT7_FRONTEND_DIST` | *(bundled)* | environment only | The built web UI to serve. Unset = the source checkout's `frontend/dist`, or the copy inside a desktop build. Environment only |
 
 <!-- settings-table:end -->
 
@@ -125,6 +135,28 @@ regenerates the copy committed to the repository, for cutting a release.
 
 Cars GT7 stops publishing are never dropped — a refresh only ever adds and updates, so
 sessions you recorded years ago keep their car names.
+
+## What the app fetches on its own
+
+The datalogger works with no internet at all. When it has some, three things are fetched
+in the background without anyone asking, each one best-effort — a failure is logged at
+info level and tried again later — and none of them sends your recordings anywhere:
+
+| What | From | When | Turn it off |
+|---|---|---|---|
+| **Car list refresh** | GT7's own car list on `gran-turismo.com` | first run, then weekly | `GT7_CAR_REFRESH=false` (the bundled inventory is used whenever it fails) |
+| **Shared track pull** | the [track-data repo](https://jbhoorasingh.github.io/gt7-datalogger-track-data/) (`GT7_SHARED_BUNDLES_URL`) | once, on the first start of an installation holding no bundles | set `GT7_SHARED_BUNDLES_URL` empty |
+| **Update check** | GitHub Releases, `api.github.com/repos/jbhoorasingh/gt7-datalogger/releases` | once a day, and when you click *Check for updates* | `GT7_UPDATE_CHECK=false` (the default, except in the desktop app) |
+
+The update check is notify-only: it asks which release is the latest (with `update_channel`
+`prerelease`, the latest twenty, release candidates included), compares it with the running
+version and, if it is newer, shows the version and a link. Nothing is downloaded or
+installed. The request carries the app's version in its `User-Agent` and nothing else about
+you; like any request, it tells GitHub your IP address. If GitHub's rate limit answers, it
+waits until the limit resets before asking again.
+
+The [sync client](../guide/settings.md#sync) also talks to a server, but only once you have
+pasted a connection string and turned it on.
 
 ## Units & browser settings
 

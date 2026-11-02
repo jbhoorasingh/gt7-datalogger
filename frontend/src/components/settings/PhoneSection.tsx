@@ -1,12 +1,16 @@
 // Settings › Phone app: how the phone finds this server. mDNS does it on
 // its own where multicast works; the QR code carries the same address for
-// networks (and Docker bridges) where it doesn't.
+// networks (and Docker bridges) where it doesn't. With LAN access off
+// (#195) nothing but this computer may connect, so the switch that allows it
+// comes first and the code gives way to saying so.
 
 import { useMemo } from "react";
 import { Toggle } from "@/components/ui/Toggle";
 import { useT } from "@/i18n";
 import { api } from "@/lib/api";
+import { useInstallKind } from "@/lib/health";
 import type { AdminStats } from "@/lib/types";
+import { lanOff, LanOffNotice, setLanAccess } from "./LanAccess";
 import { Dot, SectionPanel, SettingRow } from "./parts";
 import { phoneUrl, qrPath } from "./qr";
 
@@ -20,7 +24,9 @@ export function PhoneSection({
   run: (label: string, fn: () => Promise<unknown>, done?: (r: unknown) => string) => Promise<void>;
 }) {
   const t = useT();
-  const url = stats?.lan_ip ? phoneUrl(stats.lan_ip, stats.http_port) : null;
+  const installKind = useInstallKind();
+  const off = lanOff(stats);
+  const url = stats?.lan_ip && !off ? phoneUrl(stats.lan_ip, stats.http_port) : null;
   const qr = useMemo(() => (url ? qrPath(url) : null), [url]);
   const mdns = stats?.mdns ?? null;
   const enabled = stats?.mdns_enabled ?? false;
@@ -28,7 +34,26 @@ export function PhoneSection({
 
   return (
     <SectionPanel title={t("settings.section.phone")} description={t("settings.phone.desc")}>
-      <SettingRow label={t("settings.phone.announce")} help={t("settings.phone.announceHelp")}>
+      {stats?.lan_access !== undefined && (
+        <SettingRow label={t("lan.toggle")} help={t("lan.toggleHelp")}>
+          <Toggle
+            ariaLabel={t("lan.toggle")}
+            checked={stats.lan_access}
+            disabled={busy !== null}
+            onCheckedChange={(on) =>
+              void run(
+                t("lan.toggle"),
+                () => setLanAccess(on),
+                () => (on ? t("lan.on.done") : t("lan.off.done")),
+              )
+            }
+          />
+        </SettingRow>
+      )}
+      <SettingRow
+        label={t("settings.phone.announce")}
+        help={t(installKind === "docker" ? "settings.phone.announceHelp" : "settings.phone.announceHelpLan")}
+      >
         <div className="flex flex-wrap items-center gap-3">
           <Toggle
             ariaLabel={t("settings.phone.announce")}
@@ -77,12 +102,14 @@ export function PhoneSection({
               </span>
             </div>
           </div>
+        ) : off ? (
+          <LanOffNotice button={false} />
         ) : (
           <span className="text-[12px] text-ink-faint">
             {!stats
               ? t("common.loading")
               : loopback
-                ? t("settings.phone.loopbackHelp")
+                ? t(installKind === "desktop" ? "settings.phone.loopbackHelpDesktop" : "settings.phone.loopbackHelp")
                 : t("settings.phone.noLan")}
           </span>
         )}

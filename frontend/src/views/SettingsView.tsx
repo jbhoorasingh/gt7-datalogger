@@ -4,6 +4,7 @@
 // actions (Test, Restart, Compact, sync Connect…) still act at once.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AboutSection } from "@/components/settings/AboutSection";
 import { AccessSection, probeProtection, TokenField, type Protection } from "@/components/settings/AccessSection";
 import { AdvancedSection } from "@/components/settings/AdvancedSection";
 import { ConnectionSection } from "@/components/settings/ConnectionSection";
@@ -22,12 +23,14 @@ import {
 } from "@/components/settings/model";
 import { NotificationsSection } from "@/components/settings/NotificationsSection";
 import { OverlaysSection } from "@/components/settings/OverlaysSection";
+import { lanOff } from "@/components/settings/LanAccess";
 import { PhoneSection } from "@/components/settings/PhoneSection";
 import { PendingBar } from "@/components/settings/PendingBar";
 import { Dot, mb, SectionPanel, TONE_TEXT, type SectionProps, type Tone } from "@/components/settings/parts";
 import { SyncSection, syncQueued } from "@/components/settings/SyncSection";
 import { useT } from "@/i18n";
-import { api, ApiError, type AdminSettingsPatch } from "@/lib/api";
+import { api, ApiError, isTokenError, type AdminSettingsPatch } from "@/lib/api";
+import { useInstallKind } from "@/lib/health";
 import type { LayoutSummary } from "@/lib/layout";
 import { openSettings } from "@/lib/router";
 import type { AdminSettings, AdminStats, SyncStatus } from "@/lib/types";
@@ -41,6 +44,7 @@ export function SettingsView({ section: sectionParam }: { section?: string | nul
   const t = useT();
   const section = resolveSection(sectionParam);
   const setStatus = useTelemetry((s) => s.setStatus);
+  const installKind = useInstallKind();
 
   const [saved, setSaved] = useState<AdminSettings | null>(null);
   const [settingsError, setSettingsError] = useState<Error | null>(null);
@@ -60,10 +64,9 @@ export function SettingsView({ section: sectionParam }: { section?: string | nul
   // can't wind the saved copy back.
   const writeEpoch = useRef(0);
 
-  const locked =
-    settingsError instanceof ApiError && (settingsError.status === 401 || settingsError.status === 403)
-      ? settingsError.message
-      : null;
+  // A guard refusal (LAN access off, a foreign Host) is no token problem:
+  // offering the token field for it would send the person the wrong way.
+  const locked = isTokenError(settingsError) ? settingsError.message : null;
 
   const reloadSettings = useCallback(() => {
     api.admin
@@ -251,14 +254,18 @@ export function SettingsView({ section: sectionParam }: { section?: string | nul
   }
   // A server on loopback only (#151) is reachable neither way.
   if (stats)
-    meta.phone = stats.mdns
+    meta.phone = lanOff(stats)
+      ? [t("settings.meta.lanOff"), "warn"]
+      : stats.mdns
       ? [t("settings.meta.announced"), "good"]
       : stats.loopback_only
         ? [t("settings.meta.unreachable"), "warn"]
         : [t("settings.meta.byCode"), "faint"];
   if (layouts) meta.overlays = [t("settings.meta.saved", { n: layouts.length }), "faint"];
+  if (stats?.update?.available) meta.about = [t("settings.meta.update"), "accent"];
   if (logErrors > 0) meta.logs = [t("settings.meta.errors", { count: logErrors }), "bad"];
-  if (protection)
+  if (installKind === "desktop") meta.access = [t("settings.meta.thisComputer"), "faint"];
+  else if (protection)
     meta.access =
       protection === "open"
         ? [t("settings.meta.open"), "warn"]
@@ -362,6 +369,8 @@ export function SettingsView({ section: sectionParam }: { section?: string | nul
         );
       case "access":
         return <AccessSection protection={protection} locked={locked} />;
+      case "about":
+        return <AboutSection stats={stats} />;
       case "advanced":
         // Its own buffer and Apply: a change here can be any setting, so the
         // other sections' copy is reloaded afterwards rather than patched.
@@ -509,7 +518,9 @@ function SettingsUnavailable({ error, locked }: { error: Error | null; locked: s
     <div className="panel px-[18px] py-3.5 text-sm text-ink-dim">
       {error ? (
         <span className="text-warn">
-          {error instanceof ApiError
+          {error instanceof ApiError && error.reason
+            ? error.message
+            : error instanceof ApiError
             ? t("settings.unreachableStatus", { status: String(error.status) })
             : t("settings.unreachable")}
         </span>

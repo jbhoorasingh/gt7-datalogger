@@ -5,6 +5,7 @@
 import { useEffect, useState } from "react";
 import { currentLanguage, useT } from "@/i18n";
 import { formatDuration } from "@/lib/format";
+import { useInstallKind } from "@/lib/health";
 import { liveFrameRef } from "@/store/telemetry";
 import { ErrorPage, TROUBLESHOOTING_URL } from "./ErrorPage";
 import { FLAGS } from "./illustrations";
@@ -12,6 +13,9 @@ import type { Reachability } from "./useServerReachability";
 
 export function UnreachablePage({ reach }: { reach: Reachability }) {
   const t = useT();
+  // Kept from before the server went away (lib/health): where to look
+  // depends on how it was installed.
+  const installKind = useInstallKind();
   // The countdown and the offline clock tick once a second.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -41,7 +45,13 @@ export function UnreachablePage({ reach }: { reach: Reachability }) {
       kicker={t("error.unreachable.kicker")}
       code="—"
       title={t("error.unreachable.title")}
-      body={t("error.unreachable.body")}
+      body={t(
+        installKind === "desktop"
+          ? "error.unreachable.bodyDesktop"
+          : installKind === "docker"
+            ? "error.unreachable.body"
+            : "error.unreachable.bodySource",
+      )}
       primary={{
         label: reach.checking ? t("error.unreachable.retrying") : t("error.unreachable.retryNow"),
         onClick: reach.retryNow,

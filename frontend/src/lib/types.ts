@@ -57,6 +57,59 @@ export interface ConnectionStatus {
   decode_errors: number;
   packet_format?: string;
   frames_dropped?: number; // console frames lost in transit (packet-id gaps)
+  /** Why the UDP listener did not start (port taken…), null while it runs (#181). */
+  listener_error?: string | null;
+  /** The last UDP send/receive error and why it matters, cleared by the next
+   * good packet (#181): a macOS Local Network denial, a firewall… */
+  heartbeat_error?: HeartbeatError | null;
+  /** Laps that ended but could not be written to the database (#207). */
+  save_errors?: number;
+  last_save_error?: { lap: number; error: string; at: number } | null;
+}
+
+export interface HeartbeatError {
+  errno: number | null;
+  reason: string;
+  /** Unix seconds. */
+  at: number;
+}
+
+export type InstallKind = "desktop" | "docker" | "source";
+
+/** GET /api/health (#184): who answers, and how it was installed. */
+export interface Health {
+  status: string;
+  app: string;
+  version: string;
+  install_kind: InstallKind;
+  schema: { current: string | null; head: string | null };
+}
+
+/** GET /api/admin/setup (#184): where first-run setup stands. */
+export interface SetupState {
+  completed: boolean;
+  sessions: number;
+  ps_ip_saved: boolean;
+  source: string;
+  listening: boolean;
+  listener_error: string | null;
+  heartbeat_error: HeartbeatError | null;
+  lan_reachable: boolean;
+  lan_access: boolean;
+}
+
+/** POST /api/admin/setup/complete: the state, plus the admin token created
+ * when LAN access was first turned on without one (shown once). */
+export interface SetupCompleted extends SetupState {
+  admin_token: string | null;
+}
+
+/** What the update check found (#196); absent from a server without one. */
+export interface UpdateStatus {
+  available: boolean;
+  version?: string | null;
+  url?: string | null;
+  checked_at?: string | number | null;
 }
 
 export interface LapSummary {
@@ -1199,6 +1252,13 @@ export interface AdminStats {
   mdns: { name: string; ip: string; port: number } | null;
   /** GT7_MDNS: whether it should be announced at all. */
   mdns_enabled: boolean;
+  /** The lan_access setting (#195): may other devices use this server. */
+  lan_access?: boolean;
+  /** Whether another device can reach it right now: LAN access on and not
+   * bound to loopback. Absent from an older server, which always could. */
+  lan_reachable?: boolean;
+  /** The update check (#196), when the server has one. */
+  update?: UpdateStatus | null;
 }
 
 // Backup (#161): the parts one file can hold, what each would hold now

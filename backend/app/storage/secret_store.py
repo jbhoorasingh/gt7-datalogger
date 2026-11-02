@@ -17,9 +17,10 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+from app.storage.atomic import atomic_write_text
 
 if TYPE_CHECKING:
     from app.storage.repository import Repository
@@ -72,15 +73,10 @@ class SecretStore:
     def _write(self, values: dict[str, str]) -> None:
         doc = {"format": FORMAT, "version": VERSION, "settings": dict(sorted(values.items()))}
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".json.tmp")
         # Created owner-only rather than chmodded after, so there is no moment
-        # another user could read it; a leftover from a crashed write is
-        # removed first, as O_CREAT would keep its permissions.
-        tmp.unlink(missing_ok=True)
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(doc, f, indent=1)
-        tmp.replace(self.path)  # atomic: a crash never leaves a half-written file
+        # another user could read it (atomic_write_text removes a leftover temp
+        # file first, as O_CREAT would keep its permissions).
+        atomic_write_text(self.path, json.dumps(doc, indent=1), mode=0o600)
 
 
 async def move_out_of_database(repo: Repository, store: SecretStore) -> None:

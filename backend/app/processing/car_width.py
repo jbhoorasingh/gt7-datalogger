@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from app.processing.track_bundle import serialized
+from app.storage.atomic import atomic_write_text
 
 log = logging.getLogger(__name__)
 
@@ -87,6 +88,5 @@ def save(data_dir: Path, cars: dict[int, dict[str, Any]]) -> None:
     }
     path = path_for(data_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(doc, indent=1, sort_keys=True), encoding="utf-8")
-    tmp.replace(path)  # atomic: a crash never leaves a half-written file
+    # atomic: a crash never leaves a half-written file
+    atomic_write_text(path, json.dumps(doc, indent=1, sort_keys=True))

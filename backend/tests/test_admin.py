@@ -126,6 +126,27 @@ async def test_stats_report_what_compacting_would_reclaim(client) -> None:
     assert (await c.get("/api/admin/stats")).json()["db"]["reclaimable_bytes"] == 0
 
 
+async def test_compact_is_refused_while_anything_records(client) -> None:
+    """Compact holds the file for the whole rewrite; a lap ending meanwhile
+    would be lost (#188)."""
+    c, service = client
+    await drive_laps(service, laps=1)
+    assert service.session_id is not None and service.recording
+
+    resp = await c.post("/api/admin/vacuum")
+    assert resp.status_code == 409
+    assert "a session is recording" in resp.json()["detail"]
+
+    service.recording = False
+    service.survey.active = True
+    resp = await c.post("/api/admin/vacuum")
+    assert resp.status_code == 409
+    assert "a survey is running" in resp.json()["detail"]
+
+    service.survey.active = False
+    assert (await c.post("/api/admin/vacuum")).status_code == 200
+
+
 async def test_log_level_change(client) -> None:
     c, _ = client
     resp = await c.put("/api/admin/settings", json={"log_level": "DEBUG"})
