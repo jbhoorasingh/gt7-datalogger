@@ -14,6 +14,9 @@ a build is released. It applies from the first desktop release, 1.0.0.
 Every release also carries `SHA256SUMS.txt`, `release-manifest.json` and GitHub build
 provenance attestations, which tie each file to the workflow run and commit that built it.
 
+A release candidate (`vX.Y.Z-rc.N`, a prerelease) may ship its Windows and Linux files
+unsigned while those signing routes are being set up. A release itself never does.
+
 ## How a build gets signed
 
 - Only the `desktop.yml` workflow builds release files, from a `v*.*.*` tag on `main`.

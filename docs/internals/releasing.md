@@ -58,6 +58,11 @@ Rehearse a desktop release with a release candidate: tag `vX.Y.Z-rc.1` on the sa
 commit. It runs the same jobs and ends as a draft **prerelease**. Only installs with
 **Update channel** set to `prerelease` are offered a published one.
 
+A release candidate can run before Windows signing and the Linux GPG key are set up.
+Without `WINDOWS_SIGNING`, its Windows files are unsigned, and without
+`LINUX_GPG_PRIVATE_KEY` it has no `.asc` files; the run warns about each. macOS is
+always signed. A final `vX.Y.Z` tag fails without them.
+
 ## What the tag starts
 
 The `v*.*.*` tag starts two workflows. They run side by side and do not depend on each

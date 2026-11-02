@@ -7,6 +7,10 @@ name: Desktop
 #
 # Signing jobs install nothing and run no npm: they only download what the
 # unsigned build jobs uploaded. No job here publishes a release.
+#
+# macOS is always signed. A vX.Y.Z-rc.N tag may run before the Windows
+# signing route or the Linux GPG key exists: those files then ship unsigned,
+# with a warning. A final vX.Y.Z tag fails without them.
 
 on:
   push:
@@ -228,13 +232,17 @@ jobs:
     needs: [plan, gate]
     runs-on: windows-2025
     environment: desktop-release
+    outputs:
+      signed: ${{ steps.pack.outputs.signed }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: { name: unsigned-windows, path: desktop/dist/gt7-datalogger }
       - name: Sign, package, scan
+        id: pack
         shell: pwsh
         env:
+          PRERELEASE: ${{ needs.plan.outputs.prerelease }}
           WINDOWS_SIGNING: ${{ vars.WINDOWS_SIGNING }}
           AZURE_SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
           AZURE_SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
@@ -246,7 +254,18 @@ jobs:
           WINDOWS_PFX_PASSWORD: ${{ secrets.WINDOWS_PFX_PASSWORD }}
         run: |
           choco install innosetup --no-progress -y
-          desktop/windows/package.ps1 -Version "${{ needs.plan.outputs.expected }}" -Sign
+          if ("$env:WINDOWS_SIGNING".Trim()) {
+            desktop/windows/package.ps1 -Version "${{ needs.plan.outputs.expected }}" -Sign
+            "signed=true" >> $env:GITHUB_OUTPUT
+          }
+          elseif ($env:PRERELEASE -eq 'true') {
+            Write-Host "::warning::WINDOWS_SIGNING is not set: this release candidate's Windows files are unsigned"
+            desktop/windows/package.ps1 -Version "${{ needs.plan.outputs.expected }}"
+            "signed=false" >> $env:GITHUB_OUTPUT
+          }
+          else {
+            throw 'WINDOWS_SIGNING is not set: only a vX.Y.Z-rc.N tag may ship Windows unsigned'
+          }
           desktop/windows/defender-scan.ps1 -Path desktop/dist
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -267,7 +286,16 @@ jobs:
         env:
           LINUX_GPG_PRIVATE_KEY: ${{ secrets.LINUX_GPG_PRIVATE_KEY }}
           LINUX_GPG_KEY_ID: ${{ vars.LINUX_GPG_KEY_ID }}
+          PRERELEASE: ${{ needs.plan.outputs.prerelease }}
         run: |
+          if [[ -z "$LINUX_GPG_PRIVATE_KEY" ]]; then
+            if [[ "$PRERELEASE" != "true" ]]; then
+              echo "::error::LINUX_GPG_PRIVATE_KEY is not set: only a vX.Y.Z-rc.N tag may ship without .asc signatures"
+              exit 1
+            fi
+            echo "::warning::LINUX_GPG_PRIVATE_KEY is not set: this release candidate has no .asc signatures"
+            exit 0
+          fi
           echo "$LINUX_GPG_PRIVATE_KEY" | gpg --batch --import
           cd desktop/dist
           for f in GT7-Datalogger-Linux-x86_64.AppImage GT7-Datalogger-Linux-x86_64.AppImage.zsync GT7-Datalogger-Linux-x86_64.tar.gz; do
@@ -304,9 +332,12 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: { name: signed-windows, path: signed }
       - shell: pwsh
+        env:
+          SIGNED: ${{ needs.sign-windows.outputs.signed }}
         run: |
           $sig = Get-AuthenticodeSignature signed/GT7-Datalogger-Windows-x64-Setup.exe
-          if ($sig.Status -ne 'Valid') { throw "Setup.exe signature: $($sig.Status)" }
+          if ($env:SIGNED -ne 'true') { Write-Host "::warning::Setup.exe is unsigned (a release candidate before Windows signing is set up)" }
+          elseif ($sig.Status -ne 'Valid') { throw "Setup.exe signature: $($sig.Status)" }
           Start-Process signed/GT7-Datalogger-Windows-x64-Setup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/ALLUSERS' -Wait
           python desktop/ci/smoke.py "$env:ProgramFiles\GT7 Datalogger\gt7-datalogger.exe" --version "${{ needs.plan.outputs.expected }}"
 
