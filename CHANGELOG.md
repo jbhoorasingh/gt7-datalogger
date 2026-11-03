@@ -24,8 +24,11 @@ Notable changes to GT7 Datalogger. The format follows
 - **A first-run wizard explains the network prompts before they appear (#191).**
   Opening the app with setup not yet completed (the desktop app, or any install
   that has recorded nothing) lands on `#/welcome`; a bookmark or a deep link is
-  never taken over, and an existing install with sessions keeps its start page. It
-  asks PlayStation or *Try the demo*: the demo stays on the simulator and offers
+  never taken over, and an existing install with sessions keeps its start page. In
+  the desktop app it first says how the app works: it records in the background,
+  with its icon in the menu bar or the notification area, and this page is its
+  dashboard in the browser, which can be closed at any time. It asks PlayStation
+  or *Try the demo*: the demo stays on the simulator and offers
   its scenarios. The PlayStation path says what this computer will ask first (the
   Windows Firewall prompt, the macOS Local Network alert, the firewalld/ufw hint on
   Linux), then switches to the PlayStation source, which is what raises the prompt,
@@ -35,7 +38,8 @@ Notable changes to GT7 Datalogger. The format follows
   not running). A live check waits for telemetry and offers packet format A when
   packets arrive but do not decode. The desktop app then asks whether phones and
   tablets may connect; finishing turns LAN access on or leaves it off, shows the
-  admin token it created and a QR code of the dashboard's LAN address. Finishing,
+  admin token it created, a QR code of the dashboard's LAN address and this
+  computer's own address to bookmark. Finishing,
   and *Skip setup*, complete setup, which starts recording.
 
 - **The UI knows how it is installed (#190).** Advice that assumed Docker now
@@ -108,6 +112,58 @@ Notable changes to GT7 Datalogger. The format follows
   US, UK, Liberia and Myanmar), and switches for the daily update check and the car-list
   refresh. The car-list refresh had no off switch at all; `GT7_CAR_REFRESH=false` (Settings
   › Advanced) now keeps the bundled inventory until you press Update car database (#191).
+
+- **The desktop app's launcher and build (`desktop/`).** One executable in three
+  modes: a supervisor with a menu-bar item (macOS) or tray icon (Windows) that holds
+  the port and runs the server as a child of itself, restarting it if it crashes or
+  stops answering; `--headless` for systemd; and `--server`, the child. One app per data
+  folder, a saved port with 8001–8009 as fallback, "already running" when Docker holds
+  the port, Start at login, Open data folder and logs, a phone/tablet toggle, and
+  Windows firewall repair. The app, its shortcuts, the macOS menu bar and the Windows
+  tray carry the GT7 Datalogger mark, made from `desktop/icons/source/` by
+  `desktop/icons/make_icons.py`. `desktop/scripts/build.py` freezes it with PyInstaller and
+  `desktop/ci/smoke.py` checks a build end to end; nothing of it reaches the Docker
+  image (#192, #193, #194).
+
+- **Windows and Linux packaging for the desktop app.** Windows gets an Inno Setup
+  installer, `GT7-Datalogger-Windows-x64-Setup.exe`, which installs for everyone by
+  default (or "for me only") into the same folder every version, so the firewall
+  rules it adds for the app (UDP and TCP, local subnet, private and public networks)
+  survive updates. It closes a running copy before updating, after saying a session
+  being recorded will be closed; offers Start at login and Check for updates daily;
+  and leaves the data folder alone on uninstall. A portable zip ships beside it, and
+  `desktop/windows/package.ps1 -Sign` signs every .exe, .dll and .pyd and then the
+  installer and uninstaller, through Azure Artifact Signing, SignPath or a .pfx, with
+  a Defender scan that fails the build on any detection. Linux gets an AppImage
+  built on manylinux_2_28 (runs on RHEL 8+, Ubuntu 22.04+, Debian 12+), with
+  delta-update information and a `.zsync`, and a tarball of the same build; with
+  `--sign`, a gpg signature in the AppImage and a detached `.asc` beside each file.
+  `desktop/release-assets.txt` names every release download (#199, #200).
+
+- **Docs for the desktop app and the new release procedure (#201).** A *Desktop app*
+  page (download links for the first desktop release, the Gatekeeper and SmartScreen
+  screens, the firewall and Local Network prompts and how to undo a refusal, the data
+  and log folders, the port, LAN access and the admin token, updating, uninstalling,
+  moving from Docker, the AppImage FUSE fallback, the command line), *Building the
+  desktop app locally*, and a *Releasing* page for `scripts/version.py` and the draft
+  release. The README gains a Download section and the unofficial-tool notice; the
+  stale `0.1.0` image tags are now `0.8.1`, and the client protocol lists the
+  `lan_off` refusal.
+
+- **Privacy and code-signing pages, and installer switches for background requests.**
+  [Privacy](docs/reference/privacy.md) lists everything the app sends, where to, and how
+  to turn each request off; the [code signing policy](docs/internals/code-signing.md)
+  says how desktop downloads are built, signed and approved. The Windows installer offers
+  the car-list refresh and the shared track surveys as tasks beside the update check, and
+  the launcher passes an unticked one to the server as its default (#199, #201).
+
+- **Quit from the dashboard.** The desktop app's **Settings › About** has **Quit GT7
+  Datalogger** (asking first while a session is recording), which on Linux, with no
+  tray, was missing: only `gt7-datalogger --quit` in a terminal could stop it. Only
+  the computer the app runs on sees it (`POST /api/admin/quit` answers 403 to a phone
+  or tablet, admin token or not, and in Docker and source installs). The server
+  exits 76, the supervisor quits the app as the tray's Quit would, and the page that
+  follows says the app stopped rather than that it vanished.
 
 ### Changed
 

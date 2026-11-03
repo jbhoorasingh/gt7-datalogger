@@ -56,6 +56,7 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Getting started:
+      - Desktop app: getting-started/desktop.md
       - Quick start (Docker): getting-started/quick-start.md
       - Raspberry Pi: getting-started/raspberry-pi.md
       - Local development: getting-started/local-development.md
@@ -83,6 +84,8 @@ nav:
       - Race Engineer callouts: internals/race-engineer.md
       - Translations: internals/translations.md
       - Surface survey spike: internals/surface-survey.md
+      - Releasing: internals/releasing.md
+      - Code signing policy: internals/code-signing.md
   - Reference:
       - REST & WebSocket API: reference/api.md
       - Live client protocol: reference/client-protocol.md
@@ -90,3 +93,4 @@ nav:
       - Lap analysis format: reference/lap-analysis-format.md
       - Track bundle format: reference/track-bundle-format.md
       - Troubleshooting: reference/troubleshooting.md
+      - Privacy: reference/privacy.md

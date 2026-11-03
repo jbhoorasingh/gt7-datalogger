@@ -53,3 +53,7 @@ CLAUDE.md
 
 # Written by `scripts/version.py stamp` in CI builds only (#179).
 backend/app/_build_info.py
+
+# Desktop builds (#193)
+desktop/dist/
+desktop/build/

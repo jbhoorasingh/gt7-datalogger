@@ -57,6 +57,65 @@ The test suite exercises the packet decoder, lap detection, derived-channel math
 detection, schema migrations (including a first-release database being upgraded in
 place), and the REST API against fixture data — no PlayStation required.
 
+## Building the desktop app locally
+
+The [desktop app](desktop.md) is built with PyInstaller from the same backend, for the
+system you build on. It needs Python 3.14 and Node 22+. Use a venv of its own, not the
+backend's, since the build installs the launcher's extra dependencies and PyInstaller.
+
+=== "macOS and Linux"
+
+    ```bash
+    python3.14 -m venv .venv-desktop
+    source .venv-desktop/bin/activate
+    pip install -e "backend[desktop]" -r desktop/requirements-build.txt
+    python desktop/scripts/build.py
+    ```
+
+=== "Windows (PowerShell)"
+
+    ```powershell
+    py -3.14 -m venv .venv-desktop
+    .venv-desktop\Scripts\Activate.ps1
+    pip install -e "backend[desktop]" -r desktop/requirements-build.txt
+    python desktop/scripts/build.py
+    ```
+
+`build.py` builds `frontend/dist` if it is missing (`--skip-frontend` skips that),
+runs PyInstaller on `desktop/gt7.spec` into `desktop/dist/` and then runs the
+result's `--self-test`. The app lands at:
+
+| System | Executable |
+| --- | --- |
+| macOS | `desktop/dist/GT7 Datalogger.app/Contents/MacOS/gt7-datalogger` |
+| Windows | `desktop\dist\gt7-datalogger\gt7-datalogger.exe` |
+| Linux | `desktop/dist/gt7-datalogger/gt7-datalogger` |
+
+The smoke test CI runs on every build starts it against an empty data folder, checks
+the API, the live stream, a restart of the server process and `--quit`:
+
+```bash
+python desktop/ci/smoke.py "desktop/dist/GT7 Datalogger.app/Contents/MacOS/gt7-datalogger"
+```
+
+A local build is unsigned. macOS and Windows warn before opening it, and macOS does
+not show the Local Network prompt for it reliably.
+
+To run the app without freezing it, from the same venv:
+
+```bash
+python desktop/launcher.py
+```
+
+It runs exactly what the frozen executable runs, tray included, and takes the same
+[options](desktop.md#command-line). It uses the desktop app's own
+[data folder](desktop.md#where-your-data-lives), not `data/` in the checkout: pass
+`--data-dir` to keep a test away from your real recordings. Stop `./dev.sh` first, or
+pass `--port`, since both want port 8000. The launcher's own tests run from the
+backend's dev venv: `pip install platformdirs`, then `pytest desktop/tests`.
+
+The release builds and their signing are described in [Releasing](../internals/releasing.md).
+
 ## Changing the schema
 
 Models live in `backend/app/storage/db.py`; every change to them needs an

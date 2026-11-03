@@ -48,6 +48,14 @@ const OS_NOTE: Record<Os, MessageKey> = {
   other: "welcome.os.other",
 };
 
+// Where the desktop app lives once this page is closed (no tray on Linux).
+const BACKGROUND_NOTE: Record<Os, MessageKey> = {
+  windows: "welcome.start.background.windows",
+  mac: "welcome.start.background.mac",
+  linux: "welcome.start.background.other",
+  other: "welcome.start.background.other",
+};
+
 const PROBLEM_HELP: Record<Problem, MessageKey> = {
   portBusy: "welcome.problem.portBusy",
   listenerOther: "welcome.problem.listenerOther",
@@ -156,6 +164,7 @@ export function WelcomeView() {
           {step === "start" && (
             <StartStep
               setup={setup}
+              background={desktop ? BACKGROUND_NOTE[os] : null}
               onPick={(p) => {
                 setPath(p);
                 setStep(p === "demo" ? "demo" : "os");
@@ -244,7 +253,7 @@ export function WelcomeView() {
               />
             </Section>
           )}
-          {step === "done" && result && <DoneStep result={result} stats={stats} />}
+          {step === "done" && result && <DoneStep result={result} stats={stats} desktop={desktop} />}
         </div>
       </div>
     </div>
@@ -337,11 +346,25 @@ function Choice({
   );
 }
 
-function StartStep({ setup, onPick }: { setup: SetupState | null; onPick: (p: "ps" | "demo") => void }) {
+function StartStep({
+  setup,
+  background,
+  onPick,
+}: {
+  setup: SetupState | null;
+  background: MessageKey | null;
+  onPick: (p: "ps" | "demo") => void;
+}) {
   const t = useT();
   return (
     <Section title={t("welcome.start.title")}>
       <p className="text-[13px] text-ink-dim">{t("welcome.start.body")}</p>
+      {background && (
+        <div className="flex flex-col gap-1 border-l-2 border-accent py-0.5 pl-3">
+          <span className="text-[12.5px] font-medium text-ink">{t("welcome.start.howTitle")}</span>
+          <span className="text-[12.5px] text-ink-dim">{t(background)}</span>
+        </div>
+      )}
       {setup?.completed && <p className="text-[12px] text-warn">{t("welcome.start.again")}</p>}
       <div className="flex flex-col gap-2">
         <Choice
@@ -495,6 +518,17 @@ function FindStep({
   const problem = classifyProblem(setup?.listener_error, setup?.heartbeat_error);
   const busy = phase === "switching" || phase === "searching";
 
+  // A problem can clear on its own: the first heartbeat fails while macOS's
+  // Local Network prompt is still open, and works once it is allowed. Keep
+  // reading while one shows, so the warning goes when the cause does.
+  useEffect(() => {
+    if (!problem) return;
+    const id = window.setInterval(() => {
+      api.admin.setup().then(setSetup, () => {});
+    }, POLL_MS);
+    return () => window.clearInterval(id);
+  }, [problem, setSetup]);
+
   return (
     <Section title={t("welcome.find.title")}>
       <p className="text-[13px] text-ink-dim">{t("welcome.find.body")}</p>
@@ -632,8 +666,17 @@ function LiveStep({ onBack, onNext, busy }: { onBack: () => void; onNext: () => 
   );
 }
 
-function DoneStep({ result, stats }: { result: SetupCompleted; stats: AdminStats | null }) {
+function DoneStep({
+  result,
+  stats,
+  desktop,
+}: {
+  result: SetupCompleted;
+  stats: AdminStats | null;
+  desktop: boolean;
+}) {
   const t = useT();
+  const here = typeof window === "undefined" ? "" : `${window.location.origin}/`;
   const url = result.lan_reachable && stats?.lan_ip ? phoneUrl(stats.lan_ip, stats.http_port) : null;
   const qr = useMemo(() => (url ? qrPath(url) : null), [url]);
   const token = result.admin_token;
@@ -679,6 +722,13 @@ function DoneStep({ result, stats }: { result: SetupCompleted; stats: AdminStats
             </button>
           </div>
           <span className="text-[11px] text-ink-faint">{t("welcome.done.tokenHelp")}</span>
+        </div>
+      )}
+      {desktop && here && (
+        <div className="flex flex-col gap-1">
+          <span className="text-[12.5px]">{t("welcome.done.bookmark")}</span>
+          <span className="select-all font-tabular text-[13px]">{here}</span>
+          <span className="text-[11.5px] text-ink-faint">{t("welcome.done.closeAnyTime")}</span>
         </div>
       )}
       {!result.lan_access && <p className="text-[12px] text-ink-faint">{t("welcome.done.lanOff")}</p>}

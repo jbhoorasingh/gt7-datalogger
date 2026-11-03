@@ -1,0 +1,2 @@
+# Build tools for the desktop app, never installed in the Docker image (#193).
+pyinstaller==6.22.3

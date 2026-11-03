@@ -19,12 +19,18 @@ GT7 streams encrypted telemetry over UDP at 60 Hz while you drive. GT7 Datalogge
    cursors and a race line map, session history, and a fully customizable OBS/phone
    overlay builder.
 
-Everything runs in a single container (or natively on hardware as small as a Raspberry
-Pi Zero) and is viewed from any browser on your network — in English, Spanish,
+Everything runs in a single container, as a desktop app, or natively on hardware as
+small as a Raspberry Pi Zero, and is viewed from any browser on your network — in English, Spanish,
 Brazilian Portuguese or Japanese, which each browser picks for itself, voice callouts
 included ([Language](guide/race-engineer.md#language)).
 
 ## Quick start
+
+**Desktop app.** From version 1.0.0, download one file for macOS, Windows or Linux and
+open it: no Docker, no Python. The first desktop release is not out yet.
+→ [Desktop app](getting-started/desktop.md)
+
+**Docker.**
 
 ```bash
 GT7_PS_IP=<your playstation ip> docker compose up --build
@@ -134,6 +140,10 @@ per configuration, released under MIT. Their world coordinates are GT7's own, so
 need no transform to line up with ours, which is what lets a circuit identify itself on
 an install where nobody has driven or surveyed anything. Not affiliated; used with
 attribution.
+
+GT7 Datalogger is an unofficial tool. It is not affiliated with, endorsed by or
+sponsored by Sony Interactive Entertainment or Polyphony Digital. Gran Turismo is a
+trademark of Sony Interactive Entertainment Inc.
 
 This project's own track data lives in
 [gt7-datalogger-track-data](https://github.com/jbhoorasingh/gt7-datalogger-track-data),

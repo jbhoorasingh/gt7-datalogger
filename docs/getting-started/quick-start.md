@@ -1,8 +1,12 @@
 # Quick start (Docker)
 
-The fastest way to run GT7 Datalogger is with Docker Compose. One container serves the
-dashboard, REST API, and WebSocket on port 8000 and listens for PlayStation telemetry on
-UDP 33740.
+!!! tip "No Docker?"
+    From version 1.0.0 there is a [desktop app](desktop.md) for macOS, Windows and
+    Linux: one download, no Docker or Python. The first desktop release is not out yet.
+
+The fastest way to run GT7 Datalogger on a server is with Docker Compose. One container
+serves the dashboard, REST API, and WebSocket on port 8000 and listens for PlayStation
+telemetry on UDP 33740.
 
 ## Prerequisites
 
@@ -57,8 +61,9 @@ docker run -d --name gt7-datalogger \
 | `X.Y.Z`, `X.Y`, `X` | `vX.Y.Z` release tags | `amd64` + `arm64` |
 
 !!! warning "arm64 (Raspberry Pi 4/5, Zero 2 W)"
-    Pull a **release tag** (for example `0.1.0`), not `latest` — only tagged releases
-    build the `arm64` image.
+    Pull a **release tag** (for example `0.8.1`; the latest is on the
+    [releases page](https://github.com/jbhoorasingh/gt7-datalogger/releases)), not
+    `latest` — only tagged releases build the `arm64` image.
 
 With Compose, `docker compose pull && docker compose up -d` runs the published image;
 `docker compose up --build` still builds from source.

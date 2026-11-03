@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import secrets
 import time
@@ -12,8 +13,9 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
-from app import discovery, logbuffer, settings_registry, setup_state
+from app import discovery, logbuffer, serve, settings_registry, setup_state
 from app.api.auth import require_admin
+from app.api.guard import peer_is_loopback
 from app.notify import ALL_EVENTS
 from app.processing import car_refresh
 from app.race_engineer import CATEGORIES
@@ -647,10 +649,31 @@ async def stats(request: Request) -> dict[str, Any]:
         # url, checked_at}, always present; available is false while the
         # check is off or has not found one.
         "update": service.updates.status(),
+        # Whether Settings › About offers Quit: see can_quit().
+        "can_quit": can_quit(request),
     }
 
 
 # --- actions ----------------------------------------------------------------
+
+
+def can_quit(request: Request) -> bool:
+    """The desktop app, asked from this computer: never a phone or tablet,
+    admin token or not, and never Docker or a source install (no QUIT)."""
+    settings = svc(request).settings
+    return settings.desktop and peer_is_loopback(request.scope) and serve.QUIT is not None
+
+
+@router.post("/quit", status_code=202)
+async def quit_app(request: Request) -> dict[str, Any]:
+    """Stop the desktop app: Settings › About › Quit. On Linux there is no
+    tray, so without this only `gt7-datalogger --quit` in a terminal could."""
+    if not can_quit(request):
+        raise HTTPException(403, "only the desktop app, from this computer, can be quit from here")
+    log.info("quit requested from the dashboard")
+    # After the answer is on its way: the server stops accepting at once.
+    asyncio.get_running_loop().call_later(0.2, serve.QUIT)  # type: ignore[arg-type]
+    return {"quitting": True}
 
 
 @router.post("/update-check")

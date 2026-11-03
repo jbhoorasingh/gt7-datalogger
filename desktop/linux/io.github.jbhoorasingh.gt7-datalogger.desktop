@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=GT7 Datalogger
+GenericName=Telemetry Logger
+Comment=Record and analyse Gran Turismo 7 telemetry from your PlayStation
+Exec=gt7-datalogger
+Icon=io.github.jbhoorasingh.gt7-datalogger
+Terminal=false
+Categories=Utility;
+Keywords=GT7;Gran Turismo;telemetry;racing;lap;
+StartupNotify=false

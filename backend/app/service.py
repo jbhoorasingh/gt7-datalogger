@@ -1137,6 +1137,8 @@ class TelemetryService:
             "lap_clock_drift_worst_ms": self.processor.lap_clock_drift_worst_ms,
             "lap_clock_samples": self.processor.lap_clock_samples,
             "listener_error": self.listener_error,
+            # The live LAN policy (#195), for the desktop tray's toggle.
+            "lan_access": self.settings.lan_access,
             "save_errors": self.save_errors,
             "last_save_error": self.last_save_error,
             **self.source.stats,

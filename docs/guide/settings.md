@@ -2,16 +2,16 @@
 
 `#/settings` — runtime configuration, diagnostics, and data management. Each section
 has its own address, `#/settings/{section}` (`connection`, `sync`, `race-engineer`,
-`notifications`, `overlays`, `health`, `logs`, `access`, `data`), so a bookmark or a
-link lands on the right one. Old `#/admin` links still open this page.
+`notifications`, `overlays`, `phone`, `health`, `logs`, `access`, `data`, `advanced`,
+`about`), so a bookmark or a link lands on the right one. Old `#/admin` links still open this page.
 
 The page has three parts:
 
 - A **health strip** across the top — Telemetry, Recording, Sync and Storage at a
   glance. Click a tile to open the section behind it.
 - A **section rail** on the left, grouped *Capture* (Connection, Sync), *Race day*
-  (Race Engineer, Notifications), *Streaming* (Overlays & dashboards) and *System*
-  (Health, Logs, Access, Data). Each entry carries a short status: *receiving*,
+  (Race Engineer, Notifications), *Streaming* (Overlays & dashboards, Phone app) and
+  *System* (Health, Logs, Access, Data, Advanced, About). Each entry carries a short status: *receiving*,
   *3 queued*, *2 errors*, *protected*, the database size.
 - **Find a setting…** — a search box that filters the rail by name and keyword
   (`token`, `webhook`, `format`); Enter opens the first match.
@@ -257,8 +257,13 @@ layout file into a new saved overlay named after the file.
 
 ## Phone app
 
-How the phone app finds this server.
+How phones, tablets and the phone app reach this server.
 
+- **Let my phone/tablet connect**: LAN access. Off, only the computer running the
+  server can use it: other devices are refused, and the server is not announced.
+  Applies at once, no restart. Docker and source installs start with it on; the
+  [desktop app](../getting-started/desktop.md#phones-tablets-and-other-computers)
+  starts with it off and asks at the end of setup (`GT7_LAN_ACCESS`).
 - **Announce on the network**: advertises the server over mDNS (`GT7_MDNS`), so the
   app lists it without an address being typed. The line beside the switch shows the
   name and address being announced. Multicast does not leave a Docker bridge
@@ -306,6 +311,11 @@ telemetry isn't arriving.
 every setting, it applies with **Apply changes**.
 
 ## Access
+
+In the [desktop app](../getting-started/desktop.md#phones-tablets-and-other-computers),
+the computer it runs on never needs the admin token; other devices need it to change
+anything once a token is set. The setup wizard creates one when it turns LAN access on
+and none is set, and shows it once.
 
 - **Server protection** — whether the server sets `GT7_ADMIN_TOKEN`: *Open* (anyone
   on your network can change settings) or *Protected* (changes need the admin token).
@@ -513,5 +523,25 @@ handing the setting back to the environment, or to its default when the environm
 doesn't set it either. A changed *next start* setting is marked **restart pending**
 until the server restarts.
 
+In the desktop app, the server restarts by itself to pick up a *next start* setting.
+
 Setting an **admin token** here protects the server from that moment: enter the same
-token under [Access](#access) to keep using Settings.
+token under [Access](#access) to keep using Settings. In the desktop app, this
+computer keeps working without it.
+
+## About
+
+What is running and where it keeps things:
+
+- **Version**: the server's version, and the version of the page itself when the
+  two differ (a browser tab left open across an update, say).
+- **Runs as**: *Desktop app*, *Docker container* or *From source*.
+- **Data folder** and **Log file**: where this install keeps its database and its log
+  file. Without a log file, the log is only in memory ([Logs](#logs)).
+- **Updates**: whether a newer version is out, with its download link, when
+  **Check for updates** is on in [Advanced](#advanced). It is on by default in the
+  desktop app and off elsewhere; see [What the app fetches on its
+  own](../getting-started/configuration.md#what-the-app-fetches-on-its-own).
+  Nothing is downloaded or installed by itself.
+- **Legal**: GT7 Datalogger is an unofficial tool, not affiliated with, endorsed by or
+  sponsored by Sony Interactive Entertainment or Polyphony Digital.

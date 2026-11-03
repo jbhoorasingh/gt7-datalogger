@@ -1259,6 +1259,9 @@ export interface AdminStats {
   lan_reachable?: boolean;
   /** The update check (#196), when the server has one. */
   update?: UpdateStatus | null;
+  /** Settings › About may offer Quit: the desktop app, asked from the
+   * computer it runs on. Absent from an older server. */
+  can_quit?: boolean;
 }
 
 // Backup (#161): the parts one file can hold, what each would hold now

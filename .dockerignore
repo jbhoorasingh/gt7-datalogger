@@ -51,3 +51,7 @@ backend/tests
 **/secrets.json
 .env
 **/.env
+
+# The desktop app's launcher and build files never go in the image (#193).
+desktop/
+*.spec

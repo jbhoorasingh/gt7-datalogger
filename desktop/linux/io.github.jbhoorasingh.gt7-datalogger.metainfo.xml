@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AppStream metadata for the AppImage, and later the Linux packages (#200). -->
+<component type="desktop-application">
+  <id>io.github.jbhoorasingh.gt7-datalogger</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>GT7 Datalogger</name>
+  <summary>Record and analyse Gran Turismo 7 telemetry</summary>
+  <description>
+    <p>
+      GT7 Datalogger records the telemetry your PlayStation sends while you drive
+      Gran Turismo 7 and shows it in your browser: a live dash, lap and sector
+      times, and lap-by-lap analysis. A phone or tablet on the same network can
+      open the dash too.
+    </p>
+    <p>
+      It runs on your own computer and keeps your recordings there.
+      GT7 Datalogger is unofficial and not affiliated with Sony Interactive
+      Entertainment or Polyphony Digital.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.jbhoorasingh.gt7-datalogger.desktop</launchable>
+  <url type="homepage">https://jbhoorasingh.github.io/gt7-datalogger/</url>
+  <url type="bugtracker">https://github.com/jbhoorasingh/gt7-datalogger/issues</url>
+  <url type="vcs-browser">https://github.com/jbhoorasingh/gt7-datalogger</url>
+  <developer id="io.github.jbhoorasingh">
+    <name>Jermaine Bhoorasingh</name>
+  </developer>
+  <provides>
+    <binary>gt7-datalogger</binary>
+  </provides>
+  <content_rating type="oars-1.1"/>
+</component>
