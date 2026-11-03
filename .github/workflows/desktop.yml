@@ -136,6 +136,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: { name: frontend-dist, path: frontend/dist }
+      - name: Stamp version
+        # The image's own CPython, which build-in-manylinux.sh bootstraps with.
+        run: /opt/python/cp312-cp312/bin/python scripts/version.py stamp
       - name: Build onedir
         run: bash desktop/linux/build-in-manylinux.sh --no-appimage
       - name: Smoke
