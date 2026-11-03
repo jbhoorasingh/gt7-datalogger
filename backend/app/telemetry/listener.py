@@ -54,18 +54,64 @@ SLEEP_GAP = 10.0
 RECEIVE_RESTART_DELAYS = (1.0, 2.0, 5.0, 10.0, 30.0)
 # One "failed to decrypt" warning per source address per this many seconds.
 DECODE_WARN_EVERY = 60.0
+# A UDP error is current for this long. A cause that persists (a Local Network
+# denial, a firewall, GT7 not running) recurs on every heartbeat, so one that
+# has stopped recurring has gone: say, the Local Network prompt was answered
+# Allow while the console was off, and no packet arrives to clear it.
+ERROR_CURRENT_FOR = 5.0
+# macOS's Local Network check: an empty broadcast to the discard port, which
+# nothing on the network acts on. Re-sent at most this often while failing.
+PROBE_PORT = 9
+PROBE_EVERY = 10.0
+
+LOCAL_NETWORK_BLOCKED = (
+    "macOS is blocking the local network for this app: allow it in "
+    "System Settings › Privacy & Security › Local Network"
+)
+NOT_ANSWERING = (
+    "the PlayStation is not answering at its address: is it switched on, "
+    "and on this network?"
+)
+OFFLINE = "this computer is not connected to a network"
+NO_ROUTE = "no route to the PlayStation: check its address and that both are on one network"
 
 
-def describe_send_error(exc: OSError) -> str:
+def broadcast_errno() -> int | None:
+    """The errno an empty broadcast from this process fails with, or None.
+
+    A broadcast needs no one to answer, so it fails only when the system
+    refuses it: on macOS, a Local Network denial, or no network at all.
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        sock.sendto(b"", (BROADCAST_ADDR, PROBE_PORT))
+    except OSError as exc:
+        return exc.errno
+    finally:
+        sock.close()
+    return None
+
+
+def describe_send_error(
+    exc: OSError, probe: Callable[[], int | None] = broadcast_errno
+) -> str:
     """A UDP error as the reason a person can act on (#181)."""
     code = exc.errno
+    if code == errno.EHOSTDOWN:
+        return NOT_ANSWERING
     if code in (errno.EHOSTUNREACH, errno.ENETUNREACH) and sys.platform == "darwin":
-        return (
-            "macOS is blocking the local network for this app: allow it in "
-            "System Settings › Privacy & Security › Local Network"
-        )
+        # macOS answers a Local Network denial with EHOSTUNREACH, and some
+        # networks answer a console that is off the same way. Only a denial
+        # stops a broadcast too.
+        refused = probe()
+        if refused == errno.ENETUNREACH:
+            return OFFLINE
+        if refused is not None:
+            return LOCAL_NETWORK_BLOCKED
+        return NOT_ANSWERING if code == errno.EHOSTUNREACH else NO_ROUTE
     if code in (errno.EHOSTUNREACH, errno.ENETUNREACH):
-        return "no route to the PlayStation: check its address and that both are on one network"
+        return NO_ROUTE
     if code in (errno.EACCES, errno.EPERM):
         return "the system refused to send to the PlayStation (a firewall?)"
     if code == errno.ECONNREFUSED:
@@ -92,8 +138,11 @@ class UdpTelemetrySource:
         # once, not on every send, and strangers are compared against it.
         self._resolved: tuple[str, str] | None = None
         # The last UDP error and why it matters, cleared by the next packet
-        # that decrypts (#181). Shown in status as heartbeat_error.
+        # that decrypts (#181). Shown in status as heartbeat_error while it
+        # keeps recurring (ERROR_CURRENT_FOR).
         self._error: dict[str, object] | None = None
+        self._error_seen = 0.0
+        self._probe: tuple[float, int | None] | None = None
         self._receive_restarts = 0
         self._last_beat_at = 0.0
         self._running = False
@@ -135,8 +184,14 @@ class UdpTelemetrySource:
             "decode_errors": self._decode_errors,
             "packets_dropped": self._dropped,
             "packet_format": self.heartbeat_char,
-            "heartbeat_error": self._error,
+            "heartbeat_error": self._error if self._error_is_current() else None,
         }
+
+    def _error_is_current(self) -> bool:
+        return (
+            self._error is not None
+            and time.monotonic() - self._error_seen < ERROR_CURRENT_FOR
+        )
 
     @property
     def running(self) -> bool:
@@ -197,11 +252,20 @@ class UdpTelemetrySource:
             # actually releases the port before a restart rebinds it.
             await asyncio.sleep(0)
 
+    def _broadcast_errno(self) -> int | None:
+        """broadcast_errno(), sent at most every PROBE_EVERY seconds."""
+        now = time.monotonic()
+        if self._probe is None or now - self._probe[0] >= PROBE_EVERY:
+            self._probe = (now, broadcast_errno())
+        return self._probe[1]
+
     def _on_error(self, exc: OSError) -> None:
-        reason = describe_send_error(exc)
-        if self._error is None or self._error.get("errno") != exc.errno:
+        reason = describe_send_error(exc, self._broadcast_errno)
+        current = self._error if self._error_is_current() else None
+        if current is None or current.get("reason") != reason:
             log.warning("telemetry socket error: %s (%s)", reason, exc)
         self._error = {"errno": exc.errno, "reason": reason, "at": time.time()}
+        self._error_seen = time.monotonic()
         # On Windows' Proactor loop a receive error ends reading on that
         # socket for good; open a fresh one, backing off, while still running.
         if os.name == "nt" and self._running:

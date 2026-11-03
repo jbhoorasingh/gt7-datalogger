@@ -88,6 +88,10 @@ describe("classifyProblem", () => {
         beat("macOS is blocking the local network for this app: allow it in System Settings › Privacy & Security › Local Network"),
       ),
     ).toBe("localNetwork");
+    expect(
+      classifyProblem(null, beat("the PlayStation is not answering at its address: is it switched on, and on this network?")),
+    ).toBe("consoleOff");
+    expect(classifyProblem(null, beat("this computer is not connected to a network"))).toBe("offline");
     expect(classifyProblem(null, beat("the system refused to send to the PlayStation (a firewall?)"))).toBe("firewall");
     expect(classifyProblem(null, beat("the PlayStation refused the heartbeat: is GT7 running?"))).toBe("refused");
     expect(

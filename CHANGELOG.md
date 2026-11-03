@@ -210,8 +210,11 @@ by a DNS name, set `GT7_TRUSTED_HOSTS` before upgrading (see Security).
 - **Heartbeat and receive errors are shown, not swallowed.** asyncio reports UDP
   errors to a callback nothing implemented, so a macOS Local Network denial — every
   heartbeat refused — looked like a console that never answered. Status now carries
-  `heartbeat_error` with the reason in words, and on Windows a receive error reopens
-  the socket with backoff instead of ending reading for good (#181).
+  `heartbeat_error` with the reason in words while the error keeps recurring, and on
+  Windows a receive error reopens the socket with backoff instead of ending reading
+  for good (#181). On macOS, "No route to host" is blamed on Local Network only when
+  an empty broadcast is refused too; otherwise the reason is a PlayStation that is
+  not answering, or a computer with no network.
 
 - **A stray datagram can no longer take over the heartbeat.** The console's address
   was adopted from any packet on UDP 33740 before it was decrypted, so one junk

@@ -2437,6 +2437,8 @@
   "welcome.problem.portBusy": "Another program holds the telemetry port: {error}. Quit it (another copy of GT7 Datalogger, its Docker container, or another telemetry tool), then search again.",
   "welcome.problem.listenerOther": "The telemetry listener could not start: {error}.",
   "welcome.problem.localNetwork": "macOS is blocking the local network for this app. Open System Settings › Privacy & Security › Local Network, turn GT7 Datalogger on, then search again.",
+  "welcome.problem.consoleOff": "The PlayStation is not answering at its address. Check that it is switched on and on the same network as this computer, then search again.",
+  "welcome.problem.offline": "This computer is not connected to a network. Connect it to the same network as the PlayStation, then search again.",
   "welcome.problem.firewall": "The system refused to send to the PlayStation — most likely a firewall. On Windows allow GT7 Datalogger in Windows Security › Firewall & network protection › Allow an app; on Linux open UDP 33739–33740.",
   "welcome.problem.refused": "The PlayStation refused the heartbeat: is GT7 running on it?",
   "welcome.problem.noRoute": "No route to the PlayStation: check its address, and that it and this computer are on the same network.",
