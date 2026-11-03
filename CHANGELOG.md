@@ -5,6 +5,15 @@ Notable changes to GT7 Datalogger. The format follows
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-02
+
+The first desktop release. GT7 Datalogger now comes as one download for macOS (Apple
+silicon), Windows and Linux, with no Docker, Python or terminal: it runs the same
+server and shows the same dashboard in your browser
+([Desktop app](docs/getting-started/desktop.md)). Docker, Raspberry Pi and source
+installs get the same server changes. If you reach the logger through a reverse proxy
+by a DNS name, set `GT7_TRUSTED_HOSTS` before upgrading (see Security).
+
 ### Added
 
 - **The app can tell you a newer release is out (#196).** With *Check for updates*
@@ -168,7 +177,7 @@ Notable changes to GT7 Datalogger. The format follows
 ### Changed
 
 - **The backend tests run on macOS, Windows and Python 3.14.** CI ran them on Ubuntu
-  with Python 3.12 only, what the Docker image runs; the desktop builds will be frozen
+  with Python 3.12 only, what the Docker image runs; the desktop builds are frozen
   with CPython 3.14 on all three platforms, and nothing had run on Windows. The backend
   job is now four legs that report separately: Ubuntu 24.04 on 3.12 (which also lints
   and type-checks), and Ubuntu 24.04, macOS 26 and Windows Server 2025 on 3.14. The
