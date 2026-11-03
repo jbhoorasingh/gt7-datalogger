@@ -44,12 +44,11 @@ not from a tag) to the version the running app reports.
     A tag that disagrees with the files fails the version check, and nothing is
     built.
 
-5. **Approve.** The desktop workflow stops at the `desktop-release` environment and
-   waits for the maintainer's approval before anything is signed.
-6. **Test the draft.** Download the draft's files on each system and go through the
-   release QA issue: install, first start, the setup wizard, a lap recorded from the
-   console, a phone connecting, quit.
-7. **Publish.** Publish the draft on GitHub. Only then does it become the
+5. **Test the draft.** The tag is the go-ahead: the desktop workflow signs without
+   asking, as Docker publishes. Download the draft's files on each system and go
+   through the release QA issue: install, first start, the setup wizard, a lap
+   recorded from the console, a phone connecting, quit.
+6. **Publish.** Publish the draft on GitHub. Only then does it become the
    `releases/latest` that the [download links](../getting-started/desktop.md#download)
    and the [update check](../getting-started/configuration.md#what-the-app-fetches-on-its-own)
    see.
@@ -90,8 +89,9 @@ Nothing waits for approval here: the images are public as soon as the job ends.
    `/api/health` reports the tag's version, `/` serves the dashboard, the database
    is at the latest migration, `/ws/live` answers, a killed server process is
    restarted, `--quit` stops it and `--self-test` passes. These jobs see no secrets.
-3. **Gate.** The `desktop-release` environment, which only `v*.*.*` tags may use and
-   the maintainer must approve.
+3. **Gate.** Only a `v*.*.*` tag goes on to signing. The signing jobs run in the
+   `desktop-release` environment, which holds the signing secrets and admits only
+   those tags.
 4. **Sign.** Signs and notarizes the macOS app and DMG, signs every Windows binary,
    the installer and the uninstaller, and builds and signs the Linux AppImage. These
    jobs install nothing and run no npm.
