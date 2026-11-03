@@ -1,9 +1,10 @@
 name: Desktop
 
 # The desktop app (#197): build and smoke-test on every OS; on a v*.*.* tag,
-# sign behind the desktop-release approval, verify the signed output, and
-# leave a DRAFT release for the maintainer to publish. publish.yml (Docker)
-# is untouched and runs on the same tags.
+# sign, verify the signed output, and leave a DRAFT release for the
+# maintainer to publish. publish.yml (Docker) is untouched and runs on the
+# same tags. The tag is the go-ahead, as it is for Docker; publishing the
+# draft is the maintainer's check.
 #
 # Signing jobs install nothing and run no npm: they only download what the
 # unsigned build jobs uploaded. No job here publishes a release.
@@ -182,15 +183,14 @@ jobs:
           path: desktop/dist/GT7-Datalogger-Linux-x86_64.*
           retention-days: 3
 
-  # The approval barrier: only v*.*.* tags reach it, and the environment
-  # requires the maintainer's review with no admin bypass.
+  # Only v*.*.* tags get past here to the signing jobs. Their desktop-release
+  # environment holds the signing secrets and admits only those tags.
   gate:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [build-macos, build-windows, package-linux]
     runs-on: ubuntu-24.04
-    environment: desktop-release
     steps:
-      - run: echo "approved ${GITHUB_REF_NAME}"
+      - run: echo "signing ${GITHUB_REF_NAME}"
 
   sign-macos:
     needs: [plan, gate]

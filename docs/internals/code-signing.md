@@ -23,8 +23,9 @@ unsigned while those signing routes are being set up. A release itself never doe
   Nothing built on a developer's machine is ever signed or published.
 - The build jobs hold no secrets. Signing runs in separate jobs that install nothing and
   only download what the build jobs produced.
-- Signing waits for the `desktop-release` environment's approval. Only the maintainer
-  can approve it, and administrators cannot bypass it.
+- Signing runs only for a `v*.*.*` tag, which only the maintainer can push. The
+  signing secrets live in the `desktop-release` environment, which admits only those
+  tags.
 - After signing, fresh machines install each signed file and run the smoke test again.
 - The workflow ends with a **draft** release. The maintainer publishes it by hand after
   checking it.
@@ -35,7 +36,7 @@ unsigned while those signing routes are being set up. A release itself never doe
 |---|---|
 | Author and committer | the maintainer, [@jbhoorasingh](https://github.com/jbhoorasingh); outside contributions are reviewed by reading before they are merged |
 | Reviewer | the maintainer, plus the repository's automated security review on every pull request |
-| Approver of a signed release | the maintainer, through the `desktop-release` environment |
+| Approver of a signed release | the maintainer, who pushes the tag and publishes the draft release |
 
 ## Third-party code
 
