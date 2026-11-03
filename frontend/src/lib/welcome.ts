@@ -42,6 +42,8 @@ export type Problem =
   | "portBusy"
   | "listenerOther"
   | "localNetwork"
+  | "consoleOff"
+  | "offline"
   | "firewall"
   | "refused"
   | "noRoute"
@@ -62,6 +64,8 @@ export function classifyProblem(
   if (!heartbeatError) return null;
   const reason = heartbeatError.reason.toLowerCase();
   if (reason.includes("local network")) return "localNetwork";
+  if (reason.includes("not answering")) return "consoleOff";
+  if (reason.includes("not connected to a network")) return "offline";
   if (reason.includes("firewall") || reason.includes("refused to send")) return "firewall";
   if (reason.includes("refused the heartbeat")) return "refused";
   if (reason.includes("no route")) return "noRoute";

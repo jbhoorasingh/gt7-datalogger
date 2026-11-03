@@ -2437,6 +2437,8 @@
   "welcome.problem.portBusy": "Outro programa está usando a porta de telemetria: {error}. Feche-o (outra cópia do GT7 Datalogger, o contêiner Docker dele ou outra ferramenta de telemetria) e busque de novo.",
   "welcome.problem.listenerOther": "O receptor de telemetria não pôde iniciar: {error}.",
   "welcome.problem.localNetwork": "O macOS está bloqueando a rede local para este app. Abra Ajustes do Sistema › Privacidade e Segurança › Rede Local, ative o GT7 Datalogger e busque de novo.",
+  "welcome.problem.consoleOff": "O PlayStation não está respondendo no endereço dele. Confira se ele está ligado e na mesma rede que este computador e busque de novo.",
+  "welcome.problem.offline": "Este computador não está conectado a nenhuma rede. Conecte-o à mesma rede do PlayStation e busque de novo.",
   "welcome.problem.firewall": "O sistema se recusou a enviar ao PlayStation — provavelmente um firewall. No Windows, permita o GT7 Datalogger em Segurança do Windows › Firewall e proteção de rede › Permitir um aplicativo; no Linux, libere UDP 33739–33740.",
   "welcome.problem.refused": "O PlayStation recusou o sinal: o GT7 está aberto nele?",
   "welcome.problem.noRoute": "Sem rota até o PlayStation: confira o endereço dele e se ele e este computador estão na mesma rede.",

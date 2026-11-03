@@ -110,7 +110,8 @@ async def test_a_port_change_still_raises_for_its_own_rollback(service, held_por
     assert admin._FALLIBLE  # the caller that relies on the raise
 
 
-def test_a_send_error_shows_in_status_with_a_reason(service) -> None:
+def test_a_send_error_shows_in_status_with_a_reason(service, monkeypatch) -> None:
+    monkeypatch.setattr(listener, "broadcast_errno", lambda: errno.EHOSTUNREACH)
     source = service.source
     assert isinstance(source, UdpTelemetrySource)
     source._on_error(OSError(errno.EHOSTUNREACH, "No route to host"))
@@ -120,6 +121,72 @@ def test_a_send_error_shows_in_status_with_a_reason(service) -> None:
         assert "Local Network" in error["reason"]
     source._handle_datagram(_wire(), (CONSOLE, HEARTBEAT_PORT))
     assert source.stats["heartbeat_error"] is None
+
+
+def test_macos_blames_local_network_only_when_a_broadcast_fails_too(monkeypatch) -> None:
+    """A console that is off and a denial both say EHOSTUNREACH on macOS."""
+    monkeypatch.setattr(listener.sys, "platform", "darwin")
+    unreachable = OSError(errno.EHOSTUNREACH, "No route to host")
+
+    def describe(exc: OSError, probe: int | None) -> str:
+        return listener.describe_send_error(exc, lambda: probe)
+
+    assert describe(unreachable, errno.EHOSTUNREACH) == listener.LOCAL_NETWORK_BLOCKED
+    assert describe(unreachable, errno.EPERM) == listener.LOCAL_NETWORK_BLOCKED
+    assert describe(unreachable, None) == listener.NOT_ANSWERING
+    assert describe(unreachable, errno.ENETUNREACH) == listener.OFFLINE
+    assert describe(OSError(errno.ENETUNREACH, "unreachable"), None) == listener.NO_ROUTE
+    assert describe(OSError(errno.EHOSTDOWN, "Host is down"), None) == listener.NOT_ANSWERING
+
+
+def test_other_systems_never_probe(monkeypatch) -> None:
+    monkeypatch.setattr(listener.sys, "platform", "linux")
+
+    def probe() -> int | None:
+        raise AssertionError("probed off macOS")
+
+    unreachable = OSError(errno.EHOSTUNREACH, "No route to host")
+    assert listener.describe_send_error(unreachable, probe) == listener.NO_ROUTE
+    host_down = OSError(errno.EHOSTDOWN, "Host is down")
+    assert listener.describe_send_error(host_down, probe) == listener.NOT_ANSWERING
+
+
+def test_an_error_that_stops_recurring_leaves_status(service, monkeypatch) -> None:
+    """Allow answered while the console is off: no packet comes to clear it."""
+    monkeypatch.setattr(listener, "broadcast_errno", lambda: errno.EHOSTUNREACH)
+    source = service.source
+    assert isinstance(source, UdpTelemetrySource)
+    source._on_error(OSError(errno.EHOSTUNREACH, "No route to host"))
+    assert source.stats["heartbeat_error"] is not None
+    source._error_seen -= listener.ERROR_CURRENT_FOR
+    assert source.stats["heartbeat_error"] is None
+    source._on_error(OSError(errno.EHOSTUNREACH, "No route to host"))
+    assert source.stats["heartbeat_error"] is not None
+
+
+def test_the_local_network_probe_is_sent_at_most_every_few_seconds(service, monkeypatch) -> None:
+    monkeypatch.setattr(listener.sys, "platform", "darwin")
+    sent: list[int] = []
+
+    def probe() -> int | None:
+        sent.append(1)
+        return None
+
+    monkeypatch.setattr(listener, "broadcast_errno", probe)
+    source = service.source
+    assert isinstance(source, UdpTelemetrySource)
+    for _ in range(3):
+        source._on_error(OSError(errno.EHOSTUNREACH, "No route to host"))
+    assert sent == [1]
+    assert source.stats["heartbeat_error"]["reason"] == listener.NOT_ANSWERING
+    source._probe = (source._probe[0] - listener.PROBE_EVERY, None)  # type: ignore[index]
+    source._on_error(OSError(errno.EHOSTUNREACH, "No route to host"))
+    assert sent == [1, 1]
+
+
+def test_the_broadcast_probe_answers_without_raising() -> None:
+    refused = listener.broadcast_errno()
+    assert refused is None or isinstance(refused, int)
 
 
 async def test_receive_errors_back_off(service, monkeypatch) -> None:

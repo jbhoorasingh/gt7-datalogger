@@ -60,6 +60,8 @@ const PROBLEM_HELP: Record<Problem, MessageKey> = {
   portBusy: "welcome.problem.portBusy",
   listenerOther: "welcome.problem.listenerOther",
   localNetwork: "welcome.problem.localNetwork",
+  consoleOff: "welcome.problem.consoleOff",
+  offline: "welcome.problem.offline",
   firewall: "welcome.problem.firewall",
   refused: "welcome.problem.refused",
   noRoute: "welcome.problem.noRoute",

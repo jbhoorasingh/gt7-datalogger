@@ -2354,6 +2354,8 @@
   "welcome.problem.portBusy": "ほかのプログラムがテレメトリーのポートを使っています: {error}。それ（GT7 Datalogger の別のコピー、その Docker コンテナー、ほかのテレメトリーツール）を終了してから、もう一度検索してください。",
   "welcome.problem.listenerOther": "テレメトリーの受信を開始できませんでした: {error}。",
   "welcome.problem.localNetwork": "macOS がこのアプリのローカルネットワークをブロックしています。システム設定 › プライバシーとセキュリティ › ローカルネットワーク で GT7 Datalogger をオンにしてから、もう一度検索してください。",
+  "welcome.problem.consoleOff": "PlayStation がそのアドレスで応答しません。電源が入っていて、このパソコンと同じネットワークにあるか確認してから、もう一度検索してください。",
+  "welcome.problem.offline": "このパソコンはネットワークに接続されていません。PlayStation と同じネットワークに接続してから、もう一度検索してください。",
   "welcome.problem.firewall": "システムが PlayStation への送信を拒否しました。おそらくファイアウォールです。Windows では Windows セキュリティ › ファイアウォールとネットワーク保護 › アプリを許可 で GT7 Datalogger を許可し、Linux では UDP 33739–33740 を開けてください。",
   "welcome.problem.refused": "PlayStation がハートビートを拒否しました。GT7 は起動していますか?",
   "welcome.problem.noRoute": "PlayStation への経路がありません。アドレスと、本体とこのパソコンが同じネットワークにあるか確認してください。",
