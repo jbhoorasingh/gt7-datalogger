@@ -283,6 +283,10 @@ class DesktopApp:
         # Quit from the menu, the tray or the dashboard, not a signal or the
         # installer's --quit: only then does a downloaded update install.
         self.user_quit = False
+        # Held while an update installs, by Restart and update or by Quit: the
+        # two must never work on the same staged release at once, and a quit
+        # waits for an install already under way.
+        self._install_lock = threading.Lock()
         self._updating = False
         self._quit_once = threading.Lock()
 
@@ -437,6 +441,13 @@ class DesktopApp:
         else:
             self.quit()
 
+    def keep(self) -> selfupdate.Keep:
+        """What the updated app must be started with to be this one again."""
+        return selfupdate.Keep(
+            data_dir=self.folders.data if self.args.data_dir is not None else None,
+            port=self.args.port,
+        )
+
     def _update_requested(self) -> bool:
         """Restart and update (the server exited 77). True: the app quits now,
         and the new version starts once it has."""
@@ -444,15 +455,23 @@ class DesktopApp:
         if not tag or self.install is None:
             log.error("an update was asked for, but there is none to install")
             return False
-        try:
-            quit_now = selfupdate.install(self.install, self.folders.data, self.folders.logs,
-                                          tag, relaunch=True)
-        except selfupdate.InstallFailed as exc:
-            log.error("could not install %s: %s", tag, exc)
-            selfupdate.record_failure(self.folders.data, tag, str(exc))
-            return False
-        if quit_now:
+        with self._install_lock:
+            if self._quit_once.locked():
+                return False  # quitting already: Quit installs it, if it may
             self._updating = True
+            try:
+                quit_now = selfupdate.install(self.install, self.folders.data,
+                                              self.folders.logs, tag, relaunch=True,
+                                              keep=self.keep())
+            except selfupdate.InstallFailed as exc:
+                self._updating = False
+                log.error("could not install %s: %s", tag, exc)
+                selfupdate.record_failure(self.folders.data, tag, str(exc))
+                return False
+            if not quit_now:
+                # Windows: Setup runs on its own and stops this app itself.
+                self._updating = False
+        if quit_now:
             if self.tray is not None:
                 self.tray.request_quit()
             else:
@@ -480,7 +499,8 @@ class DesktopApp:
         self._show_error(f"The update was not installed: {detail}")
 
     def _install_on_quit(self) -> None:
-        """Quit by the user, with an update ready: install it, start nothing."""
+        """Quit by the user, with an update ready: install it, start nothing.
+        Called with the install lock held."""
         from app.self_update import ON_QUIT_KINDS
 
         tag = selfupdate.on_quit_tag(self.folders.data)
@@ -488,7 +508,7 @@ class DesktopApp:
             return
         try:
             selfupdate.install(self.install, self.folders.data, self.folders.logs, tag,
-                               relaunch=False)
+                               relaunch=False, keep=self.keep())
         except selfupdate.InstallFailed as exc:
             log.error("could not install %s on quit: %s", tag, exc)
             selfupdate.record_failure(self.folders.data, tag, str(exc))
@@ -511,8 +531,11 @@ class DesktopApp:
             return
         if self.supervisor is not None:
             self.supervisor.stop()
-            if self.user_quit and not self._updating:
-                self._install_on_quit()
+            # An install under way (a slow macOS copy outlasts stop()'s wait)
+            # finishes first; then Quit installs only if it did not.
+            with self._install_lock:
+                if self.user_quit and not self._updating:
+                    self._install_on_quit()
         self.lock.release()
 
 

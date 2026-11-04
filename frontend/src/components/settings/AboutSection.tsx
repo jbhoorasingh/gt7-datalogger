@@ -59,6 +59,11 @@ export function AboutSection({ stats }: { stats: AdminStats | null }) {
   const [quitting, setQuitting] = useState(false);
   const [installing, setInstalling] = useState(false);
   const phase = updatePhase(update);
+  // The request was taken, but the install failed afterwards (the supervisor
+  // or Setup said so): the button is usable again once it is ready again.
+  useEffect(() => {
+    if (phase === "failed") setInstalling(false);
+  }, [phase]);
 
   async function install() {
     if (!update) return;

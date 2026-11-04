@@ -8,8 +8,11 @@
 ;   /DSignTool=<name> plus /S<name>=<command>   only when signing; an unsigned
 ;                               local build leaves both out
 ;
-; At run time, besides Inno's own switches, /RELAUNCH=1 starts the app again
-; once installed: the app's Restart and update passes it with /SILENT.
+; At run time, besides Inno's own switches, the app's Restart and update passes:
+;   /RELAUNCH=1         start the app again once installed (with /SILENT)
+;   /DATADIR=<folder>   the app runs with --data-dir: stop that copy, and start
+;                       the new one with it
+;   /PORT=<n>           the app runs with --port: start the new one with it
 ;
 ; The install folder is the same for every version ({autopf}\GT7 Datalogger),
 ; because the firewall rules are keyed on the exe's path and must survive an
@@ -127,7 +130,7 @@ Filename: "{app}\{#ExeName}"; Parameters: "--firewall install"; StatusMsg: "Addi
 ; Restart and update (gt7_desktop/selfupdate.py) runs Setup with /SILENT
 ; /RELAUNCH=1: the app it stopped starts again, as the user who started Setup,
 ; in the background, since its browser tab is still open and reconnects.
-Filename: "{app}\{#ExeName}"; Parameters: "--background"; Flags: nowait runasoriginaluser; Check: RelaunchRequested
+Filename: "{app}\{#ExeName}"; Parameters: "{code:RelaunchParams}"; Flags: nowait runasoriginaluser; Check: RelaunchRequested
 Filename: "{app}\{#ExeName}"; Parameters: "--open"; Description: "Launch GT7 Datalogger"; Flags: nowait postinstall skipifsilent runasoriginaluser
 
 [UninstallRun]
@@ -160,6 +163,30 @@ begin
   Result := ExpandConstant('{param:RELAUNCH|0}') = '1';
 end;
 
+{ ' --data-dir "<folder>"' when the app runs with one (/DATADIR), else ''.
+  Setup only: the uninstaller takes no such parameter. }
+function DataDirArg(): String;
+var
+  Folder: String;
+begin
+  Result := '';
+  if IsUninstaller() then
+    exit;
+  Folder := ExpandConstant('{param:DATADIR|}');
+  if (Folder <> '') and (Pos('"', Folder) = 0) then
+    Result := ' --data-dir "' + Folder + '"';
+end;
+
+function RelaunchParams(Param: String): String;
+var
+  Port: Integer;
+begin
+  Result := '--background' + DataDirArg();
+  Port := StrToIntDef(ExpandConstant('{param:PORT|0}'), 0);
+  if (Port > 0) and (Port < 65536) then
+    Result := Result + ' --port ' + IntToStr(Port);
+end;
+
 function PerUserAndInteractive(): Boolean;
 begin
   Result := not IsAdminInstallMode() and not WizardSilent();
@@ -183,10 +210,10 @@ begin
   { The app's lock record lives in the signed-in user's %LOCALAPPDATA%, so
     on install (possibly elevated as another account) ask as that user. }
   if AsOriginalUser then
-    Started := ExecAsOriginalUser(InstalledExe(), '--quit --timeout 20', '',
+    Started := ExecAsOriginalUser(InstalledExe(), '--quit --timeout 20' + DataDirArg(), '',
       SW_HIDE, ewWaitUntilTerminated, ResultCode)
   else
-    Started := Exec(InstalledExe(), '--quit --timeout 20', '',
+    Started := Exec(InstalledExe(), '--quit --timeout 20' + DataDirArg(), '',
       SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Result := Started and (ResultCode = 0);
   if not Result then

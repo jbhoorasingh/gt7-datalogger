@@ -122,7 +122,8 @@ def updates_dir(data_dir: Path) -> Path:
 
 def read_json(path: Path) -> dict[str, Any] | None:
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        # utf-8-sig: failed.json may come from PowerShell, which can add a BOM.
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, ValueError):
         return None
     return data if isinstance(data, dict) else None
@@ -276,6 +277,7 @@ class SelfUpdater:
         """The `install` object inside stats.update; null when notify-only."""
         if not self.enabled:
             return None
+        self._take_failure()
         offered = self._offered()
         state = self.state if self.tag and self.tag == offered else "idle"
         return {
@@ -285,6 +287,21 @@ class SelfUpdater:
             "error": (self.error or None) if state == "failed" else None,
             "on_quit": self.kind in ON_QUIT_KINDS and self.settings.update_install_on_quit,
         }
+
+    def _take_failure(self) -> None:
+        """A failed install the supervisor recorded while this server ran: on
+        Windows the server is back before Setup finishes, and Setup may fail
+        (or its approval prompt be refused) only then."""
+        if self.state not in ("ready", "installing"):
+            return
+        path = self.folder / FAILED
+        if not path.exists():
+            return
+        failed = read_json(path) or {}
+        if failed.get("tag") == self.tag and isinstance(failed.get("error"), str):
+            self.state, self.error = "failed", failed["error"]
+            log.warning("installing %s failed: %s", self.tag, self.error)
+            self.sync_on_quit()
 
     def ready_version(self) -> str | None:
         """For /api/status: the version Restart and update would install."""
@@ -371,6 +388,8 @@ class SelfUpdater:
         name = KINDS[self.kind]
         folder = self.folder / tag
         self.tag, self.state, self.progress, self.error = tag, "downloading", 0.0, ""
+        # Whatever was ready before is no longer what Quit should install.
+        self.sync_on_quit()
         try:
             await self._fetch(tag, name, folder)
         except UpdateError as exc:
@@ -419,11 +438,15 @@ class SelfUpdater:
             raise UpdateError("the download was redirected away from https")
 
     async def _small(self, client: httpx.AsyncClient, url: str, limit: int) -> bytes:
-        resp = await client.get(url)
-        self._https(resp)
-        if len(resp.content) > limit:
-            raise UpdateError(f"{url.rsplit('/', 1)[-1]} is larger than any release's")
-        return resp.content
+        """A small file, read no further than `limit`: it is not checked yet."""
+        body = bytearray()
+        async with client.stream("GET", url) as resp:
+            self._https(resp)
+            async for chunk in resp.aiter_bytes(4096):
+                body += chunk
+                if len(body) > limit:
+                    raise UpdateError(f"{url.rsplit('/', 1)[-1]} is larger than any release's")
+        return bytes(body)
 
     async def _file(
         self, client: httpx.AsyncClient, url: str, dest: Path, size: int, sha: str

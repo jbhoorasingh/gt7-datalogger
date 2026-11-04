@@ -116,18 +116,24 @@ export async function installUpdate(update: UpdateStatus): Promise<void> {
 export function useReloadOnNewVersion(connected: boolean): void {
   const was = useRef(connected);
   // The version this page started with; overlays and /dash ask nothing else.
+  // When that first request fails, the first reconnect that answers sets it.
+  const baseline = useRef<string | null>(null);
   useEffect(() => {
-    void loadHealth();
+    void loadHealth().then((health) => {
+      baseline.current ??= health?.version ?? null;
+    });
   }, []);
   useEffect(() => {
     const back = connected && !was.current;
     was.current = connected;
     if (!back) return;
-    const before = useHealth.getState().health?.version;
     void api
       .health()
       .then((now) => {
-        if (before && now.version !== before) {
+        const before = baseline.current ?? useHealth.getState().health?.version ?? null;
+        if (before == null) {
+          baseline.current = now.version;
+        } else if (now.version !== before) {
           clearUpdating();
           window.location.reload();
         }

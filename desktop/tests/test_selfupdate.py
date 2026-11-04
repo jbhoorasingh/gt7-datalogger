@@ -109,6 +109,37 @@ def test_a_signed_build_takes_only_its_own_publisher() -> None:
         selfupdate.check_signer(signed, ("NotSigned", ""))
     # An unsigned release candidate has no signer to compare.
     selfupdate.check_signer(("NotSigned", ""), ("NotSigned", ""))
+    # A signature that fails to check is not the same as none.
+    for status in ("Unknown", "HashMismatch", "NotTrusted", ""):
+        with pytest.raises(InstallFailed, match="could not be checked"):
+            selfupdate.check_signer((status, ""), signed)
+
+
+def test_setup_is_told_the_apps_data_folder_and_port() -> None:
+    base = selfupdate.RELAUNCH_ARGS
+    assert selfupdate.setup_arguments(base, selfupdate.Keep()) == base
+    keep = selfupdate.Keep(data_dir=Path("D:/GT7 data"), port=8123)
+    assert selfupdate.setup_arguments(base, keep) == (
+        f'{base} "/DATADIR={Path("D:/GT7 data")}" /PORT=8123')
+
+
+def test_setup_runs_from_a_helper_that_records_how_it_ended() -> None:
+    script = selfupdate.setup_helper(Path("C:/Users/O'Brien/updates/Setup.exe"), "/SILENT",
+                                     Path("C:/Users/O'Brien/updates/failed.json"), "v9.0.0")
+    assert "Wait-Process" not in script
+    assert "O''Brien" in script and "O'Brien" not in script.replace("O''Brien", "")
+    assert "-PassThru -Wait" in script and "WriteAllText" in script and "'v9.0.0'" in script
+    after_exit = selfupdate.setup_helper(Path("Setup.exe"), "/VERYSILENT", Path("f.json"),
+                                         "v9.0.0", wait_pid=4242)
+    assert after_exit.startswith("Wait-Process -Id 4242 ")
+
+
+def test_the_app_keeps_only_the_options_it_was_given(tmp_path: Path) -> None:
+    f = paths.folders(tmp_path / "data")
+    plain = main.DesktopApp(main.parse([]), f)
+    assert plain.keep() == selfupdate.Keep() and plain.keep().args() == []
+    given = main.DesktopApp(main.parse(["--data-dir", str(tmp_path / "data"), "--port", "8123"]), f)
+    assert given.keep().args() == ["--data-dir", str(f.data), "--port", "8123"]
 
 
 def test_a_relaunched_copy_leaves_this_ones_mount_behind() -> None:
@@ -200,13 +231,25 @@ def test_an_appimage_is_replaced_and_started_again(
     image.chmod(0o700)
     monkeypatch.setenv("APPIMAGE", str(image))
     monkeypatch.setattr(selfupdate.os, "getpid", dead_pid)
+    keep = selfupdate.Keep(data_dir=tmp_path / "my data", port=8123)
     assert selfupdate.install(Install("appimage", image), tmp_path / "data", tmp_path,
-                              "v9.0.0", relaunch=True) is True
+                              "v9.0.0", relaunch=True, keep=keep) is True
     assert image.read_bytes() == new
     assert image.stat().st_mode & 0o777 == 0o755
     assert list(image.parent.iterdir()) == [image]  # no leftover part file
     assert wait_until(lambda: started.exists() and started.read_text())
-    assert json.loads(started.read_text()) == {"args": "--background", "appimage": ""}
+    assert json.loads(started.read_text()) == {
+        "args": f"--background --data-dir {tmp_path / 'my data'} --port 8123", "appimage": ""}
+
+
+def fake_open(tmp_path: Path) -> tuple[dict[str, str], Path]:
+    """An `open` on PATH that records its arguments instead of opening anything."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    record = tmp_path / "opened.txt"
+    (bin_dir / "open").write_text(f'#!/bin/sh\nprintf "%s|" "$@" > "{record}"\n')
+    (bin_dir / "open").chmod(0o755)
+    return {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"}, record
 
 
 @POSIX
@@ -219,11 +262,15 @@ def test_the_macos_swap_replaces_the_bundle_once_the_app_is_gone(tmp_path: Path)
     (new / "Contents").mkdir(parents=True)
     (new / "Contents" / "new").write_text("9.0.0")
     failed = tmp_path / "failed.json"
+    env, opened = fake_open(tmp_path)
     subprocess.run(["/bin/sh", "-c", selfupdate.MACOS_SWAP, "gt7-update", str(dead_pid()),
-                    str(target), str(new), "0", "", str(failed), "v9.0.0"], check=True)
+                    str(target), str(new), "1", "", str(failed), "v9.0.0",
+                    "--data-dir", "/x/my data", "--port", "8123"], check=True, env=env)
     assert [p.name for p in (target / "Contents").iterdir()] == ["new"]
     assert not new.exists() and not (stage / "replaced.app").exists()
     assert not failed.exists()
+    assert opened.read_text() == (
+        f"{target}|--args|--background|--data-dir|/x/my data|--port|8123|")
 
 
 @POSIX
@@ -234,13 +281,16 @@ def test_a_failed_macos_swap_puts_the_old_app_back(tmp_path: Path) -> None:
     failed = tmp_path / "failed.json"
     gone = tmp_path / "updates" / "v9.0.0" / "GT7 Datalogger.app"
     gone.parent.mkdir(parents=True)
+    env, opened = fake_open(tmp_path)
     result = subprocess.run(["/bin/sh", "-c", selfupdate.MACOS_SWAP, "gt7-update",
-                             str(dead_pid()), str(target), str(gone), "0", "", str(failed),
-                             "v9.0.0"], capture_output=True)
+                             str(dead_pid()), str(target), str(gone), "1", "", str(failed),
+                             "v9.0.0", "--port", "8123"], capture_output=True, env=env)
     assert result.returncode == 1
     assert (target / "Contents" / "old").read_text() == "1.0.0"
     assert json.loads(failed.read_text()) == {
         "tag": "v9.0.0", "error": "the new app could not be moved into place"}
+    # The old one starts again, as it ran.
+    assert opened.read_text() == f"{target}|--args|--background|--port|8123|"
 
 
 # --- the supervisor ---------------------------------------------------------------------
@@ -292,6 +342,41 @@ def test_exit_77_that_cannot_quit_starts_the_next_child(tmp_path: Path) -> None:
         sock.close()
 
 
+def test_quit_waits_for_an_install_under_way_and_does_not_install_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    f = paths.folders(tmp_path)
+    paths.create(f)
+    from app.self_update import updates_dir, write_json
+
+    updates_dir(f.data).mkdir(parents=True)
+    write_json(updates_dir(f.data) / "install.json", {"tag": "v9.0.0"})
+    write_json(updates_dir(f.data) / "on-quit.json", {"tag": "v9.0.0"})
+    calls: list[bool] = []
+
+    def slow_install(inst, data, logs, tag, *, relaunch, keep):  # type: ignore[no-untyped-def]
+        calls.append(relaunch)
+        time.sleep(0.5)  # a macOS disk image being copied out
+        return True
+
+    monkeypatch.setattr(selfupdate, "install", slow_install)
+
+    class Sup:
+        def stop(self) -> None:
+            pass
+
+    app = main.DesktopApp(main.parse([]), f)
+    app.install = Install("appimage", tmp_path / "GT7.AppImage")
+    app.supervisor = Sup()
+    worker = threading.Thread(target=app._update_requested)
+    worker.start()
+    assert wait_until(lambda: calls == [True], 5)
+    app.user_quit = True
+    app.quit()  # while the install is still going
+    worker.join(5)
+    assert calls == [True]  # Quit did not start a second install
+
+
 def test_the_app_installs_on_a_users_quit_only(tmp_path: Path, monkeypatch) -> None:
     f = paths.folders(tmp_path)
     paths.create(f)
@@ -302,8 +387,10 @@ def test_the_app_installs_on_a_users_quit_only(tmp_path: Path, monkeypatch) -> N
     updates_dir(f.data).mkdir(parents=True)
     write_json(updates_dir(f.data) / "on-quit.json", {"tag": "v9.0.0"})
     installed: list[tuple[str, bool]] = []
-    monkeypatch.setattr(selfupdate, "install",
-                        lambda inst, data, logs, tag, relaunch: installed.append((tag, relaunch)))
+    monkeypatch.setattr(
+        selfupdate, "install",
+        lambda inst, data, logs, tag, relaunch, keep: installed.append((tag, relaunch)),
+    )
 
     class Sup:
         def stop(self) -> None:

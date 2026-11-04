@@ -435,3 +435,49 @@ async def test_try_again_is_only_for_installs_that_update_themselves(api) -> Non
     c2, service = await make()
     assert (await c2.post("/api/admin/update-download")).status_code == 202
     assert service.self_update._retry is True
+
+
+async def test_a_new_download_disarms_the_old_install_on_quit(tmp_path: Path, key: Key) -> None:
+    gh = Releases(key)
+    gh.publish(key, "v1.0.2", body=BODY + b"2")
+    offer = Offer()
+    u = updater(tmp_path, key, gh, offer=offer)
+    await u.fetch("v1.0.1")
+    assert (u.folder / "on-quit.json").exists()
+    offer.result = {"channel": "stable", "tag": "v1.0.2", "url": "x"}
+    seen: list[bool] = []
+    real = u._fetch
+
+    async def watch(tag: str, name: str, folder: Path) -> None:
+        seen.append((u.folder / "on-quit.json").exists())  # mid-download
+        await real(tag, name, folder)
+
+    u._fetch = watch  # type: ignore[method-assign]
+    await u.fetch("v1.0.2")
+    assert seen == [False]
+    assert json.loads((u.folder / "on-quit.json").read_text()) == {"tag": "v1.0.2"}
+
+
+async def test_an_oversized_manifest_is_not_read_to_the_end(tmp_path: Path, key: Key) -> None:
+    gh = Releases(key)
+    path = next(p for p in gh.files if p.endswith("release-manifest.json"))
+    gh.files[path] = b" " * (self_update.MAX_MANIFEST * 4)
+    u = updater(tmp_path, key, gh)
+    await u.fetch("v1.0.1")
+    assert u.state == "failed" and "larger than any release" in u.error
+
+
+async def test_a_failure_recorded_after_the_server_started_is_shown(
+    tmp_path: Path, key: Key
+) -> None:
+    u = updater(tmp_path, key, Releases(key))
+    await u.fetch("v1.0.1")
+    # Windows: Setup ran (or its prompt was refused) after this server was back.
+    (u.folder / "failed.json").write_text(
+        '﻿{"tag": "v1.0.1", "error": "the installer stopped before it finished (exit 5)"}',
+        encoding="utf-8",
+    )
+    status = u.status()
+    assert status is not None and status["state"] == "failed"
+    assert status["error"] == "the installer stopped before it finished (exit 5)"
+    assert not (u.folder / "on-quit.json").exists()

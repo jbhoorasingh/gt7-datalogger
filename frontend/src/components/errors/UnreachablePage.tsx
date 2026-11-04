@@ -29,8 +29,9 @@ export function UnreachablePage({ reach }: { reach: Reachability }) {
   const [stopped] = useState(quitRequested);
   useEffect(() => clearQuit, []);
   // Restart and update: the server went to come back as a new version, and
-  // lib/update reloads the page once it does.
-  const [updating] = useState(updatingTo);
+  // lib/update reloads the page once it does. Read on every render (the clock
+  // above ticks each second), so the mark's expiry brings back the usual page.
+  const updating = updatingTo(now);
 
   const retryIn = reach.checking
     ? "…"

@@ -23,8 +23,12 @@ Per system:
   Windows  Restart and update runs Setup with /SILENT /RELAUNCH=1: Setup stops
            this app with `--quit`, as on any update, and starts the new one.
            On Quit (an install "for me only") Setup runs /VERYSILENT once this
-           process has exited. Once Windows builds are signed, Setup must carry
-           this exe's signer.
+           process has exited. A PowerShell helper runs Setup and records how
+           it ended. Once Windows builds are signed, Setup must carry this
+           exe's signer.
+
+The app's --data-dir and --port, when it was started with them, go to the
+new copy too (Keep), so it serves the same data on the same port.
   Linux    The new AppImage is written beside the old one and renamed over it,
            which a running AppImage survives (it keeps the old file open). A
            helper starts it once this process has exited.
@@ -58,47 +62,55 @@ CREATE_NO_WINDOW = 0x08000000
 DETACHED_PROCESS = 0x00000008
 
 # Waits for the app (argument 1) to exit, then swaps the new bundle (3) in for
-# the installed one (2), and opens it when asked (4). On failure the old one
-# is put back, opened if asked, and failed.json (6) says why. The staging
+# the installed one (2). On failure the old one is put back and failed.json (6)
+# says why. Either way, for Restart and update (4 = 1), the app is opened again
+# with the options it ran with (8 onwards: --data-dir, --port). The staging
 # folder (5) is removed when the helper made it.
 MACOS_SWAP = r"""
 pid=$1 target=$2 new=$3 relaunch=$4 stage=$5 failed=$6 tag=$7
-fail() {
-  printf '{"tag": "%s", "error": "%s"}' "$tag" "$1" > "$failed"
-  [ "$relaunch" = 1 ] && open "$target" --args --background
-  exit 1
-}
+shift 7
+error=""
 i=0
 while kill -0 "$pid" 2>/dev/null; do
   i=$((i + 1))
-  [ "$i" -gt 1200 ] && fail "GT7 Datalogger did not quit within two minutes"
+  if [ "$i" -gt 1200 ]; then error="GT7 Datalogger did not quit within two minutes"; break; fi
   sleep 0.1
 done
-old="$(dirname "$new")/replaced.app"
-rm -rf "$old"
-mv "$target" "$old" || fail "the installed app could not be moved aside"
-if ! mv "$new" "$target"; then
-  mv "$old" "$target"
-  fail "the new app could not be moved into place"
+if [ -z "$error" ]; then
+  old="$(dirname "$new")/replaced.app"
+  rm -rf "$old"
+  if ! mv "$target" "$old"; then
+    error="the installed app could not be moved aside"
+  elif ! mv "$new" "$target"; then
+    mv "$old" "$target"
+    error="the new app could not be moved into place"
+  else
+    rm -rf "$old"
+    [ -n "$stage" ] && rm -rf "$stage"
+  fi
 fi
-rm -rf "$old"
-[ -n "$stage" ] && rm -rf "$stage"
-[ "$relaunch" = 1 ] && open "$target" --args --background
-exit 0
+[ -n "$error" ] && printf '{"tag": "%s", "error": "%s"}' "$tag" "$error" > "$failed"
+[ "$relaunch" = 1 ] && open "$target" --args --background "$@"
+[ -z "$error" ]
 """
 
 # What Restart and update runs Setup with: a progress window and nothing to
 # answer; Setup stops this app (`--quit`) and starts the new one (gt7.iss).
 RELAUNCH_ARGS = "/SILENT /SUPPRESSMSGBOXES /NORESTART /RELAUNCH=1"
+# On Quit, with nobody to watch: no window at all, and nothing started after.
+QUIET_ARGS = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART"
 
-# Waits for the app (1) to exit, then starts the AppImage (2) in the background.
+# Waits for the app (1) to exit, then starts the AppImage (2) in the
+# background, with the options the app ran with (3 onwards).
 APPIMAGE_RELAUNCH = r"""
+pid=$1 image=$2
+shift 2
 i=0
-while kill -0 "$1" 2>/dev/null; do
+while kill -0 "$pid" 2>/dev/null; do
   i=$((i + 1)); [ "$i" -gt 1200 ] && exit 1
   sleep 0.1
 done
-exec "$2" --background
+exec "$image" --background "$@"
 """
 
 
@@ -206,21 +218,41 @@ def record_failure(data_dir: Path, tag: str, error: str) -> None:
 # --- installing ------------------------------------------------------------------------
 
 
-def install(inst: Install, data_dir: Path, logs: Path, tag: str, *, relaunch: bool) -> bool:
+@dataclass(frozen=True)
+class Keep:
+    """The options the app runs with that the updated one must run with too.
+    None for each one the app was started without, which then stays default."""
+
+    data_dir: Path | None = None
+    port: int | None = None
+
+    def args(self) -> list[str]:
+        out = ["--data-dir", str(self.data_dir)] if self.data_dir is not None else []
+        return out + (["--port", str(self.port)] if self.port is not None else [])
+
+
+# Started with neither: the updated app starts with the defaults too.
+DEFAULTS = Keep()
+
+
+def install(
+    inst: Install, data_dir: Path, logs: Path, tag: str, *, relaunch: bool, keep: Keep = DEFAULTS
+) -> bool:
     """Install release `tag`. True when the app must now quit for it to finish."""
     from app.self_update import FAILED, updates_dir
 
     staged = _staged(inst, data_dir, tag)
     log.info("installing %s (%s) over %s", tag, inst.kind, inst.target)
     log_file = logs / "update.log"
+    failed = updates_dir(data_dir) / FAILED
     try:
         if inst.kind == "macos-app":
-            failed = updates_dir(data_dir) / FAILED
-            return install_macos(inst, staged.file, tag, failed, log_file, relaunch=relaunch)
+            return install_macos(inst, staged.file, tag, failed, log_file, relaunch=relaunch,
+                                 keep=keep)
         if inst.kind in ("windows-setup", "windows-setup-user"):
-            return install_windows(inst, staged.file, relaunch=relaunch)
+            return install_windows(inst, staged.file, tag, failed, relaunch=relaunch, keep=keep)
         if inst.kind == "appimage":
-            return install_appimage(inst, staged.file, log_file, relaunch=relaunch)
+            return install_appimage(inst, staged.file, log_file, relaunch=relaunch, keep=keep)
     except (OSError, subprocess.SubprocessError) as exc:
         raise InstallFailed(f"the update could not be installed ({exc})") from exc
     raise InstallFailed(f"{inst.kind} installs cannot update themselves")
@@ -260,7 +292,7 @@ def _run(args: list[str], what: str, timeout: float = 300) -> None:
 
 def install_macos(
     inst: Install, dmg: Path, tag: str, failed: Path, log_file: Path, *, relaunch: bool,
-    pid: int | None = None,
+    keep: Keep = DEFAULTS, pid: int | None = None,
 ) -> bool:
     target = inst.target
     # The swap is two renames, so the new bundle must sit on the target's
@@ -296,7 +328,7 @@ def install_macos(
          "Gatekeeper refused the new app")
     waited = pid if pid is not None else os.getpid()
     _spawn(["/bin/sh", "-c", MACOS_SWAP, "gt7-update", str(waited), str(target), str(new),
-            "1" if relaunch else "0", made, str(failed), tag], log_file)
+            "1" if relaunch else "0", made, str(failed), tag, *keep.args()], log_file)
     return True
 
 
@@ -324,39 +356,74 @@ def authenticode(path: Path) -> tuple[str, str]:
 
 def check_signer(running: tuple[str, str], setup: tuple[str, str]) -> None:
     """A signed app takes only a Setup with the same signer. An unsigned one (a
-    release candidate before Windows signing exists) has none to compare."""
-    if running[0] != "Valid":
+    release candidate before Windows signing exists) has none to compare, and
+    only an unsigned one: a signature that fails to check is not the same as
+    none, and refuses the update."""
+    if running[0] == "NotSigned":
         log.warning("this build is not Authenticode-signed; the update's signature "
                     "is checked against the release key only")
         return
+    if running[0] != "Valid":
+        raise InstallFailed(f"this app's own signature could not be checked ({running[0]})")
     if setup[0] != "Valid" or setup[1] != running[1]:
         raise InstallFailed("the new Setup is not signed by the same publisher")
 
 
-def install_windows(inst: Install, setup: Path, *, relaunch: bool, pid: int | None = None) -> bool:
+def setup_arguments(base: str, keep: Keep) -> str:
+    """Setup's command line: the app's options go through as /DATADIR and /PORT,
+    so Setup stops the right copy and starts the new one the same way (gt7.iss)."""
+    out = base
+    if keep.data_dir is not None:
+        folder = str(keep.data_dir)
+        if folder.endswith("\\"):
+            folder += "."  # a trailing backslash would escape the closing quote
+        out += f' "/DATADIR={folder}"'
+    if keep.port is not None:
+        out += f" /PORT={int(keep.port)}"
+    return out
+
+
+def setup_helper(setup: Path, arguments: str, failed: Path, tag: str,
+                 wait_pid: int | None = None) -> str:
+    """PowerShell that runs Setup (after `wait_pid` exits, when given), waits for
+    it, and writes failed.json when it fails or never starts. Setup outlives
+    this app, which it stops, so only a helper of its own can see how it ends."""
+    wait = (f"Wait-Process -Id {int(wait_pid)} -Timeout 120 -ErrorAction SilentlyContinue; "
+            if wait_pid is not None else "")
+    return (
+        wait
+        + "try { $p = Start-Process -FilePath " + _ps_quote(str(setup))
+        + " -ArgumentList " + _ps_quote(arguments) + " -PassThru -Wait; $code = $p.ExitCode; "
+        + "$why = 'the installer stopped before it finished (exit ' + $code + ')' } "
+        + "catch { $code = -1; $why = 'the installer did not start: ' + $_.Exception.Message }; "
+        + "if ($code -ne 0) { $json = @{tag=" + _ps_quote(tag) + "; error=$why} "
+        + "| ConvertTo-Json -Compress; [IO.File]::WriteAllText(" + _ps_quote(str(failed))
+        + ", $json) }"
+    )
+
+
+def install_windows(
+    inst: Install, setup: Path, tag: str, failed: Path, *, relaunch: bool,
+    keep: Keep = DEFAULTS, pid: int | None = None,
+) -> bool:
     check_signer(authenticode(Path(sys.executable)), authenticode(setup))
     if relaunch:
-        # ShellExecute, so Setup can ask for administrator approval; this app
-        # keeps running until Setup stops it, so a refused prompt changes nothing.
-        os.startfile(  # type: ignore[attr-defined]
-            str(setup), "open", RELAUNCH_ARGS
-        )
-        return False
-    if inst.kind != "windows-setup-user":
+        # Start-Process goes through ShellExecute, so Setup can ask for
+        # administrator approval. This app keeps running until Setup stops it:
+        # a refused prompt leaves it as it was, and failed.json says so.
+        script = setup_helper(setup, setup_arguments(RELAUNCH_ARGS, keep), failed, tag)
+    elif inst.kind == "windows-setup-user":
+        waited = pid if pid is not None else os.getpid()
+        script = setup_helper(setup, setup_arguments(QUIET_ARGS, keep), failed, tag, waited)
+    else:
         raise InstallFailed("an install for every user installs updates only on request")
-    waited = pid if pid is not None else os.getpid()
-    script = (
-        f"Wait-Process -Id {waited} -Timeout 120 -ErrorAction SilentlyContinue; "
-        f"Start-Process -FilePath {_ps_quote(str(setup))} "
-        "-ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART'"
-    )
     subprocess.Popen(
         ["powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
          "-Command", script],
         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         creationflags=DETACHED_PROCESS | CREATE_NO_WINDOW, close_fds=True,
     )
-    return True
+    return not relaunch
 
 
 def relaunch_env(environ: dict[str, str]) -> dict[str, str]:
@@ -382,7 +449,8 @@ def _sha256(path: Path) -> str:
 
 
 def install_appimage(
-    inst: Install, new: Path, log_file: Path, *, relaunch: bool, pid: int | None = None
+    inst: Install, new: Path, log_file: Path, *, relaunch: bool, keep: Keep = DEFAULTS,
+    pid: int | None = None,
 ) -> bool:
     image = inst.target
     part = image.with_name(f".{image.name}.update-{os.getpid()}")
@@ -398,6 +466,6 @@ def install_appimage(
         part.unlink(missing_ok=True)
     if relaunch:
         waited = pid if pid is not None else os.getpid()
-        _spawn(["/bin/sh", "-c", APPIMAGE_RELAUNCH, "gt7-update", str(waited), str(image)],
-               log_file, env=relaunch_env(dict(os.environ)))
+        _spawn(["/bin/sh", "-c", APPIMAGE_RELAUNCH, "gt7-update", str(waited), str(image),
+                *keep.args()], log_file, env=relaunch_env(dict(os.environ)))
     return True

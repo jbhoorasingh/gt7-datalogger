@@ -101,6 +101,8 @@ export function ServerAlerts() {
         .then((s) => {
           setUpdate(s.update ?? null);
           setCanInstall(Boolean(s.can_quit));
+          // The mark lapses: re-read it, so a stalled install shows as ready again.
+          setInstallingTo(updatingTo());
         })
         .catch(() => {});
     check();
