@@ -41,6 +41,10 @@ hiddenimports = [
     # SQLAlchemy loads the driver with __import__; Alembic's ops by name.
     "aiosqlite",
     *collect_submodules("alembic"),
+    # pycryptodome picks a curve's module (Ed25519: _edwards) by name when an
+    # update's signature is checked (app.self_update; --self-test runs it).
+    *collect_submodules("Crypto.PublicKey"),
+    *collect_submodules("Crypto.Signature"),
     "ifaddr",
     "uvicorn.protocols.http.h11_impl",
     "uvicorn.protocols.websockets.websockets_sansio_impl",

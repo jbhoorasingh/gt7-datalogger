@@ -177,6 +177,10 @@ jobs:
         run: |
           chmod +x desktop/dist/GT7-Datalogger-Linux-x86_64.AppImage
           python3 desktop/ci/smoke.py desktop/dist/GT7-Datalogger-Linux-x86_64.AppImage --headless --version "${{ needs.plan.outputs.expected }}"
+      - name: Update the AppImage in place
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: python3 desktop/ci/update_smoke.py appimage desktop/dist/GT7-Datalogger-Linux-x86_64.AppImage --version "${{ needs.plan.outputs.expected }}"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: unsigned-linux
@@ -326,6 +330,8 @@ jobs:
           hdiutil detach /tmp/gt7
           spctl --assess --type execute -vv "/Applications/GT7 Datalogger.app"
           python3 desktop/ci/smoke.py "/Applications/GT7 Datalogger.app/Contents/MacOS/gt7-datalogger" --version "${{ needs.plan.outputs.expected }}"
+      - name: Update the installed app in place
+        run: python3 desktop/ci/update_smoke.py macos "/Applications/GT7 Datalogger.app" signed/GT7-Datalogger-macOS-arm64.dmg --version "${{ needs.plan.outputs.expected }}"
 
   verify-windows:
     needs: [plan, sign-windows]
@@ -343,14 +349,23 @@ jobs:
           elseif ($sig.Status -ne 'Valid') { throw "Setup.exe signature: $($sig.Status)" }
           Start-Process signed/GT7-Datalogger-Windows-x64-Setup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/ALLUSERS' -Wait
           python desktop/ci/smoke.py "$env:ProgramFiles\GT7 Datalogger\gt7-datalogger.exe" --version "${{ needs.plan.outputs.expected }}"
+      - name: Update the installed app in place
+        shell: pwsh
+        env:
+          SIGNED: ${{ needs.sign-windows.outputs.signed }}
+        run: |
+          $signed = @(); if ($env:SIGNED -eq 'true') { $signed = @('--signed') }
+          python desktop/ci/update_smoke.py windows "$env:ProgramFiles\GT7 Datalogger\gt7-datalogger.exe" "$PWD\signed\GT7-Datalogger-Windows-x64-Setup.exe" @signed --version "${{ needs.plan.outputs.expected }}"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-  release:
+  # What an installed app checks an update against (backend/app/self_update.py):
+  # the manifest of every file's size and sha256, signed with the update key.
+  # Signed here, in the desktop-release environment, so the job that publishes
+  # holds no key, and the key's public half must be one the app trusts.
+  manifest:
     needs: [plan, verify-macos, verify-windows, sign-linux]
     runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-      id-token: write
-      attestations: write
+    environment: desktop-release
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -378,6 +393,54 @@ jobs:
           exit $missing
         env:
           VERSION: ${{ needs.plan.outputs.expected }}
+      - name: Sign the manifest
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+          PRERELEASE: ${{ needs.plan.outputs.prerelease }}
+        run: |
+          if [[ -z "$UPDATE_SIGNING_KEY" ]]; then
+            if [[ "$PRERELEASE" != "true" ]]; then
+              echo "::error::UPDATE_SIGNING_KEY is not set: only a vX.Y.Z-rc.N tag may ship without release-manifest.json.sig"
+              exit 1
+            fi
+            echo "::warning::UPDATE_SIGNING_KEY is not set: no install can update itself to this release candidate"
+            exit 0
+          fi
+          umask 077
+          key="$RUNNER_TEMP/update-signing-key.pem"
+          trap 'rm -f "$key"' EXIT
+          printf '%s\n' "$UPDATE_SIGNING_KEY" > "$key"
+          public=$(openssl pkey -in "$key" -pubout -outform DER | tail -c 32 | base64 -w0)
+          if ! grep -qF "\"$public\"" backend/app/self_update.py; then
+            echo "::error::UPDATE_SIGNING_KEY's public half ($public) is not in UPDATE_KEYS (backend/app/self_update.py): no install would trust this release"
+            exit 1
+          fi
+          openssl pkey -in "$key" -pubout -out "$RUNNER_TEMP/update-key.pub.pem"
+          openssl pkeyutl -sign -inkey "$key" -rawin -in assets/release-manifest.json -out "$RUNNER_TEMP/manifest.sig"
+          openssl pkeyutl -verify -pubin -inkey "$RUNNER_TEMP/update-key.pub.pem" -rawin -in assets/release-manifest.json -sigfile "$RUNNER_TEMP/manifest.sig"
+          base64 -w0 "$RUNNER_TEMP/manifest.sig" > assets/release-manifest.json.sig
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-manifest
+          path: |
+            assets/release-manifest.json
+            assets/release-manifest.json.sig
+            assets/SHA256SUMS.txt
+          if-no-files-found: ignore
+
+  release:
+    needs: [plan, manifest]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { pattern: "signed-*", path: assets, merge-multiple: true }
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: release-manifest, path: assets }
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: "assets/GT7-Datalogger-*"

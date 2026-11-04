@@ -12,6 +12,7 @@ import { isEngineerLocation } from "@/lib/engineerRoute";
 import { loadHealth } from "@/lib/health";
 import { isOverlayLocation, parseOverlayRoute } from "@/lib/overlay";
 import { parseAnalysisParams, parseHash, type Route } from "@/lib/router";
+import { useReloadOnNewVersion } from "@/lib/update";
 import { WELCOME_HASH, wantsWelcome } from "@/lib/welcome";
 import { useTelemetry } from "@/store/telemetry";
 
@@ -97,6 +98,7 @@ export default function App() {
   // The unreachable page belongs to the app shell; the chrome-less pages
   // keep their own quiet reconnect.
   const reach = useServerReachability(wsConnected, !chromeless);
+  useReloadOnNewVersion(wsConnected);
 
   useEffect(() => connect(), [connect]);
   useFirstRunRedirect(!chromeless);

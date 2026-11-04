@@ -172,7 +172,7 @@ On macOS (menu bar) and Windows (notification area) the icon's menu has:
 | **Start at login** | starts the app in the background when you log in |
 | **Open data folder**, **Open logs** | the folders in [Where your data lives](#where-your-data-lives) |
 | **Repair firewall** | Windows only, see above |
-| **Check for updates** | opens Settings, where **About** shows whether a newer version is out |
+| **Check for updates** | opens Settings, where **About** shows whether a newer version is out. Once one is downloaded, the item reads **Restart to update to** *version* and installs it ([Updating](#updating)) |
 | **Quit GT7 Datalogger** | stops recording and the app. Laps already completed are saved |
 
 Opening the app again while it runs opens the dashboard; a second copy never starts.
@@ -252,12 +252,66 @@ listens on `127.0.0.1` only, and the system refuses every other device outright.
 
 ## Updating
 
-Once a day the app asks GitHub whether a newer version is out. When one is, **Settings
-› About** shows the version and a download link. It never downloads or installs
-anything by itself.
+Once a day the app asks GitHub whether a newer version is out. When one is, the app
+downloads it in the background (about 30 MB) and checks it. A banner then offers
+**Restart and update**, **Settings › About** shows the same, and in the menu bar or the
+tray, **Check for updates** becomes **Restart to update to** *version*.
 
-To update, quit the app, then install the new version the way you installed the
-first:
+**Restart and update** quits the app, installs the new version and starts it again in
+about ten seconds. Your dashboard tab shows *Installing* meanwhile, then reloads by itself.
+It waits while a session is recording: finish the session first. If you never click it,
+the update installs the next time you quit GT7 Datalogger from the menu bar, the tray or
+**Settings › About**. To install only when you click, turn off **Install updates when
+quitting** in **Settings › Advanced**.
+
+Updating in place works from 1.0.1 on. An app at 1.0.0 shows that a new version is out,
+and you install 1.0.1 by hand once, [as below](#updating-by-hand).
+
+=== "macOS"
+
+    The new app replaces the one in Applications, at the same place: no disk image, no
+    Finder, no password, and your Local Network permission stays. The app must sit in a
+    folder you can write to, as it does when you dragged it to Applications yourself.
+    Opened straight from the disk image or from Downloads, or installed by another user,
+    it only says that a new version is out.
+
+=== "Windows"
+
+    The app runs the new installer quietly. An install for every user asks for
+    administrator approval first, shows a small progress window, then starts the new
+    version. An install for you only asks nothing. An install for every user never
+    updates on quit, since nobody would be there to approve it: only **Restart and
+    update** installs it. The portable `.zip` only says that a new version is out.
+
+=== "Linux"
+
+    The new AppImage replaces the old file and starts. The folder holding the AppImage
+    must be one you can write to. Otherwise, and with the `.tar.gz`, the app only says
+    that a new version is out. Tools such as AppImageUpdate or Gear Lever, which read
+    the update information built into the AppImage, work too.
+
+### How an update is checked
+
+Before anything is installed, the app checks that:
+
+- the release's `release-manifest.json` is signed with the GT7 Datalogger release key,
+  which every build carries;
+- the release is the one offered, and newer than the running version: an update never
+  goes back;
+- the downloaded file's size and SHA-256 are the ones the signed manifest gives it.
+
+On macOS the new app must also carry the same Developer ID as the installed one and pass
+Gatekeeper (it is notarized). On Windows, once the installers are signed, the new Setup
+must carry the same publisher. If any check fails, nothing is installed: the old version
+keeps running, **Settings › About** says what went wrong, and its download link still
+works. The download waits in the `updates` folder inside the data folder until the new
+version runs, and is deleted then.
+
+### Updating by hand
+
+A Docker or source install, the portable `.zip`, the `.tar.gz`, and an app that cannot
+replace itself only show that a new version is out, with a download link. To update,
+quit the app, then install the new version the way you installed the first:
 
 - **macOS:** drag the new GT7 Datalogger to Applications and replace the old one.
 - **Windows:** run the new `Setup.exe`. With the portable `.zip`, replace the folder.
@@ -268,8 +322,9 @@ old one to `backups/` in the data folder first; see
 [Troubleshooting](../reference/troubleshooting.md#getting-more-detail) for going
 back. A database a newer version has opened does not open in an older one.
 
-To stop the daily check, turn off **Check for updates** in **Settings › Advanced**. To be
-offered release candidates too, set **Update channel** to `prerelease`.
+To stop the daily check, and with it the download, turn off **Check for updates** in
+**Settings › Advanced**. To be offered release candidates too, set **Update channel** to
+`prerelease`.
 
 ## Uninstalling
 
@@ -321,8 +376,8 @@ sync service, and two installs sharing them count as one.
 
 The app records with no internet at all. When it has some, it makes three kinds of
 request without being asked: the GT7 car-list refresh (first start, then weekly), the
-shared track pull (once, on a first start) and the daily update check. None of them
-sends your recordings. [What the app fetches on its own](configuration.md#what-the-app-fetches-on-its-own)
+shared track pull (once, on a first start) and the daily update check, which downloads
+a newer version from `github.com` when it finds one. None of them sends your recordings. [What the app fetches on its own](configuration.md#what-the-app-fetches-on-its-own)
 lists each one and how to turn it off, and [Privacy](../reference/privacy.md) covers
 everything the app sends. Sync with an online service stays off until you set it up.
 The setup wizard and the Windows installer ask about each background request before the

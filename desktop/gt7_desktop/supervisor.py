@@ -20,6 +20,10 @@ that exits or gets killed, and this class starts another.
 - Exit 75 is a restart the server asked for, started at once.
 - Exit 76 is Quit from the dashboard: no new child, and `on_quit` tells the
   app to quit as its tray's Quit would.
+- Exit 77 is Restart and update: `on_update` installs the release the server
+  downloaded (gt7_desktop.selfupdate). When that needs the app to quit
+  (macOS, Linux), no new child; otherwise (Windows, whose Setup stops the
+  app itself, or an install that failed) the next child starts at once.
 """
 
 from __future__ import annotations
@@ -44,6 +48,7 @@ log = logging.getLogger(__name__)
 EXIT_STARTUP_FAILED = 3
 EXIT_RESTART = 75
 EXIT_QUIT = 76
+EXIT_UPDATE = 77
 BACKOFF = (1.0, 2.0, 4.0, 8.0)
 GIVE_UP_AFTER = 5
 POLL_EVERY = 2.0
@@ -54,7 +59,7 @@ STOP_TIMEOUT = 15.0
 
 @dataclass
 class State:
-    phase: str = "starting"  # starting, running, restarting, failed, stopped
+    phase: str = "starting"  # starting, running, restarting, updating, failed, stopped
     status: dict[str, Any] = field(default_factory=dict)
     error: str = ""
     log_tail: str = ""
@@ -154,6 +159,7 @@ class Supervisor:
         on_change: Callable[[State], None] | None = None,
         command: list[str] | None = None,
         on_quit: Callable[[], None] | None = None,
+        on_update: Callable[[], bool] | None = None,
     ) -> None:
         self.sock = sock
         self.port: int = sock.getsockname()[1]
@@ -161,6 +167,7 @@ class Supervisor:
         self.log_file = log_file
         self.on_change = on_change
         self.on_quit = on_quit
+        self.on_update = on_update
         self.command = command or server_command()
         self.state = State()
         self._proc: subprocess.Popen[bytes] | None = None
@@ -249,6 +256,14 @@ class Supervisor:
             if self._stopping.is_set():
                 break
             if code == EXIT_RESTART:
+                self.state.restarts += 1
+                crashes = 0
+                continue
+            if code == EXIT_UPDATE:
+                self._set(phase="updating")
+                if self.on_update is not None and self.on_update():
+                    self._set(phase="stopped")
+                    return
                 self.state.restarts += 1
                 crashes = 0
                 continue

@@ -110,6 +110,20 @@ export interface UpdateStatus {
   version?: string | null;
   url?: string | null;
   checked_at?: string | number | null;
+  /** The desktop app's in-place install; null (or absent, from an older
+   * server) where updates are notify-only: Docker, source, portable. */
+  install?: UpdateInstall | null;
+}
+
+/** The download and install of the offered release (app.self_update). */
+export interface UpdateInstall {
+  state: "idle" | "downloading" | "ready" | "installing" | "failed";
+  version: string | null;
+  /** 0–1 while downloading. */
+  progress: number | null;
+  error: string | null;
+  /** Whether quitting the app installs it too. */
+  on_quit: boolean;
 }
 
 export interface LapSummary {

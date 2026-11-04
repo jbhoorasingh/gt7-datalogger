@@ -2424,6 +2424,104 @@
         "summary": "Update Check"
       }
     },
+    "/api/admin/update-download": {
+      "post": {
+        "description": "Try the download again after it failed (Settings \u203a About \u203a Try again).",
+        "operationId": "update_download_api_admin_update_download_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Update Download Api Admin Update Download Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Download"
+      }
+    },
+    "/api/admin/update-install": {
+      "post": {
+        "description": "Restart and update: install the downloaded release, then start it.\n\nFrom this computer only, as Quit is: on Windows the installer asks for\nadministrator approval on this screen, and a restart under someone\ndriving with a tablet would surprise them. Refused (409) while anything\nrecords, as compacting is: the restart would cut the session.",
+        "operationId": "update_install_api_admin_update_install_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Update Install Api Admin Update Install Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Install"
+      }
+    },
     "/api/admin/vacuum": {
       "post": {
         "description": "Compact the database. Refused (409) while anything records (#188): the\nrewrite holds the file for minutes on a large one, and a lap that ends\nmeanwhile would fail to save once the busy timeout ran out.",

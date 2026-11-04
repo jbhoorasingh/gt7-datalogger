@@ -541,7 +541,10 @@ What is running and where it keeps things:
 - **Updates**: whether a newer version is out, with its download link, when
   **Check for updates** is on in [Advanced](#advanced). It is on by default in the
   desktop app and off elsewhere; see [What the app fetches on its
-  own](../getting-started/configuration.md#what-the-app-fetches-on-its-own).
-  Nothing is downloaded or installed by itself.
+  own](../getting-started/configuration.md#what-the-app-fetches-on-its-own). The
+  desktop app also downloads the new version and shows its progress, then offers
+  **Restart and update** on the computer it runs on
+  ([Desktop app › Updating](../getting-started/desktop.md#updating)). Docker and
+  source installs download nothing.
 - **Legal**: GT7 Datalogger is an unofficial tool, not affiliated with, endorsed by or
   sponsored by Sony Interactive Entertainment or Polyphony Digital.

@@ -47,6 +47,7 @@ import type {
   TrackCatalog,
   TrackOutline,
   TrackOverview,
+  UpdateStatus,
   VoiceCallout,
 } from "./types";
 
@@ -500,6 +501,11 @@ export const api = {
     stats: () => get<AdminStats>("/api/admin/stats"),
     // Stop the desktop app (Settings › About; Linux has no tray to quit from).
     quit: () => send<{ quitting: boolean }>("/api/admin/quit", "POST"),
+    // Restart and update: install the downloaded release (desktop app, this
+    // computer only; 409 while a session records).
+    updateInstall: () => send<UpdateStatus>("/api/admin/update-install", "POST"),
+    // Try the update's download again after it failed.
+    updateDownload: () => send<UpdateStatus>("/api/admin/update-download", "POST"),
     // Every setting (Settings › Advanced): change some, hand others back to
     // the environment, in one validated write.
     config: () => get<ConfigDoc>("/api/admin/config"),

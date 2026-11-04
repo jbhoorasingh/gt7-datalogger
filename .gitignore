@@ -57,3 +57,6 @@ backend/app/_build_info.py
 # Desktop builds (#193)
 desktop/dist/
 desktop/build/
+
+# Private keys (desktop/scripts/update_key.py): never committed.
+*.pem

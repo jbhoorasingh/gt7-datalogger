@@ -13,10 +13,12 @@ uploads your recordings or settings. Each one can be turned off.
 |---|---|---|---|---|
 | Car list refresh | `www.gran-turismo.com` | first start, then at most weekly | a normal web request | Settings › Advanced › **Refresh the car list** (`GT7_CAR_REFRESH=false`); the setup wizard and the Windows installer ask too |
 | Shared track surveys | `jbhoorasingh.github.io` (GitHub Pages) | once, on a first start with no tracks; afterwards only when you open Tracks › Shared bundles | a normal web request | leave Settings › Advanced › **Shared track repository** empty (`GT7_SHARED_BUNDLES_URL=`); the Windows installer asks too |
-| Update check | `api.github.com` | once a day | the app's version in its `User-Agent` | Settings › Advanced › **Check for updates** (`GT7_UPDATE_CHECK=false`); off by default except in the desktop app, where the setup wizard and the Windows installer ask |
+| Update check | `api.github.com`; in the desktop app, also `github.com` for a newer release's files | once a day | the app's version in its `User-Agent` | Settings › Advanced › **Check for updates** (`GT7_UPDATE_CHECK=false`); off by default except in the desktop app, where the setup wizard and the Windows installer ask |
 
-Like any web request, each of these tells the server your IP address. Nothing is
-downloaded and installed: the update check only shows that a new version exists.
+Like any web request, each of these tells the server your IP address. Docker and source
+installs only show that a new version exists. The desktop app also downloads it, checks
+its signature, and installs it when you click **Restart and update** or quit the app
+([Desktop app › Updating](../getting-started/desktop.md#updating)).
 
 ## What leaves your network only when you set it up
 

@@ -127,11 +127,17 @@ class Settings(BaseSettings):
     # copy a frozen desktop bundle carries; see frontend_root().
     frontend_dist: Path | None = None
     # Ask GitHub Releases once a day whether a newer version is out (#196).
-    # Notify only: nothing is downloaded. Off for Docker and source installs
-    # until someone turns it on; the desktop launcher sets it on.
+    # Off for Docker and source installs until someone turns it on; the
+    # desktop launcher sets it on. Notify only, except where update_install
+    # says this install can replace itself (app.self_update).
     update_check: bool = False
     # "stable" asks for the latest release; "prerelease" also offers rcs.
     update_channel: str = "stable"
+    # Set by the desktop launcher: the kind of install that can update itself
+    # in place (app.self_update.KINDS). Empty everywhere else: notify-only.
+    update_install: str = ""
+    # Desktop app: install a downloaded update when the app is quit.
+    update_install_on_quit: bool = True
 
     # A shared repository of contributed track bundles (#47): the URL of its
     # index document, or of the directory holding one ("/index.json" is

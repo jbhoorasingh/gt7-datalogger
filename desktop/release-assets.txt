@@ -1,3 +1,6 @@
+# Every file a desktop release must carry; desktop.yml's manifest job fails
+# when one is missing. Besides these, release-manifest.json.sig (what installs
+# check an update against) is required on a final tag and optional on an rc.
 GT7-Datalogger-macOS-arm64.dmg
 GT7-Datalogger-Windows-x64-Setup.exe
 GT7-Datalogger-Windows-x64-Portable.zip

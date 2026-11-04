@@ -87,12 +87,16 @@ class _Delegate(NSObject):  # type: ignore[misc]
     def checkUpdates_(self, _sender: Any) -> None:
         self.tray.app.open_dashboard("#/settings")
 
+    def installUpdate_(self, _sender: Any) -> None:
+        threading.Thread(target=self.tray.app.install_update, daemon=True).start()
+
     def quitApp_(self, _sender: Any) -> None:
         if self.tray.app.recording() and not self.tray.confirm(
             "A session is recording.",
             "Quitting closes it. The laps already completed are saved.",
         ):
             return
+        self.tray.app.user_quit = True
         NSApplication.sharedApplication().terminate_(None)
 
 
@@ -122,7 +126,8 @@ class MacTray:
         menu.addItem_(NSMenuItem.separatorItem())
         menu.addItem_(d._menu("Open data folder", "openData:"))
         menu.addItem_(d._menu("Open logs", "openLogs:"))
-        menu.addItem_(d._menu("Check for updates", "checkUpdates:"))
+        self.updates = d._menu("Check for updates", "checkUpdates:")
+        menu.addItem_(self.updates)
         menu.addItem_(NSMenuItem.separatorItem())
         menu.addItem_(d._menu(f"Quit {APP_NAME}", "quitApp:", "q"))
         self.item.setMenu_(menu)
@@ -137,6 +142,13 @@ class MacTray:
         self.header.setTitle_(self.app.status_line())
         status = self.app.supervisor.state.status if self.app.supervisor else {}
         self.lan.setState_(1 if status.get("lan_access", True) else 0)
+        ready = status.get("update_ready")
+        if ready:
+            self.updates.setTitle_(f"Restart to update to {ready}")
+            self.updates.setAction_("installUpdate:")
+        else:
+            self.updates.setTitle_("Check for updates")
+            self.updates.setAction_("checkUpdates:")
 
     def refresh(self) -> None:
         AppHelper.callAfter(self._update)
