@@ -143,7 +143,7 @@ def detect() -> Install | None:
 
 def _detect_macos(exe: Path) -> Install | None:
     bundle = exe.resolve().parents[2]
-    if bundle.suffix != ".app" or "/AppTranslocation/" in str(bundle):
+    if bundle.suffix != ".app" or "AppTranslocation" in bundle.parts:
         # Run straight from Downloads or the DMG, macOS moved it somewhere
         # read-only; there is nothing to replace.
         return None
