@@ -71,7 +71,7 @@ log = logging.getLogger(__name__)
 # added here one release before the old one is dropped, so installs that
 # have the new key never meet an update signed only with the old one. Empty,
 # a build has no way to trust an update and stays notify-only.
-UPDATE_KEYS: tuple[str, ...] = ()
+UPDATE_KEYS: tuple[str, ...] = ("Q0xGqkWYjozzxQrADiKgWIbKjv3qSptLPWl9LFesxh4=",)
 
 DOWNLOAD = f"https://github.com/{REPO}/releases/download"
 MANIFEST = "release-manifest.json"
