@@ -72,11 +72,13 @@ Installed desktop apps update themselves only to a release whose `release-manife
 carries an Ed25519 signature by a key they were built with
 ([Desktop app › Updating](../getting-started/desktop.md#updating)). The private key is
 the `UPDATE_SIGNING_KEY` secret in the `desktop-release` environment; its public half is
-in `UPDATE_KEYS` in `backend/app/self_update.py`. The maintainer makes the key once:
+in `UPDATE_KEYS` in `backend/app/self_update.py`. The maintainer makes the key once, from
+the main checkout (the script needs the backend's venv) and into a file outside the
+repository, so it can never be committed:
 
 ```bash
-backend/.venv/bin/python desktop/scripts/update_key.py new update-signing-key.pem
-gh secret set UPDATE_SIGNING_KEY --env desktop-release < update-signing-key.pem
+backend/.venv/bin/python desktop/scripts/update_key.py new ~/gt7-update-signing-key.pem
+gh secret set UPDATE_SIGNING_KEY --env desktop-release < ~/gt7-update-signing-key.pem
 ```
 
 The first command prints the public half: add it to `UPDATE_KEYS` and merge that before

@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Make the key the release workflow signs updates with (app.self_update).
 
-    backend/.venv/bin/python desktop/scripts/update_key.py new <key.pem>
+    backend/.venv/bin/python desktop/scripts/update_key.py new ~/gt7-update-signing-key.pem
     backend/.venv/bin/python desktop/scripts/update_key.py public <key.pem>
+
+Write the key outside the repository (the repo ignores *.pem, but a home folder
+path keeps it out of every checkout and worktree).
 
 `new` writes a fresh Ed25519 private key to <key.pem> (PKCS#8 PEM, readable by
 you only; it refuses to overwrite a file) and prints its public half. `public`
