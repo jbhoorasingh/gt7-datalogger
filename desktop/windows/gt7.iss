@@ -8,6 +8,9 @@
 ;   /DSignTool=<name> plus /S<name>=<command>   only when signing; an unsigned
 ;                               local build leaves both out
 ;
+; At run time, besides Inno's own switches, /RELAUNCH=1 starts the app again
+; once installed: the app's Restart and update passes it with /SILENT.
+;
 ; The install folder is the same for every version ({autopf}\GT7 Datalogger),
 ; because the firewall rules are keyed on the exe's path and must survive an
 ; update. The data folder (%LOCALAPPDATA%\GT7 Datalogger) is never touched:
@@ -121,6 +124,10 @@ Type: files; Name: "{app}\install-defaults.json"
 [Run]
 Filename: "{app}\{#ExeName}"; Parameters: "--firewall install"; StatusMsg: "Adding the Windows Firewall rules..."; Flags: runhidden waituntilterminated; Check: IsAdminInstallMode
 Filename: "{app}\{#ExeName}"; Parameters: "--firewall install"; StatusMsg: "Adding the Windows Firewall rules..."; Verb: "runas"; Flags: shellexec runhidden waituntilterminated; Tasks: firewall
+; Restart and update (gt7_desktop/selfupdate.py) runs Setup with /SILENT
+; /RELAUNCH=1: the app it stopped starts again, as the user who started Setup,
+; in the background, since its browser tab is still open and reconnects.
+Filename: "{app}\{#ExeName}"; Parameters: "--background"; Flags: nowait runasoriginaluser; Check: RelaunchRequested
 Filename: "{app}\{#ExeName}"; Parameters: "--open"; Description: "Launch GT7 Datalogger"; Flags: nowait postinstall skipifsilent runasoriginaluser
 
 [UninstallRun]
@@ -146,6 +153,11 @@ begin
     'A session it is recording is closed and saved as it stands; the laps ' +
     'driven so far are kept.' + #13#10#13#10 +
     'Start it again when Setup finishes, or leave "Launch GT7 Datalogger" ticked.');
+end;
+
+function RelaunchRequested(): Boolean;
+begin
+  Result := ExpandConstant('{param:RELAUNCH|0}') = '1';
 end;
 
 function PerUserAndInteractive(): Boolean;

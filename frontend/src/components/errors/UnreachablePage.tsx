@@ -7,6 +7,7 @@ import { currentLanguage, useT } from "@/i18n";
 import { formatDuration } from "@/lib/format";
 import { useInstallKind } from "@/lib/health";
 import { clearQuit, quitRequested } from "@/lib/quit";
+import { updatingTo } from "@/lib/update";
 import { liveFrameRef } from "@/store/telemetry";
 import { ErrorPage, TROUBLESHOOTING_URL } from "./ErrorPage";
 import { FLAGS } from "./illustrations";
@@ -27,6 +28,9 @@ export function UnreachablePage({ reach }: { reach: Reachability }) {
   // page goes once it answers again, and the mark with it.
   const [stopped] = useState(quitRequested);
   useEffect(() => clearQuit, []);
+  // Restart and update: the server went to come back as a new version, and
+  // lib/update reloads the page once it does.
+  const [updating] = useState(updatingTo);
 
   const retryIn = reach.checking
     ? "…"
@@ -43,6 +47,23 @@ export function UnreachablePage({ reach }: { reach: Reachability }) {
           time: new Date(Date.now() - (performance.now() - liveFrameRef.at)).toLocaleTimeString(currentLanguage()),
         })
       : t("error.unreachable.noFrames");
+
+  if (updating) {
+    return (
+      <ErrorPage
+        flag={FLAGS.white}
+        kicker={t("error.updating.kicker")}
+        code="—"
+        title={t("error.updating.title", { version: updating })}
+        body={t("error.updating.body")}
+        primary={{
+          label: reach.checking ? t("error.unreachable.retrying") : t("error.stopped.check"),
+          onClick: reach.retryNow,
+          disabled: reach.checking,
+        }}
+      />
+    );
+  }
 
   if (stopped) {
     return (

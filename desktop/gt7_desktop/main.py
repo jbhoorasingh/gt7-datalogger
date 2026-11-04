@@ -26,7 +26,7 @@ import webbrowser
 from pathlib import Path
 from typing import Any
 
-from gt7_desktop import APP_NAME, paths, prefs
+from gt7_desktop import APP_NAME, paths, prefs, selfupdate
 from gt7_desktop.lock import AlreadyRunning, InstanceLock, read_record
 
 log = logging.getLogger("gt7_desktop")
@@ -87,7 +87,7 @@ def read_install_defaults(path: Path | None) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
-def server_env(folders: paths.Folders, gui: bool) -> dict[str, str]:
+def server_env(folders: paths.Folders, gui: bool, update_kind: str = "") -> dict[str, str]:
     """The child's environment: the launcher owns where everything lives."""
     env = dict(os.environ)
     db = folders.data / "gt7.db"
@@ -114,6 +114,12 @@ def server_env(folders: paths.Folders, gui: bool) -> dict[str, str]:
         env["GT7_FORCE_SIM"] = "firstrun"
     else:
         env.pop("GT7_FORCE_SIM", None)
+    # Only the supervised app can install an update (gt7_desktop.selfupdate):
+    # headless there is no one to replace the process, so notify-only.
+    if gui and update_kind:
+        env["GT7_UPDATE_INSTALL"] = update_kind
+    else:
+        env.pop("GT7_UPDATE_INSTALL", None)
     return env
 
 
@@ -272,6 +278,12 @@ class DesktopApp:
         self.lock = InstanceLock(folders.lock)
         self.supervisor: Any = None
         self.tray: Any = None
+        # This install, when it can update itself (gt7_desktop.selfupdate).
+        self.install: selfupdate.Install | None = None
+        # Quit from the menu, the tray or the dashboard, not a signal or the
+        # installer's --quit: only then does a downloaded update install.
+        self.user_quit = False
+        self._updating = False
         self._quit_once = threading.Lock()
 
     @property
@@ -284,6 +296,8 @@ class DesktopApp:
         state = self.supervisor.state
         if state.phase in ("starting", "restarting"):
             return "Starting…"
+        if state.phase == "updating":
+            return "Installing the update…"
         if state.phase == "failed":
             return "Could not start"
         status = state.status
@@ -370,9 +384,12 @@ class DesktopApp:
         if port != self.prefs.port and not explicit:
             self.prefs.port = port
             prefs.save(self.folders.prefs, self.prefs)
-        env = server_env(self.folders, gui=True)
+        self.install = selfupdate.detect()
+        env = server_env(self.folders, gui=True,
+                         update_kind=self.install.kind if self.install else "")
         self.supervisor = Supervisor(sock, env, self.folders.log_file, on_change=self._changed,
-                                     on_quit=self._quit_requested)
+                                     on_quit=self._quit_requested,
+                                     on_update=self._update_requested)
         self.lock.write(pid=os.getpid(), mode="tray", host=host, port=port,
                         url=self.supervisor.url, exe=sys.executable,
                         state="starting", started_at=time.time())
@@ -414,10 +431,67 @@ class DesktopApp:
 
     def _quit_requested(self) -> None:
         """Quit from the dashboard (the server exited 76): as the tray's Quit."""
+        self.user_quit = True
         if self.tray is not None:
             self.tray.request_quit()
         else:
             self.quit()
+
+    def _update_requested(self) -> bool:
+        """Restart and update (the server exited 77). True: the app quits now,
+        and the new version starts once it has."""
+        tag = selfupdate.take_request(self.folders.data)
+        if not tag or self.install is None:
+            log.error("an update was asked for, but there is none to install")
+            return False
+        try:
+            quit_now = selfupdate.install(self.install, self.folders.data, self.folders.logs,
+                                          tag, relaunch=True)
+        except selfupdate.InstallFailed as exc:
+            log.error("could not install %s: %s", tag, exc)
+            selfupdate.record_failure(self.folders.data, tag, str(exc))
+            return False
+        if quit_now:
+            self._updating = True
+            if self.tray is not None:
+                self.tray.request_quit()
+            else:
+                self.quit()
+        return quit_now
+
+    def install_update(self) -> None:
+        """The tray's Restart and update: what the dashboard's button asks."""
+        import urllib.error
+        import urllib.request
+
+        request = urllib.request.Request(self.url + "api/admin/update-install", data=b"",
+                                         method="POST")
+        try:
+            with urllib.request.urlopen(request, timeout=10):  # noqa: S310
+                return
+        except urllib.error.HTTPError as exc:
+            try:
+                detail = str(json.loads(exc.read().decode()).get("detail") or exc)
+            except ValueError:
+                detail = str(exc)
+        except OSError as exc:
+            detail = str(exc)
+        log.warning("Restart and update was refused: %s", detail)
+        self._show_error(f"The update was not installed: {detail}")
+
+    def _install_on_quit(self) -> None:
+        """Quit by the user, with an update ready: install it, start nothing."""
+        from app.self_update import ON_QUIT_KINDS
+
+        tag = selfupdate.on_quit_tag(self.folders.data)
+        if not tag or self.install is None or self.install.kind not in ON_QUIT_KINDS:
+            return
+        try:
+            selfupdate.install(self.install, self.folders.data, self.folders.logs, tag,
+                               relaunch=False)
+        except selfupdate.InstallFailed as exc:
+            log.error("could not install %s on quit: %s", tag, exc)
+            selfupdate.record_failure(self.folders.data, tag, str(exc))
 
     def _changed(self, state: Any) -> None:
         if state.phase == "failed":
@@ -437,6 +511,8 @@ class DesktopApp:
             return
         if self.supervisor is not None:
             self.supervisor.stop()
+            if self.user_quit and not self._updating:
+                self._install_on_quit()
         self.lock.release()
 
 

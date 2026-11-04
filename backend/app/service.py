@@ -39,6 +39,7 @@ from app.processing.tracks import signature_from_samples
 from app.race_engineer import CATEGORIES, VoiceCallout
 from app.race_engineer.manager import RaceEngineerManager
 from app.rejudge import SurveyRejudge
+from app.self_update import SelfUpdater
 from app.storage import restore
 from app.storage.backup import Backups, DiskClaim
 from app.storage.db import init_db
@@ -249,6 +250,9 @@ class TelemetryService:
         # The daily "is there a newer release" check (#196); main.lifespan
         # loads its state and runs its schedule.
         self.updates = UpdateChecker(settings, repo)
+        # The desktop app's in-place update, fed by the check's answers.
+        self.self_update = SelfUpdater(settings, self.updates)
+        self.updates.on_answer = self.self_update.wake
         # Authored corners per circuit slug, read out of the track bundle
         # (#48). Cached because the bundle is a multi-megabyte document and
         # the corners in it are a few hundred bytes — parsing the whole thing
@@ -1139,6 +1143,8 @@ class TelemetryService:
             "listener_error": self.listener_error,
             # The live LAN policy (#195), for the desktop tray's toggle.
             "lan_access": self.settings.lan_access,
+            # The version Restart and update would install, for the tray.
+            "update_ready": self.self_update.ready_version(),
             "save_errors": self.save_errors,
             "last_save_error": self.last_save_error,
             **self.source.stats,

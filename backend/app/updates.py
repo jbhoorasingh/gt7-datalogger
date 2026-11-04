@@ -1,7 +1,9 @@
-"""Is there a newer release? A notify-only check against GitHub Releases (#196).
+"""Is there a newer release? A check against GitHub Releases (#196).
 
-Nothing is downloaded and nothing is installed: the answer is a version and a
-link, shown by the Settings banner and the desktop tray. The check is off
+The answer is a version and a link, shown by the Settings banner and the
+desktop tray. Nothing is downloaded here: where the desktop app can replace
+itself, app.self_update takes the answer from `on_answer` and fetches the
+release. Everywhere else the check is notify-only. The check is off
 unless `update_check` is on (the desktop launcher turns it on; Docker and
 source installs opt in from Settings), runs at most once a day, and on any
 failure says nothing and tries again the next day.
@@ -153,6 +155,8 @@ class UpdateChecker:
         self.next_at: datetime | None = None
         # Until when GitHub asked us to stop (403/429); a manual check waits too.
         self.blocked_until: datetime | None = None
+        # Called after every check that ran (app.self_update's wake).
+        self.on_answer: Callable[[], None] | None = None
         self._wake = asyncio.Event()
         self._lock = asyncio.Lock()
 
@@ -225,6 +229,8 @@ class UpdateChecker:
                 log.info("update check failed (%s); trying again tomorrow", exc)
                 self.next_at = self.now() + INTERVAL
             await self._save()
+            if self.on_answer is not None:
+                self.on_answer()
             return self.status(enabled=True)
 
     async def _check(self) -> None:

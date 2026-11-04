@@ -51,16 +51,44 @@ not from a tag) to the version the running app reports.
 6. **Publish.** Publish the draft on GitHub. Only then does it become the
    `releases/latest` that the [download links](../getting-started/desktop.md#download)
    and the [update check](../getting-started/configuration.md#what-the-app-fetches-on-its-own)
-   see.
+   see, and that installed desktop apps download and
+   [install in place](../getting-started/desktop.md#updating).
 
 Rehearse a desktop release with a release candidate: tag `vX.Y.Z-rc.1` on the same
 commit. It runs the same jobs and ends as a draft **prerelease**. Only installs with
-**Update channel** set to `prerelease` are offered a published one.
+**Update channel** set to `prerelease` are offered a published one. To try Restart and
+update, publish the candidate as a prerelease and let an install of the previous one,
+on that channel, update itself to it.
 
-A release candidate can run before Windows signing and the Linux GPG key are set up.
-Without `WINDOWS_SIGNING`, its Windows files are unsigned, and without
-`LINUX_GPG_PRIVATE_KEY` it has no `.asc` files; the run warns about each. macOS is
-always signed. A final `vX.Y.Z` tag fails without them.
+A release candidate can run before Windows signing, the Linux GPG key and the update
+key are set up. Without `WINDOWS_SIGNING`, its Windows files are unsigned; without
+`LINUX_GPG_PRIVATE_KEY` it has no `.asc` files; without `UPDATE_SIGNING_KEY` it has no
+`release-manifest.json.sig`, so no install updates itself to it. The run warns about
+each. macOS is always signed. A final `vX.Y.Z` tag fails without them.
+
+## The update key
+
+Installed desktop apps update themselves only to a release whose `release-manifest.json`
+carries an Ed25519 signature by a key they were built with
+([Desktop app › Updating](../getting-started/desktop.md#updating)). The private key is
+the `UPDATE_SIGNING_KEY` secret in the `desktop-release` environment; its public half is
+in `UPDATE_KEYS` in `backend/app/self_update.py`. The maintainer makes the key once:
+
+```bash
+backend/.venv/bin/python desktop/scripts/update_key.py new update-signing-key.pem
+gh secret set UPDATE_SIGNING_KEY --env desktop-release < update-signing-key.pem
+```
+
+The first command prints the public half: add it to `UPDATE_KEYS` and merge that before
+the next tag. Keep two offline copies of the `.pem` file, then delete it. The manifest
+job refuses to sign with a key whose public half is not in `UPDATE_KEYS`, since no
+install would trust what it signed.
+
+To replace the key, add the new public half to `UPDATE_KEYS` and ship a release still
+signed with the old key; once installs carry the new one, change the secret and drop the
+old public half. A lost key strands nobody's data, but installs built with only that key
+can no longer update themselves: their users install the next release by hand, as they
+would from Docker.
 
 ## What the tag starts
 
@@ -96,10 +124,17 @@ Nothing waits for approval here: the images are public as soon as the job ends.
    the installer and the uninstaller, and builds and signs the Linux AppImage. These
    jobs install nothing and run no npm.
 5. **Verify.** Installs the signed macOS and Windows builds and runs the smoke test
-   again.
-6. **Release.** Writes `release-manifest.json` and `SHA256SUMS.txt`, attests the
-   files, and creates a **draft** release with the version's `CHANGELOG.md` section
-   as its notes. It never publishes.
+   again, then updates each install in place with the signed file
+   (`desktop/ci/update_smoke.py`): the same install step Restart and update runs, and
+   the new copy must start by itself. The Linux build jobs do the same with the
+   AppImage, on every run.
+6. **Manifest.** Writes `release-manifest.json` and `SHA256SUMS.txt`, checks that every
+   file in `desktop/release-assets.txt` is there, and signs the manifest with
+   `UPDATE_SIGNING_KEY` into `release-manifest.json.sig` ([The update
+   key](#the-update-key)). It runs in the `desktop-release` environment, so the job
+   that publishes holds no key.
+7. **Release.** Attests the files and creates a **draft** release with the version's
+   `CHANGELOG.md` section as its notes. It never publishes.
 
 The release files carry no version in their names, so
 `https://github.com/jbhoorasingh/gt7-datalogger/releases/latest/download/<name>`
@@ -112,7 +147,8 @@ always fetches the latest published one:
 | `GT7-Datalogger-Windows-x64-Portable.zip` | Windows, no install |
 | `GT7-Datalogger-Linux-x86_64.AppImage` and `.AppImage.zsync` | Linux AppImage, and its delta-update file |
 | `GT7-Datalogger-Linux-x86_64.tar.gz` | Linux, the same app as a folder |
-| `release-manifest.json` | the list of files |
+| `release-manifest.json` | the list of files, with each one's size and SHA-256 |
+| `release-manifest.json.sig` | the manifest's Ed25519 signature, which installed apps check before updating |
 | `SHA256SUMS.txt` | a checksum per file |
 
 Before the desktop app, the maintainer created each GitHub release by hand with
