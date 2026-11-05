@@ -5,13 +5,6 @@ Docker, no Python, no terminal. It runs the same server a Docker install runs an
 shows the same dashboard, in your own browser. On macOS and Windows it adds an icon in
 the menu bar or the notification area.
 
-!!! warning "Not released yet"
-    The first desktop release will be **1.0.0**. Until it is published, the download
-    links below lead nowhere, and the way to run GT7 Datalogger is
-    [Docker](quick-start.md), a [Raspberry Pi](raspberry-pi.md) or
-    [from source](local-development.md). This page describes the app as it is built
-    for that release.
-
 ## Download
 
 | System | File |
@@ -26,6 +19,27 @@ The file names carry no version, so these links always fetch the latest release.
 Every release also has `SHA256SUMS.txt` to check a download against, and
 `release-manifest.json`, which lists the files. Older versions are on the
 [releases page](https://github.com/jbhoorasingh/gt7-datalogger/releases).
+
+From 1.0.1, each Linux file also has an OpenPGP signature beside it in the release,
+with `.asc` added to its name. To check one, download the signature next to the file,
+import the project's [release signing key](../assets/gt7-datalogger-release-signing.asc)
+once, then verify:
+
+```bash
+curl -fsSLO https://github.com/jbhoorasingh/gt7-datalogger/releases/latest/download/GT7-Datalogger-Linux-x86_64.AppImage.asc
+curl -fsSLO https://jbhoorasingh.github.io/gt7-datalogger/assets/gt7-datalogger-release-signing.asc
+gpg --import gt7-datalogger-release-signing.asc
+gpg --verify GT7-Datalogger-Linux-x86_64.AppImage.asc GT7-Datalogger-Linux-x86_64.AppImage
+```
+
+For the tarball, use `GT7-Datalogger-Linux-x86_64.tar.gz.asc` the same way. For an
+older version, take the file and its `.asc` from that release on the
+[releases page](https://github.com/jbhoorasingh/gt7-datalogger/releases).
+
+gpg should say *Good signature from "GT7 Datalogger release signing"*, and the key's
+fingerprint (`gpg --fingerprint "GT7 Datalogger release signing"`) must be
+`01B8 57BB 952C D521 9FA4  0E6F 5E1E 38B8 1FCD DD55`. gpg also warns that the key is not certified with a trusted
+signature: that is expected for a key you have not signed yourself.
 
 There is no build for Intel Macs, Windows on Arm or 32-bit systems. Windows on Arm
 runs the x64 build under emulation. On an Intel Mac or a Raspberry Pi, use

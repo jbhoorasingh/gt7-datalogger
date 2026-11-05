@@ -60,10 +60,10 @@ commit. It runs the same jobs and ends as a draft **prerelease**. Only installs 
 update, publish the candidate as a prerelease and let an install of the previous one,
 on that channel, update itself to it.
 
-A release can run before Windows signing and the Linux GPG key are set up. Without
-`WINDOWS_SIGNING`, its Windows files are unsigned, and without
-`LINUX_GPG_PRIVATE_KEY` it has no `.asc` files; the run warns about each, and the
-release notes should say so. macOS is always signed. 1.0.0 shipped this way. The
+A release can run before Windows signing is set up. Without `WINDOWS_SIGNING`, its
+Windows files are unsigned, and without `LINUX_GPG_PRIVATE_KEY` it has no `.asc` files;
+the run warns about each, and the release notes should say so. macOS is always signed.
+1.0.0 shipped with neither; the Linux key exists since 2026-11-05. The
 update key is required: without `UPDATE_SIGNING_KEY` a release candidate has no
 `release-manifest.json.sig`, so no install updates itself to it (the run warns), and a
 final `vX.Y.Z` tag fails.
@@ -93,6 +93,64 @@ signed with the old key; once installs carry the new one, change the secret and 
 old public half. A lost key strands nobody's data, but installs built with only that key
 can no longer update themselves: their users install the next release by hand, as they
 would from Docker.
+
+## The Linux signing key
+
+`sign-linux` signs the AppImage, its `.zsync` and the tarball with a detached `.asc`
+each. It needs two things in the `desktop-release` environment: the secret
+`LINUX_GPG_PRIVATE_KEY`, the signing subkey with no passphrase (the job signs without a
+prompt), and the variable `LINUX_GPG_KEY_ID`, the main key's fingerprint. The key was made
+on 2026-11-05 like this, with a main key that only certifies and a signing subkey that
+expires after two years:
+
+```bash
+gpg --batch --passphrase '' --quick-gen-key "GT7 Datalogger release signing" ed25519 cert never
+FPR=$(gpg --list-keys --with-colons "GT7 Datalogger release signing" | awk -F: '/^fpr/{print $10; exit}')
+gpg --batch --passphrase '' --quick-add-key "$FPR" ed25519 sign 2y
+gpg --armor --export-secret-subkeys "$FPR" > ~/gt7-linux-signing-subkey.asc
+gpg --armor --export-secret-keys "$FPR" > ~/gt7-linux-signing-primary.asc
+gpg --armor --export "$FPR" > ~/gt7-linux-signing-public.asc
+gh secret set LINUX_GPG_PRIVATE_KEY --env desktop-release < ~/gt7-linux-signing-subkey.asc
+gh variable set LINUX_GPG_KEY_ID --env desktop-release --body "$FPR"
+```
+
+`gt7-linux-signing-primary.asc` is the backup of the whole key: keep it offline, with the
+update key. Once the backup is safe, remove every online copy of the private key: the
+one in the gpg keyring (it has no passphrase, and whoever holds it can add signing
+subkeys that users would trust) and the two exports.
+
+```bash
+gpg --batch --yes --delete-secret-keys "$FPR"
+rm ~/gt7-linux-signing-primary.asc ~/gt7-linux-signing-subkey.asc
+```
+
+The public half is
+[`docs/assets/gt7-datalogger-release-signing.asc`](../assets/gt7-datalogger-release-signing.asc),
+and its fingerprint is on [Code signing](code-signing.md#the-linux-signing-key).
+
+The subkey expires on 2028-11-04, and a run with an expired subkey fails to sign.
+Before then, import the backup into gpg and extend the current signing subkey (the
+newest one that is not revoked), then export it and the public key again:
+
+```bash
+gpg --import ~/gt7-linux-signing-primary.asc
+FPR=01B857BB952CD5219FA40E6F5E1E38B81FCDDD55
+SUB=$(gpg --list-keys --with-colons "$FPR" | awk -F: '/^sub/{ok = ($2 != "r" && $12 ~ /s/); next} ok && /^fpr/{f = $10; ok = 0} END{print f}')
+gpg --quick-set-expire "$FPR" 2y "$SUB"
+gpg --armor --export-secret-subkeys "$SUB!" > ~/gt7-linux-signing-subkey.asc
+gpg --armor --export-secret-keys "$FPR" > ~/gt7-linux-signing-primary.asc
+gpg --armor --export "$FPR" > docs/assets/gt7-datalogger-release-signing.asc
+gh secret set LINUX_GPG_PRIVATE_KEY --env desktop-release < ~/gt7-linux-signing-subkey.asc
+```
+
+The `!` exports that subkey alone, so the workflow never holds a revoked or expired
+one. Replace the offline backup with the new `gt7-linux-signing-primary.asc`, remove
+the online copies as above, and merge the new public key in a pull request.
+
+If the subkey leaks, import the backup, revoke the subkey (`gpg --edit-key "$FPR"`, then
+`key N` for that subkey, `revkey` and `save`), add a new one with
+`gpg --quick-add-key "$FPR" ed25519 sign 2y`, and export and publish it the same way.
+The fingerprint users check stays the same.
 
 ## What the tag starts
 
