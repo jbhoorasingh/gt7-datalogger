@@ -9,9 +9,10 @@ name: Desktop
 # Signing jobs install nothing and run no npm: they only download what the
 # unsigned build jobs uploaded. No job here publishes a release.
 #
-# macOS is always signed. A vX.Y.Z-rc.N tag may run before the Windows
-# signing route or the Linux GPG key exists: those files then ship unsigned,
-# with a warning. A final vX.Y.Z tag fails without them.
+# macOS is always signed. Until the Windows signing route and the Linux GPG
+# key exist, the Windows files ship unsigned and the Linux files without .asc
+# signatures, with a warning on the run (1.0.0 shipped that way).
+# The update manifest's signature is required on a final tag.
 
 on:
   push:
@@ -249,7 +250,6 @@ jobs:
         id: pack
         shell: pwsh
         env:
-          PRERELEASE: ${{ needs.plan.outputs.prerelease }}
           WINDOWS_SIGNING: ${{ vars.WINDOWS_SIGNING }}
           AZURE_SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
           AZURE_SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
@@ -265,13 +265,10 @@ jobs:
             desktop/windows/package.ps1 -Version "${{ needs.plan.outputs.expected }}" -Sign
             "signed=true" >> $env:GITHUB_OUTPUT
           }
-          elseif ($env:PRERELEASE -eq 'true') {
-            Write-Host "::warning::WINDOWS_SIGNING is not set: this release candidate's Windows files are unsigned"
+          else {
+            Write-Host "::warning::WINDOWS_SIGNING is not set: the Windows files are unsigned"
             desktop/windows/package.ps1 -Version "${{ needs.plan.outputs.expected }}"
             "signed=false" >> $env:GITHUB_OUTPUT
-          }
-          else {
-            throw 'WINDOWS_SIGNING is not set: only a vX.Y.Z-rc.N tag may ship Windows unsigned'
           }
           desktop/windows/defender-scan.ps1 -Path desktop/dist
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -293,14 +290,9 @@ jobs:
         env:
           LINUX_GPG_PRIVATE_KEY: ${{ secrets.LINUX_GPG_PRIVATE_KEY }}
           LINUX_GPG_KEY_ID: ${{ vars.LINUX_GPG_KEY_ID }}
-          PRERELEASE: ${{ needs.plan.outputs.prerelease }}
         run: |
           if [[ -z "$LINUX_GPG_PRIVATE_KEY" ]]; then
-            if [[ "$PRERELEASE" != "true" ]]; then
-              echo "::error::LINUX_GPG_PRIVATE_KEY is not set: only a vX.Y.Z-rc.N tag may ship without .asc signatures"
-              exit 1
-            fi
-            echo "::warning::LINUX_GPG_PRIVATE_KEY is not set: this release candidate has no .asc signatures"
+            echo "::warning::LINUX_GPG_PRIVATE_KEY is not set: the Linux files have no .asc signatures"
             exit 0
           fi
           echo "$LINUX_GPG_PRIVATE_KEY" | gpg --batch --import
@@ -345,7 +337,7 @@ jobs:
           SIGNED: ${{ needs.sign-windows.outputs.signed }}
         run: |
           $sig = Get-AuthenticodeSignature signed/GT7-Datalogger-Windows-x64-Setup.exe
-          if ($env:SIGNED -ne 'true') { Write-Host "::warning::Setup.exe is unsigned (a release candidate before Windows signing is set up)" }
+          if ($env:SIGNED -ne 'true') { Write-Host "::warning::Setup.exe is unsigned (Windows signing is not set up yet)" }
           elseif ($sig.Status -ne 'Valid') { throw "Setup.exe signature: $($sig.Status)" }
           Start-Process signed/GT7-Datalogger-Windows-x64-Setup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/ALLUSERS' -Wait
           python desktop/ci/smoke.py "$env:ProgramFiles\GT7 Datalogger\gt7-datalogger.exe" --version "${{ needs.plan.outputs.expected }}"

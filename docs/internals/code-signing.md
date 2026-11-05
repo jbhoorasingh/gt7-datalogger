@@ -20,9 +20,11 @@ file's SHA-256 against the manifest, before it installs an update, on top of the
 platform's own signature check ([Desktop app ›
 Updating](../getting-started/desktop.md#updating)).
 
-A release candidate (`vX.Y.Z-rc.N`, a prerelease) may ship its Windows and Linux files
-unsigned, and its manifest without a signature, while those routes are being set up. A
-release itself never does.
+Until those signing routes are set up, the Windows files are unsigned and the Linux
+files have no `.asc`; the release notes say so. 1.0.0 is such a release. Check those
+downloads against `SHA256SUMS.txt` and the build provenance attestations. The manifest
+signature is different: a release candidate may ship its manifest without one, a
+release never does.
 
 ## How a build gets signed
 

@@ -60,11 +60,13 @@ commit. It runs the same jobs and ends as a draft **prerelease**. Only installs 
 update, publish the candidate as a prerelease and let an install of the previous one,
 on that channel, update itself to it.
 
-A release candidate can run before Windows signing, the Linux GPG key and the update
-key are set up. Without `WINDOWS_SIGNING`, its Windows files are unsigned; without
-`LINUX_GPG_PRIVATE_KEY` it has no `.asc` files; without `UPDATE_SIGNING_KEY` it has no
-`release-manifest.json.sig`, so no install updates itself to it. The run warns about
-each. macOS is always signed. A final `vX.Y.Z` tag fails without them.
+A release can run before Windows signing and the Linux GPG key are set up. Without
+`WINDOWS_SIGNING`, its Windows files are unsigned, and without
+`LINUX_GPG_PRIVATE_KEY` it has no `.asc` files; the run warns about each, and the
+release notes should say so. macOS is always signed. 1.0.0 shipped this way. The
+update key is required: without `UPDATE_SIGNING_KEY` a release candidate has no
+`release-manifest.json.sig`, so no install updates itself to it (the run warns), and a
+final `vX.Y.Z` tag fails.
 
 ## The update key
 
