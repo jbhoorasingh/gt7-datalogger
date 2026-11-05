@@ -14,8 +14,9 @@ a build is released. It applies from the first desktop release, 1.0.0.
 Every release also carries `SHA256SUMS.txt`, `release-manifest.json` and GitHub build
 provenance attestations, which tie each file to the workflow run and commit that built it.
 
-A release candidate (`vX.Y.Z-rc.N`, a prerelease) may ship its Windows and Linux files
-unsigned while those signing routes are being set up. A release itself never does.
+Until those signing routes are set up, the Windows files are unsigned and the Linux
+files have no `.asc`; the release notes say so. 1.0.0 is such a release. Check those
+downloads against `SHA256SUMS.txt` and the build provenance attestations.
 
 ## How a build gets signed
 

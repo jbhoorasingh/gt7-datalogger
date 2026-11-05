@@ -57,10 +57,10 @@ Rehearse a desktop release with a release candidate: tag `vX.Y.Z-rc.1` on the sa
 commit. It runs the same jobs and ends as a draft **prerelease**. Only installs with
 **Update channel** set to `prerelease` are offered a published one.
 
-A release candidate can run before Windows signing and the Linux GPG key are set up.
-Without `WINDOWS_SIGNING`, its Windows files are unsigned, and without
-`LINUX_GPG_PRIVATE_KEY` it has no `.asc` files; the run warns about each. macOS is
-always signed. A final `vX.Y.Z` tag fails without them.
+A release can run before Windows signing and the Linux GPG key are set up. Without
+`WINDOWS_SIGNING`, its Windows files are unsigned, and without
+`LINUX_GPG_PRIVATE_KEY` it has no `.asc` files; the run warns about each, and the
+release notes should say so. macOS is always signed. 1.0.0 shipped this way.
 
 ## What the tag starts
 

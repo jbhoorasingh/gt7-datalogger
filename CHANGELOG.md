@@ -5,7 +5,7 @@ Notable changes to GT7 Datalogger. The format follows
 
 ## [Unreleased]
 
-## [1.0.0] - 2026-11-02
+## [1.0.0] - 2026-11-05
 
 The first desktop release. GT7 Datalogger now comes as one download for macOS (Apple
 silicon), Windows and Linux, with no Docker, Python or terminal: it runs the same
@@ -13,6 +13,10 @@ server and shows the same dashboard in your browser
 ([Desktop app](docs/getting-started/desktop.md)). Docker, Raspberry Pi and source
 installs get the same server changes. If you reach the logger through a reverse proxy
 by a DNS name, set `GT7_TRUSTED_HOSTS` before upgrading (see Security).
+
+The macOS app is signed and notarized. The Windows files are not code-signed yet, so
+SmartScreen warns before the installer runs (**More info**, then **Run anyway**), and
+the Linux files have no `.asc` signatures yet; check either against `SHA256SUMS.txt`.
 
 ### Added
 
