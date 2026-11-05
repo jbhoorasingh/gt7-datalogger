@@ -26,9 +26,8 @@ included ([Language](guide/race-engineer.md#language)).
 
 ## Quick start
 
-**Desktop app.** From version 1.0.0, download one file for macOS, Windows or Linux and
-open it: no Docker, no Python. The first desktop release is not out yet.
-→ [Desktop app](getting-started/desktop.md)
+**Desktop app.** Download one file for macOS, Windows or Linux and open it: no Docker,
+no Python. → [Desktop app](getting-started/desktop.md)
 
 **Docker.**
 

@@ -1,5 +1,6 @@
 # GT7 Datalogger
 
+[![Release](https://img.shields.io/github/v/release/jbhoorasingh/gt7-datalogger?label=release)](https://github.com/jbhoorasingh/gt7-datalogger/releases/latest)
 [![CI](https://github.com/jbhoorasingh/gt7-datalogger/actions/workflows/ci.yml/badge.svg)](https://github.com/jbhoorasingh/gt7-datalogger/actions/workflows/ci.yml)
 [![Publish](https://github.com/jbhoorasingh/gt7-datalogger/actions/workflows/publish.yml/badge.svg)](https://github.com/jbhoorasingh/gt7-datalogger/actions/workflows/publish.yml)
 [![ghcr.io](https://img.shields.io/badge/ghcr.io-gt7--datalogger-2496ED?logo=docker&logoColor=white)](https://github.com/jbhoorasingh/gt7-datalogger/pkgs/container/gt7-datalogger)
@@ -23,6 +24,29 @@ architecture and a modern UI. In English, Spanish, Brazilian Portuguese and Japa
 per-feature guides, how every calculation works, and the API reference.
 
 ![Analysis view](docs/screenshots/analysis.png)
+
+## Download
+
+The desktop app is one download for macOS, Windows or Linux: no Docker, no Python, no
+terminal. It records in the background and shows the dashboard in your browser.
+
+| System | File |
+| --- | --- |
+| macOS 13 or later, Apple silicon | [GT7-Datalogger-macOS-arm64.dmg](https://github.com/jbhoorasingh/gt7-datalogger/releases/latest/download/GT7-Datalogger-macOS-arm64.dmg) |
+| Windows 10 or 11, x64 | [GT7-Datalogger-Windows-x64-Setup.exe](https://github.com/jbhoorasingh/gt7-datalogger/releases/latest/download/GT7-Datalogger-Windows-x64-Setup.exe) (installer) or the [portable zip](https://github.com/jbhoorasingh/gt7-datalogger/releases/latest/download/GT7-Datalogger-Windows-x64-Portable.zip) |
+| Linux x86_64 | [GT7-Datalogger-Linux-x86_64.AppImage](https://github.com/jbhoorasingh/gt7-datalogger/releases/latest/download/GT7-Datalogger-Linux-x86_64.AppImage) or the [tarball](https://github.com/jbhoorasingh/gt7-datalogger/releases/latest/download/GT7-Datalogger-Linux-x86_64.tar.gz) |
+
+These links always fetch the latest release; older ones are on the
+[releases page](https://github.com/jbhoorasingh/gt7-datalogger/releases). The macOS app
+is signed and notarized. The Windows files are not code-signed yet, so SmartScreen
+asks before the installer runs (**More info**, then **Run anyway**). Installing,
+the network prompts, updating and uninstalling are on the
+[Desktop app](https://jbhoorasingh.github.io/gt7-datalogger/getting-started/desktop/)
+page. For a server, a NAS or a Raspberry Pi, use [Docker](#quick-start-docker) or the
+[Pi guide](#running-on-a-raspberry-pi-native-no-docker).
+
+GT7 Datalogger is an unofficial tool. It is not affiliated with, endorsed by or
+sponsored by Sony Interactive Entertainment or Polyphony Digital.
 
 ## Features
 

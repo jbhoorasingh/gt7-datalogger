@@ -49,6 +49,13 @@ Notable changes to GT7 Datalogger. The format follows
 - A dashboard tab reloads by itself when the server comes back as another version,
   so a tab left open across an update runs the new release's page.
 
+### Fixed
+
+- **Docs:** the README has a Download section with the desktop files, a Releases badge
+  and the not-affiliated notice, which the 1.0.0 notes listed but the README never got.
+  The docs home and the Docker quick start no longer say the desktop release is not
+  out yet.
+
 ## [1.0.0] - 2026-11-05
 
 The first desktop release. GT7 Datalogger now comes as one download for macOS (Apple
