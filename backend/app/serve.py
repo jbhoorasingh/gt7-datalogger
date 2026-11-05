@@ -102,7 +102,7 @@ def _unblock_signals() -> None:
     """A child inherits its parent's blocked set; the supervisor blocks
     SIGTERM and SIGINT for its sigwait thread, and with them still blocked
     here uvicorn's handlers would never run."""
-    if hasattr(signal, "pthread_sigmask"):
+    if sys.platform != "win32":
         signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGINT, signal.SIGTERM})
 
 

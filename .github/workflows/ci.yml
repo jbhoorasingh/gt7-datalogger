@@ -47,6 +47,15 @@ jobs:
       - name: Type-check
         if: matrix.lint
         run: mypy app
+      - name: Type-check the desktop launcher
+        if: matrix.lint
+        # Once per OS from this one runner: mypy keeps only the branches a
+        # `sys.platform` check allows for the platform it is told (#193).
+        run: |
+          for platform in linux darwin win32; do
+            mypy --platform "$platform" ../desktop/gt7_desktop ../desktop/launcher.py \
+              ../desktop/ci ../desktop/scripts ../desktop/macos
+          done
       - name: Version is consistent
         if: matrix.lint
         # The five places a release bumps agree, and on a tag build the tag

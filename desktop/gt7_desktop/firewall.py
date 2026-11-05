@@ -57,11 +57,11 @@ def repair() -> bool:
 
 def repair_elevated() -> None:
     """Relaunch this exe elevated (one UAC prompt) to repair the rules."""
-    if os.name != "nt":
+    if sys.platform != "win32":
         return
     import ctypes
 
-    ctypes.windll.shell32.ShellExecuteW(  # type: ignore[attr-defined]
+    ctypes.windll.shell32.ShellExecuteW(
         None, "runas", sys.executable, "--firewall repair", None, 0
     )
 

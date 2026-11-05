@@ -31,7 +31,7 @@ def enabled() -> bool:
             from ServiceManagement import SMAppService
 
             return bool(SMAppService.mainAppService().status() == 1)  # enabled
-        if os.name == "nt":
+        if sys.platform == "win32":
             import winreg
 
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _RUN_KEY) as key:
@@ -54,7 +54,7 @@ def set_enabled(on: bool) -> bool:
             if not ok:
                 log.warning("login item not changed: %s", error)
             return bool(ok)
-        if os.name == "nt":
+        if sys.platform == "win32":
             import winreg
 
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _RUN_KEY, 0,
