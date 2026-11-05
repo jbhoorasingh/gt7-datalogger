@@ -193,6 +193,19 @@ Opening the app again while it runs opens the dashboard; a second copy never sta
 **Settings › About** in the dashboard has **Quit GT7 Datalogger** too, on the computer
 the app runs on only: a phone or tablet never sees it.
 
+## Sleep, sign-out and shutdown
+
+The computer must stay awake for the app to hear the PlayStation.
+- **macOS and Windows:** the app keeps the computer from going to sleep by itself while
+  the app runs. Sleep you choose, from the menu or the power button, still works.
+- **Linux:** the app asks the system not to sleep while a session records. A suspend
+  you ask for then names *GT7 Datalogger: Recording a GT7 session* as the reason it
+  waits. This needs `systemd-inhibit`, which every systemd distribution has.
+
+Signing out or shutting down closes the session as **Quit** does, so the laps already
+completed are saved. On Windows, if that takes a few seconds, the sign-out screen
+shows *Saving the GT7 session* until it is done.
+
 ## Where your data lives
 
 | | Data | Logs |
