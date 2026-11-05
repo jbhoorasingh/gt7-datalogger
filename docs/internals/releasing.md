@@ -178,12 +178,17 @@ Nothing waits for approval here: the images are public as soon as the job ends.
    `desktop/ci/smoke.py` against the frozen app with an empty data folder: it starts,
    `/api/health` reports the tag's version, `/` serves the dashboard, the database
    is at the latest migration, `/ws/live` answers, a killed server process is
-   restarted, `--quit` stops it and `--self-test` passes. These jobs see no secrets.
+   restarted, `--quit` stops it and `--self-test` passes. The Linux AppImage and
+   tarball then get the same smoke test in bare Debian 12, Ubuntu 22.04, Fedora and
+   AlmaLinux 8 containers (`distros-linux`): the distributions the download page
+   names, with AlmaLinux 8 standing in for the RHEL 8 floor. These jobs see no secrets.
 3. **Gate.** Only a `v*.*.*` tag goes on to signing. The signing jobs run in the
    `desktop-release` environment, which holds the signing secrets and admits only
    those tags.
 4. **Sign.** Signs and notarizes the macOS app and DMG, signs every Windows binary,
-   the installer and the uninstaller, and builds and signs the Linux AppImage. These
+   the installer and the uninstaller, and signs the Linux files with a detached
+   `.asc` each. Each `.asc` is then checked, in an empty keyring, against the public
+   key the docs publish, so a secret that no longer matches it fails the run. These
    jobs install nothing and run no npm.
 5. **Verify.** Installs the signed macOS and Windows builds and runs the smoke test
    again, then updates each install in place with the signed file

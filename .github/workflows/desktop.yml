@@ -188,11 +188,56 @@ jobs:
           path: desktop/dist/GT7-Datalogger-Linux-x86_64.*
           retention-days: 3
 
+  # The Linux files on the distributions the download page names (#200): bare
+  # containers of each, with only a python3 added for smoke.py. RHEL 8 is the
+  # glibc 2.28 floor the manylinux_2_28 build promises; its own python3 is 3.6,
+  # too old for smoke.py, so it gets 3.9.
+  distros-linux:
+    needs: [plan, package-linux]
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: debian:12
+            python: apt-get update -qq && apt-get install -y -qq python3 >/dev/null
+          - image: ubuntu:22.04
+            python: apt-get update -qq && apt-get install -y -qq python3 >/dev/null
+          - image: fedora:latest
+            python: dnf install -y -q python3
+          - image: almalinux:8
+            python: dnf install -y -q python39 && ln -sf /usr/bin/python3.9 /usr/local/bin/python3
+    name: distros-linux (${{ matrix.image }})
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: { name: unsigned-linux, path: desktop/dist }
+      - name: Smoke the AppImage and the tarball
+        env:
+          IMAGE: ${{ matrix.image }}
+          PYTHON: ${{ matrix.python }}
+          VERSION: ${{ needs.plan.outputs.expected }}
+        run: |
+          # No FUSE in a container: the type2 runtime unpacks and runs instead.
+          docker run --rm -v "$PWD:/w" -w /w -e PYTHON -e VERSION \
+            -e APPIMAGE_EXTRACT_AND_RUN=1 -e DEBIAN_FRONTEND=noninteractive \
+            "$IMAGE" sh -euc '
+              eval "$PYTHON"
+              python3 --version
+              chmod +x desktop/dist/GT7-Datalogger-Linux-x86_64.AppImage
+              python3 desktop/ci/smoke.py desktop/dist/GT7-Datalogger-Linux-x86_64.AppImage \
+                --headless --version "$VERSION"
+              mkdir -p /tmp/tarball
+              tar -C /tmp/tarball -xzf desktop/dist/GT7-Datalogger-Linux-x86_64.tar.gz
+              python3 desktop/ci/smoke.py /tmp/tarball/gt7-datalogger/gt7-datalogger \
+                --headless --version "$VERSION"
+            '
+
   # Only v*.*.* tags get past here to the signing jobs. Their desktop-release
   # environment holds the signing secrets and admits only those tags.
   gate:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build-macos, build-windows, package-linux]
+    needs: [build-macos, build-windows, package-linux, distros-linux]
     runs-on: ubuntu-24.04
     steps:
       - run: echo "signing ${GITHUB_REF_NAME}"
@@ -296,9 +341,18 @@ jobs:
             exit 0
           fi
           echo "$LINUX_GPG_PRIVATE_KEY" | gpg --batch --import
+          files="GT7-Datalogger-Linux-x86_64.AppImage GT7-Datalogger-Linux-x86_64.AppImage.zsync GT7-Datalogger-Linux-x86_64.tar.gz"
           cd desktop/dist
-          for f in GT7-Datalogger-Linux-x86_64.AppImage GT7-Datalogger-Linux-x86_64.AppImage.zsync GT7-Datalogger-Linux-x86_64.tar.gz; do
+          for f in $files; do
             gpg --batch --yes --local-user "$LINUX_GPG_KEY_ID" --armor --detach-sign "$f"
+          done
+          # Check every signature as a user would (#200): with only the public
+          # key the docs publish (#221), in an empty keyring. A secret that no
+          # longer matches it would ship signatures nobody can check.
+          export GNUPGHOME="$(mktemp -d)"
+          gpg --batch --import "$GITHUB_WORKSPACE/docs/assets/gt7-datalogger-release-signing.asc"
+          for f in $files; do
+            gpg --batch --verify "$f.asc" "$f"
           done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

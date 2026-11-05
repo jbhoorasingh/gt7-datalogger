@@ -48,6 +48,11 @@ Notable changes to GT7 Datalogger. The format follows
 
 - A dashboard tab reloads by itself when the server comes back as another version,
   so a tab left open across an update runs the new release's page.
+- **Release workflow (#200):** the Linux AppImage and tarball are smoke-tested in bare
+  Debian 12, Ubuntu 22.04, Fedora and AlmaLinux 8 (the RHEL 8 floor) containers on
+  every run, and a tag signs only once those pass. `sign-linux` checks each new `.asc`
+  against the public key the docs publish, in an empty keyring, and fails if any does
+  not verify.
 
 ### Fixed
 
