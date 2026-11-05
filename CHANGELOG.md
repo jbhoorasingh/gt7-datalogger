@@ -48,6 +48,13 @@ Notable changes to GT7 Datalogger. The format follows
 
 - A dashboard tab reloads by itself when the server comes back as another version,
   so a tab left open across an update runs the new release's page.
+- **The desktop app closes the session cleanly at sign-out and shutdown, and Linux
+  stays awake while a session records (#194).** On Windows a hidden window hears
+  sign-out and shutdown (`WM_QUERYENDSESSION`, `WM_ENDSESSION`). The server is stopped
+  before Windows may end the app, as on Quit; before, it was killed with the app, and
+  its job object, in the middle of a lap. `WM_CLOSE` (from `taskkill`) quits as
+  `--quit` does. On Linux the app holds logind's sleep block (`systemd-inhibit
+  --what=sleep`) while a session records, and lets go when it stops.
 - `pycryptodome` is capped below 5, so a Docker or source install never picks up a
   major version that could move the Salsa20 or Ed25519 API. CI type-checks the
   desktop launcher too, once each for Linux, macOS and Windows (#193).
