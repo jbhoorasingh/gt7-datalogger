@@ -9,8 +9,8 @@ Notable changes to GT7 Datalogger. The format follows
 
 - **A start screen for the desktop app (macOS, Windows).** Opening the app shows a
   splash with five start lights that count the start: four come on while the server
-  starts, the fifth once it answers, then they go out and a green flag shows as the
-  browser opens the dashboard. It names the version and, on a slow first start, why it
+  starts, the fifth once it answers, then all five turn green as the browser opens the
+  dashboard. It names the version and, on a slow first start, why it
   takes a while. It never shows at login, for a second launch or for the command-line
   tools, and Linux opens the browser straight away as before. The frames are drawn by
   `desktop/icons/make_splash.py`.

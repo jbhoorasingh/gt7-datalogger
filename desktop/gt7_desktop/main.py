@@ -449,7 +449,7 @@ class DesktopApp:
         if not open_now:
             self._close_splash()
         elif self.splash is not None and not self.splash.closed:
-            # The browser opens as the lights go out.
+            # The browser opens as the lights turn green.
             self.splash.ready(self.open_dashboard)
         else:
             self.open_dashboard()

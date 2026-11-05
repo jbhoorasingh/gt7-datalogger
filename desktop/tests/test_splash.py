@@ -23,11 +23,11 @@ def test_four_lights_come_on_at_the_pace_and_wait_for_the_server() -> None:
     assert not frame_at(30.0, None).go
 
 
-def test_the_fifth_light_then_lights_out_and_the_green_flag() -> None:
+def test_the_fifth_light_then_all_five_turn_green() -> None:
     ready = 2.0
     assert frame_at(ready, ready) == Frame(LIGHTS, False, "Ready", False)
     out = ready + HOLD
-    assert frame_at(out, ready) == Frame(0, True, "Opening the dashboard…", False)
+    assert frame_at(out, ready) == Frame(LIGHTS, True, "Go: opening the dashboard…", False)
     assert frame_at(out + GO, ready).done
     assert frame_at(out, ready).image == "go.png"
     assert frame_at(ready, ready).image == "lights-5.png"

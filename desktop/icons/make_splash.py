@@ -9,7 +9,7 @@ show the same pictures:
 
     desktop/icons/splash/lights-0.png … lights-5.png   the start gantry with
                                                        that many red lights on
-    desktop/icons/splash/go.png                        lights out, green flag
+    desktop/icons/splash/go.png                        all ten lamps green: go
 
 Each is 1280 x 720, the splash's 640 x 360 at 2x, with rounded corners on
 transparency. The bottom strip is left clear: the app writes its status
@@ -105,7 +105,12 @@ def glow(size: tuple[int, int], centre: tuple[int, int], radius: int,
     return layer.filter(ImageFilter.GaussianBlur(radius * 0.6))
 
 
-def lamp(on: bool) -> Image.Image:
+# Each lit colour: the lamp's edge, its hot centre, and its glow.
+RED = ((140, 14, 22), (255, 150, 140), (255, 48, 40))
+GREEN = ((14, 120, 52), (170, 255, 190), (40, 220, 100))
+
+
+def lamp(lit: tuple[tuple[int, int, int], ...] | None) -> Image.Image:
     size = LAMP
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
@@ -114,15 +119,15 @@ def lamp(on: bool) -> Image.Image:
         t = i / steps
         r = size / 2 * (1 - t)
         ox, oy = size * 0.4 * t + size / 2 * (1 - t) - r, size * 0.35 * t + size / 2 * (1 - t) - r
-        if on:
-            colour = mix((140, 14, 22), (255, 150, 140), t)
+        if lit is not None:
+            colour = mix(lit[0], lit[1], t)
         else:
             colour = mix((20, 22, 28), (44, 48, 58), t)
         d.ellipse((ox, oy, ox + 2 * r, oy + 2 * r), fill=(*colour, 255))
     return img
 
 
-def gantry(lit: int) -> Image.Image:
+def gantry(lit: int, colour: tuple[tuple[int, int, int], ...] = RED) -> Image.Image:
     layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     x0 = (W - GANTRY_W) // 2
     # Shadow, then the beam.
@@ -149,30 +154,8 @@ def gantry(lit: int) -> Image.Image:
             lx, ly = px + 8 * S, py + 9 * S + j * (LAMP + 8 * S)
             if on:
                 layer.alpha_composite(glow((W, H), (lx + LAMP // 2, ly + LAMP // 2),
-                                           LAMP, (255, 48, 40), 150))
-            layer.alpha_composite(lamp(on), (lx, ly))
-    return layer
-
-
-def flag() -> Image.Image:
-    """The green flag, waving from a pole, where the gantry was."""
-    layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    pole_x, top = W // 2 - 92 * S, 104 * S
-    fw, fh = 180 * S, 108 * S
-    d = ImageDraw.Draw(layer)
-    d.rounded_rectangle((pole_x - 3 * S, top - 4 * S, pole_x + 3 * S, top + 168 * S), 3 * S,
-                        fill=(150, 154, 175))
-    cloth = Image.new("RGBA", (fw, fh + 40 * S), (0, 0, 0, 0))
-    cd = ImageDraw.Draw(cloth)
-    wave = 9 * S
-    for x in range(fw):
-        t = x / fw
-        dy = wave * math.sin(t * math.pi * 2.2) * t  # free end flaps more
-        shade = 0.82 + 0.18 * math.cos(t * math.pi * 2.2)
-        colour = tuple(round(c * shade) for c in (58, 196, 104))
-        cd.line((x, 20 * S + dy, x, 20 * S + dy + fh), fill=(*colour, 255))
-    layer.alpha_composite(glow((W, H), (pole_x + fw // 2, top + fh // 2), fh, (58, 196, 104), 70))
-    layer.alpha_composite(cloth, (pole_x + 3 * S, top - 20 * S + 6 * S))
+                                           LAMP, colour[2], 150))
+            layer.alpha_composite(lamp(colour if on else None), (lx, ly))
     return layer
 
 
@@ -190,7 +173,7 @@ def main() -> None:
         frame.alpha_composite(gantry(lit))
         finish(frame).save(OUT / f"lights-{lit}.png", optimize=True)
     frame = base.copy()
-    frame.alpha_composite(flag())
+    frame.alpha_composite(gantry(LIGHTS, GREEN))
     finish(frame).save(OUT / "go.png", optimize=True)
     for p in sorted(OUT.glob("*.png")):
         print(p.relative_to(HERE.parents[1]), f"{p.stat().st_size // 1024} KB")

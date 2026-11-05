@@ -3,8 +3,8 @@
 Like a desktop editor's splash, it shows the moment the app is opened and
 goes away once the dashboard opens in the browser. Its five start lights
 count the start: four come on at a steady pace while the server starts,
-the fifth only once the server answers, then they go out together and the
-green flag shows while the browser opens the dashboard.
+the fifth only once the server answers, then all five turn green together
+while the browser opens the dashboard.
 
 Never at login (`--background`), for a second launch (that one only opens
 the dashboard), for the command-line tools, or on Linux, which has no
@@ -30,8 +30,8 @@ log = logging.getLogger(__name__)
 
 LIGHTS = 5
 STEP = 0.3  # seconds between the first four lights
-HOLD = 0.35  # all five lit, before they go out
-GO = 0.8  # the green flag, while the browser opens
+HOLD = 0.35  # all five red, before they turn green
+GO = 0.8  # all green, while the browser opens
 SLOW = 6.0  # past this without the server, say why it takes a while
 TICK = 0.05
 
@@ -67,7 +67,7 @@ def frame_at(elapsed: float, ready_at: float | None) -> Frame:
     out = fifth + HOLD
     if elapsed < out:
         return Frame(LIGHTS, False, "Ready", False)
-    return Frame(0, True, "Opening the dashboard…", elapsed >= out + GO)
+    return Frame(LIGHTS, True, "Go: opening the dashboard…", elapsed >= out + GO)
 
 
 class View(Protocol):
@@ -80,7 +80,7 @@ class Splash:
     """Runs the sequence on a thread of its own and drives a View.
 
     `ready()` is told when the server answers; `go` is called once, as the
-    lights go out (the app opens the dashboard there); `fail()` closes the
+    lights turn green (the app opens the dashboard there); `fail()` closes the
     splash at once, for an error the app is about to show.
     """
 
