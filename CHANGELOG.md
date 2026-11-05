@@ -7,6 +7,12 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Added
 
+- **Linux downloads are signed.** The AppImage, its `.zsync` and the tarball each come
+  with a detached OpenPGP signature (`.asc`), made with the project's release signing
+  key (fingerprint `01B8 57BB 952C D521 9FA4  0E6F 5E1E 38B8 1FCD DD55`). The public key and how to check a file are on
+  [Desktop app › Download](docs/getting-started/desktop.md#download) and
+  [Code signing](docs/internals/code-signing.md#the-linux-signing-key).
+
 - **The desktop app updates itself.** When the daily update check finds a newer
   release, the macOS app, an install made with the Windows installer and the Linux
   AppImage download it in the background, check it and offer **Restart and update**
