@@ -1,8 +1,8 @@
 # Quick start (Docker)
 
 !!! tip "No Docker?"
-    From version 1.0.0 there is a [desktop app](desktop.md) for macOS, Windows and
-    Linux: one download, no Docker or Python. The first desktop release is not out yet.
+    There is a [desktop app](desktop.md) for macOS, Windows and Linux: one download,
+    no Docker or Python.
 
 The fastest way to run GT7 Datalogger on a server is with Docker Compose. One container
 serves the dashboard, REST API, and WebSocket on port 8000 and listens for PlayStation
