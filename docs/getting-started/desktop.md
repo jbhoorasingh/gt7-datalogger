@@ -56,7 +56,8 @@ sponsored by Sony Interactive Entertainment or Polyphony Digital.
     2. Open it from Applications. macOS says it is an app downloaded from the internet
        and asks whether to open it: click **Open**. The app is signed and notarized,
        so this question comes once.
-    3. Your browser opens the dashboard at `http://127.0.0.1:8000/`, and the app's
+    3. The start screen's five lights come on while the app starts. When they go out,
+       your browser opens the dashboard at `http://127.0.0.1:8000/`, and the app's
        icon appears in the menu bar.
 
 === "Windows"
@@ -67,7 +68,8 @@ sponsored by Sony Interactive Entertainment or Polyphony Digital.
     2. If **Windows protected your PC** appears (SmartScreen), click **More info**,
        then **Run anyway**. The 1.0.0 Windows files are not code-signed yet, so it
        appears and names the publisher as unknown.
-    3. Start **GT7 Datalogger** from the Start menu. Your browser opens the
+    3. Start **GT7 Datalogger** from the Start menu. The start screen's five lights
+       come on while the app starts. When they go out, your browser opens the
        dashboard, and the app's icon appears in the notification area (it may hide
        under the **^** arrow).
 

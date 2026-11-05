@@ -30,6 +30,10 @@ datas += [(str(p), "app/data") for p in (APP / "data").glob("*.json")]
 datas += [(str(ROOT / "frontend" / "dist"), "frontend/dist")]
 # The tray's own pictures: the menu-bar template on macOS, the tray icon on Windows.
 datas += [(str(ICONS / name), "icons") for name in ("menubar.png", "tray.png")]
+# The splash frames (gt7_desktop.splash), drawn by desktop/icons/make_splash.py.
+# Linux shows no splash.
+if sys.platform in ("darwin", "win32"):
+    datas += [(str(p), "icons/splash") for p in sorted((ICONS / "splash").glob("*.png"))]
 datas += collect_data_files("certifi")
 datas += copy_metadata("gt7-datalogger")
 

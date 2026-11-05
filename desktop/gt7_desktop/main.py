@@ -26,7 +26,7 @@ import webbrowser
 from pathlib import Path
 from typing import Any
 
-from gt7_desktop import APP_NAME, paths, power, prefs, selfupdate
+from gt7_desktop import APP_NAME, paths, power, prefs, selfupdate, splash
 from gt7_desktop.lock import AlreadyRunning, InstanceLock, read_record
 
 log = logging.getLogger("gt7_desktop")
@@ -295,6 +295,8 @@ class DesktopApp:
         self._quit_done = threading.Event()
         # Linux: logind's sleep block while a session records (gt7_desktop.power).
         self.inhibitor = power.SleepInhibitor() if sys.platform.startswith("linux") else None
+        # The start lights while the app starts, when the user opened it.
+        self.splash: splash.Splash | None = None
 
     @property
     def url(self) -> str:
@@ -372,6 +374,8 @@ class DesktopApp:
             if url and not self.args.background:
                 open_browser(url)
             return EXIT_OK
+        if not self.args.background:
+            self._show_splash()
         from gt7_desktop import ports
         from gt7_desktop.supervisor import Supervisor
 
@@ -409,20 +413,46 @@ class DesktopApp:
                          daemon=True).start()
         return EXIT_OK
 
+    def _show_splash(self) -> None:
+        view = splash.make_view()
+        if view is None:
+            return
+        from app.version import version
+
+        shown = splash.Splash(view, f"Version {version()}")
+        try:
+            shown.start()
+        except Exception:  # noqa: BLE001 - start without it
+            log.exception("could not show the splash")
+            return
+        self.splash = shown
+
+    def _close_splash(self) -> None:
+        if self.splash is not None:
+            self.splash.fail()
+
     def _after_ready(self) -> None:
         self.supervisor.ready.wait()
         if self.supervisor.state.phase != "running":
+            self._close_splash()
             return
         self.lock.write(state="running")
         if self.args.ready_file is not None:
             self.args.ready_file.write_text(json.dumps({"port": self.supervisor.port,
                                                         "url": self.url}))
         first = not self.prefs.opened_once
-        if not self.args.background and (self.args.open or first or not _launched_at_login()):
-            self.open_dashboard()
+        open_now = not self.args.background and (
+            self.args.open or first or not _launched_at_login())
         if first:
             self.prefs.opened_once = True
             prefs.save(self.folders.prefs, self.prefs)
+        if not open_now:
+            self._close_splash()
+        elif self.splash is not None and not self.splash.closed:
+            # The browser opens as the lights go out.
+            self.splash.ready(self.open_dashboard)
+        else:
+            self.open_dashboard()
 
     def _watch_quit_request(self) -> None:
         """`--quit` on Windows creates the request file; quit as the tray would."""
@@ -530,6 +560,7 @@ class DesktopApp:
 
     def _show_error(self, message: str) -> None:
         log.error("%s", message)
+        self._close_splash()
         if self.tray is not None:
             self.tray.alert(APP_NAME, message)
 
@@ -537,6 +568,7 @@ class DesktopApp:
         """Stop the server, then the process. Safe to call from any thread."""
         if not self._quit_once.acquire(blocking=False):
             return
+        self._close_splash()
         try:
             if self.supervisor is not None:
                 self.supervisor.stop()

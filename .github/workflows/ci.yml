@@ -65,9 +65,10 @@ jobs:
         run: pytest -q
       - name: Desktop launcher tests
         # The launcher's own pieces and a supervisor driving a real server
-        # child (#192); the frozen build is tested in desktop.yml.
+        # child (#192); the frozen build is tested in desktop.yml. Pillow draws
+        # the Windows splash, whose window is tested on the Windows leg.
         run: |
-          pip install platformdirs
+          pip install platformdirs pillow
           pytest -q ../desktop/tests
 
   frontend:
