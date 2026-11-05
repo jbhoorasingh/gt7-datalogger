@@ -48,6 +48,9 @@ Notable changes to GT7 Datalogger. The format follows
 
 - A dashboard tab reloads by itself when the server comes back as another version,
   so a tab left open across an update runs the new release's page.
+- `pycryptodome` is capped below 5, so a Docker or source install never picks up a
+  major version that could move the Salsa20 or Ed25519 API. CI type-checks the
+  desktop launcher too, once each for Linux, macOS and Windows (#193).
 
 ### Fixed
 

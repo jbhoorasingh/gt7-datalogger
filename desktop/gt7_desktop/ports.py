@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import json
-import os
 import socket
+import sys
 import urllib.error
 import urllib.request
 from typing import Any
@@ -18,9 +18,9 @@ class NoPort(Exception):
 
 def bind(host: str, port: int) -> socket.socket:
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    if os.name == "nt":
+    if sys.platform == "win32":
         # The opposite of SO_REUSEADDR's meaning there: nobody may share it.
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)  # type: ignore[attr-defined]
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
     else:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:

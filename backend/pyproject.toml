@@ -9,7 +9,9 @@ dependencies = [
     "uvicorn[standard]>=0.30",
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
-    "pycryptodome>=3.20",
+    # Salsa20 for the telemetry, Ed25519 for the update manifest (#219). Below the
+    # next major, which may move either API; the desktop locks pin the exact one.
+    "pycryptodome>=3.20,<5",
     "sqlalchemy[asyncio]>=2.1",
     "alembic>=1.13",
     "aiosqlite>=0.20",

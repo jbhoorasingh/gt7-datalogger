@@ -334,8 +334,8 @@ class DesktopApp:
             import subprocess
 
             subprocess.Popen(["open", str(target)])
-        elif os.name == "nt":
-            os.startfile(target)  # type: ignore[attr-defined]  # noqa: S606
+        elif sys.platform == "win32":
+            os.startfile(target)  # noqa: S606
         else:
             import subprocess
 
@@ -556,13 +556,13 @@ def _block_signals() -> None:
     """Before any thread exists, so every thread inherits the block and
     only the sigwait thread ever takes SIGTERM — a toolkit thread taking it
     with the default action killed the app instead of quitting it."""
-    if hasattr(signal, "pthread_sigmask"):
+    if sys.platform != "win32":
         signal.pthread_sigmask(signal.SIG_BLOCK, _SIGNALS)
 
 
 def _watch_signals(app: DesktopApp) -> None:
     """SIGTERM (`--quit`, logout, a package script) ends the app cleanly."""
-    if not hasattr(signal, "sigwait"):
+    if sys.platform == "win32":
         return
     wanted = _SIGNALS
 
