@@ -7,6 +7,13 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Added
 
+- **A start screen for the desktop app (macOS, Windows).** Opening the app shows a
+  splash with five start lights that count the start: four come on while the server
+  starts, the fifth once it answers, then all five turn green as the browser opens the
+  dashboard. It names the version and, on a slow first start, why it
+  takes a while. It never shows at login, for a second launch or for the command-line
+  tools, and Linux opens the browser straight away as before. The frames are drawn by
+  `desktop/icons/make_splash.py`.
 - **Linux downloads are signed.** The AppImage, its `.zsync` and the tarball each come
   with a detached OpenPGP signature (`.asc`), made with the project's release signing
   key (fingerprint `01B8 57BB 952C D521 9FA4  0E6F 5E1E 38B8 1FCD DD55`). The public key and how to check a file are on
