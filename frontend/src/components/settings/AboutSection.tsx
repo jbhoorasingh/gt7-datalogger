@@ -1,7 +1,8 @@
 // Settings › About (#190): which build this is, how it was installed, where
-// it keeps its data and its log, whether a newer version is out (#196), that
-// it is nobody's official product, and, in the desktop app on its own
-// computer, Quit (Linux has no tray to quit from).
+// it keeps its data and its log, whether a newer version is out (#196) and,
+// in the desktop app, its download and Restart and update, that it is
+// nobody's official product, and, in the desktop app on its own computer,
+// Quit (Linux has no tray to quit from).
 
 import { useEffect, useState } from "react";
 import { ConfirmDialog } from "@/components/ui/Dialog";
@@ -11,6 +12,7 @@ import { loadHealth, useHealth } from "@/lib/health";
 import { markQuit } from "@/lib/quit";
 import { toast } from "@/store/toasts";
 import type { AdminStats, ConfigDoc, InstallKind } from "@/lib/types";
+import { installUpdate, refusal, updateMessage, updatePhase } from "@/lib/update";
 import { version as uiVersion } from "../../../package.json";
 import { Dot, SectionPanel, SettingRow } from "./parts";
 
@@ -55,6 +57,24 @@ export function AboutSection({ stats }: { stats: AdminStats | null }) {
   );
   const [confirming, setConfirming] = useState(false);
   const [quitting, setQuitting] = useState(false);
+  const [installing, setInstalling] = useState(false);
+  const phase = updatePhase(update);
+  // The request was taken, but the install failed afterwards (the supervisor
+  // or Setup said so): the button is usable again once it is ready again.
+  useEffect(() => {
+    if (phase === "failed") setInstalling(false);
+  }, [phase]);
+
+  async function install() {
+    if (!update) return;
+    setInstalling(true);
+    try {
+      await installUpdate(update);
+    } catch (e) {
+      setInstalling(false);
+      toast(refusal(e, t("update.installFailed")), "error");
+    }
+  }
 
   async function quit() {
     setConfirming(false);
@@ -91,14 +111,38 @@ export function AboutSection({ stats }: { stats: AdminStats | null }) {
           {logFile || <span className="text-ink-faint">{t("about.noLogFile")}</span>}
         </span>
       </SettingRow>
-      <SettingRow label={t("about.updates")}>
+      <SettingRow
+        label={t("about.updates")}
+        help={
+          phase !== "ready"
+            ? undefined
+            : recording
+              ? t("update.recording")
+              : update?.install?.on_quit
+                ? t("update.onQuit")
+                : undefined
+        }
+      >
         {update == null ? (
           <span className="text-[12px] text-ink-faint">{t("about.noUpdateCheck")}</span>
-        ) : update.available ? (
+        ) : phase !== "none" ? (
           <span className="flex flex-wrap items-center gap-2 text-[12.5px]">
-            <Dot tone="accent" />
-            {t("update.available", { version: update.version ?? "?" })}
-            {update.url && (
+            <Dot tone={phase === "failed" ? "warn" : "accent"} />
+            {updateMessage(update, t)}
+            {phase === "ready" &&
+              (stats?.can_quit ? (
+                <button className="btn" disabled={recording || installing} onClick={() => void install()}>
+                  {installing ? t("update.installing", { version: update.install?.version ?? "?" }) : t("update.install")}
+                </button>
+              ) : (
+                <span className="text-[12px] text-ink-faint">{t("update.elsewhere")}</span>
+              ))}
+            {phase === "failed" && (
+              <button className="btn" onClick={() => void api.admin.updateDownload().catch(() => {})}>
+                {t("update.retry")}
+              </button>
+            )}
+            {(phase === "notify" || phase === "failed") && update.url && (
               <a className="text-accent hover:underline" href={update.url} target="_blank" rel="noreferrer">
                 {t("common.download")}
               </a>

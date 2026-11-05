@@ -2,19 +2,32 @@
 // the telemetry listener could not start (UDP 33740 taken…), the heartbeat
 // keeps failing (a macOS Local Network denial, a firewall — #181), laps that
 // could not be saved (#207). Before, these lived only in the log. Plus a
-// small banner when a newer version is out (#196).
+// small banner when a newer version is out (#196), which in the desktop app
+// follows its download and offers Restart and update once it is ready.
 
 import { useEffect, useState } from "react";
 import { useT, type Translate } from "@/i18n";
 import { api } from "@/lib/api";
 import { openSettings } from "@/lib/router";
 import type { ConnectionStatus, UpdateStatus } from "@/lib/types";
+import {
+  installUpdate,
+  refusal,
+  UPDATING_EVENT,
+  updateMessage,
+  updatePhase,
+  updatingTo,
+  updateVersion,
+} from "@/lib/update";
 import { useTelemetry } from "@/store/telemetry";
+import { toast } from "@/store/toasts";
 
 // The status pushed over the socket does not follow every heartbeat error,
 // so it is asked for now and then as well.
 const STATUS_POLL_MS = 10_000;
 const UPDATE_POLL_MS = 30 * 60_000;
+// While the desktop app downloads or installs an update, so the banner keeps up.
+const UPDATE_BUSY_POLL_MS = 3000;
 const DISMISSED_KEY = "gt7.updateDismissed";
 
 export interface ServerProblem {
@@ -58,7 +71,21 @@ export function ServerAlerts() {
   const status = useTelemetry((s) => s.status);
   const setStatus = useTelemetry((s) => s.setStatus);
   const [update, setUpdate] = useState<UpdateStatus | null>(null);
+  // Restart and update is offered where Quit is: the desktop app, from its
+  // own computer (stats.can_quit).
+  const [canInstall, setCanInstall] = useState(false);
   const [dismissed, setDismissed] = useState(readDismissed);
+  // Restart and update clicked here or in Settings › About: installing now,
+  // whatever the last poll said.
+  const [installingTo, setInstallingTo] = useState(updatingTo);
+  useEffect(() => {
+    const on = () => setInstallingTo(updatingTo());
+    window.addEventListener(UPDATING_EVENT, on);
+    return () => window.removeEventListener(UPDATING_EVENT, on);
+  }, []);
+  const polled = updatePhase(update);
+  const phase = polled === "ready" && installingTo === updateVersion(update) ? "installing" : polled;
+  const busy = phase === "downloading" || phase === "installing";
 
   useEffect(() => {
     const poll = () => api.status().then(setStatus).catch(() => {});
@@ -71,15 +98,31 @@ export function ServerAlerts() {
     const check = () =>
       api.admin
         .stats()
-        .then((s) => setUpdate(s.update ?? null))
+        .then((s) => {
+          setUpdate(s.update ?? null);
+          setCanInstall(Boolean(s.can_quit));
+          // The mark lapses: re-read it, so a stalled install shows as ready again.
+          setInstallingTo(updatingTo());
+        })
         .catch(() => {});
     check();
-    const id = window.setInterval(check, UPDATE_POLL_MS);
+    const id = window.setInterval(check, busy ? UPDATE_BUSY_POLL_MS : UPDATE_POLL_MS);
     return () => window.clearInterval(id);
-  }, []);
+  }, [busy]);
 
   const problems = serverProblems(status, t);
-  const showUpdate = update?.available && (update.version ?? "") !== dismissed;
+  // The server refuses to restart under a session (409); say so up front.
+  const recording = Boolean(status?.connected && status.recording && status.session_id != null);
+  const version = updateVersion(update);
+  const showUpdate = phase !== "none" && version !== dismissed;
+
+  async function install(current: UpdateStatus) {
+    try {
+      await installUpdate(current);
+    } catch (e) {
+      toast(refusal(e, t("update.installFailed")), "error");
+    }
+  }
   if (problems.length === 0 && !showUpdate) return null;
 
   return (
@@ -103,8 +146,25 @@ export function ServerAlerts() {
           role="status"
           className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-accent/40 bg-accent/8 px-3 py-1.5 text-[12px] text-accent-200"
         >
-          <span className="min-w-0 flex-1">{t("update.available", { version: update.version ?? "?" })}</span>
-          {update.url && (
+          <span className="min-w-0 flex-1">
+            {phase === "installing" ? t("update.installing", { version }) : updateMessage(update, t)}
+          </span>
+          {phase === "ready" && canInstall && (
+            <button
+              className="font-medium hover:underline disabled:opacity-50 disabled:hover:no-underline"
+              disabled={recording}
+              title={recording ? t("update.recording") : undefined}
+              onClick={() => void install(update)}
+            >
+              {t("update.install")}
+            </button>
+          )}
+          {phase === "failed" && (
+            <button className="hover:underline" onClick={() => void api.admin.updateDownload().then(setUpdate).catch(() => {})}>
+              {t("update.retry")}
+            </button>
+          )}
+          {(phase === "notify" || phase === "failed") && update.url && (
             <a className="hover:underline" href={update.url} target="_blank" rel="noreferrer">
               {t("common.download")}
             </a>
@@ -112,7 +172,7 @@ export function ServerAlerts() {
           <button
             className="text-ink-faint hover:text-ink"
             onClick={() => {
-              const v = update.version ?? "";
+              const v = version;
               setDismissed(v);
               try {
                 localStorage.setItem(DISMISSED_KEY, v);

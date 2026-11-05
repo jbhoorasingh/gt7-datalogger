@@ -26,8 +26,12 @@ What it adds to plain uvicorn:
   supervisor it exits 76, and the supervisor quits the whole app; headless,
   it just stops. Settings › About calls it (`POST /api/admin/quit`) for the
   person at this computer, which on Linux, with no tray, is the only Quit.
+- **Restart and update.** `UPDATE` stops this server so the supervisor can
+  install the release app.self_update downloaded: under the supervisor it
+  exits 77. Headless there is no one to install it, and it is never set.
 - **Exit codes:** 0 stopped, 3 could not start (the supervisor shows the log
-  tail instead of retrying), 75 restart requested, 76 quit requested.
+  tail instead of retrying), 75 restart requested, 76 quit requested, 77
+  update requested.
 
 Inert in Docker and source installs: nothing imports it unless this mode is
 asked for.
@@ -52,10 +56,13 @@ EXIT_OK = 0
 EXIT_STARTUP_FAILED = 3
 EXIT_RESTART = 75
 EXIT_QUIT = 76
+EXIT_UPDATE = 77
 
 # Set by run() once the server exists: stops it, and under the supervisor
 # the app with it. None in Docker and source installs, which never run this.
 QUIT: Callable[[], None] | None = None
+# Set by run() under the supervisor only: stops the server for an update.
+UPDATE: Callable[[], None] | None = None
 
 SERVER_LOCK = "gt7-server.lock"
 
@@ -140,6 +147,7 @@ class Control:
         self.server = server
         self.restart = False
         self.quit = False
+        self.update = False
 
     def start(self) -> None:
         threading.Thread(target=self._run, name="gt7-control", daemon=True).start()
@@ -254,7 +262,7 @@ def parse(argv: list[str]) -> argparse.Namespace:
 
 
 def run(argv: list[str]) -> int:
-    global QUIT
+    global QUIT, UPDATE
     args = parse(argv)
     _unblock_signals()
     assertion = _hold_power_assertion()  # noqa: F841 - held for the process's life
@@ -309,10 +317,18 @@ def run(argv: list[str]) -> int:
                 control.quit = True
                 server.should_exit = True
 
+            def update_app() -> None:
+                control.update = True
+                server.should_exit = True
+
             QUIT = quit_app
+            if args.supervised:
+                UPDATE = update_app
             server.run(sockets=[sock])
             if not server.started:
                 return EXIT_STARTUP_FAILED
+            if control.update and args.supervised:
+                return EXIT_UPDATE
             if control.quit and args.supervised:
                 return EXIT_QUIT
             return EXIT_RESTART if control.restart else EXIT_OK

@@ -14,9 +14,17 @@ a build is released. It applies from the first desktop release, 1.0.0.
 Every release also carries `SHA256SUMS.txt`, `release-manifest.json` and GitHub build
 provenance attestations, which tie each file to the workflow run and commit that built it.
 
+The manifest is signed too: `release-manifest.json.sig` is an Ed25519 signature made with
+the project's update key. An installed desktop app checks that signature, and each
+file's SHA-256 against the manifest, before it installs an update, on top of the
+platform's own signature check ([Desktop app ›
+Updating](../getting-started/desktop.md#updating)).
+
 Until those signing routes are set up, the Windows files are unsigned and the Linux
 files have no `.asc`; the release notes say so. 1.0.0 is such a release. Check those
-downloads against `SHA256SUMS.txt` and the build provenance attestations.
+downloads against `SHA256SUMS.txt` and the build provenance attestations. The manifest
+signature is different: a release candidate may ship its manifest without one, a
+release never does.
 
 ## How a build gets signed
 
@@ -25,8 +33,8 @@ downloads against `SHA256SUMS.txt` and the build provenance attestations.
 - The build jobs hold no secrets. Signing runs in separate jobs that install nothing and
   only download what the build jobs produced.
 - Signing runs only for a `v*.*.*` tag, which only the maintainer can push. The
-  signing secrets live in the `desktop-release` environment, which admits only those
-  tags.
+  signing secrets, the update key among them, live in the `desktop-release`
+  environment, which admits only those tags.
 - After signing, fresh machines install each signed file and run the smoke test again.
 - The workflow ends with a **draft** release. The maintainer publishes it by hand after
   checking it.

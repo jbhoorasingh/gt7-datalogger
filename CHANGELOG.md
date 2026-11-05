@@ -5,6 +5,44 @@ Notable changes to GT7 Datalogger. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **The desktop app updates itself.** When the daily update check finds a newer
+  release, the macOS app, an install made with the Windows installer and the Linux
+  AppImage download it in the background, check it and offer **Restart and update**
+  in a banner, in Settings › About and in the menu-bar or tray menu. Otherwise it
+  installs the next time the app is quit from the menu, the tray or Settings › About
+  (`update_install_on_quit`, on by default; never for a Windows install for every
+  user, whose installer asks for administrator approval). Restart and update waits
+  while a session records. Before anything is installed, the release's
+  `release-manifest.json` must carry an Ed25519 signature by the release key built
+  into the app, the release must be newer than the running version, and the file's
+  size and SHA-256 must match the manifest. On macOS the new app must also carry the
+  installed app's Developer ID and pass Gatekeeper; on Windows, once the installers
+  are signed, the new Setup must carry the same publisher. macOS swaps the app in
+  place once it has quit and deletes the old copy; Windows runs the new Setup with
+  `/SILENT /RELAUNCH=1`, which stops the app and starts it again; Linux renames the
+  new AppImage over the old one. A failure installs nothing and is shown in Settings ›
+  About with the download link. Docker, source installs, the portable `.zip` and the
+  `.tar.gz` stay notify-only. It works from 1.0.1 on: a 1.0.0 install updates to
+  1.0.1 by hand once.
+- `POST /api/admin/update-install` (Restart and update: the desktop app, from its own
+  computer only; 409 while a session records) and `POST /api/admin/update-download`
+  (try a failed download again). `/api/admin/stats` `update.install` carries the
+  download's state, and `/api/status` `update_ready` the version ready to install.
+- **Release workflow:** a `manifest` job in the `desktop-release` environment signs
+  `release-manifest.json` with the new `UPDATE_SIGNING_KEY` into
+  `release-manifest.json.sig`, and refuses a key installs would not trust; a final
+  tag fails without it. The verify jobs, and the Linux packaging on every run, update
+  an install in place with the new files (`desktop/ci/update_smoke.py`).
+  `desktop/scripts/update_key.py` makes the key ([Releasing › The update
+  key](docs/internals/releasing.md#the-update-key)).
+
+### Changed
+
+- A dashboard tab reloads by itself when the server comes back as another version,
+  so a tab left open across an update runs the new release's page.
+
 ## [1.0.0] - 2026-11-05
 
 The first desktop release. GT7 Datalogger now comes as one download for macOS (Apple

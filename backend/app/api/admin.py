@@ -19,6 +19,7 @@ from app.api.guard import peer_is_loopback
 from app.notify import ALL_EVENTS
 from app.processing import car_refresh
 from app.race_engineer import CATEGORIES
+from app.self_update import UpdateError
 from app.storage import secret_store
 from app.sync import (
     BadConnectionString,
@@ -259,6 +260,9 @@ async def _apply_generic(service: TelemetryService, key: str, value: Any) -> Non
         await service.discovery.apply()
     elif key in ("update_check", "update_channel"):
         service.updates.wake()
+        service.self_update.wake()
+    elif key == "update_install_on_quit":
+        service.self_update.sync_on_quit()
     log.info("setting %s changed", key)
 
 
@@ -646,12 +650,20 @@ async def stats(request: Request) -> dict[str, Any]:
         "lan_access": service.settings.lan_access,
         "lan_reachable": service.settings.lan_access and not loopback_only,
         # A newer release, from the daily check (#196): {available, version,
-        # url, checked_at}, always present; available is false while the
-        # check is off or has not found one.
-        "update": service.updates.status(),
-        # Whether Settings › About offers Quit: see can_quit().
+        # url, checked_at, install}, always present; available is false while
+        # the check is off or has not found one. install is null unless this
+        # desktop install can replace itself (app.self_update).
+        "update": update_status(service),
+        # Whether Settings › About offers Quit: see can_quit(). The same
+        # rule decides who may click Restart and update.
         "can_quit": can_quit(request),
     }
+
+
+def update_status(
+    service: TelemetryService, checked: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    return {**(checked or service.updates.status()), "install": service.self_update.status()}
 
 
 # --- actions ----------------------------------------------------------------
@@ -685,7 +697,43 @@ async def update_check(request: Request) -> dict[str, Any]:
     error here either: the answer is just the last one known. While GitHub's
     rate limit is in force it is not asked at all.
     """
-    return await svc(request).updates.check()
+    service = svc(request)
+    return update_status(service, await service.updates.check())
+
+
+@router.post("/update-download", status_code=202)
+async def update_download(request: Request) -> dict[str, Any]:
+    """Try the download again after it failed (Settings › About › Try again)."""
+    service = svc(request)
+    if service.self_update.status() is None:
+        raise HTTPException(404, "this install cannot update itself")
+    service.self_update.wake()
+    return update_status(service)
+
+
+@router.post("/update-install", status_code=202)
+async def update_install(request: Request) -> dict[str, Any]:
+    """Restart and update: install the downloaded release, then start it.
+
+    From this computer only, as Quit is: on Windows the installer asks for
+    administrator approval on this screen, and a restart under someone
+    driving with a tablet would surprise them. Refused (409) while anything
+    records, as compacting is: the restart would cut the session.
+    """
+    service = svc(request)
+    if not can_quit(request) or serve.UPDATE is None:
+        raise HTTPException(
+            403, "only the desktop app, from this computer, can install an update"
+        )
+    busy = service.recording_now()
+    if busy:
+        raise HTTPException(409, f"{busy}; finish the session, then update")
+    try:
+        service.self_update.request_install()
+    except UpdateError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    asyncio.get_running_loop().call_later(0.2, serve.UPDATE)
+    return update_status(service)
 
 
 @router.post("/restart-source")

@@ -332,14 +332,32 @@ ENTRIES: tuple[Entry, ...] = (
     Entry(
         "update_check", "Server", "Check for updates",
         "Once a day, ask GitHub Releases whether a newer version is out and show it "
-        "in Settings (and the desktop tray). Notify only: nothing is downloaded. "
-        "One request to `api.github.com` a day; on by default in the desktop app",
+        "in Settings (and the desktop tray). One request to `api.github.com` a day; on "
+        "by default in the desktop app. The desktop app (macOS, the Windows installer, "
+        "the AppImage) also downloads the new version and checks its signature, ready "
+        "to install; every other install only shows it",
         kind="bool",
     ),
     Entry(
         "update_channel", "Server", "Update channel",
         "`stable` offers releases only; `prerelease` also offers release candidates",
         choices=("stable", "prerelease"),
+    ),
+    Entry(
+        "update_install", "Server", "Update install",
+        "Set by the desktop app: which kind of install can replace itself with a newer "
+        "version (`macos-app`, `windows-setup`, `windows-setup-user`, `appimage`). "
+        "Empty for Docker, source installs, the portable zip and the tarball, which "
+        "only show that a new version is out",
+        apply="env",
+    ),
+    Entry(
+        "update_install_on_quit", "Server", "Install updates when quitting",
+        "Desktop app: install a downloaded update when you quit GT7 Datalogger from "
+        "the menu bar, the tray or Settings › About. Off, it installs only when you "
+        "click Restart and update. A Windows install for every user never installs "
+        "on quit, since its installer asks for administrator approval",
+        kind="bool",
     ),
     Entry(
         "admin_token", "Server", "Admin token",

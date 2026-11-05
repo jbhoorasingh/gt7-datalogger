@@ -302,14 +302,14 @@ async def test_stats_carries_update_object_when_off(client) -> None:
     c, _, gh = client
     data = (await c.get("/api/admin/stats")).json()
     assert data["update"] == {"available": False, "version": None, "url": None,
-                              "checked_at": None}
+                              "checked_at": None, "install": None}
     assert gh.requests == []
 
 
 async def test_update_check_endpoint_and_stats(client) -> None:
     c, service, gh = client
     body = (await c.post("/api/admin/update-check")).json()
-    assert set(body) == {"available", "version", "url", "checked_at"}
+    assert set(body) == {"available", "version", "url", "checked_at", "install"}
     assert body["available"] is True and body["version"] == "0.9.0"
     assert len(gh.requests) == 1
     # The daily check is still off, so /stats offers nothing until it is on.
