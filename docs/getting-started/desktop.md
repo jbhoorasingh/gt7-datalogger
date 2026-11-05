@@ -20,16 +20,21 @@ Every release also has `SHA256SUMS.txt` to check a download against, and
 `release-manifest.json`, which lists the files. Older versions are on the
 [releases page](https://github.com/jbhoorasingh/gt7-datalogger/releases).
 
-From 1.0.1, each Linux file also has an OpenPGP signature beside it, with `.asc` added
-to its name. To check one, import the project's
-[release signing key](../assets/gt7-datalogger-release-signing.asc) once, then verify
-the file:
+From 1.0.1, each Linux file also has an OpenPGP signature beside it in the release,
+with `.asc` added to its name. To check one, download the signature next to the file,
+import the project's [release signing key](../assets/gt7-datalogger-release-signing.asc)
+once, then verify:
 
 ```bash
+curl -fsSLO https://github.com/jbhoorasingh/gt7-datalogger/releases/latest/download/GT7-Datalogger-Linux-x86_64.AppImage.asc
 curl -fsSLO https://jbhoorasingh.github.io/gt7-datalogger/assets/gt7-datalogger-release-signing.asc
 gpg --import gt7-datalogger-release-signing.asc
 gpg --verify GT7-Datalogger-Linux-x86_64.AppImage.asc GT7-Datalogger-Linux-x86_64.AppImage
 ```
+
+For the tarball, use `GT7-Datalogger-Linux-x86_64.tar.gz.asc` the same way. For an
+older version, take the file and its `.asc` from that release on the
+[releases page](https://github.com/jbhoorasingh/gt7-datalogger/releases).
 
 gpg should say *Good signature from "GT7 Datalogger release signing"*, and the key's
 fingerprint (`gpg --fingerprint "GT7 Datalogger release signing"`) must be
