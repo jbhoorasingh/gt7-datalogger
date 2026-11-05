@@ -7,6 +7,13 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Added
 
+- **A start screen for the desktop app (macOS, Windows).** Opening the app shows a
+  splash with five start lights that count the start: four come on while the server
+  starts, the fifth once it answers, then all five turn green as the browser opens the
+  dashboard. It names the version and, on a slow first start, why it
+  takes a while. It never shows at login, for a second launch or for the command-line
+  tools, and Linux opens the browser straight away as before. The frames are drawn by
+  `desktop/icons/make_splash.py`.
 - **Linux downloads are signed.** The AppImage, its `.zsync` and the tarball each come
   with a detached OpenPGP signature (`.asc`), made with the project's release signing
   key (fingerprint `01B8 57BB 952C D521 9FA4  0E6F 5E1E 38B8 1FCD DD55`). The public key and how to check a file are on
@@ -48,6 +55,16 @@ Notable changes to GT7 Datalogger. The format follows
 
 - A dashboard tab reloads by itself when the server comes back as another version,
   so a tab left open across an update runs the new release's page.
+- **The desktop app closes the session cleanly at sign-out and shutdown, and Linux
+  stays awake while a session records (#194).** On Windows a hidden window hears
+  sign-out and shutdown (`WM_QUERYENDSESSION`, `WM_ENDSESSION`). The server is stopped
+  before Windows may end the app, as on Quit; before, it was killed with the app, and
+  its job object, in the middle of a lap. `WM_CLOSE` (from `taskkill`) quits as
+  `--quit` does. On Linux the app holds logind's sleep block (`systemd-inhibit
+  --what=sleep`) while a session records, and lets go when it stops.
+- `pycryptodome` is capped below 5, so a Docker or source install never picks up a
+  major version that could move the Salsa20 or Ed25519 API. CI type-checks the
+  desktop launcher too, once each for Linux, macOS and Windows (#193).
 - **Release workflow (#200):** the Linux AppImage and tarball are smoke-tested in bare
   Debian 12, Ubuntu 22.04, Fedora and AlmaLinux 8 (the RHEL 8 floor) containers on
   every run, and a tag signs only once those pass. `sign-linux` checks each new `.asc`

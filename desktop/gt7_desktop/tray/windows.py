@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ctypes
 import logging
+import sys
 import threading
 from typing import TYPE_CHECKING, Any
 
@@ -14,6 +15,10 @@ from gt7_desktop import APP_NAME, autostart, firewall, paths
 
 if TYPE_CHECKING:
     from gt7_desktop.main import DesktopApp
+
+# Imported only on Windows (tray.make_tray); this also tells mypy to check the
+# rest of the file for Windows only.
+assert sys.platform == "win32"
 
 log = logging.getLogger(__name__)
 
@@ -83,7 +88,7 @@ class WindowsTray:
 
     def _confirm(self, message: str) -> bool:
         mb_yesno, mb_iconwarning, idyes = 0x4, 0x30, 6
-        answer = ctypes.windll.user32.MessageBoxW(  # type: ignore[attr-defined]
+        answer = ctypes.windll.user32.MessageBoxW(
             None, message, APP_NAME, mb_yesno | mb_iconwarning
         )
         return bool(answer == idyes)
@@ -99,7 +104,7 @@ class WindowsTray:
 
     def alert(self, title: str, message: str) -> None:
         threading.Thread(
-            target=lambda: ctypes.windll.user32.MessageBoxW(None, message, title, 0x10),  # type: ignore[attr-defined]
+            target=lambda: ctypes.windll.user32.MessageBoxW(None, message, title, 0x10),
             daemon=True,
         ).start()
 

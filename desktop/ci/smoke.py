@@ -27,6 +27,7 @@ import tempfile
 import time
 import urllib.request
 from pathlib import Path
+from typing import Any
 
 
 class SmokeFailed(Exception):
@@ -44,11 +45,12 @@ def get(url: str, timeout: float = 5) -> tuple[int, bytes]:
         return r.status, r.read()
 
 
-def wait_for(path: Path, seconds: float) -> dict:
+def wait_for(path: Path, seconds: float) -> dict[str, Any]:
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
         if path.exists() and path.read_text().strip():
-            return json.loads(path.read_text())
+            ready: dict[str, Any] = json.loads(path.read_text())
+            return ready
         time.sleep(0.2)
     raise SmokeFailed(f"no ready file after {seconds:.0f} s")
 
@@ -104,7 +106,7 @@ def main(argv: list[str]) -> int:
         status, body = get(f"http://127.0.0.1:{port}/")
         check(status == 200 and b"<div id=\"root\"" in body, "/ serves the SPA")
         check(websocket_upgrades(port), "/ws/live upgrades")
-        if not args.headless and os.name != "nt":
+        if sys.platform != "win32" and not args.headless:
             children = child_pids(proc.pid)
             check(len(children) == 1, f"one server child ({children})")
             os.kill(children[0], signal.SIGKILL)

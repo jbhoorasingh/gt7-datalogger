@@ -102,7 +102,7 @@ def _unblock_signals() -> None:
     """A child inherits its parent's blocked set; the supervisor blocks
     SIGTERM and SIGINT for its sigwait thread, and with them still blocked
     here uvicorn's handlers would never run."""
-    if hasattr(signal, "pthread_sigmask"):
+    if sys.platform != "win32":
         signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGINT, signal.SIGTERM})
 
 
@@ -168,8 +168,9 @@ class Control:
 def _hold_power_assertion() -> Any:
     """Keep App Nap and idle sleep from stretching the 1.6 s heartbeat.
 
-    Best effort: PyObjC on macOS and ctypes on Windows when present; on Linux
-    the supervisor (or the systemd unit) is the right place for an inhibitor.
+    Best effort: PyObjC on macOS and ctypes on Windows when present. On Linux
+    the desktop supervisor holds logind's sleep block while a session records
+    (gt7_desktop.power); a systemd unit running --headless does its own.
     """
     if sys.platform == "darwin":
         try:

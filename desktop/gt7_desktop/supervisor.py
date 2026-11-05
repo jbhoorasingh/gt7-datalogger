@@ -99,12 +99,12 @@ class _JobObject:
 
     def __init__(self) -> None:
         self.handle: Any = None
-        if os.name != "nt":
+        if sys.platform != "win32":
             return
         import ctypes
         from ctypes import wintypes
 
-        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        kernel32 = ctypes.windll.kernel32
 
         class Limits(ctypes.Structure):
             _fields_ = [
@@ -142,12 +142,14 @@ class _JobObject:
         self.handle = job
 
     def add(self, proc: subprocess.Popen[bytes]) -> None:
+        if sys.platform != "win32":
+            return
         if self.handle is None:
             return
         import ctypes
 
-        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
-        kernel32.AssignProcessToJobObject(self.handle, int(proc._handle))  # type: ignore[attr-defined]
+        kernel32 = ctypes.windll.kernel32
+        kernel32.AssignProcessToJobObject(self.handle, int(proc._handle))  # type: ignore[attr-defined, unused-ignore]
 
 
 class Supervisor:
@@ -231,13 +233,13 @@ class Supervisor:
     def _spawn(self) -> subprocess.Popen[bytes]:
         env = {**self.env, "PYINSTALLER_RESET_ENVIRONMENT": "1"}
         args = [*self.command, "--supervised"]
-        if os.name == "nt":
+        if sys.platform == "win32":
             proc = subprocess.Popen(
                 args, stdin=subprocess.PIPE, env=env,
                 creationflags=0x08000000,  # CREATE_NO_WINDOW
             )
             self._job.add(proc)
-            shared = self.sock.share(proc.pid)  # type: ignore[attr-defined]
+            shared = self.sock.share(proc.pid)
             assert proc.stdin is not None
             proc.stdin.write(f"{len(shared)}\n".encode() + shared)
             proc.stdin.flush()

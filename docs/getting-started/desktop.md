@@ -56,7 +56,8 @@ sponsored by Sony Interactive Entertainment or Polyphony Digital.
     2. Open it from Applications. macOS says it is an app downloaded from the internet
        and asks whether to open it: click **Open**. The app is signed and notarized,
        so this question comes once.
-    3. Your browser opens the dashboard at `http://127.0.0.1:8000/`, and the app's
+    3. The start screen's five red lights come on while the app starts. When they turn
+       green, your browser opens the dashboard at `http://127.0.0.1:8000/`, and the app's
        icon appears in the menu bar.
 
 === "Windows"
@@ -67,7 +68,8 @@ sponsored by Sony Interactive Entertainment or Polyphony Digital.
     2. If **Windows protected your PC** appears (SmartScreen), click **More info**,
        then **Run anyway**. The 1.0.0 Windows files are not code-signed yet, so it
        appears and names the publisher as unknown.
-    3. Start **GT7 Datalogger** from the Start menu. Your browser opens the
+    3. Start **GT7 Datalogger** from the Start menu. The start screen's five red lights
+       come on while the app starts. When they turn green, your browser opens the
        dashboard, and the app's icon appears in the notification area (it may hide
        under the **^** arrow).
 
@@ -192,6 +194,19 @@ On macOS (menu bar) and Windows (notification area) the icon's menu has:
 Opening the app again while it runs opens the dashboard; a second copy never starts.
 **Settings › About** in the dashboard has **Quit GT7 Datalogger** too, on the computer
 the app runs on only: a phone or tablet never sees it.
+
+## Sleep, sign-out and shutdown
+
+The computer must stay awake for the app to hear the PlayStation.
+- **macOS and Windows:** the app keeps the computer from going to sleep by itself while
+  the app runs. Sleep you choose, from the menu or the power button, still works.
+- **Linux:** the app asks the system not to sleep while a session records. A suspend
+  you ask for then names *GT7 Datalogger: Recording a GT7 session* as the reason it
+  waits. This needs `systemd-inhibit`, which every systemd distribution has.
+
+Signing out or shutting down closes the session as **Quit** does, so the laps already
+completed are saved. On Windows, if that takes a few seconds, the sign-out screen
+shows *Saving the GT7 session* until it is done.
 
 ## Where your data lives
 

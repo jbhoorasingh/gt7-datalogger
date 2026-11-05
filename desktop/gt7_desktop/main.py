@@ -26,12 +26,15 @@ import webbrowser
 from pathlib import Path
 from typing import Any
 
-from gt7_desktop import APP_NAME, paths, prefs, selfupdate
+from gt7_desktop import APP_NAME, paths, power, prefs, selfupdate, splash
 from gt7_desktop.lock import AlreadyRunning, InstanceLock, read_record
 
 log = logging.getLogger("gt7_desktop")
 
 EXIT_OK, EXIT_FAILED, EXIT_USAGE, EXIT_STARTUP = 0, 1, 2, 3
+# How long the end of a Windows session waits for a quit already under way:
+# the supervisor's stop timeout, plus its kill and join.
+STOP_WAIT = 30.0
 SETUP_KEY = "setup_completed"
 
 
@@ -289,6 +292,11 @@ class DesktopApp:
         self._install_lock = threading.Lock()
         self._updating = False
         self._quit_once = threading.Lock()
+        self._quit_done = threading.Event()
+        # Linux: logind's sleep block while a session records (gt7_desktop.power).
+        self.inhibitor = power.SleepInhibitor() if sys.platform.startswith("linux") else None
+        # The start lights while the app starts, when the user opened it.
+        self.splash: splash.Splash | None = None
 
     @property
     def url(self) -> str:
@@ -334,8 +342,8 @@ class DesktopApp:
             import subprocess
 
             subprocess.Popen(["open", str(target)])
-        elif os.name == "nt":
-            os.startfile(target)  # type: ignore[attr-defined]  # noqa: S606
+        elif sys.platform == "win32":
+            os.startfile(target)  # noqa: S606
         else:
             import subprocess
 
@@ -366,6 +374,8 @@ class DesktopApp:
             if url and not self.args.background:
                 open_browser(url)
             return EXIT_OK
+        if not self.args.background:
+            self._show_splash()
         from gt7_desktop import ports
         from gt7_desktop.supervisor import Supervisor
 
@@ -403,20 +413,46 @@ class DesktopApp:
                          daemon=True).start()
         return EXIT_OK
 
+    def _show_splash(self) -> None:
+        view = splash.make_view()
+        if view is None:
+            return
+        from app.version import version
+
+        shown = splash.Splash(view, f"Version {version()}")
+        try:
+            shown.start()
+        except Exception:  # noqa: BLE001 - start without it
+            log.exception("could not show the splash")
+            return
+        self.splash = shown
+
+    def _close_splash(self) -> None:
+        if self.splash is not None:
+            self.splash.fail()
+
     def _after_ready(self) -> None:
         self.supervisor.ready.wait()
         if self.supervisor.state.phase != "running":
+            self._close_splash()
             return
         self.lock.write(state="running")
         if self.args.ready_file is not None:
             self.args.ready_file.write_text(json.dumps({"port": self.supervisor.port,
                                                         "url": self.url}))
         first = not self.prefs.opened_once
-        if not self.args.background and (self.args.open or first or not _launched_at_login()):
-            self.open_dashboard()
+        open_now = not self.args.background and (
+            self.args.open or first or not _launched_at_login())
         if first:
             self.prefs.opened_once = True
             prefs.save(self.folders.prefs, self.prefs)
+        if not open_now:
+            self._close_splash()
+        elif self.splash is not None and not self.splash.closed:
+            # The browser opens as the lights turn green.
+            self.splash.ready(self.open_dashboard)
+        else:
+            self.open_dashboard()
 
     def _watch_quit_request(self) -> None:
         """`--quit` on Windows creates the request file; quit as the tray would."""
@@ -514,6 +550,8 @@ class DesktopApp:
             selfupdate.record_failure(self.folders.data, tag, str(exc))
 
     def _changed(self, state: Any) -> None:
+        if self.inhibitor is not None:
+            self.inhibitor.hold(state.phase == "running" and self.recording())
         if state.phase == "failed":
             self.lock.write(state="failed")
             self._show_error(f"{state.error}\n\n{state.log_tail[-1500:]}")
@@ -522,6 +560,7 @@ class DesktopApp:
 
     def _show_error(self, message: str) -> None:
         log.error("%s", message)
+        self._close_splash()
         if self.tray is not None:
             self.tray.alert(APP_NAME, message)
 
@@ -529,14 +568,40 @@ class DesktopApp:
         """Stop the server, then the process. Safe to call from any thread."""
         if not self._quit_once.acquire(blocking=False):
             return
-        if self.supervisor is not None:
-            self.supervisor.stop()
-            # An install under way (a slow macOS copy outlasts stop()'s wait)
-            # finishes first; then Quit installs only if it did not.
-            with self._install_lock:
-                if self.user_quit and not self._updating:
-                    self._install_on_quit()
-        self.lock.release()
+        self._close_splash()
+        try:
+            if self.supervisor is not None:
+                self.supervisor.stop()
+                # An install under way (a slow macOS copy outlasts stop()'s wait)
+                # finishes first; then Quit installs only if it did not.
+                with self._install_lock:
+                    if self.user_quit and not self._updating:
+                        self._install_on_quit()
+            if self.inhibitor is not None:
+                self.inhibitor.release()
+            self.lock.release()
+        finally:
+            self._quit_done.set()
+
+    def session_ending(self) -> None:
+        """Windows is signing out or shutting down (gt7_desktop.endsession).
+
+        Called inside WM_ENDSESSION: Windows may end the process the moment it
+        returns, so the server is stopped first, and the session closes as on
+        Quit. A quit already under way is waited for. A ready update does not
+        install: that takes the user's own Quit.
+        """
+        self.quit()
+        self._quit_done.wait(STOP_WAIT)
+        if self.tray is not None:
+            self.tray.request_quit()
+
+    def close_requested(self) -> None:
+        """WM_CLOSE (`taskkill`, Restart Manager): quit as `--quit` does."""
+        if self.tray is not None:
+            self.tray.request_quit()
+        else:
+            self.quit()
 
 
 def _launched_at_login() -> bool:
@@ -556,13 +621,13 @@ def _block_signals() -> None:
     """Before any thread exists, so every thread inherits the block and
     only the sigwait thread ever takes SIGTERM — a toolkit thread taking it
     with the default action killed the app instead of quitting it."""
-    if hasattr(signal, "pthread_sigmask"):
+    if sys.platform != "win32":
         signal.pthread_sigmask(signal.SIG_BLOCK, _SIGNALS)
 
 
 def _watch_signals(app: DesktopApp) -> None:
     """SIGTERM (`--quit`, logout, a package script) ends the app cleanly."""
-    if not hasattr(signal, "sigwait"):
+    if sys.platform == "win32":
         return
     wanted = _SIGNALS
 
@@ -588,8 +653,27 @@ def run_app(args: argparse.Namespace, folders: paths.Folders) -> int:
     code = app.start()
     if app.supervisor is None:
         return code
+    watcher = _watch_session_end(app)
     try:
         app.tray.run()
     finally:
         app.quit()
+        if watcher is not None:
+            watcher.stop()
     return EXIT_OK
+
+
+def _watch_session_end(app: DesktopApp) -> Any:
+    """Windows: hear sign-out and shutdown, which no signal announces."""
+    if sys.platform != "win32":
+        return None
+    from gt7_desktop import endsession
+
+    watcher = endsession.SessionWatcher(on_end=app.session_ending,
+                                        on_close=app.close_requested)
+    try:
+        watcher.start()
+    except OSError as exc:
+        log.warning("sign-out will not close the session cleanly: %s", exc)
+        return None
+    return watcher
