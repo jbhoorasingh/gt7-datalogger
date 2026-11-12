@@ -196,6 +196,7 @@ class TelemetryService:
         self.rejudge = SurveyRejudge(repo, settings.data_root())
         self.rejudge.on_changed = self._laps_rejudged
         self.survey.on_bundle_saved = self._bundle_saved
+        self.survey.on_label_dropped = self._survey_label_dropped
         self.engineer = RaceEngineerManager(
             enabled=settings.race_engineer,
             verbosity=settings.race_engineer_verbosity,
@@ -436,6 +437,17 @@ class TelemetryService:
         re-judge of the circuit's laps (#91), both once the run settles."""
         self.sync.tracks.changed(track)
         self.rejudge.changed(track)
+
+    def _survey_label_dropped(self, wrong: str) -> None:
+        """The survey dropped a label its laps did not fit. If this session
+        has been identified as a different circuit, that is where the laps
+        were driven: identification runs once per session, so nothing else
+        would ever tell the survey, and an unlabelled survey saves no bundle.
+        A session carrying the dropped name itself knows no better."""
+        if self.survey.active and self.track_name and self.track_name != wrong:
+            log.info("survey relabelled %r -> %r, the session's identified circuit",
+                     wrong, self.track_name)
+            self.survey.set_track(self.track_name)
 
     async def _laps_rejudged(self, slug: str, changed: int) -> None:
         # Verdicts in the DB moved under open Sessions/Analysis views; a

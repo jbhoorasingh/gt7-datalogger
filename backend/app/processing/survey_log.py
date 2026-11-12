@@ -38,6 +38,8 @@ _TRACK = '{"track":'
 _MARK = '{"mark":'
 _FINISH = '{"finish":'
 _DISCARD = '{"discard":'
+_UNLABELED = '{"unlabeled":'
+_CONFIRMED = '{"confirmed":'
 
 
 def summarize(path: Path) -> dict[str, Any]:
@@ -68,6 +70,12 @@ def summarize(path: Path) -> dict[str, Any]:
                         track = json.loads(line).get("track") or track
                     except ValueError:
                         continue
+                elif line.startswith(_UNLABELED):
+                    # The run dropped a label its laps did not fit: from here
+                    # it belongs to no circuit until a later line names one.
+                    track = ""
+                elif line.startswith(_CONFIRMED):
+                    pass  # a lap that fitted its label: a boundary, not evidence
                 elif line.startswith(_MARK):
                     marks += 1
                 elif line.startswith(_FINISH):
@@ -154,6 +162,12 @@ def _record_ok(record: Any) -> bool:
         return True
     if "finish" in record:
         return True
+    # Read for being there and for nothing inside them: the split they mark
+    # is a place in the log.
+    if "unlabeled" in record:
+        return isinstance(record["unlabeled"], dict)
+    if "confirmed" in record:
+        return isinstance(record["confirmed"], dict)
     if "discard" in record:
         return isinstance(record["discard"], dict)
     mark = record.get("mark")
@@ -226,6 +240,14 @@ def edges_from_log(
     edges: list[tuple[int, dict[str, Any]]] = []  # (packet id, record)
     finish: list[dict[str, Any]] = []
     logged_track = ""
+    # How much of what has been read is settled as belonging to the label the
+    # run carried: everything up to its last lap that fitted (a `confirmed`
+    # line), or up to the label itself where one circuit was left for
+    # another. A place in the log and never a packet id — GT7's counter
+    # starts again whenever the telemetry source does, so the next circuit's
+    # packets can number below the last one's.
+    settled_edges = 0
+    settled_finish = 0
     for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         try:
             record = json.loads(line)
@@ -235,7 +257,25 @@ def edges_from_log(
             logged_track = record["meta"].get("track", "") or logged_track
             continue
         if "track" in record and len(record) == 1:
-            logged_track = record["track"] or logged_track
+            name = record["track"]
+            if name and logged_track and name != logged_track:
+                # One circuit left for another: what came before was the
+                # first one's, as it was when the run was live.
+                settled_edges, settled_finish = len(edges), len(finish)
+            logged_track = name or logged_track
+            continue
+        if isinstance(record.get("confirmed"), dict):
+            settled_edges, settled_finish = len(edges), len(finish)
+            continue
+        if isinstance(record.get("unlabeled"), dict):
+            # The run dropped a label its laps did not fit. What it laid up
+            # to its last fitting lap stayed in that circuit's bundle; only
+            # the rest, and the crossings that came with it, is still this
+            # run's to be filed somewhere.
+            logged_track = ""
+            edges = edges[settled_edges:]
+            finish = finish[settled_finish:]
+            settled_edges = settled_finish = 0
             continue
         if "finish" in record:
             finish.append(record["finish"])
@@ -244,7 +284,14 @@ def edges_from_log(
         if isinstance(discard, dict):
             since = int(discard.get("since_pid") or 0)
             upto = int(discard.get("pid") or 0)
-            edges = [(pid, e) for pid, e in edges if not since <= pid <= upto]
+            kept: list[tuple[int, dict[str, Any]]] = []
+            for index, (pid, e) in enumerate(edges):
+                if since <= pid <= upto:
+                    if index < settled_edges:
+                        settled_edges -= 1  # one fewer settled record before the mark
+                else:
+                    kept.append((pid, e))
+            edges = kept
             continue
         mark = record.get("mark")
         if isinstance(mark, dict):
