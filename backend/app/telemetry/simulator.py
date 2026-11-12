@@ -47,9 +47,17 @@ UNDERSTEER_RAD_PER_MS2 = 0.0004
 
 
 def _front_wheel_angle(distance: float, speed: float) -> float:
-    """Radians the front wheels are turned here, signed like the curvature."""
+    """Radians the front wheels are turned here, signed as GT7 signs them:
+    positive to the left (#233). The track's curvature is positive to the
+    right, hence the minus."""
     k = _curvature_at(distance)
-    return WHEELBASE_M * k + UNDERSTEER_RAD_PER_MS2 * speed * speed * k
+    return -(WHEELBASE_M * k + UNDERSTEER_RAD_PER_MS2 * speed * speed * k)
+
+
+def _wheel_rotation(wheels: float) -> float:
+    """The steering wheel's rotation for that road-wheel angle, held at half
+    a turn either way as GT7 holds it (processing.steering)."""
+    return max(-math.pi, min(math.pi, wheels * STEERING_RATIO))
 
 
 def _engine_torque(throttle: int, spinning: bool) -> float:
@@ -513,7 +521,7 @@ class SimTelemetrySource:
                 car_id=CAR_ID,
                 # Packet C extension: exercises the full parse path in dev.
                 fmt="C",
-                wheel_rotation=wheels * STEERING_RATIO,
+                wheel_rotation=_wheel_rotation(wheels),
                 # Accelerations consistent with the motion actually simulated
                 # (m/s^2): lateral is v*omega with omega the yaw rate sent
                 # above, longitudinal is the real speed delta. They used to be
@@ -712,7 +720,7 @@ class SimTelemetrySource:
                 calculated_max_speed=290,
                 car_id=CAR_ID,
                 fmt="C",
-                wheel_rotation=wheels * STEERING_RATIO,
+                wheel_rotation=_wheel_rotation(wheels),
                 sway=speed * lat,
                 surge=(speed - previous_speed) / TICK,
                 throttle_filtered=int(throttle * 0.55) if spinning else throttle,

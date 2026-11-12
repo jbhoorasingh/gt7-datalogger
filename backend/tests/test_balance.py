@@ -246,6 +246,24 @@ async def test_compare_serves_the_balance_channels_at_full_rate(client) -> None:
     assert min(data["laps"][str(ref)]["series"]["yaw_balance"]) < -0.05
 
 
+async def test_compare_serves_the_full_steering_rotation(client) -> None:
+    """`steer_full` (#233): the broadcast steering with the ticks GT7 held at
+    half a turn filled in from the road wheels; here nothing was held, so it
+    is the steering itself. Absent, like the rest, without packet C."""
+    c, service = client
+    ids = await drive(service, [1.0, None])
+    with_c, without = ids[1], ids[2]
+    data = (
+        await c.get(
+            f"/api/analysis/compare?laps={with_c},{without}&ref={with_c}"
+            "&channels=steer,steer_full"
+        )
+    ).json()
+    series = data["laps"][str(with_c)]["series"]
+    assert series["steer_full"] == pytest.approx(series["steer"], abs=1e-3)
+    assert "steer_full" not in data["laps"][str(without)]["series"]
+
+
 async def test_a_lap_without_packet_c_has_none_of_them(client) -> None:
     c, service = client
     ids = await drive(service, [None, None])

@@ -33,6 +33,7 @@ from app.processing.laps import (
     decode_samples,
 )
 from app.processing.live_events import LiveEvent, LiveEventWatcher
+from app.processing.steering import LiveSteering
 from app.processing.surface import encode_surface
 from app.processing.survey import SurfaceSurvey
 from app.processing.tracks import signature_from_samples
@@ -222,6 +223,10 @@ class TelemetryService:
         self._reference_task: asyncio.Task[None] | None = None
         self._session_best_ms: int | None = None
         self._prev_best_ms: int | None = None
+        # The steering wheel's rotation past GT7's half-turn stop (#233),
+        # learned packet by packet so it is ready whenever a client connects.
+        self._steering = LiveSteering()
+        self._steer_rad: float | None = None
         # Lap number the delta reference came from, so a later partial lap
         # doesn't discard a perfectly good reference.
         self._best_ref_lap: int | None = None
@@ -561,6 +566,12 @@ class TelemetryService:
 
     async def _on_packet(self, p: TelemetryPacket) -> None:
         self.latest_packet = p
+        steering = p.wheel_steering_rad
+        self._steer_rad = self._steering.update(
+            p.car_id,
+            p.wheel_rotation,
+            (steering[0] + steering[1]) / 2 if steering is not None else None,
+        )
         async with self.session_lock:
             sector_before = self.processor.live_lap_samples
             sector_count_before = len(sector_before["t"])
@@ -1083,11 +1094,12 @@ class TelemetryService:
             "pos_z": round(p.position_z, 2),
             "tod_ms": p.day_progression_ms,
             "track_name": self.track_name,
-            # Steering wheel angle, radians (packet B+); the steering-wheel
-            # widget rotates by it. null below packet B, never a fake 0.
-            "steer_rad": (
-                round(p.wheel_rotation, 3) if p.wheel_rotation is not None else None
-            ),
+            # Steering wheel angle, radians, positive to the left as GT7
+            # signs it (packet B+); the steering-wheel widget rotates by it.
+            # GT7 stops the value at half a turn; with packet C the rest is
+            # filled in from the road wheels (processing.steering). null
+            # below packet B, never a fake 0.
+            "steer_rad": round(self._steer_rad, 3) if self._steer_rad is not None else None,
         }
 
     def _full_frame(self, compact: dict[str, Any], p: TelemetryPacket) -> dict[str, Any]:

@@ -23,6 +23,7 @@ import {
   playbackEnd,
   type PlaybackSeries,
 } from "@/lib/playback";
+import { steeringDegrees } from "@/lib/steering";
 import type { LapSummary } from "@/lib/types";
 import { useSettings } from "@/store/settings";
 
@@ -142,10 +143,10 @@ export function PlaybackBar({
 
   const thrH = Math.max(0.5, (frame.throttle / 100) * 36);
   const brkH = Math.max(0.5, (frame.brake / 100) * 36);
-  // steer_rad is the wheel's absolute rotation as GT7 broadcasts it, so the
-  // needle simply rotates by it — no lock-to-lock assumption (see
+  // steer_rad is the wheel's absolute rotation, so the needle simply rotates
+  // by it, right being clockwise — no lock-to-lock assumption (see
   // SteeringWidget). Null on packet A, where it sits at centre.
-  const steerDeg = frame.steer_rad != null ? (frame.steer_rad * 180) / Math.PI : 0;
+  const steerDeg = frame.steer_rad != null ? steeringDegrees(frame.steer_rad) : 0;
   const gearText = frame.gear === 0 ? "R" : frame.gear === 15 ? "N" : String(frame.gear);
   // GT7's suggested gear at the playhead, as the live gear widget shows it
   // ("gear → 3"); 15 means none, and a lap recorded before it was kept has
