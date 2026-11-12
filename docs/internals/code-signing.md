@@ -21,8 +21,8 @@ platform's own signature check ([Desktop app ›
 Updating](../getting-started/desktop.md#updating)).
 
 Until Windows signing is set up, the Windows files are unsigned; the release notes say
-so. 1.0.0 is such a release, and its Linux files have no `.asc` either: the Linux key
-was made after it. Check those downloads against `SHA256SUMS.txt` and the build
+so. 1.0.0 and 1.0.1 are such releases, and the 1.0.0 Linux files have no `.asc` either:
+the Linux key was made after it. Check those downloads against `SHA256SUMS.txt` and the build
 provenance attestations. The manifest signature is different: a release candidate may
 ship its manifest without one, a release never does.
 

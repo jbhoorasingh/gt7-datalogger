@@ -5,6 +5,15 @@ Notable changes to GT7 Datalogger. The format follows
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-11-12
+
+The desktop app now updates itself, and the steering wheel turns the right way. An app
+at 1.0.0 installs this release by hand once
+([Desktop app › Updating](docs/getting-started/desktop.md#updating)); from here on it
+updates in place. The Linux files now come with `.asc` signatures. The Windows files
+are still not code-signed, so SmartScreen warns before the installer runs (**More
+info**, then **Run anyway**); check them against `SHA256SUMS.txt`.
+
 ### Added
 
 - **A start screen for the desktop app (macOS, Windows).** Opening the app shows a
@@ -19,7 +28,6 @@ Notable changes to GT7 Datalogger. The format follows
   key (fingerprint `01B8 57BB 952C D521 9FA4  0E6F 5E1E 38B8 1FCD DD55`). The public key and how to check a file are on
   [Desktop app › Download](docs/getting-started/desktop.md#download) and
   [Code signing](docs/internals/code-signing.md#the-linux-signing-key).
-
 - **The desktop app updates itself.** When the daily update check finds a newer
   release, the macOS app, an install made with the Windows installer and the Linux
   AppImage download it in the background, check it and offer **Restart and update**
