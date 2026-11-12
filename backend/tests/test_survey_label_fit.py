@@ -7,6 +7,7 @@ import math
 from pathlib import Path
 
 from app.models import SimulatorFlags
+from app.processing import survey as survey_module
 from app.processing import survey_log, track_bundle
 from app.processing.survey import FIT_MIN_CELLS, SurfaceSurvey
 from app.telemetry.packet import build_packet, parse_packet
@@ -292,7 +293,72 @@ def test_a_dropped_label_is_reported_so_the_session_can_supply_one(tmp_path) -> 
     drive(survey, ELSEWHERE, laps=1)
     assert heard == ["Home"]
     assert survey.track == "Away" and not survey.track_locked
+    # The page has not been told yet, and still has "Home" in its box: a
+    # name supplied without anybody typing it does not take the notice away.
+    assert survey.status()["label_dropped"]["track"] == "Home"
     survey.stop()
     away = track_bundle.load(tmp_path, "Away")
     assert away is not None and away["edges"]
     assert not near(track_bundle.load(tmp_path, "Home")["edges"], ELSEWHERE)
+
+
+def test_a_lap_that_never_ends_is_not_remembered_without_limit(tmp_path, monkeypatch) -> None:
+    """The lap counter is the game's to move. A stream that holds it still
+    while the car goes on and on must not grow the lap's memory for ever —
+    and a lap that hit the ceiling is not one to judge a label by."""
+    monkeypatch.setattr(survey_module, "FIT_MAX_LAP_CELLS", 30)
+    surveyed(tmp_path, "Home", (0.0, 0.0))
+    survey = SurfaceSurvey()
+    survey.start(tmp_path, track_width_m=1.6, track="Home", track_user_set=True)
+    drive(survey, ELSEWHERE, laps=1)  # a whole lap elsewhere, over far more than 30 cells
+    assert len(survey._fit_cells) <= 30
+    assert survey.track == "Home"  # not judged, so not dropped
+    assert survey.status()["label_dropped"] is None
+    survey.stop()
+
+
+def test_a_replay_splits_at_the_log_and_not_at_a_packet_id(tmp_path) -> None:
+    """GT7's packet counter starts again whenever the telemetry source does.
+    Home's laps numbered in the thousands, then Away's from one: a replay
+    that cut at "packets after the last fitting lap" would throw Away away."""
+    surveyed(tmp_path, "Home", (0.0, 0.0), mark_until=0.5, radius=400.0)
+    survey = SurfaceSurvey()
+    survey.start(tmp_path, track_width_m=1.6, track="Home", track_user_set=True)
+    drive(survey, (0.0, 0.0), laps=1, radius=400.0, pid=50_000)
+    drive(survey, ELSEWHERE, laps=1, pid=0)  # the counter has started again
+    assert survey.track == ""
+    carried = len(survey.edges)
+    assert carried > 0
+    path = survey.log_path
+    survey.stop()
+    assert path is not None
+
+    lines = [json.loads(line) for line in path.read_text().splitlines()]
+    assert sum(1 for line in lines if "confirmed" in line) == 1
+    survey_log.validate_log(path)
+    edges, finish, track = survey_log.edges_from_log(path, 1, "abcdef")
+    assert track == ""
+    assert len(edges) == carried
+    assert len(near(edges, ELSEWHERE)) == len(edges)
+    assert finish and all(
+        math.hypot(c["x"] - ELSEWHERE[0], c["z"] - ELSEWHERE[1]) < RADIUS_M + 50 for c in finish
+    )
+    # A fitting lap is a boundary in the log, not a record of border.
+    assert survey_log.summarize(path)["transitions"] == 0
+
+
+def test_a_replay_reads_nothing_inside_the_lines_that_mark_the_split(tmp_path) -> None:
+    """What `validate_log` lets through, `edges_from_log` must cross without
+    raising: the split is where the lines ARE, whatever they hold."""
+    path = tmp_path / "surface_survey_20261112_000000.jsonl"
+    header = {"meta": {"started_at": "2026-11-12T00:00:00+00:00", "track_width_m": 1.6,
+                       "track": "Home", "session_id": None, "source": "abcdef", "wheels": []}}
+    mark = {"mark": {"x": 1.0, "z": 2.0, "hx": 1.0, "hz": 0.0, "side": "L", "kind": "edge",
+                     "run": 1, "pid": 7, "tw": 1.6, "y": None}}
+    lines = [header, mark, {"confirmed": {"pid": "bad"}}, mark,
+             {"unlabeled": {"since_pid": "bad", "finish_kept": "many", "pid": None}}, mark]
+    path.write_text("".join(json.dumps(line) + "\n" for line in lines))
+    survey_log.validate_log(path)
+    edges, _finish, track = survey_log.edges_from_log(path, 1, "abcdef")
+    assert track == ""
+    assert len(edges) == 2  # the one after the fitting lap, and the one after the drop

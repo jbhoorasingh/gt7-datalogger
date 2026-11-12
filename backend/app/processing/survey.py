@@ -212,6 +212,13 @@ FIT_CLOSE_FRACTION = 0.03
 # A single step longer than this is a teleport (restart, replay seek), not
 # driving, and is left out of the lap's length.
 FIT_MAX_STEP_M = 50.0
+# The most cells one lap is remembered over. The longest lap in the game
+# crosses about thirteen hundred of them; this is fifteen times that, and it
+# is a ceiling for the same reason the trail and the edge list have one — the
+# lap counter is the game's to move, and a stream that never moves it must
+# not be able to grow this without end. A lap that reaches it is not judged:
+# whatever it was, it was not a lap of a circuit.
+FIT_MAX_LAP_CELLS = 20_000
 
 
 def _fit_cell(x: float, z: float) -> tuple[int, int]:
@@ -280,6 +287,7 @@ class SurfaceSurvey:
         self._prior_cells: frozenset[tuple[int, int]] = frozenset()
         self._fit_lap: int | None = None
         self._fit_cells: set[tuple[int, int]] = set()
+        self._fit_overflow = False
         self._fit_start: tuple[float, float] | None = None
         self._fit_last: tuple[float, float] | None = None
         self._fit_dist = 0.0
@@ -288,7 +296,6 @@ class SurfaceSurvey:
         # takes away only what came after — the driver changed circuit
         # somewhere in there — and the laps before it stay where they are.
         self._confirmed_segment = -1
-        self._confirmed_pid = 0
         self._confirmed_finish = 0
         # Crossings the bundle already held when this run resumed from it. A
         # crossing of ours on the same rounded spot merged into one of these,
@@ -454,7 +461,12 @@ class SurfaceSurvey:
             self._unconfirm()
             self.bundle_info = None
         self.track = name
-        if name:
+        # A person naming the circuit has seen that the old name went, and
+        # the notice goes with it. A name the service supplies on its own —
+        # the session's identified circuit, straight after a drop — is not
+        # that: the page has not been told yet, and still holds the name
+        # that was dropped in its box, ready to be sent and locked again.
+        if name and lock:
             self.label_dropped = None
         if self.active and self._out is not None and name:
             self._out.write(json.dumps({"track": name}, separators=(",", ":")) + "\n")
@@ -772,13 +784,13 @@ class SurfaceSurvey:
 
     def _reset_fit(self) -> None:
         self._fit_cells = set()
+        self._fit_overflow = False
         self._fit_start = None
         self._fit_last = None
         self._fit_dist = 0.0
 
     def _unconfirm(self) -> None:
         self._confirmed_segment = -1
-        self._confirmed_pid = 0
         self._confirmed_finish = 0
         self._prior_finish_keys = frozenset()
 
@@ -794,7 +806,7 @@ class SurfaceSurvey:
                 and self._fit_lap >= 1
                 and p.current_lap == self._fit_lap + 1
             )
-            if finished and self._fit_is_whole(here):
+            if finished and not self._fit_overflow and self._fit_is_whole(here):
                 share = self._fit_share()
                 if share is not None and share < FIT_MIN_SHARE:
                     self._drop_label(share, self._fit_lap)
@@ -803,8 +815,17 @@ class SurfaceSurvey:
                     # here, and the crossing that closed it, belongs here.
                     # (_track_lap has already opened the next lap's segment.)
                     self._confirmed_segment = self._segment - 1
-                    self._confirmed_pid = p.packet_id
                     self._confirmed_finish = len(self._own_finish)
+                    # And the log is told where that is. A replay splits the
+                    # run at this line, not at a packet id: GT7's counter
+                    # starts again whenever the telemetry source does, so the
+                    # next circuit's packets can number below this one's.
+                    if self._out is not None:
+                        self._out.write(json.dumps(
+                            {"confirmed": {"lap": self._fit_lap, "pid": p.packet_id}},
+                            separators=(",", ":"),
+                        ) + "\n")
+                        self._out.flush()
             self._fit_lap = p.current_lap
             self._reset_fit()
         if self._fit_start is None:
@@ -814,7 +835,12 @@ class SurfaceSurvey:
             if step <= FIT_MAX_STEP_M:
                 self._fit_dist += step
         self._fit_last = here
-        self._fit_cells.add(_fit_cell(*here))
+        cell = _fit_cell(*here)
+        if cell not in self._fit_cells:
+            if len(self._fit_cells) >= FIT_MAX_LAP_CELLS:
+                self._fit_overflow = True
+            else:
+                self._fit_cells.add(cell)
 
     def _fit_is_whole(self, here: tuple[float, float]) -> bool:
         if self._fit_start is None or self._fit_dist < FIT_MIN_LAP_M:
@@ -874,10 +900,6 @@ class SurfaceSurvey:
         dropped = {
             "track": wrong, "lap": lap, "share": round(share, 3),
             "records": len(own), "pid": self._last_pid,
-            # For a replay: what the log holds before this packet stayed
-            # with `wrong`, and so did all but the last `finish_kept`
-            # crossings.
-            "since_pid": self._confirmed_pid, "finish_kept": len(own_finish),
         }
         # The log line first, as marks and discards do: the JSONL is the
         # record, and a replay must not file what follows under `wrong`.

@@ -183,10 +183,19 @@ export function SurveyView() {
   const dropped = status?.label_dropped ?? null;
   const droppedKey = dropped ? `${dropped.track}:${dropped.pid}` : "";
   const droppedTrack = dropped?.track ?? "";
+  // Where the survey went next, if the server already knew: the session's
+  // identified circuit is taken up straight away, and the notice says so
+  // instead of asking for a name it no longer needs.
+  const droppedNow = status?.track ?? "";
   useEffect(() => {
     if (!droppedKey) return;
     setTrackTouched(false);
-    toast(t("survey.toast.labelDropped", { track: droppedTrack }), "error");
+    toast(
+      droppedNow
+        ? t("survey.toast.labelMoved", { track: droppedTrack, now: droppedNow })
+        : t("survey.toast.labelDropped", { track: droppedTrack }),
+      "error",
+    );
     // Once per drop: the key alone decides, not the language `t` speaks.
   }, [droppedKey]);
 

@@ -1908,6 +1908,7 @@
   "survey.stall.implausible": "lecturas fuera de rango",
   "survey.toast.assigned": "Topografía asignada a «{name}»",
   "survey.toast.labelDropped": "«{track}» se ha quitado de esta topografía: la última vuelta no se dio allí. Indica el circuito para conservar lo que recoja.",
+  "survey.toast.labelMoved": "«{track}» se ha quitado de esta topografía: la última vuelta no se dio allí. Continúa como «{now}».",
   "survey.toast.assignFailed": "No se pudo asignar el circuito",
   "survey.toast.markFailed": "No se pudo cambiar el marcado",
   "survey.toast.nothingLap": "Aún no se ha registrado nada en esta vuelta",
