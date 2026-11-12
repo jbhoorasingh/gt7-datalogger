@@ -169,6 +169,26 @@ export function SurveyView() {
   useEffect(() => {
     if (!trackTouched) setTrack(identified);
   }, [identified, trackTouched]);
+  // A typed name is a statement about the circuit being driven when it was
+  // typed. A new session may be a different circuit, so the field goes back
+  // to following identification — unless a survey is running, whose label is
+  // the server's to keep or drop.
+  const sessionId = connStatus?.session_id ?? null;
+  const surveyActive = useRef(false);
+  surveyActive.current = status?.active ?? false;
+  useEffect(() => {
+    if (!surveyActive.current) setTrackTouched(false);
+  }, [sessionId]);
+  // The server dropped the label: a whole lap was not a lap of that circuit.
+  const dropped = status?.label_dropped ?? null;
+  const droppedKey = dropped ? `${dropped.track}:${dropped.pid}` : "";
+  const droppedTrack = dropped?.track ?? "";
+  useEffect(() => {
+    if (!droppedKey) return;
+    setTrackTouched(false);
+    toast(t("survey.toast.labelDropped", { track: droppedTrack }), "error");
+    // Once per drop: the key alone decides, not the language `t` speaks.
+  }, [droppedKey]);
 
   // Driven-path breadcrumb + the run's full border-edge set, both fetched
   // incrementally from the server (the browser only ever holds a window of
@@ -382,7 +402,11 @@ export function SurveyView() {
     }
     setBusy(true);
     try {
-      const st = await api.survey.start(width, track.trim());
+      // Only a name the driver typed is sent. The auto-filled one is the
+      // session's own identification, which the server already has — and
+      // sending it back would lock it as if it had been typed, so it would
+      // survive the drive to the next circuit.
+      const st = await api.survey.start(width, trackTouched ? track.trim() : "");
       // Everything requested before this moment belongs to the old run —
       // and the new run's own fetches must be a NEWER generation, or the
       // guard discards them too and the resumed bundle waits a poll cycle.

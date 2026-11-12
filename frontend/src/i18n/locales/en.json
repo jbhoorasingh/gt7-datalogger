@@ -1907,6 +1907,7 @@
   "survey.stall.slow": "too slow",
   "survey.stall.implausible": "readings out of range",
   "survey.toast.assigned": "Survey assigned to \"{name}\"",
+  "survey.toast.labelDropped": "“{track}” removed from this survey: the last lap was not driven there. Name the circuit to keep what it gathers.",
   "survey.toast.assignFailed": "Could not assign the track",
   "survey.toast.markFailed": "Could not set marking",
   "survey.toast.nothingLap": "Nothing surveyed this lap yet",

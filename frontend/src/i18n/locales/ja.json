@@ -1854,6 +1854,7 @@
   "survey.stall.slow": "速度不足",
   "survey.stall.implausible": "読み取り値が範囲外",
   "survey.toast.assigned": "サーベイを「{name}」に割り当てました",
+  "survey.toast.labelDropped": "「{track}」をこのサーベイから外しました。直前のラップはそのコースで走行されていません。記録を残すにはコース名を指定してください。",
   "survey.toast.assignFailed": "コースを割り当てられませんでした",
   "survey.toast.markFailed": "マーキングを設定できませんでした",
   "survey.toast.nothingLap": "このラップではまだ何も計測していません",

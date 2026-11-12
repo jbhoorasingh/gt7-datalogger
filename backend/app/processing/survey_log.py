@@ -38,6 +38,7 @@ _TRACK = '{"track":'
 _MARK = '{"mark":'
 _FINISH = '{"finish":'
 _DISCARD = '{"discard":'
+_UNLABELED = '{"unlabeled":'
 
 
 def summarize(path: Path) -> dict[str, Any]:
@@ -68,6 +69,10 @@ def summarize(path: Path) -> dict[str, Any]:
                         track = json.loads(line).get("track") or track
                     except ValueError:
                         continue
+                elif line.startswith(_UNLABELED):
+                    # The run dropped a label its laps did not fit: from here
+                    # it belongs to no circuit until a later line names one.
+                    track = ""
                 elif line.startswith(_MARK):
                     marks += 1
                 elif line.startswith(_FINISH):
@@ -152,7 +157,7 @@ def _record_ok(record: Any) -> bool:
         return isinstance(record["meta"], dict)
     if "track" in record and len(record) == 1:
         return True
-    if "finish" in record:
+    if "finish" in record or "unlabeled" in record:
         return True
     if "discard" in record:
         return isinstance(record["discard"], dict)
@@ -236,6 +241,9 @@ def edges_from_log(
             continue
         if "track" in record and len(record) == 1:
             logged_track = record["track"] or logged_track
+            continue
+        if "unlabeled" in record:
+            logged_track = ""
             continue
         if "finish" in record:
             finish.append(record["finish"])

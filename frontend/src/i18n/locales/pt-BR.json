@@ -1907,6 +1907,7 @@
   "survey.stall.slow": "lento demais",
   "survey.stall.implausible": "leituras fora da faixa",
   "survey.toast.assigned": "Levantamento atribuído a “{name}”",
+  "survey.toast.labelDropped": "“{track}” foi removido deste levantamento: a última volta não foi feita lá. Informe o circuito para manter o que for coletado.",
   "survey.toast.assignFailed": "Não foi possível atribuir o circuito",
   "survey.toast.markFailed": "Não foi possível definir a marcação",
   "survey.toast.nothingLap": "Nada levantado nesta volta ainda",

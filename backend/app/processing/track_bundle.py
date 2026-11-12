@@ -717,6 +717,7 @@ def save_replacing_run(
     finish_crossings: list[dict[str, float]],
     source: str,
     run: int,
+    drop_finish: list[dict[str, float]] | None = None,
 ) -> dict[str, Any]:
     """Write the bundle with `source`'s run `run` replaced by `edges`.
 
@@ -728,13 +729,22 @@ def save_replacing_run(
     bundle holds every other run's records untouched — is merged in. Other
     sources, other runs, the run counters and the authored data are exactly
     as they were.
+
+    `drop_finish` names finish-line crossings to take out as well. They carry
+    no run, so a run that turns out to have been driven on another circuit
+    has to say which ones were its own.
     """
     existing = load(data_dir, track)
     base = existing["edges"] if existing else []
     base, dropped, retracted = retract_run(base, source, run)
     merged_edges = merge_edges(base, edges)
+    gone = {(round(c["x"]), round(c["z"])) for c in drop_finish or ()}
     merged_finish = merge_finish(
-        existing["finish_crossings"] if existing else [], finish_crossings
+        [
+            c for c in (existing["finish_crossings"] if existing else [])
+            if (round(c["x"]), round(c["z"])) not in gone
+        ],
+        finish_crossings,
     )
     doc = _document(
         track, merged_edges, merged_finish,
