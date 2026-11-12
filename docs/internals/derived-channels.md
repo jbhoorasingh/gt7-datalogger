@@ -43,7 +43,7 @@ mid-lap.
 
 | Column | Needs | Formula | Unit |
 | --- | --- | --- | --- |
-| `steer` | packet B | `wheel_rotation` as broadcast | rad |
+| `steer` | packet B | `wheel_rotation` as broadcast: positive to the left, held at ±π ([below](#steering-past-half-a-turn)) | rad |
 | `acc_lat` | packet B | `sway`, raw | see below |
 | `acc_long` | packet B | `surge`, raw | see below |
 | `acc_vert` | packet B | `heave`, raw | see below |
@@ -273,6 +273,34 @@ yaw_ratio = Σ yaw_rate ÷ Σ kin_yaw
 A ratio of sums rather than a mean of ratios, so a tick asking for next to nothing
 cannot swing the corner. Under 1 is understeer, over 1 oversteer; the Corner report's
 **Yaw ÷ wheels** column and the lap analysis document's `balance.yaw_ratio`.
+
+### Steering past half a turn
+
+GT7 broadcasts the steering wheel's rotation positive to the **left**, and stops it at
+±π: past half a turn the value sits at ±3.1416 until the wheel comes back. It does not
+wrap, so there is nothing to unwrap. The front road wheels (`wheel_angle`, packet C,
+same sign) keep turning, and below the stop the two differ by the steering ratio alone:
+on a GT3 car, a formula car and a road car the quotient held within half a percent from
+a few degrees of lock up to the stop (14.3, 12.8, 12.8).
+
+`steer_full` is `steer` with the held ticks filled in (`app/processing/steering.py`):
+
+1. **Ratio** = the median of `abs(steer) ÷ abs(wheel_angle)` over ticks with `steer`
+   inside the stop (under π − 0.005) and the wheels turned at least 0.02 rad, from at
+   least 30 ticks.
+2. On a tick held at the stop, `steer_full = wheel_angle × ratio`, never less than π in
+   size; on every other tick it is `steer`.
+
+That the ratio carries on unchanged past the stop is an assumption: it can only be
+measured below it. The full lock it gives the road car, about ±450°, is two and a half
+turns lock to lock.
+
+The column is derived on read and served by `/api/analysis/compare`; it is absent from
+a lap without both channels or without a ratio. Lap playback turns its wheel by it and
+falls back to `steer`. The live frame's `steer_rad` carries the same estimate, with the
+ratio learned as the car is driven: the median of the last 600 ticks that could give
+one, worked out again every 30, forgotten when the car changes. Until 30 such ticks
+have been seen, and on packet B, `steer_rad` is the broadcast value, stop and all.
 
 ### The steering lock
 

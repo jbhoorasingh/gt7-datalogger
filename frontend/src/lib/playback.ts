@@ -204,7 +204,9 @@ export function frameAtTime(
   const [i, f] = locate(series.t ?? [], tS);
   const lerp = (col: number[] | undefined) => lerpAt(col, i, f);
   const step = (col: number[] | undefined) => stepAt(col, i, f);
-  const steer = lerp(series.steer);
+  // The wheel's full rotation where the lap can carry it (packet C, #233);
+  // otherwise as GT7 broadcast it, stopped at half a turn.
+  const steer = lerp(series.steer_full ?? series.steer);
   const racePos = step(series.race_pos);
   return {
     on_track: true,

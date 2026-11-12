@@ -52,13 +52,16 @@ Sizes 2×1 · 4×1 · 1×2 · 2×2.
 
 | Style | Shows |
 | --- | --- |
-| Wheel + angle (default) | a wheel graphic rotated by the broadcast steering angle, degrees readout below |
+| Wheel + angle (default) | a wheel graphic rotated by the steering angle, degrees readout below: clockwise and positive to the right |
 | Wheel only | the wheel, no readout |
 
 Sizes 1×1 · 1×2 · 2×2 · 4×4. GT7 broadcasts the wheel's rotation in radians as an
 **absolute angle** (packet **B** or wider — see
 [Configuration](../getting-started/configuration.md)), so the graphic turns exactly as
-far as the driver's wheel does; no lock-to-lock assumption is baked in. On a plain
+far as the driver's wheel does; no lock-to-lock assumption is baked in. GT7 stops that
+value at half a turn (±180°); on packet **C** the rest is
+[worked out from the front wheels](../internals/derived-channels.md#steering-past-half-a-turn),
+on packet B the wheel and the readout stop at ±180°. On a plain
 packet-A stream the wheel dims and the readout shows `–`. The same widget renders a
 stored lap on the Analysis view's [playback strip](analysis-view.md#lap-playback).
 

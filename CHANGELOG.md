@@ -73,6 +73,16 @@ Notable changes to GT7 Datalogger. The format follows
 
 ### Fixed
 
+- **The steering wheel turns the right way, and past half a turn** (#233). GT7 sends
+  the wheel's rotation positive to the left; the steering widget and the playback
+  needle drew it clockwise, so the wheel turned left when the driver turned right. Both
+  now turn with the driver, and the readout is positive to the right. GT7 also stops
+  the value at ±180°. On packet C the rest is filled in from the front wheels' angle
+  and the car's steering ratio, live and in playback, so a road car reads its full two
+  and a half turns; on packet B the readout still stops at ±180°. The simulator's
+  steering had the opposite sign to the game and now matches it. `/api/analysis/compare`
+  serves the estimate as `steer_full`
+  ([how](docs/internals/derived-channels.md#steering-past-half-a-turn)).
 - **Docs:** the README has a Download section with the desktop files, a Releases badge
   and the not-affiliated notice, which the 1.0.0 notes listed but the README never got.
   The docs home and the Docker quick start no longer say the desktop release is not

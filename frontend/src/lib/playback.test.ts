@@ -214,6 +214,12 @@ describe("frameAtTime", () => {
     expect(f.steer_rad).toBeCloseTo(0.25);
   });
 
+  it("prefers the wheel's full rotation when the lap carries it", () => {
+    const s = series();
+    s.steer_full = s.steer!.map((v) => v * 2);
+    expect(frameAtTime(s, 1.25).steer_rad).toBeCloseTo(0.5);
+  });
+
   it("degrades to 'no data' when a channel is absent", () => {
     const s = series();
     delete s.steer;

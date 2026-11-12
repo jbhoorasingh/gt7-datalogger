@@ -111,12 +111,12 @@ const GG_COLUMNS = ["acc_lat", "acc_long"];
 
 // Playback (#59) synthesizes a LiveFrame at the playhead for the transport's
 // widget strip, so its channels ride along whatever the chart picker says.
-// Optional columns (steer, race_pos) simply come back absent on recordings
-// without them, and so does the suggested gear on a lap GT7 suggested nothing
-// on.
+// Optional columns (steer, steer_full, race_pos) simply come back absent on
+// recordings without them, and so does the suggested gear on a lap GT7
+// suggested nothing on.
 const PLAYBACK_COLUMNS = [
   "speed", "throttle", "brake", "gear", "suggested_gear", "rpm", "boost", "tire_slip",
-  "steer", "race_pos",
+  "steer", "steer_full", "race_pos",
 ];
 
 /** The session's default reference: its quickest lap that counts. A pit

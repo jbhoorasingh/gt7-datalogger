@@ -17,7 +17,15 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from app.api.auth import require_admin
-from app.processing import alignment, analysis, balance, corner_metrics, sectors, stint
+from app.processing import (
+    alignment,
+    analysis,
+    balance,
+    corner_metrics,
+    sectors,
+    steering,
+    stint,
+)
 from app.processing.laps import SAMPLE_COLUMNS, decode_samples
 from app.processing.tracks import signature_from_samples
 from app.race_engineer import replay
@@ -588,6 +596,8 @@ TRACK_STEP_S = 0.05
 EXTRA_COMPARE_COLUMNS = (
     *(c for c in SAMPLE_COLUMNS if c not in COMPARE_COLUMNS and c != "dist"),
     *balance.CHART_COLUMNS,
+    # The steering wheel's rotation past GT7's half-turn stop (#233).
+    steering.STEER_FULL,
 )
 
 
@@ -657,7 +667,7 @@ def _compare_laps(
     # anything is resampled — and so on the samples the corner report reads.
     wheelbases = wheelbase_by_id or {}
     samples_by_id = {
-        lap_id: balance.with_balance(raw, wheelbases.get(lap_id))
+        lap_id: steering.with_full_range(balance.with_balance(raw, wheelbases.get(lap_id)))
         for lap_id, raw in samples_by_id.items()
     }
     ref_samples = samples_by_id[ref]
