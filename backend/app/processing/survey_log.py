@@ -157,8 +157,10 @@ def _record_ok(record: Any) -> bool:
         return isinstance(record["meta"], dict)
     if "track" in record and len(record) == 1:
         return True
-    if "finish" in record or "unlabeled" in record:
+    if "finish" in record:
         return True
+    if "unlabeled" in record:
+        return isinstance(record["unlabeled"], dict)
     if "discard" in record:
         return isinstance(record["discard"], dict)
     mark = record.get("mark")
@@ -242,8 +244,18 @@ def edges_from_log(
         if "track" in record and len(record) == 1:
             logged_track = record["track"] or logged_track
             continue
-        if "unlabeled" in record:
+        unlabeled = record.get("unlabeled")
+        if isinstance(unlabeled, dict):
+            # The run dropped a label its laps did not fit. What it laid up
+            # to its last fitting lap stayed in that circuit's bundle; only
+            # the rest, and the crossings that came with it, is still this
+            # run's to be filed somewhere.
             logged_track = ""
+            since = int(unlabeled.get("since_pid") or 0)
+            edges = [(pid, e) for pid, e in edges if pid >= since]
+            kept = unlabeled.get("finish_kept")
+            if isinstance(kept, int) and kept >= 0:
+                finish = finish[len(finish) - kept:] if kept else []
             continue
         if "finish" in record:
             finish.append(record["finish"])

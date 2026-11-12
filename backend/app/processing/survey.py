@@ -218,27 +218,6 @@ def _fit_cell(x: float, z: float) -> tuple[int, int]:
     return (math.floor(x / FIT_CELL_M), math.floor(z / FIT_CELL_M))
 
 
-def _own_votes(
-    edges: list[dict[str, Any]], source: str, run: int
-) -> list[dict[str, Any]]:
-    """What `source` cast on its run `run`, as records of a run of their own:
-    the same points, carrying only that run's votes, restamped run 1. What a
-    run takes with it when it turns out not to belong to the bundle it was
-    voting in."""
-    own: list[dict[str, Any]] = []
-    for e in edges:
-        kinds = [
-            kind for kind, sources in e["votes"].items()
-            if source in sources and sources[source][1] == run
-        ]
-        if not kinds:
-            continue
-        record = {**e, "votes": {kind: {source: [1, 1]} for kind in kinds}, "run": 1}
-        record["kind"] = track_bundle.resolve_kind(record["votes"])
-        own.append(record)
-    return own
-
-
 class SurfaceSurvey:
     """Feed packets while active; ask for status; stop to close the log."""
 
@@ -304,6 +283,20 @@ class SurfaceSurvey:
         self._fit_start: tuple[float, float] | None = None
         self._fit_last: tuple[float, float] | None = None
         self._fit_dist = 0.0
+        # How much of this run is known to belong to its label: everything up
+        # to the last whole lap that fitted. A label that is dropped later
+        # takes away only what came after — the driver changed circuit
+        # somewhere in there — and the laps before it stay where they are.
+        self._confirmed_segment = -1
+        self._confirmed_pid = 0
+        self._confirmed_finish = 0
+        # Crossings the bundle already held when this run resumed from it. A
+        # crossing of ours on the same rounded spot merged into one of these,
+        # and is not ours to take back out.
+        self._prior_finish_keys: frozenset[tuple[int, int]] = frozenset()
+        # Told the label that was just dropped. The service hangs off it: it
+        # may already know which circuit the session is on.
+        self.on_label_dropped: Callable[[str], None] | None = None
         # Set when a label was dropped because the laps did not fit it; the
         # page says so, since a survey that goes unlabelled saves no bundle.
         self.label_dropped: dict[str, Any] | None = None
@@ -389,6 +382,7 @@ class SurfaceSurvey:
         self._prior_cells = frozenset()
         self._reset_fit()
         self._fit_lap = None
+        self._unconfirm()
         self.label_dropped = None
         self._data_dir = data_dir
         self._since_autosave = 0
@@ -457,6 +451,7 @@ class SurfaceSurvey:
             self.finish_crossings = []
             self._own_finish = []
             self._prior_cells = frozenset()
+            self._unconfirm()
             self.bundle_info = None
         self.track = name
         if name:
@@ -490,6 +485,9 @@ class SurfaceSurvey:
         # The road as the bundle had it BEFORE this run adds to it: a lap is
         # held against that, never against borders the lap itself laid.
         self._prior_cells = frozenset(_fit_cell(e["x"], e["z"]) for e in doc["edges"])
+        self._prior_finish_keys = frozenset(
+            (round(c["x"]), round(c["z"])) for c in doc["finish_crossings"]
+        )
         for e in self.edges:
             e["run"] = self._run_no
             for sources in e["votes"].values():
@@ -728,9 +726,11 @@ class SurfaceSurvey:
         self._follow_car(p)
         self._measure_width_from_yaw(p)
         self._append_trail(p)
-        self._watch_label(p)
         self._track_lap(p)
         self._watch_finish_line(p)
+        # After the two above, so the lap being judged has its closing
+        # crossing recorded and everything it cast sits in finished segments.
+        self._watch_label(p)
         if self.mark_side is not None:
             self._append_manual_edge(p)
         else:
@@ -776,6 +776,12 @@ class SurfaceSurvey:
         self._fit_last = None
         self._fit_dist = 0.0
 
+    def _unconfirm(self) -> None:
+        self._confirmed_segment = -1
+        self._confirmed_pid = 0
+        self._confirmed_finish = 0
+        self._prior_finish_keys = frozenset()
+
     def _watch_label(self, p: TelemetryPacket) -> None:
         """Hold each whole lap against the road the labelled bundle already
         knew, and drop a label the lap does not fit (see FIT_* above)."""
@@ -792,6 +798,13 @@ class SurfaceSurvey:
                 share = self._fit_share()
                 if share is not None and share < FIT_MIN_SHARE:
                     self._drop_label(share, self._fit_lap)
+                elif share is not None:
+                    # A lap of this circuit: everything the run cast up to
+                    # here, and the crossing that closed it, belongs here.
+                    # (_track_lap has already opened the next lap's segment.)
+                    self._confirmed_segment = self._segment - 1
+                    self._confirmed_pid = p.packet_id
+                    self._confirmed_finish = len(self._own_finish)
             self._fit_lap = p.current_lap
             self._reset_fit()
         if self._fit_start is None:
@@ -826,20 +839,45 @@ class SurfaceSurvey:
     def _drop_label(self, share: float, lap: int | None) -> None:
         """The lap just driven is not a lap of the circuit the label names.
 
-        Everything this run cast is taken back out of that circuit's bundle
-        (the autosave has been writing it there) and the run carries on with
-        no label, holding its own evidence — exactly the state of a run
-        started before the circuit was known. Identification or the driver
-        naming the circuit then merges it where it belongs; until then it
-        saves nowhere, and the JSONL has all of it. The label's lock goes
+        What the run cast since its last lap that DID fit is taken back out
+        of that circuit's bundle (the autosave has been writing it there) and
+        the run carries on with no label, holding that evidence — exactly the
+        state of a run started before the circuit was known. Identification
+        or the driver naming the circuit then merges it where it belongs;
+        until then it saves nowhere, and the JSONL has all of it. Laps that
+        fitted before the change of circuit, and the crossings that closed
+        them, stay in the bundle they were driven for. The label's lock goes
         too: it was a statement about a circuit the car has left.
         """
         wrong = self.track
-        own = _own_votes(self.edges, self._source, self._run_no)
-        own_finish = list(self._own_finish)
+        # Split this run's votes: those cast after the last fitting lap leave
+        # with the run, as records of a run of their own, restamped run 1.
+        carried: dict[int, dict[str, Any]] = {}
+        moved: dict[int, list[tuple[dict[str, Any], str]]] = {}
+        for segment in sorted(self._segment_votes):
+            if segment <= self._confirmed_segment:
+                continue
+            for record, kind in self._segment_votes[segment]:
+                held = self._edge_index.find(record)
+                if held is None or not track_bundle.retract_vote(
+                    held, kind, self._run_no, self._source
+                ):
+                    continue
+                mine = carried.setdefault(id(held), {**held, "votes": {}, "run": 1})
+                mine["votes"][kind] = {self._source: [1, 1]}
+                moved.setdefault(segment, []).append((mine, kind))
+        own = list(carried.values())
+        for record in own:
+            record["kind"] = track_bundle.resolve_kind(record["votes"])
+        staying = [e for e in self.edges if e["votes"]]
+        own_finish = self._own_finish[self._confirmed_finish:]
         dropped = {
             "track": wrong, "lap": lap, "share": round(share, 3),
             "records": len(own), "pid": self._last_pid,
+            # For a replay: what the log holds before this packet stayed
+            # with `wrong`, and so did all but the last `finish_kept`
+            # crossings.
+            "since_pid": self._confirmed_pid, "finish_kept": len(own_finish),
         }
         # The log line first, as marks and discards do: the JSONL is the
         # record, and a replay must not file what follows under `wrong`.
@@ -849,23 +887,25 @@ class SurfaceSurvey:
         if self._data_dir is not None and self.bundle_info is not None:
             self._since_autosave = 0
             track_bundle.save_replacing_run(
-                self._data_dir, wrong, [], [], self._source, self._run_no,
-                drop_finish=own_finish,
+                self._data_dir, wrong, staying,
+                self._own_finish[:self._confirmed_finish],
+                self._source, self._run_no,
+                drop_finish=[
+                    c for c in own_finish
+                    if (round(c["x"]), round(c["z"])) not in self._prior_finish_keys
+                ],
             )
             if self.on_bundle_saved is not None:
                 self.on_bundle_saved(wrong)
         self.edges = own
         self.edges_epoch += 1  # the list was replaced: readers must refetch
         self._edge_index = track_bundle.EdgeIndex(self.edges)
-        for segment, tagged in list(self._segment_votes.items()):
-            kept = [
-                (found, kind) for record, kind in tagged
-                if (found := self._edge_index.find(record)) is not None
-            ]
-            self._segment_votes[segment] = kept
+        self._segment_votes = moved
         self._run_no = 1
-        self.finish_crossings = own_finish
+        self.finish_crossings = list(own_finish)
+        self._own_finish = list(own_finish)
         self._prior_cells = frozenset()
+        self._unconfirm()
         self.bundle_info = None
         self.track = ""
         self.track_locked = False
@@ -875,6 +915,8 @@ class SurfaceSurvey:
             "%d records taken back out of its bundle, the run continues unlabelled",
             wrong, lap, share * 100, len(own),
         )
+        if self.on_label_dropped is not None:
+            self.on_label_dropped(wrong)
 
     def _watch_finish_line(self, p: TelemetryPacket) -> None:
         """Each lap rollover pins a point on the start/finish line.

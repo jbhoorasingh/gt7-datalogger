@@ -80,8 +80,9 @@ Notable changes to GT7 Datalogger. The format follows
   name the driver types or picks is sent now, and it is cleared when a new session
   starts. A running survey also holds each whole lap against the road its circuit's
   bundle already had: a lap that passes less than half of it was driven somewhere else,
-  so the survey drops the name, takes what it laid back out of that bundle, and keeps
-  it for the circuit it is named as next.
+  so the survey drops the name, takes what it laid since its last lap that did fit back
+  out of that bundle, and keeps it for the circuit it is named as next — the one the
+  session was identified as, when it was.
 - **The steering wheel turns the right way, and past half a turn** (#233). GT7 sends
   the wheel's rotation positive to the left; the steering widget and the playback
   needle drew it clockwise, so the wheel turned left when the driver turned right. Both

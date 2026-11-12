@@ -8,7 +8,7 @@ from pathlib import Path
 
 from app.models import SimulatorFlags
 from app.processing import survey_log, track_bundle
-from app.processing.survey import SurfaceSurvey
+from app.processing.survey import FIT_MIN_CELLS, SurfaceSurvey
 from app.telemetry.packet import build_packet, parse_packet
 
 ON_TRACK = int(SimulatorFlags.CAR_ON_TRACK)
@@ -146,10 +146,13 @@ def test_the_run_lands_where_it_is_named_afterwards(tmp_path) -> None:
 def test_extending_a_half_surveyed_circuit_keeps_its_label(tmp_path) -> None:
     """The lap is mostly on road nobody has mapped yet — which is what
     surveying is. It still passed everything that WAS mapped."""
-    surveyed(tmp_path, "Home", (0.0, 0.0), mark_until=0.5)
+    surveyed(tmp_path, "Home", (0.0, 0.0), mark_until=0.5, radius=400.0)
     survey = SurfaceSurvey()
     survey.start(tmp_path, track_width_m=1.6, track="Home", track_user_set=True)
-    drive(survey, (0.0, 0.0), laps=2)
+    # Enough mapped road for the lap to be judged at all — or this would pass
+    # by never being asked.
+    assert len(survey._prior_cells) >= FIT_MIN_CELLS
+    drive(survey, (0.0, 0.0), laps=2, radius=400.0)
     assert survey.track == "Home" and survey.track_locked
     assert survey.status()["label_dropped"] is None
     survey.stop()
@@ -218,3 +221,78 @@ def test_replacing_a_run_can_take_its_finish_crossings_too(tmp_path) -> None:
     after = track_bundle.load(tmp_path, "Home")
     assert after["finish_crossings"] == doc["finish_crossings"][1:]
     assert len(after["edges"]) == len(doc["edges"])
+
+
+def test_laps_that_fitted_before_the_change_of_circuit_stay(tmp_path) -> None:
+    """One run, two circuits: a lap at Home, then the drive to Away without
+    the survey being stopped. Only what came after the last fitting lap
+    leaves; the Home lap, and the crossing that closed it, were Home's."""
+    surveyed(tmp_path, "Home", (0.0, 0.0), mark_until=0.5, radius=400.0)
+    before = track_bundle.load(tmp_path, "Home")
+    survey = SurfaceSurvey()
+    survey.start(tmp_path, track_width_m=1.6, track="Home", track_user_set=True)
+    assert len(survey._prior_cells) >= FIT_MIN_CELLS
+    pid = drive(survey, (0.0, 0.0), laps=1, radius=400.0)  # maps the other half too
+    home_now = len(survey.edges)
+    assert home_now > len(before["edges"])
+    pid = drive(survey, ELSEWHERE, laps=1, pid=pid)  # the counter falls back to 1
+
+    assert survey.track == ""
+    assert survey.edges and len(near(survey.edges, ELSEWHERE)) == len(survey.edges)
+    home = track_bundle.load(tmp_path, "Home")
+    assert not near(home["edges"], ELSEWHERE)
+    assert len(home["edges"]) == home_now  # the fitting lap's borders stayed
+    assert home["finish_crossings"] == before["finish_crossings"]
+    assert all(
+        math.hypot(c["x"] - ELSEWHERE[0], c["z"] - ELSEWHERE[1]) < RADIUS_M + 50
+        for c in survey.finish_crossings
+    )
+
+    survey.set_track("Away", lock=True)
+    survey.stop()
+    away = track_bundle.load(tmp_path, "Away")
+    assert away["edges"] and len(near(away["edges"], ELSEWHERE)) == len(away["edges"])
+
+    # The log replays to the same split: only the carried part is unfiled.
+    edges, finish, _ = survey_log.edges_from_log(survey.log_path, 1, "abcdef")
+    assert edges and len(near(edges, ELSEWHERE)) == len(edges)
+    assert all(
+        math.hypot(c["x"] - ELSEWHERE[0], c["z"] - ELSEWHERE[1]) < RADIUS_M + 50
+        for c in finish
+    )
+
+
+def test_a_crossing_the_bundle_already_held_is_not_taken_out(tmp_path) -> None:
+    """Two layouts sharing a start/finish line: this run's crossing lands on
+    the rounded spot of one the bundle already had, so the merge kept the
+    old one — and dropping the label must not delete it."""
+    surveyed(tmp_path, "Home", (0.0, 0.0))
+    before = track_bundle.load(tmp_path, "Home")["finish_crossings"]
+    survey = SurfaceSurvey()
+    survey.start(tmp_path, track_width_m=1.6, track="Home", track_user_set=True)
+    # A smaller loop through Home's finish line at (RADIUS_M, 0).
+    drive(survey, (RADIUS_M - 80.0, 0.0), laps=1, radius=80.0)
+    assert survey.track == ""
+    assert track_bundle.load(tmp_path, "Home")["finish_crossings"] == before
+    assert survey.finish_crossings  # and the run still has its own
+    survey.stop()
+
+
+def test_a_dropped_label_is_reported_so_the_session_can_supply_one(tmp_path) -> None:
+    surveyed(tmp_path, "Home", (0.0, 0.0))
+    survey = SurfaceSurvey()
+    survey.start(tmp_path, track_width_m=1.6, track="Home", track_user_set=True)
+    heard: list[str] = []
+
+    def relabel(wrong: str) -> None:
+        heard.append(wrong)
+        survey.set_track("Away")  # what the service does when it knows
+
+    survey.on_label_dropped = relabel
+    drive(survey, ELSEWHERE, laps=1)
+    assert heard == ["Home"]
+    assert survey.track == "Away" and not survey.track_locked
+    survey.stop()
+    away = track_bundle.load(tmp_path, "Away")
+    assert away is not None and away["edges"]
+    assert not near(track_bundle.load(tmp_path, "Home")["edges"], ELSEWHERE)
