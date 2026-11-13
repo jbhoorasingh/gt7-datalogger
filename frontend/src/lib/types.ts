@@ -496,6 +496,15 @@ export interface SurveyStatus {
   lap_votes: number;
   run_votes: number;
   discards: SurveyDiscard[];
+  // The label this run lost because a whole lap was not a lap of that circuit
+  // (null = it never did). The run goes on unlabelled until it is named.
+  label_dropped: {
+    track: string;
+    lap: number | null;
+    share: number; // share of the road mapped there that the lap passed
+    records: number; // taken back out of that circuit's bundle
+    pid: number;
+  } | null;
   packets: number;
   no_surface_packets: number;
   transitions: number;

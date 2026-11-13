@@ -81,6 +81,16 @@ info**, then **Run anyway**); check them against `SHA256SUMS.txt`.
 
 ### Fixed
 
+- **A survey stays on the circuit it was driven on.** The Survey page filled in the
+  session's circuit and sent it when the survey started, and the server kept any name
+  sent that way as if the driver had typed it. The name then outlived the drive to the
+  next circuit, and the borders laid there went into the first circuit's bundle. Only a
+  name the driver types or picks is sent now, and it is cleared when a new session
+  starts. A running survey also holds each whole lap against the road its circuit's
+  bundle already had: a lap that passes less than half of it was driven somewhere else,
+  so the survey drops the name, takes what it laid since its last lap that did fit back
+  out of that bundle, and keeps it for the circuit it is named as next — the one the
+  session was identified as, when it was.
 - **The steering wheel turns the right way, and past half a turn** (#233). GT7 sends
   the wheel's rotation positive to the left; the steering widget and the playback
   needle drew it clockwise, so the wheel turned left when the driver turned right. Both
