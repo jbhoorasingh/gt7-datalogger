@@ -66,7 +66,7 @@ sponsored by Sony Interactive Entertainment or Polyphony Digital.
        for every user of the computer (the default, which needs an administrator) or
        for you only.
     2. If **Windows protected your PC** appears (SmartScreen), click **More info**,
-       then **Run anyway**. The 1.0.0 Windows files are not code-signed yet, so it
+       then **Run anyway**. The Windows files are not code-signed yet, so it
        appears and names the publisher as unknown.
     3. Start **GT7 Datalogger** from the Start menu. The start screen's five red lights
        come on while the app starts. When they turn green, your browser opens the
