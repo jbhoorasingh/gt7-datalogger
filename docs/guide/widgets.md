@@ -146,8 +146,10 @@ All alerts are suppressed while paused or off-track, so menus stay quiet.
 | Temps (default) | 2×2 per-corner grid (FL FR / RL RR), °C |
 | Temps + slip | the grid plus the combined slip ratio, red when > ×1.10 (wheelspin/lockup) |
 
-Sizes 1×1 · 1×2 · 2×2 · 4×4. Color coding: **blue** < 55 °C (cold), **green**
-55–95 °C (working range), **red** ≥ 95 °C (overheating).
+Sizes 1×1 · 1×2 · 2×2 · 4×4. Each corner is a solid block in its band's color with
+the temperature in dark digits, so the color still reads on a stream where the digits
+are small: **blue** < 55 °C (cold), **green** 55–95 °C (working range), **amber**
+95–110 °C (hot), **red** > 110 °C (overheating, where the `Tires hot` alert fires).
 
 ### Engine temps — `engine`
 

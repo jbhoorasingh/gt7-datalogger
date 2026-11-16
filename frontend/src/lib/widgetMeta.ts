@@ -171,8 +171,8 @@ export const WIDGET_META: Record<WidgetId, WidgetMeta> = {
     labelKey: WIDGET_LABEL_KEYS.tires,
     group: "car",
     variants: [
-      { key: "temps", labelKey: "widget.variant.temps", baseW: 72 },
-      { key: "temps-slip", labelKey: "widget.variant.tempsSlip", baseW: 72 },
+      { key: "temps", labelKey: "widget.variant.temps", baseW: 88 },
+      { key: "temps-slip", labelKey: "widget.variant.tempsSlip", baseW: 88 },
     ],
     defaultVariant: "temps",
     sizes: [

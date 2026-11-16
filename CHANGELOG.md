@@ -5,6 +5,21 @@ Notable changes to GT7 Datalogger. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Tire temps are readable on a stream and from the driver's seat.** The tire widget
+  on OBS overlays and the dash draws each corner as a solid block in its band's color
+  with the temperature in dark 18 px digits; it was 9 px digits on a faint wash. An
+  amber band covers 95–110 °C, so red now means the `Tires hot` alert is firing; the
+  Live view's tire card uses the same four bands. The widget is 88 px wide at 1:1
+  (was 72), so it scales slightly smaller in a cell one column wide.
+
+### Fixed
+
+- **The tire tiles no longer overlap on the overlay strip.** The two columns shrank
+  to the width of the caption beneath them, so the right-hand tiles sat over the
+  left-hand ones and the widget ran into its neighbor.
+
 ## [1.0.1] - 2026-11-12
 
 The desktop app now updates itself, and the steering wheel turns the right way. An app
