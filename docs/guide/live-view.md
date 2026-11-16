@@ -64,8 +64,8 @@ tank), **Avg / lap**, and — in races with a known length — **To finish**: gr
 for the math.
 
 **Tires °C** — the four tire temperatures in a 2×2 layout, tinted by temperature:
-blue below 55 °C (cold), green 55–95 °C (optimal), red at 95 °C and above (hot), with
-the front/rear balance. A `TIRE SPIN` warning appears when average slip exceeds 1.1×.
+blue below 55 °C (cold), green 55–95 °C (optimal), amber 95–110 °C (hot), red above
+110 °C (overheating, where the `Tires hot` alert fires), with the front/rear balance. A `TIRE SPIN` warning appears when average slip exceeds 1.1×.
 
 **Car** — water and oil temperature (amber / red at the
 [alert thresholds](dash.md#race-alerts)), oil pressure, and three **driver-aid

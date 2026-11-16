@@ -27,7 +27,8 @@ export const THRESHOLDS = {
   tireTempWarn: 110,
   // The tire tiles' working window, which no alert fires at: cold below
   // tireTempCold, hot from tireTempHot up. The Live and dash tiles, Corner
-  // Detail and the race line's Tire temp lens all band by these two.
+  // Detail and the race line's Tire temp lens all band by these two. The
+  // Live and dash tiles also show tireTempHot..tireTempWarn as amber.
   tireTempCold: 55,
   tireTempHot: 95,
 } as const;

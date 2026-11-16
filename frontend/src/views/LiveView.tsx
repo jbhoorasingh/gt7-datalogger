@@ -797,15 +797,18 @@ function Row({ k, children }: { k: string; children: React.ReactNode }) {
 }
 
 function TireTemp({ label, temp }: { label: string; temp: number }) {
-  // Blue (cold) -> green (optimal ~70-90) -> red (hot). The temp colour is a
-  // wash behind the number rather than the number's own colour, so the
-  // reading stays legible at every temperature.
+  // Blue (cold) -> green (optimal ~70-90) -> amber (hot) -> red (the hot-tire
+  // alert is firing), the same bands as the overlay/dash tire widget. The
+  // temp colour is a wash behind the number rather than the number's own
+  // colour, so the reading stays legible at every temperature.
   const color =
     temp < THRESHOLDS.tireTempCold
       ? "bg-coast/20"
       : temp < THRESHOLDS.tireTempHot
         ? "bg-throttle/20"
-        : "bg-brake/20";
+        : temp <= THRESHOLDS.tireTempWarn
+          ? "bg-warn/20"
+          : "bg-brake/20";
   return (
     <div className={`rounded-[5px] px-1 py-[7px] text-center font-tabular text-sm ${color}`}>
       <span className="mr-1 text-[8.5px] text-ink-faint">{label}</span>
